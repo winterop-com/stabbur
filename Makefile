@@ -68,8 +68,8 @@ run:
 	@$(UV) run local-llm serve --ui $(if $(MODEL),--model $(MODEL),)
 
 dev:
-	@echo ">>> Starting dev server (reload) at http://127.0.0.1:8000"
-	@$(UV) run uvicorn local_llm.app:app --reload --host 127.0.0.1 --port 8000
+	@echo ">>> Starting dev server (fastapi dev, auto-reload)"
+	@$(UV) run fastapi dev src/local_llm/app.py
 
 serve:
 	@echo ">>> Starting server"

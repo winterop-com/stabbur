@@ -3,6 +3,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,7 +15,7 @@ from local_llm.server import ServerManager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Start the runtime manager; load a locked model; clean up on shutdown."""
+    """Start a shared HTTP client + runtime manager; clean up on shutdown."""
     settings: Settings = app.state.settings
     manager: ServerManager = app.state.manager
 
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         yield
     finally:
         manager.stop()
+        await app.state.http.aclose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -43,6 +45,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
     app.state.manager = ServerManager(port=settings.runtime_port)
+    # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
+    app.state.http = httpx.AsyncClient(timeout=None)
 
     if settings.cors_origins:
         app.add_middleware(

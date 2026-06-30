@@ -32,7 +32,14 @@ def get_manager(request: Request) -> ServerManager:
     return manager
 
 
+def get_http(request: Request) -> httpx.AsyncClient:
+    """Dependency: the app's shared HTTP client (created in lifespan)."""
+    client: httpx.AsyncClient = request.app.state.http
+    return client
+
+
 ManagerDep = Annotated[ServerManager, Depends(get_manager)]
+HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
 
 
 async def _status(manager: ServerManager) -> ServerStatus:
@@ -68,14 +75,19 @@ async def load(name: str, manager: ManagerDep) -> ServerStatus:
 
 
 @router.api_route("/v1/{path:path}", methods=["GET", "POST"])
-async def proxy_v1(path: str, request: Request, manager: ManagerDep) -> StreamingResponse:
-    """Stream-proxy OpenAI `/v1/*` calls to the loaded runtime."""
+async def proxy_v1(path: str, request: Request, manager: ManagerDep, client: HttpDep) -> StreamingResponse:
+    """Stream-proxy OpenAI `/v1/*` calls to the loaded runtime.
+
+    A manual ``StreamingResponse`` (rather than a yielding path op) is used
+    deliberately: a transparent proxy must forward the upstream status code and
+    headers (e.g. ``text/event-stream`` for streaming), which the yield form
+    cannot set. Bytes are forwarded verbatim, so SSE deltas stream through live.
+    """
     if manager.current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
 
     body = await request.body()
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROP_HEADERS}
-    client = httpx.AsyncClient(timeout=None)
     req = client.build_request(
         request.method,
         f"{manager.base_url}/v1/{path}",
@@ -86,18 +98,13 @@ async def proxy_v1(path: str, request: Request, manager: ManagerDep) -> Streamin
     try:
         upstream = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
-        await client.aclose()
         raise HTTPException(status_code=502, detail=f"runtime unreachable: {exc}") from exc
 
     resp_headers: dict[str, Any] = {k: v for k, v in upstream.headers.items() if k.lower() not in _DROP_HEADERS}
-
-    async def close() -> None:
-        await upstream.aclose()
-        await client.aclose()
-
+    # Close only the upstream response; the shared client lives for the app's lifetime.
     return StreamingResponse(
         upstream.aiter_raw(),
         status_code=upstream.status_code,
         headers=resp_headers,
-        background=BackgroundTask(close),
+        background=BackgroundTask(upstream.aclose),
     )
