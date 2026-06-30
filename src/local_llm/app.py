@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from local_llm.config import Settings, get_settings
 from local_llm.routers import catalog, health
@@ -34,6 +35,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(catalog.router)
+
+    # Serve the SPA at the root when enabled and built (API routes registered
+    # above take precedence; this is the catch-all for the browser UI).
+    if settings.serve_ui and settings.frontend_dir.is_dir():
+        app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="ui")
 
     return app
 

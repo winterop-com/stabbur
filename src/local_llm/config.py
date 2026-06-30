@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # Serve the browser UI (single-page app) alongside the API. The built
+    # frontend is expected at ``frontend_dir``; if missing, the API still runs.
+    serve_ui: bool = False
+    frontend_dir: Path = Path("frontend/dist")
+
     # The single destination root for downloads / backups. Defaults to a
     # project-local ``data/`` directory; point this at the 5TB external drive
     # when you are ready to move and nothing else needs to change.

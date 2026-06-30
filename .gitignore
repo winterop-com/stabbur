@@ -39,6 +39,13 @@ coverage.xml
 *.swp
 .DS_Store
 
+# Tooling scratch
+.playwright-mcp/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
 # Downloaded models — the library lives here and must never be committed.
 # Override the location with LOCAL_LLM_BACKUP_ROOT when moving to the 5TB drive.
 /data/

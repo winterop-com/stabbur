@@ -130,20 +130,8 @@ def library_list() -> None:
         console.print(table)
 
 
-def _resolve_library_model(name: str | None, model_format: ModelFormat | None) -> library_ops.LibraryModel:
-    """Resolve a library model by name, or (when name is None) via a Textual picker."""
-    if name is None:
-        from local_llm.tui import pick_model
-
-        models = library_ops.scan()
-        if not models:
-            console.print(f"Library is empty: [dim]{get_settings().backup_root}[/]")
-            raise typer.Exit(1)
-        chosen = pick_model(models)
-        if chosen is None:
-            raise typer.Exit(0)  # cancelled
-        return chosen
-
+def _resolve_library_model(name: str, model_format: ModelFormat | None) -> library_ops.LibraryModel:
+    """Resolve a single library model by name, or exit with a helpful message."""
     matches = library_ops.find(name, model_format=model_format)
     if not matches:
         console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().backup_root}[/]).")
@@ -165,7 +153,7 @@ def _resolve_library_model(name: str | None, model_format: ModelFormat | None) -
 
 @app.command()
 def run(
-    name: Annotated[str | None, typer.Argument(help="Library model (omit to pick interactively).")] = None,
+    name: Annotated[str, typer.Argument(help="Library model name (full path or bare repo name).")],
     model_format: FormatOption = None,
     host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
     port: Annotated[int, typer.Option(help="Bind port.")] = 8080,
@@ -191,7 +179,7 @@ def run(
 
 @app.command()
 def chat(
-    name: Annotated[str | None, typer.Argument(help="Library model (omit to pick interactively).")] = None,
+    name: Annotated[str, typer.Argument(help="Library model name (full path or bare repo name).")],
     model_format: FormatOption = None,
 ) -> None:
     """Open an interactive terminal chat with a library model.
@@ -211,14 +199,24 @@ def chat(
 
 @app.command()
 def serve(
+    ui: Annotated[bool, typer.Option("--ui", help="Also serve the browser UI (single-page app).")] = False,
     reload: Annotated[bool, typer.Option(help="Auto-reload on code changes.")] = False,
 ) -> None:
-    """Run the FastAPI browse server."""
+    """Run the web server (browse API, plus the browser UI with --ui)."""
+    import os
+
     import uvicorn
 
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
-    console.print("\n[bold]local-llm browse API[/]")
+    console.print("\n[bold]local-llm[/]")
+    if ui:
+        # Propagate to the (possibly reloaded) worker process via the env var.
+        os.environ["LOCAL_LLM_SERVE_UI"] = "true"
+        if settings.frontend_dir.is_dir():
+            console.print(f"  UI:       [link={base}]{base}[/]")
+        else:
+            console.print(f"  [yellow]UI not built[/] — expected at [dim]{settings.frontend_dir}[/]; serving API only")
     console.print(f"  API:      [link={base}]{base}[/]")
     console.print(f"  Docs:     [link={base}/docs]{base}/docs[/]")
     console.print("  [dim]Ctrl-C to stop[/]\n")

@@ -103,30 +103,87 @@ hf.co/...`) and won't run a loose file in place. So the win is one canonical
 library copy that we *install into* whichever runtime, not a single file used
 live by all.
 
-## UI — Textual TUI (primary), web optional
+## UI — web-first (Textual dropped)
 
-Primary UI is a **Textual TUI** model browser: it works over SSH to the Linux
-boxes (no browser needed). FastAPI stays as the headless/programmatic API and a
-*possible* later web UI. CLI, TUI, and FastAPI are all thin frontends over the
-UI-agnostic catalog core — keep runtime/serving logic out of them.
+Decision: **one browser interface for everything.** Textual/TUI is dropped. The
+single entry point is `llm serve --ui`:
 
-If a web UI is built later, take inspiration from
-`../../chap-sdk/chapkit/frontend/`: React 19 + Vite + Tailwind v4 + shadcn, pnpm,
-Playwright.
+- **`llm serve --ui`** — full app: browse the library (grouped by format,
+  pull/availability) + chat with any model (pick + switch).
+- **`llm serve --ui --model <name>`** — *locked* single-model mode: no picker,
+  bound to one model, exposing a stable OpenAI endpoint. Intended as the backend
+  for a **Chrome extension** later (so: configurable CORS for the extension
+  origin; stable `/v1`).
+
+Stack: **Vite + React + Tailwind v4 + shadcn/ui**, built to `frontend/dist` and
+served by `serve --ui` (FastAPI mounts it; API routes take precedence, SPA is
+the catch-all). Inspiration: `../../chap-sdk/chapkit/frontend/`.
+
+Chat UI: shadcn's **official chat components (shipped 2026-06)** —
+`MessageScroller`, `Message`, `Bubble`, `Attachment`, `Marker`
+(`npx shadcn@latest add message-scroller message bubble attachment marker`).
+They're backend-agnostic (bring-your-own data); `MessageScroller` owns the hard
+streaming/auto-scroll UX. Pair with a **hand-rolled OpenAI SSE fetch loop** —
+our backends emit raw OpenAI SSE, and the Vercel AI SDK / AI Elements /
+assistant-ui all expect the AI-SDK stream format (impedance mismatch), so we
+avoid them.
 
 ## Running models — llama.cpp first, mlx_lm for MLX
 
-Serving is OpenAI-compatible so any client can attach:
+Serving is OpenAI-compatible so any client (and our SPA) can attach:
 
-- **GGUF → llama.cpp `llama-server`** — primary runtime, cross-platform
-  (Mac + Linux), OpenAI-compatible. Cannot run MLX.
-- **MLX → `mlx_lm.server`** — Apple Silicon only, OpenAI-compatible.
-- (Ollama / LM Studio also serve OpenAI-compatible endpoints; we lean on
-  llama.cpp directly as the common denominator.)
+- **GGUF → llama.cpp `llama-server`** — primary, cross-platform, OpenAI `/v1`,
+  built-in web chat UI, tool calling (`--jinja` default), experimental **MCP
+  host** in its web UI, and a native **router mode** (`--models-dir`, hot-swap by
+  model name) worth adopting for "one server, all GGUF".
+- **MLX → `mlx_lm.server`** — Apple Silicon only, OpenAI `/v1`.
+- Ollama new per-tensor models (e.g. `gemma4:12b-mlx`) aren't a single GGUF and
+  need Ollama itself; single-GGUF Ollama models run via llama.cpp.
 
-The browser doubles as a **launcher**: select a model → start the right server →
-launch a client TUI (claude, opencode, pi, hermes — all OpenAI-API) pointed at
-`http://localhost:<port>/v1`. See `docs/USAGE.md` for the concrete commands.
+`serve --ui` orchestrates: pick a model → FastAPI starts the right runtime and
+proxies `/v1` so the SPA is single-origin.
+
+## Tools / MCP (required, even for local-llm itself)
+
+local-llm must support **tool/function calling and act as an MCP client** — this
+is in scope for Phase 1, generically (any MCP server), not just DHIS2.
+
+- llama-server does OpenAI-style tool calling (`--jinja`); local-llm runs the
+  **agent loop**: model emits `tool_call` → local-llm executes it via the MCP
+  client → feeds the result back → model continues. Streamed to the chat UI.
+- The chat layer renders tool activity from the start (shadcn `Marker`/`Bubble`).
+- local-llm owns the MCP client + loop so every client (web UI, extension, CLI)
+  stays thin and tools work uniformly.
+
+## North-star roadmap
+
+End goal: a **local, self-hosted DHIS2 assistant** — your own model + DHIS2 tools
+in a Chrome side-panel:
+
+```
+Chrome extension (side panel, shadcn chat)
+  → local-llm (serve --ui --model X): runs the model + MCP client + agent loop
+      → MCP server from ../dhis2w-utils  → DHIS2 instance
+```
+
+The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace):
+- **`dhis2w-mcp-bridge`** — one tool `dhis2_cli(args, profile)` shelling out to
+  `d2w`; built for small local models (8k context, progressive `--help`). The
+  default target for local-llm + a small model.
+- **`dhis2w-mcp-router`** — 2 meta-tools (`search_tools`/`call_tool`), lazy typed
+  discovery, single guarded chokepoint + **read-only mode** (gates DHIS2 writes).
+- **`dhis2w-mcp`** — full ~304 typed tools (big-context hosts).
+- `dhis2w-browser` — Playwright DHIS2 automation (relevant to the extension's
+  later "act on the page" tier).
+
+**Build order (decided):**
+1. **Phase 1 — finish local-llm + web chat UI**, including generic tool/MCP
+   support (agent loop + MCP client, pointable at any MCP server). `serve --ui`
+   and `serve --ui --model X` (locked, extension-ready, CORS).
+2. **Phase 2 — DHIS2 + Chrome extension**: point local-llm's MCP client at
+   `dhis2w-mcp-bridge`/`-router`; package the chat UI as the side-panel extension
+   against the locked `/v1`.
+3. Later: extension page-context, then page-actions (via `dhis2w-browser`).
 
 ## Open / next ideas
 
