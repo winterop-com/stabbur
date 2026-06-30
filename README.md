@@ -39,8 +39,8 @@ llm run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, M
 llm serve                    # start the FastAPI browse API
 ```
 
-See [docs/USAGE.md](docs/USAGE.md) for running models directly with llama.cpp,
-Ollama, LM Studio, and MLX, and attaching client TUIs.
+Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
+the library, pulling, running & chatting, the web UI, and using models directly.
 
 ## API
 

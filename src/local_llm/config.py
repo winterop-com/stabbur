@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     serve_ui: bool = False
     frontend_dir: Path = Path("frontend/dist")
 
+    # Lock the server to a single model (no switching) — for the Chrome-extension
+    # backend. Empty means free model switching.
+    serve_model: str | None = None
+
+    # CORS origins allowed to call the API (the Chrome extension origin goes
+    # here). Default is permissive since this binds to localhost.
+    cors_origins: list[str] = ["*"]
+
+    # Internal port the model runtime (llama-server / mlx_lm.server) listens on;
+    # the API proxies /v1 to it so the SPA stays single-origin.
+    runtime_port: int = 8090
+
     # The single destination root for downloads / backups. Defaults to a
     # project-local ``data/`` directory; point this at the 5TB external drive
     # when you are ready to move and nothing else needs to change.

@@ -211,19 +211,34 @@ def chat(
 @app.command()
 def serve(
     ui: Annotated[bool, typer.Option("--ui", help="Also serve the browser UI (single-page app).")] = False,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Lock the server to one model (extension backend); no switching."),
+    ] = None,
     reload: Annotated[bool, typer.Option(help="Auto-reload on code changes.")] = False,
 ) -> None:
-    """Run the web server (browse API, plus the browser UI with --ui)."""
+    """Run the web server (browse API, plus the browser UI with --ui).
+
+    With --model the server is locked to a single model (the Chrome-extension
+    backend); otherwise the UI can switch models freely.
+    """
     import os
 
     import uvicorn
 
+    # Propagate to the (possibly reloaded) worker process via env vars.
+    if ui:
+        os.environ["LOCAL_LLM_SERVE_UI"] = "true"
+    if model is not None:
+        os.environ["LOCAL_LLM_SERVE_MODEL"] = model
+
+    get_settings.cache_clear()
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
     console.print("\n[bold]local-llm[/]")
+    if model is not None:
+        console.print(f"  Locked:   [bold]{model}[/]")
     if ui:
-        # Propagate to the (possibly reloaded) worker process via the env var.
-        os.environ["LOCAL_LLM_SERVE_UI"] = "true"
         if settings.frontend_dir.is_dir():
             console.print(f"  UI:       [link={base}]{base}[/]")
         else:

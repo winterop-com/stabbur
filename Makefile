@@ -1,4 +1,4 @@
-.PHONY: help install lint check test coverage dev serve build clean
+.PHONY: help install lint check test coverage run dev serve build docs docs-serve docs-build clean
 
 # ==============================================================================
 # Venv
@@ -16,15 +16,18 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  install   Install dependencies"
-	@echo "  lint      Format + autofix, then type-check (mutates files)"
-	@echo "  check     CI gate: verify formatting/lint/types/tests (no changes)"
-	@echo "  test      Run tests"
-	@echo "  coverage  Run tests with coverage reporting"
-	@echo "  dev       Run the API with auto-reload"
-	@echo "  serve     Run the API (no reload)"
-	@echo "  build     Build wheel + sdist"
-	@echo "  clean     Clean up temporary files"
+	@echo "  install     Install dependencies"
+	@echo "  lint        Format + autofix, then type-check (mutates files)"
+	@echo "  check       CI gate: verify formatting/lint/types/tests (no changes)"
+	@echo "  test        Run tests"
+	@echo "  coverage    Run tests with coverage reporting"
+	@echo "  run         Start backend + UI (use MODEL=<name> to lock to one model)"
+	@echo "  dev         Run the API with auto-reload"
+	@echo "  serve       Run the API (no reload)"
+	@echo "  build       Build wheel + sdist"
+	@echo "  docs        Serve the docs locally with live reload"
+	@echo "  docs-build  Build the docs site"
+	@echo "  clean       Clean up temporary files"
 
 install:
 	@echo ">>> Installing dependencies"
@@ -58,6 +61,12 @@ coverage:
 	@$(UV) run coverage report
 	@$(UV) run coverage xml
 
+# make run               → backend + UI, free model switching
+# make run MODEL=<name>  → backend + UI locked to one model (extension backend)
+run:
+	@echo ">>> Starting backend + UI$(if $(MODEL), (locked: $(MODEL)),)"
+	@$(UV) run local-llm serve --ui $(if $(MODEL),--model $(MODEL),)
+
 dev:
 	@echo ">>> Starting dev server (reload) at http://127.0.0.1:8000"
 	@$(UV) run uvicorn local_llm.app:app --reload --host 127.0.0.1 --port 8000
@@ -70,6 +79,16 @@ build:
 	@echo ">>> Building wheel + sdist"
 	@$(UV) build
 
+docs: docs-serve
+
+docs-serve:
+	@echo ">>> Serving docs at http://127.0.0.1:8001"
+	@NO_MKDOCS_2_WARNING=1 $(UV) run mkdocs serve -a 127.0.0.1:8001
+
+docs-build:
+	@echo ">>> Building docs site"
+	@NO_MKDOCS_2_WARNING=1 $(UV) run mkdocs build
+
 clean:
 	@echo ">>> Cleaning up"
 	@find . -type f -name "*.pyc" -delete
@@ -78,7 +97,7 @@ clean:
 	@find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
 	@rm -rf .coverage htmlcov coverage.xml
-	@rm -rf .pyright
+	@rm -rf .pyright site
 	@rm -rf dist build *.egg-info
 
 # ==============================================================================

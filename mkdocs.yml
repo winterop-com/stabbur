@@ -1,0 +1,73 @@
+site_name: local-llm
+site_description: Build a full local LLM library, then run, chat, and serve it — fully on-box.
+repo_url: https://github.com/winterop-com/local-llm
+repo_name: winterop-com/local-llm
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    # Intentionally no navigation.tabs (no top tab bar) — sidebar sections only.
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.instant
+    - toc.follow
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Guides:
+      - The library: guides/library.md
+      - Pulling models: guides/pulling.md
+      - Running & chatting: guides/running.md
+      - Web UI (serve --ui): guides/web-ui.md
+      - Using models directly: guides/direct-usage.md
+  - Architecture: architecture.md
+  - Roadmap: roadmap.md
+  - CLI reference: cli.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            members_order: source
