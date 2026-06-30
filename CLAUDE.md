@@ -119,6 +119,17 @@ Stack: **Vite + React + Tailwind v4 + shadcn/ui**, built to `frontend/dist` and
 served by `serve --ui` (FastAPI mounts it; API routes take precedence, SPA is
 the catch-all). Inspiration: `../../chap-sdk/chapkit/frontend/`.
 
+**One SPA, four surfaces** (build the chat UI once, wrap it):
+1. **Web** — `serve --ui` serves `frontend/dist`.
+2. **Chrome extension** — MV3 side panel loads the same bundle (locked `/v1`).
+3. **Desktop** — Tauri + Electron wrappers, following maneki's pattern
+   (`~/dev/local/maneki/desktop/{tauri,electron,react}` — parallel wrappers
+   loading one shared SPA that talks to the local server). For local-llm the
+   desktop app should ideally also launch/embed `local-llm serve` so it's
+   one-click, vs maneki's connect-to-any-server client model.
+
+All surfaces point at local-llm's local server; the SPA is the single shared UI.
+
 Chat UI: shadcn's **official chat components (shipped 2026-06)** —
 `MessageScroller`, `Message`, `Bubble`, `Attachment`, `Marker`
 (`npx shadcn@latest add message-scroller message bubble attachment marker`).

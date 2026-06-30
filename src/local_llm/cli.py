@@ -180,20 +180,31 @@ def run(
 @app.command()
 def chat(
     name: Annotated[str, typer.Argument(help="Library model name (full path or bare repo name).")],
+    prompt: Annotated[
+        str | None,
+        typer.Option("-p", "--prompt", help="One-shot prompt, prints just the answer (Claude-style -p)."),
+    ] = None,
     model_format: FormatOption = None,
+    max_tokens: Annotated[int | None, typer.Option("--max-tokens", "-n", help="Cap generated tokens.")] = None,
 ) -> None:
-    """Open an interactive terminal chat with a library model.
+    """Chat with a library model: interactive by default, one-shot with ``-p``.
 
-    GGUF uses llama.cpp's llama-cli; MLX uses mlx_lm.chat.
+    ``llm chat <model>`` opens an interactive session; ``llm chat <model> -p "..."``
+    prints only the completion to stdout (pipeable). Interactive uses llama.cpp's
+    llama-cli (GGUF) or mlx_lm.chat (MLX).
     """
     model = _resolve_library_model(name, model_format)
-    console.print(
-        f"Chatting with [bold]{_fmt_cell(model.model_format)}[/] {model.name}  [dim](Ctrl-C / Ctrl-D to exit)[/]"
-    )
     try:
-        runtime.chat(model)
+        if prompt is not None:
+            # Scripted: no banner on stdout; errors go to stderr.
+            runtime.generate(model, prompt, max_tokens)
+        else:
+            console.print(
+                f"Chatting with [bold]{_fmt_cell(model.model_format)}[/] {model.name}  [dim](Ctrl-C to exit)[/]"
+            )
+            runtime.chat(model)
     except RuntimeError as exc:
-        console.print(f"[red]{exc}[/]")
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
 

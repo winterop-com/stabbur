@@ -60,6 +60,40 @@ def build_chat_command(model: LibraryModel) -> list[str]:
     raise ValueError(f"No runtime for format {model.model_format.value!r}")
 
 
+def build_generate_command(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> list[str]:
+    """Build a one-shot, non-interactive generation command (clean stdout).
+
+    For scripting: ``llm chat <model> "<prompt>"`` runs once and prints only the
+    completion to stdout (logs/stats go to stderr).
+
+    Raises:
+        ValueError: If the model's format has no known runtime.
+    """
+    if model.model_format is ModelFormat.gguf:
+        # --no-display-prompt + --log-disable keep stdout to just the completion.
+        cmd = [
+            "llama-cli",
+            "-m",
+            str(model.load_target),
+            "-no-cnv",
+            "--no-display-prompt",
+            "--log-disable",
+            "-p",
+            prompt,
+        ]
+        if model.mmproj is not None:
+            cmd += ["--mmproj", str(model.mmproj)]
+        if max_tokens is not None:
+            cmd += ["-n", str(max_tokens)]
+        return cmd
+    if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
+        cmd = ["mlx_lm.generate", "--model", str(model.load_target), "--prompt", prompt]
+        if max_tokens is not None:
+            cmd += ["--max-tokens", str(max_tokens)]
+        return cmd
+    raise ValueError(f"No runtime for format {model.model_format.value!r}")
+
+
 def _exec(cmd: list[str]) -> None:
     """Replace the current process with ``cmd`` after checking the binary exists.
 
@@ -81,3 +115,8 @@ def run(model: LibraryModel, host: str, port: int) -> None:
 def chat(model: LibraryModel) -> None:
     """Exec an interactive terminal chat for ``model`` (replaces the process)."""
     _exec(build_chat_command(model))
+
+
+def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> None:
+    """Exec a one-shot generation for ``model`` (replaces the process)."""
+    _exec(build_generate_command(model, prompt, max_tokens))
