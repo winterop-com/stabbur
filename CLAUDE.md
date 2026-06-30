@@ -198,10 +198,16 @@ The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace)
 
 ## Open / next ideas
 
-- **`llm init`** — offer a curated set of **2–3** tiny starter models (a compact
-  GGUF, an MLX build for Apple Silicon, a tool-capable model for the agent/MCP
-  path) and pull the chosen ones. The list is versioned in-repo so a fresh clone
-  has a zero-to-chatting on-ramp: clone → `llm init` → `llm run`.
+- **Projects (assistant definitions)** — two units: the *global* **library**
+  (models on the drive) vs a *local* **project** (`./local-llm.toml`: a library
+  model + MCP servers + system prompt + serve settings). Projects make assistants
+  reproducible/shareable; the north-star DHIS2 assistant is just a project. Keep
+  the project file a thin manifest, not a framework.
+- **`llm init`** — scaffold a project in the cwd and ensure its model is in the
+  library; when undecided, offer a curated **2–3** tiny starter models (compact
+  GGUF, MLX for Apple Silicon, a tool-capable one). On-ramp: clone → `llm init` →
+  `llm serve --ui`. Idempotent: pull only models missing from the library; no
+  cwd/`~/.config` "ran" flag (any optional marker lives in `<backup_root>/.local-llm/`).
 - Refactor toward the format-centric shared library above (the big one).
 - `make check` is the CI gate (read-only); `make lint` mutates locally.
 - Auto-fetch HF model cards for LM Studio models (infer repo from path).

@@ -33,18 +33,44 @@ local models:
    against the locked `/v1`.
 3. **Later** — extension page-context, then page-actions via `dhis2w-browser`.
 
-## Curated starter models (`llm init`)
+## Projects (assistant definitions)
 
-A fresh clone has an empty library and no obvious starting point. `llm init` will
-offer a small **curated set of 2–3 models** to try out — kept deliberately tiny,
-e.g. a compact GGUF for any machine, an MLX build for Apple Silicon, and a
-tool-capable model for the agent/MCP path — and pull the chosen ones into the
-library.
+Two distinct units:
+
+- **Library** — the *global* model store on the drive (`LOCAL_LLM_BACKUP_ROOT`):
+  machine/checkout-independent, idempotent, never in the cwd.
+- **Project** — a *local* (cwd) definition of an **assistant**: a thin
+  `local-llm.toml` pointing at a library model + a list of MCP servers + a system
+  prompt + serve/UI settings. Versionable and shareable.
+
+This makes assistants **reproducible**: the north-star DHIS2 assistant is just a
+project — `gemma-4-12B-it-QAT` + `dhis2w-mcp-bridge` + a DHIS2 prompt +
+locked-serve config. `git clone` it → `llm init` ensures its model is in your
+library → `llm serve --ui` (or the extension) runs it.
+
+Keep the project file a **manifest, not a framework**: it references a library
+model and tools; the library + runtime do the work. In a project dir, `llm run` /
+`serve` use that project's model, MCP servers, and prompt.
+
+## Curated starter models (folded into `llm init`)
+
+`llm init` scaffolds a project (above) and, as part of it, ensures the project's
+model is in the library. When you don't yet know what to pick, it offers a small
+**curated set of 2–3 models** — kept deliberately tiny, e.g. a compact GGUF for
+any machine, an MLX build for Apple Silicon, and a tool-capable model for the
+agent/MCP path — and pulls the chosen one. So init = scaffold + ensure-model in
+one on-ramp.
 
 - The curated list lives in-repo (versioned), so "what's worth trying" travels
   with the project and stays current.
 - `llm init` is the zero-to-chatting on-ramp: clone → `llm init` → `llm run`.
 - Just 2–3 entries, clearly labelled by use case and footprint, quick to pull.
+- **Idempotent by design:** `init` checks the **library** for each curated model
+  and pulls only what's missing — run it any number of times, no double
+  downloads. No "already ran" flag in the cwd (the checkout isn't the library)
+  and none in `~/.config` (per-machine would desync from a shared drive). Any
+  optional first-run marker belongs in the **library root**
+  (`<backup_root>/.local-llm/`), which travels with the drive. `--force` re-offers.
 
 ## One SPA, many surfaces
 
