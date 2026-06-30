@@ -1,0 +1,112 @@
+[project]
+name = "local-llm"
+version = "0.1.0"
+description = "Backup and browse local LLM models from Hugging Face, Ollama, and LM Studio"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.138.2",
+    "httpx>=0.28.1",
+    "huggingface-hub>=1.21.0",
+    "pydantic-settings>=2.14.2",
+    "typer>=0.25.1",
+    "uvicorn[standard]>=0.49.0",
+]
+
+[project.scripts]
+# Primary short command. Note: a popular third-party tool (pip install llm) also
+# claims `llm`; if both are installed globally, PATH order decides which wins.
+# `local-llm` is kept as a collision-proof alias, and `uv run llm` always
+# resolves to this project regardless.
+llm = "local_llm.cli:app"
+local-llm = "local_llm.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+select = ["E", "W", "F", "I", "D"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D"]
+"**/__init__.py" = ["D104"]
+"src/**/*.py" = ["D102", "D105", "D107"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "__pycache__"]
+
+[tool.coverage.run]
+branch = true
+dynamic_context = "test_function"
+relative_files = true
+source = ["local_llm"]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:"]
+precision = 2
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+strict_equality = true
+mypy_path = ["src"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/.venv"]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+useLibraryCodeForTypes = true
+reportPrivateUsage = false
+reportUnusedFunction = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportMissingTypeArgument = false
+reportMissingTypeStubs = false
+reportUnknownLambdaType = false
+reportMissingImports = "warning"
+reportMissingModuleSource = false
+
+[dependency-groups]
+dev = [
+    "coverage>=7.14.3",
+    "httpx>=0.28.1",
+    "mypy>=2.1.0",
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.20",
+]
