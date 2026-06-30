@@ -1,10 +1,10 @@
 # Web UI (`serve --ui`)
 
-`llm serve` runs the FastAPI app: a browse API, an OpenAI `/v1` proxy to the
+`kodo serve` runs the FastAPI app: a browse API, an OpenAI `/v1` proxy to the
 loaded model, and — with `--ui` — the browser single-page app.
 
 ```bash
-llm serve --ui                       # browse + chat in the browser, switch models
+kodo serve --ui                       # browse + chat in the browser, switch models
 make run                             # same, via the Makefile
 make run MODEL=<name>                # locked to one model (see below)
 ```
@@ -32,7 +32,7 @@ it.
 ## Locked single-model mode
 
 ```bash
-llm serve --ui --model <name>        # or: make run MODEL=<name>
+kodo serve --ui --model <name>        # or: make run MODEL=<name>
 ```
 
 Locks the server to one model: no switching, a stable `/v1`, and CORS configured

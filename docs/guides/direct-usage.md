@@ -1,6 +1,6 @@
 # Using models directly
 
-You don't have to go through `local-llm` to run a library model — the files are
+You don't have to go through `kodo` to run a library model — the files are
 plain GGUF/MLX and work with the standard tools. Library layout:
 
 ```
@@ -13,7 +13,7 @@ All servers below expose an OpenAI-compatible API at `http://localhost:<port>/v1
 ## GGUF — llama.cpp
 
 ```bash
-GGUF="$LOCAL_LLM_BACKUP_ROOT/gguf/lmstudio-community/gemma-4-12B-it-QAT-GGUF/gemma-4-12B-it-QAT-Q4_0.gguf"
+GGUF="$KODO_BACKUP_ROOT/gguf/lmstudio-community/gemma-4-12B-it-QAT-GGUF/gemma-4-12B-it-QAT-Q4_0.gguf"
 
 llama-cli   -m "$GGUF" -p "Explain MoE in one sentence."     # one-shot
 llama-cli   -m "$GGUF" -cnv                                   # interactive chat
@@ -35,7 +35,7 @@ ollama run my-model            # also serves OpenAI-compatible on :11434/v1
 ## MLX (Apple Silicon)
 
 ```bash
-MLX="$LOCAL_LLM_BACKUP_ROOT/mlx/lmstudio-community/Qwen3.5-4B-MLX-4bit"
+MLX="$KODO_BACKUP_ROOT/mlx/lmstudio-community/Qwen3.5-4B-MLX-4bit"
 
 mlx_lm.generate --model "$MLX" --prompt "Hi" --max-tokens 200   # one-shot
 mlx_lm.chat     --model "$MLX"                                   # interactive

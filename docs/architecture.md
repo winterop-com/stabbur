@@ -7,8 +7,8 @@ and every data type is a `BaseModel` (no `@dataclass`).
 ## Modules
 
 ```
-src/local_llm/
-├── config.py    # Settings (LOCAL_LLM_* env vars; backup_root, serve_ui, …)
+src/kodo/
+├── config.py    # Settings (KODO_* env vars; backup_root, serve_ui, …)
 ├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
 ├── catalog.py   # list/pull across the source stores
 ├── library.py   # scan the on-drive library → LibraryModel (+ load_target, mmproj)
@@ -24,7 +24,7 @@ src/local_llm/
 ## Two views of "models"
 
 - **Sources** (`catalog` + `sources/`) — what's in the local HF cache, Ollama,
-  and LM Studio stores; the candidates for `llm pull`.
+  and LM Studio stores; the candidates for `kodo pull`.
 - **Library** (`library`) — what's on the drive under `backup_root`; the
   runnable set. `LibraryModel` carries `load_target` (the exact file/dir to hand
   the runtime) and `mmproj` (multimodal projector, if any).
@@ -37,10 +37,12 @@ src/local_llm/
 `/v1/{path}` proxy, so the browser SPA (and the future extension) talk to one
 stable origin while the underlying model is swapped underneath.
 
-```
-SPA / extension ──▶ FastAPI (serve)
-                      ├─ /api/load → ServerManager.load() → spawn runtime
-                      └─ /v1/*     → stream-proxy → runtime /v1
+```mermaid
+flowchart LR
+    client["SPA / extension"] --> api["FastAPI (serve)"]
+    api -->|"/api/load/{name}"| mgr["ServerManager.load()"]
+    mgr -->|spawn| rt["runtime (llama-server / mlx_lm.server)"]
+    api -->|"/v1/* stream-proxy"| rt
 ```
 
 ## Runtimes

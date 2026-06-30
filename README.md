@@ -1,4 +1,4 @@
-# local-llm
+# kodo
 
 A tool for building and keeping a **full local library of LLM models**. It
 discovers models from **Hugging Face**, **Ollama**, and **LM Studio**, pulls
@@ -9,13 +9,13 @@ root you point at an external drive (e.g. a 5TB drive).
 ## Layout
 
 ```
-src/local_llm/
-├── config.py          # Pydantic settings (LOCAL_LLM_* env vars)
+src/kodo/
+├── config.py          # Pydantic settings (KODO_* env vars)
 ├── models.py          # Catalog / entry / result models
 ├── catalog.py         # Aggregates listing + pull across sources
 ├── library.py         # Scans the on-drive library (gguf/ mlx/ ...)
 ├── runtime.py         # Serves a model (llama.cpp / mlx_lm)
-├── cli.py             # Typer CLI (entry points: `llm`, `local-llm`)
+├── cli.py             # Typer CLI (entry points: `kodo`, `kodo`)
 ├── app.py             # FastAPI app factory
 ├── routers/           # health + models (browse/pull) endpoints
 └── sources/           # huggingface / ollama / lmstudio adapters
@@ -30,13 +30,13 @@ uv sync
 ## CLI
 
 ```bash
-llm list                     # what's in the local source stores (HF/Ollama/LM Studio)
-llm list -s ollama           # filter by source
-llm pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
-llm pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
-llm library                  # what's in the on-drive library
-llm run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, MLX→mlx_lm
-llm serve                    # start the FastAPI browse API
+kodo list                     # what's in the local source stores (HF/Ollama/LM Studio)
+kodo list -s ollama           # filter by source
+kodo pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
+kodo pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
+kodo library                  # what's in the on-drive library
+kodo run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, MLX→mlx_lm
+kodo serve                    # start the FastAPI browse API
 ```
 
 Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
@@ -53,19 +53,19 @@ make dev                              # uvicorn with --reload
 
 ## Configuration
 
-All paths are env-configurable (prefix `LOCAL_LLM_`). To move the library to the
+All paths are env-configurable (prefix `KODO_`). To move the library to the
 external drive, change one value:
 
 ```bash
-export LOCAL_LLM_BACKUP_ROOT=/Volumes/LLM/Library
+export KODO_BACKUP_ROOT=/Volumes/LLM/Library
 ```
 
 | Variable                     | Default                  |
 | ---------------------------- | ------------------------ |
-| `LOCAL_LLM_BACKUP_ROOT`      | `data`                   |
-| `LOCAL_LLM_OLLAMA_MODELS_DIR`| `~/.ollama/models`       |
-| `LOCAL_LLM_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models`  |
-| `LOCAL_LLM_HF_TOKEN`         | (uses HF login if unset) |
+| `KODO_BACKUP_ROOT`      | `data`                   |
+| `KODO_OLLAMA_MODELS_DIR`| `~/.ollama/models`       |
+| `KODO_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models`  |
+| `KODO_HF_TOKEN`         | (uses HF login if unset) |
 
 ## Develop
 

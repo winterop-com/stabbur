@@ -16,13 +16,13 @@ library via a Typer CLI and a small FastAPI service.
 
 Downloads currently land in the project-local `data/` directory. **Later this
 moves to a dedicated 5TB WD Passport external drive** — when that happens, only
-`LOCAL_LLM_BACKUP_ROOT` changes (e.g. `/Volumes/llm-5tb/library`); no code
+`KODO_BACKUP_ROOT` changes (e.g. `/Volumes/kodo-5tb/library`); no code
 changes required. `data/` is gitignored — model weights must never be committed.
 
 ## Stack & conventions
 
 - Python 3.13, `uv` (with the `uv_build` backend), **src layout**.
-- **Typer** CLI; entry point `local-llm = "local_llm.cli:app"`.
+- **Typer** CLI; entry point `kodo = "kodo.cli:app"`.
 - **FastAPI + Pydantic + pydantic-settings** for the browse layer.
 - **huggingface_hub** is the canonical HF client (resumable, checksummed).
 - Lint/type/test config mirrors `../../chap-sdk/chapkit`: ruff (120 cols,
@@ -32,8 +32,8 @@ changes required. `data/` is gitignored — model weights must never be committe
 ## Layout
 
 ```
-src/local_llm/
-├── config.py    # Settings (LOCAL_LLM_* env vars); backup_root = data/ default
+src/kodo/
+├── config.py    # Settings (KODO_* env vars); backup_root = data/ default
 ├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
 ├── catalog.py   # aggregates list/pull across sources
 ├── library.py   # scans the on-drive library (gguf/ mlx/ ...)
@@ -61,7 +61,7 @@ LM Studio / HF land in a **format-centric** layout; Ollama keeps its native
 
 ## Model cards / instructions
 
-Every pull writes a `.local-llm/` sidecar (`metadata.json` + `model-card.md`):
+Every pull writes a `.kodo/` sidecar (`metadata.json` + `model-card.md`):
 
 - HF / LM Studio: the card is the existing `README.md`; metadata records it.
 - Ollama: the card is **generated** from the manifest's text layers — system
@@ -72,11 +72,11 @@ Every pull writes a `.local-llm/` sidecar (`metadata.json` + `model-card.md`):
 
 - Source code: stays on the Mac + GitHub (small, version-controlled).
 - Model library: on a 5TB **exFAT** WD Passport, mounted `/Volumes/LLM` on this
-  Mac → `LOCAL_LLM_BACKUP_ROOT=/Volumes/LLM/Library` (set in gitignored `.env`).
+  Mac → `KODO_BACKUP_ROOT=/Volumes/LLM/Library` (set in gitignored `.env`).
   exFAT chosen for Mac + Linux read/write; allocation block 256 KB (good for
   large weights). No journaling — eject cleanly. No symlinks/hardlinks on the
   volume, so dedup must be by "store once, copy to each runtime", not by link.
-  On Linux the mount path differs; set `LOCAL_LLM_BACKUP_ROOT` per machine.
+  On Linux the mount path differs; set `KODO_BACKUP_ROOT` per machine.
 
 ## Formats, runtimes & the shared library (intended direction)
 
@@ -106,11 +106,11 @@ live by all.
 ## UI — web-first (Textual dropped)
 
 Decision: **one browser interface for everything.** Textual/TUI is dropped. The
-single entry point is `llm serve --ui`:
+single entry point is `kodo serve --ui`:
 
-- **`llm serve --ui`** — full app: browse the library (grouped by format,
+- **`kodo serve --ui`** — full app: browse the library (grouped by format,
   pull/availability) + chat with any model (pick + switch).
-- **`llm serve --ui --model <name>`** — *locked* single-model mode: no picker,
+- **`kodo serve --ui --model <name>`** — *locked* single-model mode: no picker,
   bound to one model, exposing a stable OpenAI endpoint. Intended as the backend
   for a **Chrome extension** later (so: configurable CORS for the extension
   origin; stable `/v1`).
@@ -124,11 +124,11 @@ the catch-all). Inspiration: `../../chap-sdk/chapkit/frontend/`.
 2. **Chrome extension** — MV3 side panel loads the same bundle (locked `/v1`).
 3. **Desktop** — Tauri + Electron wrappers, following maneki's pattern
    (`~/dev/local/maneki/desktop/{tauri,electron,react}` — parallel wrappers
-   loading one shared SPA that talks to the local server). For local-llm the
-   desktop app should ideally also launch/embed `local-llm serve` so it's
+   loading one shared SPA that talks to the local server). For kodo the
+   desktop app should ideally also launch/embed `kodo serve` so it's
    one-click, vs maneki's connect-to-any-server client model.
 
-All surfaces point at local-llm's local server; the SPA is the single shared UI.
+All surfaces point at kodo's local server; the SPA is the single shared UI.
 
 Chat UI: shadcn's **official chat components (shipped 2026-06)** —
 `MessageScroller`, `Message`, `Bubble`, `Attachment`, `Marker`
@@ -154,16 +154,16 @@ Serving is OpenAI-compatible so any client (and our SPA) can attach:
 `serve --ui` orchestrates: pick a model → FastAPI starts the right runtime and
 proxies `/v1` so the SPA is single-origin.
 
-## Tools / MCP (required, even for local-llm itself)
+## Tools / MCP (required, even for kodo itself)
 
-local-llm must support **tool/function calling and act as an MCP client** — this
+kodo must support **tool/function calling and act as an MCP client** — this
 is in scope for Phase 1, generically (any MCP server), not just DHIS2.
 
-- llama-server does OpenAI-style tool calling (`--jinja`); local-llm runs the
-  **agent loop**: model emits `tool_call` → local-llm executes it via the MCP
+- llama-server does OpenAI-style tool calling (`--jinja`); kodo runs the
+  **agent loop**: model emits `tool_call` → kodo executes it via the MCP
   client → feeds the result back → model continues. Streamed to the chat UI.
 - The chat layer renders tool activity from the start (shadcn `Marker`/`Bubble`).
-- local-llm owns the MCP client + loop so every client (web UI, extension, CLI)
+- kodo owns the MCP client + loop so every client (web UI, extension, CLI)
   stays thin and tools work uniformly.
 
 ## North-star roadmap
@@ -173,14 +173,14 @@ in a Chrome side-panel:
 
 ```
 Chrome extension (side panel, shadcn chat)
-  → local-llm (serve --ui --model X): runs the model + MCP client + agent loop
+  → kodo (serve --ui --model X): runs the model + MCP client + agent loop
       → MCP server from ../dhis2w-utils  → DHIS2 instance
 ```
 
 The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace):
 - **`dhis2w-mcp-bridge`** — one tool `dhis2_cli(args, profile)` shelling out to
   `d2w`; built for small local models (8k context, progressive `--help`). The
-  default target for local-llm + a small model.
+  default target for kodo + a small model.
 - **`dhis2w-mcp-router`** — 2 meta-tools (`search_tools`/`call_tool`), lazy typed
   discovery, single guarded chokepoint + **read-only mode** (gates DHIS2 writes).
 - **`dhis2w-mcp`** — full ~304 typed tools (big-context hosts).
@@ -188,10 +188,10 @@ The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace)
   later "act on the page" tier).
 
 **Build order (decided):**
-1. **Phase 1 — finish local-llm + web chat UI**, including generic tool/MCP
+1. **Phase 1 — finish kodo + web chat UI**, including generic tool/MCP
    support (agent loop + MCP client, pointable at any MCP server). `serve --ui`
    and `serve --ui --model X` (locked, extension-ready, CORS).
-2. **Phase 2 — DHIS2 + Chrome extension**: point local-llm's MCP client at
+2. **Phase 2 — DHIS2 + Chrome extension**: point kodo's MCP client at
    `dhis2w-mcp-bridge`/`-router`; package the chat UI as the side-panel extension
    against the locked `/v1`.
 3. Later: extension page-context, then page-actions (via `dhis2w-browser`).
@@ -199,15 +199,15 @@ The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace)
 ## Open / next ideas
 
 - **Projects (assistant definitions)** — two units: the *global* **library**
-  (models on the drive) vs a *local* **project** (`./local-llm.toml`: a library
+  (models on the drive) vs a *local* **project** (`./kodo.toml`: a library
   model + MCP servers + system prompt + serve settings). Projects make assistants
   reproducible/shareable; the north-star DHIS2 assistant is just a project. Keep
   the project file a thin manifest, not a framework.
-- **`llm init`** — scaffold a project in the cwd and ensure its model is in the
+- **`kodo init`** — scaffold a project in the cwd and ensure its model is in the
   library; when undecided, offer a curated **2–3** tiny starter models (compact
-  GGUF, MLX for Apple Silicon, a tool-capable one). On-ramp: clone → `llm init` →
-  `llm serve --ui`. Idempotent: pull only models missing from the library; no
-  cwd/`~/.config` "ran" flag (any optional marker lives in `<backup_root>/.local-llm/`).
+  GGUF, MLX for Apple Silicon, a tool-capable one). On-ramp: clone → `kodo init` →
+  `kodo serve --ui`. Idempotent: pull only models missing from the library; no
+  cwd/`~/.config` "ran" flag (any optional marker lives in `<backup_root>/.kodo/`).
 - Refactor toward the format-centric shared library above (the big one).
 - `make check` is the CI gate (read-only); `make lint` mutates locally.
 - Auto-fetch HF model cards for LM Studio models (infer repo from path).

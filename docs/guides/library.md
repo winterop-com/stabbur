@@ -1,10 +1,10 @@
 # The library
 
-The library is the on-drive home for your models, under `LOCAL_LLM_BACKUP_ROOT`.
+The library is the on-drive home for your models, under `KODO_BACKUP_ROOT`.
 List it with:
 
 ```bash
-llm library
+kodo library
 ```
 
 ## Layout
@@ -32,7 +32,7 @@ several quants, a balanced one (`Q4_K_M` first) is picked automatically. macOS
 
 ## Model cards & metadata
 
-Each pulled model gets a `.local-llm/` sidecar with `metadata.json` and a
+Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a
 `model-card.md` (the upstream README for HF/LM Studio; a generated Modelfile-style
 card from the manifest layers for Ollama) — so every model carries its run
 instructions.
@@ -40,7 +40,7 @@ instructions.
 ## Storage on an external drive
 
 The library is designed to live on a large external/cloud drive; moving it is a
-one-line change to `LOCAL_LLM_BACKUP_ROOT`.
+one-line change to `KODO_BACKUP_ROOT`.
 
 - **exFAT** is a good choice for a drive shared between macOS and Linux (the only
   filesystem both read/write natively). No journaling — **eject cleanly**; no

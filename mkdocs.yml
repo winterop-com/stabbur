@@ -1,7 +1,7 @@
-site_name: local-llm
+site_name: kodo
 site_description: Build a full local LLM library, then run, chat, and serve it — fully on-box.
-repo_url: https://github.com/winterop-com/local-llm
-repo_name: winterop-com/local-llm
+repo_url: https://github.com/winterop-com/kodo
+repo_name: winterop-com/kodo
 docs_dir: docs
 site_dir: site
 
@@ -54,7 +54,11 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight:

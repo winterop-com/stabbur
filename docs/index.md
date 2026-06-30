@@ -1,18 +1,16 @@
-# local-llm
+# kodo
 
 Build a **full local library of LLM models**, then **run, chat, and serve** them
 — entirely on your own hardware. Discover models from Hugging Face, Ollama, and
 LM Studio, pull them into one library on a drive of your choosing, and serve any
 of them through an OpenAI-compatible API and a browser chat UI.
 
-```
-   sources                    library (your drive)            run / chat / serve
-┌───────────┐  llm pull   ┌──────────────────────┐  llm run   ┌──────────────────┐
-│ HF cache  │ ──────────▶ │ gguf/  mlx/  …        │ ─────────▶ │ llama-server /   │
-│ Ollama    │             │ + model cards/meta   │  llm chat  │ mlx_lm.server    │
-│ LM Studio │             │ (LOCAL_LLM_BACKUP_   │  serve --ui│ OpenAI /v1 + UI  │
-└───────────┘             │  ROOT)               │            └──────────────────┘
-                          └──────────────────────┘
+```mermaid
+flowchart LR
+    hf["HF cache"] -->|kodo pull| lib
+    ol["Ollama"] -->|kodo pull| lib
+    ls["LM Studio"] -->|kodo pull| lib
+    lib["Library on your drive<br/>gguf/ · mlx/ · cards + metadata"] -->|kodo run / chat / serve --ui| rt["llama-server / mlx_lm.server<br/>OpenAI /v1 + web chat UI"]
 ```
 
 ## Why
@@ -28,13 +26,21 @@ of them through an OpenAI-compatible API and a browser chat UI.
 
 ```bash
 uv sync
-llm list                       # what's in your local source stores
-llm pull lmstudio <name>       # copy a model into the library (--move to relocate)
-llm library                    # what's in the library
-llm run <name>                 # serve it: OpenAI /v1 + (for GGUF) a web chat UI
-llm chat <name> -p "hello"     # one-shot, scriptable answer
+kodo list                       # what's in your local source stores
+kodo pull lmstudio <name>       # copy a model into the library (--move to relocate)
+kodo library                    # what's in the library
+kodo run <name>                 # serve it: OpenAI /v1 + (for GGUF) a web chat UI
+kodo chat <name> -p "hello"     # one-shot, scriptable answer
 make run MODEL=<name>          # backend + browser UI, locked to one model
 ```
 
 Start at [Getting started](getting-started.md), or jump to the
 [CLI reference](cli.md).
+
+## The name
+
+**kodo** is short, easy to type as a command, and deliberately *neutral* — it
+collides with nothing (no PyPI package, no product, no brand), which is the
+safest kind of name. If you want a meaning, read it as 鼓動 (*kodō*) — Japanese
+for **heartbeat / pulse**: the steady pulse of your own models, running on your
+own hardware.
