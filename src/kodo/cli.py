@@ -55,18 +55,24 @@ def _library_names() -> set[str]:
 def list_models() -> None:
     """List the models in your library — what you've pulled, ready to run.
 
-    The library lives on your drive (``KODO_BACKUP_ROOT``). To browse models in
-    your app caches that you *could* pull, use ``kodo sources``.
+    The library spans your drive (``KODO_BACKUP_ROOT``) plus an always-local
+    root, so models kept locally still work when the drive is unplugged. To
+    browse models in your app caches that you *could* pull, use ``kodo sources``.
     """
-    root = get_settings().backup_root
+    settings = get_settings()
     models = [m for m in library_ops.scan() if m.generative]
+    drive_off = not settings.backup_root.is_dir()
     if not models:
-        console.print(f"Your library is empty: [dim]{root}[/]")
-        console.print("[dim]Pull one with[/] kodo pull [dim]· browse candidates with[/] kodo sources")
+        console.print("Your library is empty.")
+        if drive_off:
+            console.print(f"[yellow]Drive offline:[/] [dim]{settings.backup_root}[/] is not mounted.")
+        console.print("[dim]Pull one with[/] kodo pull [dim](or[/] --local[dim]) · browse with[/] kodo sources")
         return
 
     total = _human_size(sum(m.size_bytes for m in models))
-    console.print(f"\n[bold]{len(models)} models · {total}[/] in your library [dim]{root}[/]\n")
+    console.print(f"\n[bold]{len(models)} models · {total}[/] in your library\n")
+    if drive_off:
+        console.print(f"[yellow]Note: drive offline[/] ([dim]{settings.backup_root}[/]) — showing local models only.\n")
     for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
         rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
         subtotal = _human_size(sum(m.size_bytes for m in rows))
@@ -91,12 +97,17 @@ def pull(
         bool,
         typer.Option("--move", help="Delete the local source after a verified copy (frees local disk)."),
     ] = False,
+    local: Annotated[
+        bool,
+        typer.Option("--local", help="Pull into the always-local root (works when the drive is unplugged)."),
+    ] = False,
 ) -> None:
-    """Pull (or move) a single model into the library."""
+    """Pull (or move) a single model into the library (the drive, or --local)."""
+    root = get_settings().local_root if local else None
     verb = "Moving" if move else "Pulling"
-    typer.echo(f"{verb} {source.value}:{name} ...")
+    typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
-        result = catalog_ops.pull(source, name, move=move)
+        result = catalog_ops.pull(source, name, backup_root=root, move=move)
     except NotImplementedError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc

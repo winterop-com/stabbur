@@ -162,12 +162,33 @@ def _scan_ollama(base: Path) -> list[LibraryModel]:
     return models
 
 
-def scan(root: Path | None = None) -> list[LibraryModel]:
-    """Scan the library root and return every runnable model found."""
-    base = root or get_settings().backup_root
+def _scan_root(base: Path) -> list[LibraryModel]:
+    """Scan a single library root (no-op if it doesn't exist / drive unplugged)."""
     if not base.is_dir():
         return []
     return _scan_dirs(base) + _scan_ollama(base)
+
+
+def scan(root: Path | None = None) -> list[LibraryModel]:
+    """Return every runnable model in the library.
+
+    With no ``root``, the library spans the main ``backup_root`` (often an
+    external drive) **plus** the always-local ``local_root`` — so locally-kept
+    models still appear when the drive is unplugged. Deduped by name (drive
+    wins). A single ``root`` is honored as-is (used by tests).
+    """
+    if root is not None:
+        return _scan_root(root)
+
+    settings = get_settings()
+    models: list[LibraryModel] = []
+    seen: set[str] = set()
+    for base in (settings.backup_root, settings.local_root):
+        for m in _scan_root(base):
+            if m.name not in seen:
+                seen.add(m.name)
+                models.append(m)
+    return models
 
 
 def find(query: str, root: Path | None = None, model_format: ModelFormat | None = None) -> list[LibraryModel]:

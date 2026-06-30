@@ -37,6 +37,19 @@ Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a
 card from the manifest layers for Ollama) — so every model carries its run
 instructions.
 
+## Local + drive (external drives get unplugged)
+
+The library spans **two roots**: the main `KODO_BACKUP_ROOT` (typically the
+external drive) **plus** an always-local root (`~/.kodo/library`). Keep a small
+model local so kodo still works when the drive is disconnected:
+
+```bash
+kodo pull huggingface unsloth/SmolLM2-135M-Instruct-GGUF --local
+```
+
+`kodo list` merges both (drive wins on name clashes) and, when the drive isn't
+mounted, shows your local models with a "drive offline" note instead of failing.
+
 ## Storage on an external drive
 
 The library is designed to live on a large external/cloud drive; moving it is a

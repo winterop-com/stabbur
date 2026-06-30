@@ -54,10 +54,14 @@ class Settings(BaseSettings):
     # the API proxies /v1 to it so the SPA stays single-origin.
     runtime_port: int = 8090
 
-    # The single destination root for downloads / backups. Defaults to a
-    # project-local ``data/`` directory; point this at the 5TB external drive
-    # when you are ready to move and nothing else needs to change.
+    # The main library root — point this at the (big) external drive. The library
+    # spans this PLUS the always-local ``local_root`` below, so a small model
+    # kept locally still works when the external drive is unplugged.
     backup_root: Path = Path("data")
+
+    # Always-local library root (never on an external drive). Keep a small model
+    # here for offline / drive-disconnected use; `pull --local` targets it.
+    local_root: Path = Path.home() / ".kodo" / "library"
 
     # Source stores to scan and back up from.
     ollama_models_dir: Path = Path.home() / ".ollama" / "models"

@@ -3,7 +3,10 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from kodo import library, runtime
+from kodo.config import Settings
 from kodo.models import ModelFormat, ModelSource
 from kodo.sources import lmstudio, ollama
 
@@ -182,6 +185,19 @@ def test_library_finds_ollama_native(tmp_path: Path) -> None:
     assert models[0].name == "foo:latest"
     assert models[0].model_format is ModelFormat.gguf
     assert models[0].load_target.name == "sha256-model"
+
+
+def test_scan_spans_drive_and_local_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    drive, local = tmp_path / "drive", tmp_path / "local"
+    for base, nm in ((drive, "Drive-GGUF"), (local, "Local-GGUF")):
+        d = base / "gguf" / "pub" / nm
+        d.mkdir(parents=True)
+        (d / "m.gguf").write_bytes(b"x" * 100)
+
+    settings = Settings(backup_root=drive, local_root=local)
+    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    names = {m.name for m in library.scan()}  # no explicit root → spans both
+    assert names == {"pub/Drive-GGUF", "pub/Local-GGUF"}
 
 
 def test_serves_web_ui(tmp_path: Path) -> None:
