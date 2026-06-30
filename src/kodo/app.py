@@ -7,10 +7,10 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from local_llm import library as library_ops
-from local_llm.config import Settings, get_settings
-from local_llm.routers import catalog, health, serving
-from local_llm.server import ServerManager
+from kodo import library as library_ops
+from kodo.config import Settings, get_settings
+from kodo.routers import catalog, health, serving
+from kodo.server import ServerManager
 
 
 @asynccontextmanager

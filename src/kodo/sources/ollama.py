@@ -10,9 +10,9 @@ import json
 import shutil
 from pathlib import Path
 
-from local_llm import cards
-from local_llm.config import get_settings
-from local_llm.models import ModelEntry, ModelFormat, ModelSource, PullResult
+from kodo import cards
+from kodo.config import get_settings
+from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
 
 # Text layers worth extracting as instructions, in display order.
 _CARD_LAYERS = {

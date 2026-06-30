@@ -12,8 +12,8 @@ Interactive terminal chat uses ``llama-cli -cnv`` (GGUF) or ``mlx_lm.chat`` (MLX
 import os
 import shutil
 
-from local_llm.library import LibraryModel
-from local_llm.models import ModelFormat
+from kodo.library import LibraryModel
+from kodo.models import ModelFormat
 
 _INSTALL_HINTS = {
     "llama-server": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",

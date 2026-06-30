@@ -8,9 +8,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from local_llm import library as library_ops
-from local_llm.config import get_settings
-from local_llm.server import ServerManager
+from kodo import library as library_ops
+from kodo.config import get_settings
+from kodo.server import ServerManager
 
 router = APIRouter(tags=["serving"])
 

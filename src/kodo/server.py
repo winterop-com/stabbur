@@ -11,8 +11,8 @@ from enum import StrEnum
 
 import httpx
 
-from local_llm import runtime
-from local_llm.library import LibraryModel
+from kodo import runtime
+from kodo.library import LibraryModel
 
 
 class ServerState(StrEnum):

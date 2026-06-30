@@ -1,7 +1,7 @@
 [project]
-name = "local-llm"
+name = "kodo"
 version = "0.1.0"
-description = "Build a local LLM library, then run, chat, and serve it — fully on-box"
+description = "Kodo — build a local LLM library, then run, chat, and serve it — fully on-box"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -14,12 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# Primary short command. Note: a popular third-party tool (pip install llm) also
-# claims `llm`; if both are installed globally, PATH order decides which wins.
-# `local-llm` is kept as a collision-proof alias, and `uv run llm` always
-# resolves to this project regardless.
-llm = "local_llm.cli:app"
-local-llm = "local_llm.cli:app"
+kodo = "kodo.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
@@ -27,7 +22,7 @@ build-backend = "uv_build"
 
 [tool.fastapi]
 # Let `fastapi dev` / `fastapi run` auto-detect the app.
-entrypoint = "local_llm.app:app"
+entrypoint = "kodo.app:app"
 
 [tool.ruff]
 target-version = "py313"
@@ -62,7 +57,7 @@ norecursedirs = [".git", ".venv", "__pycache__"]
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["local_llm"]
+source = ["kodo"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]

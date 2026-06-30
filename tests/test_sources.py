@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from local_llm import library, runtime
-from local_llm.models import ModelFormat, ModelSource
-from local_llm.sources import lmstudio, ollama
+from kodo import library, runtime
+from kodo.models import ModelFormat, ModelSource
+from kodo.sources import lmstudio, ollama
 
 
 def _make_ollama_store(root: Path) -> None:

@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, HTTPException
 
-from local_llm import catalog
-from local_llm.models import Catalog, ModelSource, PullResult
+from kodo import catalog
+from kodo.models import Catalog, ModelSource, PullResult
 
 router = APIRouter(prefix="/models", tags=["models"])
 

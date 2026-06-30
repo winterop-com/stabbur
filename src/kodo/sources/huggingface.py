@@ -10,9 +10,9 @@ from typing import Any
 
 from huggingface_hub import scan_cache_dir, snapshot_download
 
-from local_llm import cards
-from local_llm.models import ModelEntry, ModelFormat, ModelSource, PullResult
-from local_llm.sources.base import dir_stats
+from kodo import cards
+from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
+from kodo.sources.base import dir_stats
 
 
 def _classify(repo: Any) -> ModelFormat:

@@ -6,7 +6,7 @@ Finds runnable models wherever they landed under the library root:
   — any directory holding ``*.gguf`` or ``*.safetensors`` files);
 * Ollama's native content-addressed store (``ollama/manifests`` + ``ollama/blobs``).
 
-This is distinct from :mod:`local_llm.catalog`, which lists the local *source*
+This is distinct from :mod:`kodo.catalog`, which lists the local *source*
 stores that models are pulled *from*.
 """
 
@@ -14,10 +14,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, computed_field
 
-from local_llm.config import get_settings
-from local_llm.models import ModelFormat, _human_size
-from local_llm.sources import ollama
-from local_llm.sources.base import dir_stats
+from kodo.config import get_settings
+from kodo.models import ModelFormat, _human_size
+from kodo.sources import ollama
+from kodo.sources.base import dir_stats
 
 # Top-level directories whose name is a layout prefix, stripped from model names.
 _PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "other"}

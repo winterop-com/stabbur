@@ -1,7 +1,7 @@
 """Application configuration loaded from the environment.
 
 All paths are configurable so that moving the backup root to a mounted
-cloud drive later is a single change (the ``LOCAL_LLM_BACKUP_ROOT`` env var
+cloud drive later is a single change (the ``KODO_BACKUP_ROOT`` env var
 or ``backup_root`` field), not a refactor.
 """
 
@@ -26,11 +26,11 @@ def _default_lmstudio_dir() -> Path:
 class Settings(BaseSettings):
     """Application settings loaded from environment variables.
 
-    Environment variables are prefixed with ``LOCAL_LLM_`` (e.g.
-    ``LOCAL_LLM_BACKUP_ROOT=/Volumes/cloud/llm-backup``).
+    Environment variables are prefixed with ``KODO_`` (e.g.
+    ``KODO_BACKUP_ROOT=/Volumes/cloud/llm-backup``).
     """
 
-    model_config = SettingsConfigDict(env_prefix="LOCAL_LLM_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="KODO_", env_file=".env")
 
     app_name: str = "local-llm"
     debug: bool = False

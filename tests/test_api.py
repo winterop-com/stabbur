@@ -4,8 +4,8 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from local_llm.app import create_app
-from local_llm.config import Settings
+from kodo.app import create_app
+from kodo.config import Settings
 
 
 @pytest.fixture

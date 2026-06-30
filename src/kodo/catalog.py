@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from local_llm.config import get_settings
-from local_llm.models import Catalog, ModelEntry, ModelSource, PullResult
-from local_llm.sources import huggingface, lmstudio, ollama
+from kodo.config import get_settings
+from kodo.models import Catalog, ModelEntry, ModelSource, PullResult
+from kodo.sources import huggingface, lmstudio, ollama
 
 
 def list_models(source: ModelSource | None = None) -> Catalog:

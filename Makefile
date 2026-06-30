@@ -69,7 +69,7 @@ run:
 
 dev:
 	@echo ">>> Starting dev server (fastapi dev, auto-reload)"
-	@$(UV) run fastapi dev src/local_llm/app.py
+	@$(UV) run fastapi dev src/kodo/app.py
 
 serve:
 	@echo ">>> Starting server"

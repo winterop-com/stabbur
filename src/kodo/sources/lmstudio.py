@@ -10,10 +10,10 @@ top-level format directory (``gguf/`` or ``mlx/``).
 import shutil
 from pathlib import Path
 
-from local_llm import cards
-from local_llm.config import get_settings
-from local_llm.models import ModelEntry, ModelFormat, ModelSource, PullResult
-from local_llm.sources.base import copy_tree, dir_stats
+from kodo import cards
+from kodo.config import get_settings
+from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
+from kodo.sources.base import copy_tree, dir_stats
 
 
 def _classify(model_dir: Path) -> ModelFormat:

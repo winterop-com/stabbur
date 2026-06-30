@@ -7,11 +7,11 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from local_llm import catalog as catalog_ops
-from local_llm import library as library_ops
-from local_llm import runtime
-from local_llm.config import get_settings
-from local_llm.models import ModelFormat, ModelSource, _human_size
+from kodo import catalog as catalog_ops
+from kodo import library as library_ops
+from kodo import runtime
+from kodo.config import get_settings
+from kodo.models import ModelFormat, ModelSource, _human_size
 
 console = Console()
 
@@ -84,6 +84,10 @@ def list_models(source: SourceOption = None) -> None:
             mark = "[green]✓[/]" if in_library(e.name) else "[dim]—[/]"
             table.add_row(mark, _fmt_cell(e.model_format), e.size_human, e.name)
         console.print(table)
+
+
+# Hidden short alias: `kodo ls` == `kodo list`.
+app.command("ls", hidden=True)(list_models)
 
 
 @app.command()
@@ -228,9 +232,9 @@ def serve(
 
     # Propagate to the (possibly reloaded) worker process via env vars.
     if ui:
-        os.environ["LOCAL_LLM_SERVE_UI"] = "true"
+        os.environ["KODO_SERVE_UI"] = "true"
     if model is not None:
-        os.environ["LOCAL_LLM_SERVE_MODEL"] = model
+        os.environ["KODO_SERVE_MODEL"] = model
 
     get_settings.cache_clear()
     settings = get_settings()
@@ -247,7 +251,7 @@ def serve(
     console.print(f"  Docs:     [link={base}/docs]{base}/docs[/]")
     console.print("  [dim]Ctrl-C to stop[/]\n")
     uvicorn.run(
-        "local_llm.app:app",
+        "kodo.app:app",
         host=settings.host,
         port=settings.port,
         reload=reload,
