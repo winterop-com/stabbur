@@ -15,7 +15,7 @@ All servers below expose an OpenAI-compatible API at `http://localhost:<port>/v1
 ```bash
 GGUF="$KODO_BACKUP_ROOT/gguf/lmstudio-community/gemma-4-12B-it-QAT-GGUF/gemma-4-12B-it-QAT-Q4_0.gguf"
 
-llama-cli   -m "$GGUF" -p "Explain MoE in one sentence."     # one-shot
+llama-cli   -m "$GGUF" --single-turn -p "Explain MoE in one sentence." # one reply, then exits
 llama-cli   -m "$GGUF" -cnv                                   # interactive chat
 llama-server -m "$GGUF" --host 127.0.0.1 --port 8080 -c 8192 # OpenAI API + web UI
 # multimodal: add  --mmproj ".../mmproj-*.gguf"

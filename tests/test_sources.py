@@ -190,23 +190,8 @@ def test_runtime_chat_command(tmp_path: Path) -> None:
     mlx = library.find("Model-MLX", root=tmp_path)[0]
 
     assert runtime.build_chat_command(gguf)[0] == "llama-cli"
-    assert "-cnv" in runtime.build_chat_command(gguf)
+    assert "--conversation" in runtime.build_chat_command(gguf)
     assert runtime.build_chat_command(mlx)[0] == "mlx_lm.chat"
 
     assert runtime.serves_web_ui(gguf) is True
     assert runtime.serves_web_ui(mlx) is False
-
-
-def test_runtime_generate_command(tmp_path: Path) -> None:
-    _make_library(tmp_path)
-    gguf = library.find("Model-GGUF", root=tmp_path)[0]
-    mlx = library.find("Model-MLX", root=tmp_path)[0]
-
-    gcmd = runtime.build_generate_command(gguf, "hello", max_tokens=64)
-    assert gcmd[0] == "llama-cli"
-    assert "--no-display-prompt" in gcmd and "-no-cnv" in gcmd
-    assert "hello" in gcmd and "64" in gcmd
-
-    mcmd = runtime.build_generate_command(mlx, "hello")
-    assert mcmd[0] == "mlx_lm.generate"
-    assert "--prompt" in mcmd and "hello" in mcmd

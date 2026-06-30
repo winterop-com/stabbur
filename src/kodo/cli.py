@@ -81,11 +81,15 @@ def list_models(
         return name.lower() in lib or name.rsplit("/", 1)[-1].lower() in lib
 
     pulled = sum(1 for e in shown if in_library(e.name))
+    shown_total = _human_size(sum(e.size_bytes for e in shown))
     console.print(
-        f"\n[bold]{len(shown)} models[/] in local app caches "
+        f"\n[bold]{len(shown)} models · {shown_total}[/] in local app caches "
         f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
     )
-    console.print("[dim]These are candidates to pull. `kodo library` shows what you already have.[/]\n")
+    console.print(
+        "[dim]These are caches on this machine (e.g. ~/.cache/huggingface), not your library.[/]\n"
+        f"[dim]Your library lives at[/] {get_settings().backup_root} [dim]— see[/] kodo library.\n"
+    )
     for src in sorted({e.source for e in shown}, key=lambda s: s.value):
         rows = sorted((e for e in shown if e.source is src), key=lambda e: e.name)
         table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
@@ -215,8 +219,8 @@ def chat(
     model = _resolve_library_model(name, model_format)
     try:
         if prompt is not None:
-            # Scripted: no banner on stdout; errors go to stderr.
-            runtime.generate(model, prompt, max_tokens)
+            # Scripted: print only the reply to stdout (errors go to stderr).
+            print(runtime.generate(model, prompt, max_tokens))  # noqa: T201
         else:
             console.print(
                 f"Chatting with [bold]{_fmt_cell(model.model_format)}[/] {model.name}  [dim](Ctrl-C to exit)[/]"

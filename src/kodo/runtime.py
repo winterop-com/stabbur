@@ -6,12 +6,19 @@ Servers expose an OpenAI-compatible API at ``http://<host>:<port>/v1``:
   web chat UI at the root URL).
 * **MLX**  → ``mlx_lm.server`` (Apple Silicon; API only, no web UI).
 
-Interactive terminal chat uses ``llama-cli -cnv`` (GGUF) or ``mlx_lm.chat`` (MLX).
+Interactive terminal chat uses ``llama-cli --conversation`` (GGUF) or
+``mlx_lm.chat`` (MLX). One-shot generation (``kodo chat -p``) briefly starts the
+runtime server and calls its ``/v1`` for clean, template-applied output.
 """
 
 import os
 import shutil
+import subprocess
+import time
 
+import httpx
+
+from kodo.config import get_settings
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
 
@@ -51,46 +58,12 @@ def build_chat_command(model: LibraryModel) -> list[str]:
         ValueError: If the model's format has no known runtime.
     """
     if model.model_format is ModelFormat.gguf:
-        cmd = ["llama-cli", "-m", str(model.load_target), "-cnv"]
+        cmd = ["llama-cli", "-m", str(model.load_target), "--conversation"]
         if model.mmproj is not None:
             cmd += ["--mmproj", str(model.mmproj)]
         return cmd
     if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
         return ["mlx_lm.chat", "--model", str(model.load_target)]
-    raise ValueError(f"No runtime for format {model.model_format.value!r}")
-
-
-def build_generate_command(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> list[str]:
-    """Build a one-shot, non-interactive generation command (clean stdout).
-
-    For scripting: ``kodo chat <model> "<prompt>"`` runs once and prints only the
-    completion to stdout (logs/stats go to stderr).
-
-    Raises:
-        ValueError: If the model's format has no known runtime.
-    """
-    if model.model_format is ModelFormat.gguf:
-        # --no-display-prompt + --log-disable keep stdout to just the completion.
-        cmd = [
-            "llama-cli",
-            "-m",
-            str(model.load_target),
-            "-no-cnv",
-            "--no-display-prompt",
-            "--log-disable",
-            "-p",
-            prompt,
-        ]
-        if model.mmproj is not None:
-            cmd += ["--mmproj", str(model.mmproj)]
-        if max_tokens is not None:
-            cmd += ["-n", str(max_tokens)]
-        return cmd
-    if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
-        cmd = ["mlx_lm.generate", "--model", str(model.load_target), "--prompt", prompt]
-        if max_tokens is not None:
-            cmd += ["--max-tokens", str(max_tokens)]
-        return cmd
     raise ValueError(f"No runtime for format {model.model_format.value!r}")
 
 
@@ -117,6 +90,47 @@ def chat(model: LibraryModel) -> None:
     _exec(build_chat_command(model))
 
 
-def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> None:
-    """Exec a one-shot generation for ``model`` (replaces the process)."""
-    _exec(build_generate_command(model, prompt, max_tokens))
+def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> str:
+    """Run a one-shot chat completion and return the reply text (clean output).
+
+    Briefly starts the model's runtime server and calls its OpenAI ``/v1`` —
+    this applies the chat template and yields just the message content, unlike
+    ``llama-cli`` whose conversation UI pollutes stdout. Works for GGUF and MLX.
+
+    Raises:
+        RuntimeError: If the runtime binary is missing or never becomes ready.
+    """
+    cmd = build_command(model, "127.0.0.1", get_settings().runtime_port)
+    if shutil.which(cmd[0]) is None:
+        raise RuntimeError(f"{cmd[0]!r} not found on PATH. {_INSTALL_HINTS.get(cmd[0], '')}".strip())
+
+    base = f"http://127.0.0.1:{get_settings().runtime_port}"
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                raise RuntimeError("runtime exited before becoming ready")
+            try:
+                if httpx.get(f"{base}/v1/models", timeout=2).status_code < 500:
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.4)
+        else:
+            raise RuntimeError("runtime did not become ready in time")
+
+        body: dict[str, object] = {"messages": [{"role": "user", "content": prompt}]}
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
+        resp.raise_for_status()
+        content: str = resp.json()["choices"][0]["message"]["content"]
+        return content
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
