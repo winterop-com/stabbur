@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="KODO_", env_file=".env")
 
-    app_name: str = "local-llm"
+    app_name: str = "kodo"
     debug: bool = False
     host: str = "127.0.0.1"
     port: int = 8000

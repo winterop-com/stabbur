@@ -52,15 +52,27 @@ def _library_names() -> set[str]:
 
 
 @app.command("list")
-def list_models(source: SourceOption = None) -> None:
-    """List models available in local source stores (and whether each is pulled).
+def list_models(
+    source: SourceOption = None,
+    show_all: Annotated[bool, typer.Option("--all", "-a", help="Include partial / no-weight cache entries.")] = False,
+) -> None:
+    """Show models in your other apps' caches (HF / Ollama / LM Studio) to pull.
 
-    These are candidates to `llm pull` into the library; the IN LIBRARY column
-    shows which you already have. Use `llm library` to see the library itself.
+    These are *candidates* to `kodo pull` into your library — the IN LIBRARY
+    column marks what you already have. Run `kodo library` to see your actual
+    (runnable) library. Partial downloads and no-weight cache entries are hidden
+    unless you pass --all.
     """
-    result = catalog_ops.list_models(source)
-    if not result.entries:
-        console.print("No models found in local source stores.")
+    entries = catalog_ops.list_models(source).entries
+    # A real pullable model has weight files (a known format); `unknown` means
+    # only config/tokenizer/metadata is cached (partial) — hide it by default.
+    runnable = [e for e in entries if e.model_format is not ModelFormat.unknown]
+    hidden = len(entries) - len(runnable)
+    shown = entries if show_all else runnable
+    if not shown:
+        console.print("No models found in local source caches.")
+        if hidden:
+            console.print(f"[dim]({hidden} partial / no-weight entries — use --all to see them)[/]")
         return
 
     lib = _library_names()
@@ -68,13 +80,14 @@ def list_models(source: SourceOption = None) -> None:
     def in_library(name: str) -> bool:
         return name.lower() in lib or name.rsplit("/", 1)[-1].lower() in lib
 
-    pulled = sum(1 for e in result.entries if in_library(e.name))
+    pulled = sum(1 for e in shown if in_library(e.name))
     console.print(
-        f"\n[bold]{len(result.entries)} models[/] in local sources "
-        f"[dim]· {pulled} already in library · {len(result.entries) - pulled} to pull[/]\n"
+        f"\n[bold]{len(shown)} models[/] in local app caches "
+        f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
     )
-    for src in sorted({e.source for e in result.entries}, key=lambda s: s.value):
-        rows = sorted((e for e in result.entries if e.source is src), key=lambda e: e.name)
+    console.print("[dim]These are candidates to pull. `kodo library` shows what you already have.[/]\n")
+    for src in sorted({e.source for e in shown}, key=lambda s: s.value):
+        rows = sorted((e for e in shown if e.source is src), key=lambda e: e.name)
         table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
         table.add_column("IN LIBRARY", justify="center")
         table.add_column("FORMAT")
@@ -84,6 +97,8 @@ def list_models(source: SourceOption = None) -> None:
             mark = "[green]✓[/]" if in_library(e.name) else "[dim]—[/]"
             table.add_row(mark, _fmt_cell(e.model_format), e.size_human, e.name)
         console.print(table)
+    if hidden and not show_all:
+        console.print(f"\n[dim]{hidden} partial / no-weight cache entries hidden — use --all to show them.[/]")
 
 
 # Hidden short alias: `kodo ls` == `kodo list`.
@@ -145,7 +160,7 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
         ]
         if in_sources:
             src = in_sources[0].source.value
-            console.print(f"[yellow]It is in {src}; pull it first:[/]  llm pull {src} {in_sources[0].name}")
+            console.print(f"[yellow]It is in {src}; pull it first:[/]  kodo pull {src} {in_sources[0].name}")
         raise typer.Exit(1)
     if len(matches) > 1:
         console.print(f"[yellow]{name!r} is ambiguous; narrow with --format:[/]")
@@ -171,7 +186,7 @@ def run(
     if runtime.serves_web_ui(model):
         console.print(f"  Chat UI:     [link=http://{host}:{port}]http://{host}:{port}[/]")
     else:
-        console.print("  Chat UI:     [dim]none for MLX — use[/] llm chat")
+        console.print("  Chat UI:     [dim]none for MLX — use[/] kodo chat")
     console.print(f"  OpenAI API:  http://{host}:{port}/v1")
     console.print("  [dim]Ctrl-C to stop[/]\n")
     try:
@@ -193,7 +208,7 @@ def chat(
 ) -> None:
     """Chat with a library model: interactive by default, one-shot with ``-p``.
 
-    ``llm chat <model>`` opens an interactive session; ``llm chat <model> -p "..."``
+    ``kodo chat <model>`` opens an interactive session; ``kodo chat <model> -p "..."``
     prints only the completion to stdout (pipeable). Interactive uses llama.cpp's
     llama-cli (GGUF) or mlx_lm.chat (MLX).
     """
@@ -239,7 +254,7 @@ def serve(
     get_settings.cache_clear()
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
-    console.print("\n[bold]local-llm[/]")
+    console.print("\n[bold]kodo[/]")
     if model is not None:
         console.print(f"  Locked:   [bold]{model}[/]")
     if ui:

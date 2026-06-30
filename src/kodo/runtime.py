@@ -63,7 +63,7 @@ def build_chat_command(model: LibraryModel) -> list[str]:
 def build_generate_command(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> list[str]:
     """Build a one-shot, non-interactive generation command (clean stdout).
 
-    For scripting: ``llm chat <model> "<prompt>"`` runs once and prints only the
+    For scripting: ``kodo chat <model> "<prompt>"`` runs once and prints only the
     completion to stdout (logs/stats go to stderr).
 
     Raises:

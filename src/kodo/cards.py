@@ -1,6 +1,6 @@
 """Model-card and metadata sidecars for the backup library.
 
-Each backed-up model gets a ``.local-llm/`` sidecar holding:
+Each backed-up model gets a ``.kodo/`` sidecar holding:
 
 * ``metadata.json`` — structured info (source, name, size, files, extras).
 * ``model-card.md`` — human-readable instructions: the upstream model card for
@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-SIDECAR_DIR = ".local-llm"
+SIDECAR_DIR = ".kodo"
 """Name of the per-model sidecar directory."""
 
 _CARD_CANDIDATES = ("README.md", "model_card.md", "MODEL_CARD.md", "modelcard.md")

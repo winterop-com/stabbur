@@ -44,6 +44,8 @@ def list_models() -> list[ModelEntry]:
 
     entries: list[ModelEntry] = []
     for repo in cache.repos:
+        if repo.repo_type != "model":
+            continue  # skip datasets (e.g. mnist) and spaces — not models
         entries.append(
             ModelEntry(
                 source=ModelSource.huggingface,
