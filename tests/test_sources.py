@@ -150,3 +150,48 @@ def test_runtime_build_command(tmp_path: Path) -> None:
     mlx_cmd = runtime.build_command(mlx, "127.0.0.1", 8081)
     assert mlx_cmd[0] == "mlx_lm.server"
     assert str(mlx.path) in mlx_cmd
+
+
+def test_library_finds_huggingface_and_ignores_appledouble(tmp_path: Path) -> None:
+    hf = tmp_path / "huggingface" / "unsloth" / "X-GGUF"
+    hf.mkdir(parents=True)
+    (hf / "X-F16.gguf").write_bytes(b"f" * 4000)  # bigger, but not preferred
+    (hf / "X-Q4_K_M.gguf").write_bytes(b"q" * 1000)  # preferred quant
+    (hf / "._X-Q4_K_M.gguf").write_bytes(b"junk")  # macOS AppleDouble — must be ignored
+
+    models = library.scan(root=tmp_path)
+    assert len(models) == 1
+    m = models[0]
+    assert m.name == "unsloth/X-GGUF"  # leading 'huggingface' prefix stripped
+    assert m.model_format is ModelFormat.gguf
+    assert m.load_target.name == "X-Q4_K_M.gguf"  # prefers Q4_K_M, not F16, not ._
+
+
+def test_library_finds_ollama_native(tmp_path: Path) -> None:
+    store = tmp_path / "ollama"
+    (store / "blobs").mkdir(parents=True)
+    (store / "blobs" / "sha256-model").write_bytes(b"g" * 5000)
+    man = store / "manifests" / "registry.ollama.ai" / "library" / "foo" / "latest"
+    man.parent.mkdir(parents=True)
+    man.write_text(
+        json.dumps({"layers": [{"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:model"}]})
+    )
+
+    models = library.scan(root=tmp_path)
+    assert len(models) == 1
+    assert models[0].name == "foo:latest"
+    assert models[0].model_format is ModelFormat.gguf
+    assert models[0].load_target.name == "sha256-model"
+
+
+def test_runtime_chat_command(tmp_path: Path) -> None:
+    _make_library(tmp_path)
+    gguf = library.find("Model-GGUF", root=tmp_path)[0]
+    mlx = library.find("Model-MLX", root=tmp_path)[0]
+
+    assert runtime.build_chat_command(gguf)[0] == "llama-cli"
+    assert "-cnv" in runtime.build_chat_command(gguf)
+    assert runtime.build_chat_command(mlx)[0] == "mlx_lm.chat"
+
+    assert runtime.serves_web_ui(gguf) is True
+    assert runtime.serves_web_ui(mlx) is False

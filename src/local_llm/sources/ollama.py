@@ -62,6 +62,42 @@ def _safe_name(name: str) -> str:
     return name.replace(":", "_").replace("/", "_")
 
 
+def weight_blobs(manifest_path: Path, models_dir: Path) -> tuple[Path | None, Path | None]:
+    """Return ``(model_gguf_blob, mmproj_blob|None)`` for an Ollama manifest.
+
+    Ollama stores GGUF weights as a content-addressed blob (the ``...image.model``
+    layer); a multimodal projector, if any, is the ``...image.projector`` layer.
+    Both are valid GGUF files despite lacking a ``.gguf`` extension.
+    """
+    try:
+        data = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return (None, None)
+
+    model_blob: Path | None = None
+    mmproj_blob: Path | None = None
+    for layer in data.get("layers", []):
+        if not isinstance(layer, dict):
+            continue
+        media = str(layer.get("mediaType", ""))
+        digest = str(layer.get("digest", ""))
+        if not digest:
+            continue
+        if media.endswith(".model"):
+            model_blob = _blob_path(models_dir, digest)
+        elif media.endswith(".projector"):
+            mmproj_blob = _blob_path(models_dir, digest)
+    return (model_blob, mmproj_blob)
+
+
+def manifest_names(models_dir: Path) -> list[tuple[str, Path]]:
+    """Return ``(model:tag, manifest_path)`` for every manifest in the store."""
+    manifests_root = models_dir / "manifests"
+    if not manifests_root.is_dir():
+        return []
+    return [(_manifest_name(m, manifests_root), m) for m in sorted(manifests_root.rglob("*")) if m.is_file()]
+
+
 def build_card(name: str, manifest_path: Path, models_dir: Path) -> str:
     """Build a Modelfile-style model card from an Ollama manifest's text layers.
 

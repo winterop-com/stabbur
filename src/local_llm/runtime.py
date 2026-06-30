@@ -1,9 +1,12 @@
 """Launch a library model with the appropriate local runtime.
 
-Both runtimes expose an OpenAI-compatible API at ``http://<host>:<port>/v1``:
+Servers expose an OpenAI-compatible API at ``http://<host>:<port>/v1``:
 
-* **GGUF** → llama.cpp ``llama-server`` (cross-platform).
-* **MLX**  → ``mlx_lm.server`` (Apple Silicon).
+* **GGUF** → llama.cpp ``llama-server`` (cross-platform; also serves a built-in
+  web chat UI at the root URL).
+* **MLX**  → ``mlx_lm.server`` (Apple Silicon; API only, no web UI).
+
+Interactive terminal chat uses ``llama-cli -cnv`` (GGUF) or ``mlx_lm.chat`` (MLX).
 """
 
 import os
@@ -14,65 +17,67 @@ from local_llm.models import ModelFormat
 
 _INSTALL_HINTS = {
     "llama-server": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",
+    "llama-cli": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",
     "mlx_lm.server": "Install mlx-lm: `uv tool install mlx-lm` (Apple Silicon only).",
+    "mlx_lm.chat": "Install mlx-lm: `uv tool install mlx-lm` (Apple Silicon only).",
 }
 
 
-def _gguf_weights(model: LibraryModel) -> tuple[str, str | None]:
-    """Return ``(main_gguf, mmproj_gguf|None)`` for a GGUF model directory.
-
-    Picks the first shard for sharded models, else the largest file; any
-    ``mmproj-*`` projector is returned separately for multimodal models.
-    """
-    ggufs = sorted(model.path.glob("*.gguf"))
-    if not ggufs:
-        raise FileNotFoundError(f"No .gguf files in {model.path}")
-    mmproj = next((g for g in ggufs if g.name.lower().startswith("mmproj")), None)
-    weights = [g for g in ggufs if g != mmproj]
-    shard = next((g for g in weights if "00001-of-" in g.name), None)
-    main = shard or max(weights, key=lambda p: p.stat().st_size)
-    return str(main), (str(mmproj) if mmproj else None)
+def serves_web_ui(model: LibraryModel) -> bool:
+    """Whether this model's server provides a built-in web chat UI."""
+    return model.model_format is ModelFormat.gguf  # llama-server ships one
 
 
 def build_command(model: LibraryModel, host: str, port: int) -> list[str]:
-    """Build the server command line for ``model``.
-
-    Args:
-        model: The library model to serve.
-        host: Bind address.
-        port: Bind port.
-
-    Returns:
-        The argv list to exec.
+    """Build the OpenAI-compatible server command line for ``model``.
 
     Raises:
         ValueError: If the model's format has no known runtime.
     """
     if model.model_format is ModelFormat.gguf:
-        main, mmproj = _gguf_weights(model)
-        cmd = ["llama-server", "-m", main, "--host", host, "--port", str(port)]
-        if mmproj is not None:
-            cmd += ["--mmproj", mmproj]
+        cmd = ["llama-server", "-m", str(model.load_target), "--host", host, "--port", str(port)]
+        if model.mmproj is not None:
+            cmd += ["--mmproj", str(model.mmproj)]
         return cmd
     if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
-        return ["mlx_lm.server", "--model", str(model.path), "--host", host, "--port", str(port)]
+        return ["mlx_lm.server", "--model", str(model.load_target), "--host", host, "--port", str(port)]
     raise ValueError(f"No runtime for format {model.model_format.value!r}")
 
 
-def run(model: LibraryModel, host: str, port: int) -> None:
-    """Exec the runtime server for ``model`` (replaces the current process).
-
-    Args:
-        model: The library model to serve.
-        host: Bind address.
-        port: Bind port.
+def build_chat_command(model: LibraryModel) -> list[str]:
+    """Build the interactive terminal-chat command line for ``model``.
 
     Raises:
-        RuntimeError: If the required runtime binary is not installed.
+        ValueError: If the model's format has no known runtime.
     """
-    cmd = build_command(model, host, port)
+    if model.model_format is ModelFormat.gguf:
+        cmd = ["llama-cli", "-m", str(model.load_target), "-cnv"]
+        if model.mmproj is not None:
+            cmd += ["--mmproj", str(model.mmproj)]
+        return cmd
+    if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
+        return ["mlx_lm.chat", "--model", str(model.load_target)]
+    raise ValueError(f"No runtime for format {model.model_format.value!r}")
+
+
+def _exec(cmd: list[str]) -> None:
+    """Replace the current process with ``cmd`` after checking the binary exists.
+
+    Raises:
+        RuntimeError: If the binary is not on PATH.
+    """
     binary = cmd[0]
     if shutil.which(binary) is None:
         hint = _INSTALL_HINTS.get(binary, "")
         raise RuntimeError(f"{binary!r} not found on PATH. {hint}".strip())
     os.execvp(binary, cmd)
+
+
+def run(model: LibraryModel, host: str, port: int) -> None:
+    """Exec the runtime server for ``model`` (replaces the current process)."""
+    _exec(build_command(model, host, port))
+
+
+def chat(model: LibraryModel) -> None:
+    """Exec an interactive terminal chat for ``model`` (replaces the process)."""
+    _exec(build_chat_command(model))

@@ -3,12 +3,24 @@
 from typing import Annotated
 
 import typer
+from rich import box
+from rich.console import Console
+from rich.table import Table
 
 from local_llm import catalog as catalog_ops
 from local_llm import library as library_ops
 from local_llm import runtime
 from local_llm.config import get_settings
 from local_llm.models import ModelFormat, ModelSource, _human_size
+
+console = Console()
+
+_FORMAT_STYLE = {
+    ModelFormat.gguf: "cyan",
+    ModelFormat.mlx: "magenta",
+    ModelFormat.safetensors: "yellow",
+    ModelFormat.unknown: "dim",
+}
 
 app = typer.Typer(
     help="Browse, pull, and run local LLM models (Hugging Face, Ollama, LM Studio).",
@@ -25,24 +37,53 @@ FormatOption = Annotated[
 ]
 
 
+def _fmt_cell(model_format: ModelFormat) -> str:
+    """Render a format value with its color style."""
+    return f"[{_FORMAT_STYLE[model_format]}]{model_format.value}[/]"
+
+
+def _library_names() -> set[str]:
+    """Names of models already in the library, plus their bare repo/tag forms."""
+    names: set[str] = set()
+    for m in library_ops.scan():
+        names.add(m.name.lower())
+        names.add(m.name.rsplit("/", 1)[-1].lower())
+    return names
+
+
 @app.command("list")
 def list_models(source: SourceOption = None) -> None:
-    """List discovered models across sources."""
+    """List models available in local source stores (and whether each is pulled).
+
+    These are candidates to `llm pull` into the library; the IN LIBRARY column
+    shows which you already have. Use `llm library` to see the library itself.
+    """
     result = catalog_ops.list_models(source)
     if not result.entries:
-        typer.echo("No models found.")
+        console.print("No models found in local source stores.")
         return
 
-    src_w = max(len("SOURCE"), *(len(e.source.value) for e in result.entries))
-    fmt_w = max(len("FORMAT"), *(len(e.model_format.value) for e in result.entries))
-    header = f"{'SOURCE':<{src_w}}  {'FORMAT':<{fmt_w}}  {'SIZE':>10}  NAME"
-    typer.secho(header, bold=True)
-    typer.secho("-" * len(header), dim=True)
-    for entry in sorted(result.entries, key=lambda e: (e.source.value, e.name)):
-        typer.echo(
-            f"{entry.source.value:<{src_w}}  {entry.model_format.value:<{fmt_w}}  {entry.size_human:>10}  {entry.name}"
-        )
-    typer.echo(f"\n{len(result.entries)} models, {result.total_human} total")
+    lib = _library_names()
+
+    def in_library(name: str) -> bool:
+        return name.lower() in lib or name.rsplit("/", 1)[-1].lower() in lib
+
+    pulled = sum(1 for e in result.entries if in_library(e.name))
+    console.print(
+        f"\n[bold]{len(result.entries)} models[/] in local sources "
+        f"[dim]· {pulled} already in library · {len(result.entries) - pulled} to pull[/]\n"
+    )
+    for src in sorted({e.source for e in result.entries}, key=lambda s: s.value):
+        rows = sorted((e for e in result.entries if e.source is src), key=lambda e: e.name)
+        table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
+        table.add_column("IN LIBRARY", justify="center")
+        table.add_column("FORMAT")
+        table.add_column("SIZE", justify="right")
+        table.add_column("NAME", style="white")
+        for e in rows:
+            mark = "[green]✓[/]" if in_library(e.name) else "[dim]—[/]"
+            table.add_row(mark, _fmt_cell(e.model_format), e.size_human, e.name)
+        console.print(table)
 
 
 @app.command()
@@ -68,60 +109,103 @@ def pull(
 
 @app.command("library")
 def library_list() -> None:
-    """List models stored in the on-drive library."""
+    """List models stored in the on-drive library, grouped by format."""
+    root = get_settings().backup_root
     models = library_ops.scan()
     if not models:
-        typer.echo(f"Library is empty: {get_settings().backup_root}")
+        console.print(f"Library is empty: [dim]{root}[/]")
         return
 
-    fmt_w = max(len("FORMAT"), *(len(m.model_format.value) for m in models))
-    header = f"{'FORMAT':<{fmt_w}}  {'SIZE':>10}  NAME"
-    typer.secho(header, bold=True)
-    typer.secho("-" * len(header), dim=True)
-    for model in sorted(models, key=lambda m: (m.model_format.value, m.name)):
-        typer.echo(f"{model.model_format.value:<{fmt_w}}  {model.size_human:>10}  {model.name}")
     total = _human_size(sum(m.size_bytes for m in models))
-    typer.echo(f"\n{len(models)} models, {total} in {get_settings().backup_root}")
+    console.print(f"\n[bold]{len(models)} models[/], {total} in [dim]{root}[/]\n")
+    for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
+        rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
+        subtotal = _human_size(sum(m.size_bytes for m in rows))
+        title = f"[{_FORMAT_STYLE[fmt]}][bold]{fmt.value}[/][/]  [dim]{len(rows)} · {subtotal}[/]"
+        table = Table(box=box.SIMPLE_HEAD, title=title, title_justify="left", pad_edge=False)
+        table.add_column("SIZE", justify="right")
+        table.add_column("NAME", style="white")
+        for m in rows:
+            table.add_row(m.size_human, m.name)
+        console.print(table)
 
 
-@app.command()
-def run(
-    name: Annotated[str, typer.Argument(help="Library model name (full path or bare repo name).")],
-    model_format: FormatOption = None,
-    host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(help="Bind port.")] = 8080,
-) -> None:
-    """Serve a library model via its runtime (OpenAI-compatible API).
+def _resolve_library_model(name: str | None, model_format: ModelFormat | None) -> library_ops.LibraryModel:
+    """Resolve a library model by name, or (when name is None) via a Textual picker."""
+    if name is None:
+        from local_llm.tui import pick_model
 
-    GGUF runs on llama.cpp's llama-server; MLX runs on mlx_lm.server.
-    """
+        models = library_ops.scan()
+        if not models:
+            console.print(f"Library is empty: [dim]{get_settings().backup_root}[/]")
+            raise typer.Exit(1)
+        chosen = pick_model(models)
+        if chosen is None:
+            raise typer.Exit(0)  # cancelled
+        return chosen
+
     matches = library_ops.find(name, model_format=model_format)
     if not matches:
-        typer.secho(f"{name!r} is not in the library ({get_settings().backup_root}).", fg=typer.colors.RED, err=True)
-        # Hint if it exists in a local source store but hasn't been pulled yet.
+        console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().backup_root}[/]).")
         q = name.lower()
         in_sources = [
             e for e in catalog_ops.list_models().entries if q in (e.name.lower(), e.name.rsplit("/", 1)[-1].lower())
         ]
         if in_sources:
             src = in_sources[0].source.value
-            typer.secho(
-                f"It is in {src}; pull it first:  llm pull {src} {in_sources[0].name}", fg=typer.colors.YELLOW, err=True
-            )
+            console.print(f"[yellow]It is in {src}; pull it first:[/]  llm pull {src} {in_sources[0].name}")
         raise typer.Exit(1)
     if len(matches) > 1:
-        typer.secho(f"{name!r} is ambiguous; narrow with --format:", fg=typer.colors.YELLOW, err=True)
+        console.print(f"[yellow]{name!r} is ambiguous; narrow with --format:[/]")
         for m in matches:
-            typer.echo(f"  {m.model_format.value:<6} {m.name}", err=True)
+            console.print(f"  {m.model_format.value:<6} {m.name}")
         raise typer.Exit(1)
+    return matches[0]
 
-    model = matches[0]
-    typer.echo(f"Serving {model.model_format.value} {model.name}")
-    typer.echo(f"OpenAI endpoint: http://{host}:{port}/v1  (Ctrl-C to stop)")
+
+@app.command()
+def run(
+    name: Annotated[str | None, typer.Argument(help="Library model (omit to pick interactively).")] = None,
+    model_format: FormatOption = None,
+    host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Bind port.")] = 8080,
+) -> None:
+    """Serve a library model (OpenAI-compatible API + web chat UI for GGUF).
+
+    GGUF runs on llama.cpp's llama-server; MLX runs on mlx_lm.server.
+    """
+    model = _resolve_library_model(name, model_format)
+    console.print(f"\nServing [bold]{_fmt_cell(model.model_format)}[/] {model.name}")
+    if runtime.serves_web_ui(model):
+        console.print(f"  Chat UI:     [link=http://{host}:{port}]http://{host}:{port}[/]")
+    else:
+        console.print("  Chat UI:     [dim]none for MLX — use[/] llm chat")
+    console.print(f"  OpenAI API:  http://{host}:{port}/v1")
+    console.print("  [dim]Ctrl-C to stop[/]\n")
     try:
         runtime.run(model, host, port)
     except RuntimeError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+
+@app.command()
+def chat(
+    name: Annotated[str | None, typer.Argument(help="Library model (omit to pick interactively).")] = None,
+    model_format: FormatOption = None,
+) -> None:
+    """Open an interactive terminal chat with a library model.
+
+    GGUF uses llama.cpp's llama-cli; MLX uses mlx_lm.chat.
+    """
+    model = _resolve_library_model(name, model_format)
+    console.print(
+        f"Chatting with [bold]{_fmt_cell(model.model_format)}[/] {model.name}  [dim](Ctrl-C / Ctrl-D to exit)[/]"
+    )
+    try:
+        runtime.chat(model)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
 
 
@@ -133,6 +217,11 @@ def serve(
     import uvicorn
 
     settings = get_settings()
+    base = f"http://{settings.host}:{settings.port}"
+    console.print("\n[bold]local-llm browse API[/]")
+    console.print(f"  API:      [link={base}]{base}[/]")
+    console.print(f"  Docs:     [link={base}/docs]{base}/docs[/]")
+    console.print("  [dim]Ctrl-C to stop[/]\n")
     uvicorn.run(
         "local_llm.app:app",
         host=settings.host,
