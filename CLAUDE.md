@@ -198,6 +198,10 @@ The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace)
 
 ## Open / next ideas
 
+- **`llm init`** — offer a curated set of **2–3** tiny starter models (a compact
+  GGUF, an MLX build for Apple Silicon, a tool-capable model for the agent/MCP
+  path) and pull the chosen ones. The list is versioned in-repo so a fresh clone
+  has a zero-to-chatting on-ramp: clone → `llm init` → `llm run`.
 - Refactor toward the format-centric shared library above (the big one).
 - `make check` is the CI gate (read-only); `make lint` mutates locally.
 - Auto-fetch HF model cards for LM Studio models (infer repo from path).

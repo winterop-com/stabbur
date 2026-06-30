@@ -33,6 +33,19 @@ local models:
    against the locked `/v1`.
 3. **Later** — extension page-context, then page-actions via `dhis2w-browser`.
 
+## Curated starter models (`llm init`)
+
+A fresh clone has an empty library and no obvious starting point. `llm init` will
+offer a small **curated set of 2–3 models** to try out — kept deliberately tiny,
+e.g. a compact GGUF for any machine, an MLX build for Apple Silicon, and a
+tool-capable model for the agent/MCP path — and pull the chosen ones into the
+library.
+
+- The curated list lives in-repo (versioned), so "what's worth trying" travels
+  with the project and stays current.
+- `llm init` is the zero-to-chatting on-ramp: clone → `llm init` → `llm run`.
+- Just 2–3 entries, clearly labelled by use case and footprint, quick to pull.
+
 ## One SPA, many surfaces
 
 The chat UI is built once and wrapped:
