@@ -4,7 +4,7 @@ The library is the on-drive home for your models, under `KODO_BACKUP_ROOT`.
 List it with:
 
 ```bash
-kodo library
+kodo ls
 ```
 
 ## Layout

@@ -10,7 +10,7 @@ from typing import Any
 
 from huggingface_hub import scan_cache_dir, snapshot_download
 
-from kodo import cards
+from kodo import arch, cards
 from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
 from kodo.sources.base import dir_stats
 
@@ -46,11 +46,14 @@ def list_models() -> list[ModelEntry]:
     for repo in cache.repos:
         if repo.repo_type != "model":
             continue  # skip datasets (e.g. mnist) and spaces — not models
+        model_format = _classify(repo)
+        snapshot = next((Path(rev.snapshot_path) for rev in repo.revisions), Path(repo.repo_path))
         entries.append(
             ModelEntry(
                 source=ModelSource.huggingface,
                 name=repo.repo_id,
-                model_format=_classify(repo),
+                model_format=model_format,
+                generative=arch.is_generative(model_format, snapshot),
                 path=Path(repo.repo_path),
                 size_bytes=repo.size_on_disk,
                 file_count=sum(len(rev.files) for rev in repo.revisions),

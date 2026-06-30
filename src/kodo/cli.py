@@ -52,57 +52,31 @@ def _library_names() -> set[str]:
 
 
 @app.command("list")
-def list_models(
-    source: SourceOption = None,
-    show_all: Annotated[bool, typer.Option("--all", "-a", help="Include partial / no-weight cache entries.")] = False,
-) -> None:
-    """Show models in your other apps' caches (HF / Ollama / LM Studio) to pull.
+def list_models() -> None:
+    """List the models in your library — what you've pulled, ready to run.
 
-    These are *candidates* to `kodo pull` into your library — the IN LIBRARY
-    column marks what you already have. Run `kodo library` to see your actual
-    (runnable) library. Partial downloads and no-weight cache entries are hidden
-    unless you pass --all.
+    The library lives on your drive (``KODO_BACKUP_ROOT``). To browse models in
+    your app caches that you *could* pull, use ``kodo sources``.
     """
-    entries = catalog_ops.list_models(source).entries
-    # A real pullable model has weight files (a known format); `unknown` means
-    # only config/tokenizer/metadata is cached (partial) — hide it by default.
-    runnable = [e for e in entries if e.model_format is not ModelFormat.unknown]
-    hidden = len(entries) - len(runnable)
-    shown = entries if show_all else runnable
-    if not shown:
-        console.print("No models found in local source caches.")
-        if hidden:
-            console.print(f"[dim]({hidden} partial / no-weight entries — use --all to see them)[/]")
+    root = get_settings().backup_root
+    models = [m for m in library_ops.scan() if m.generative]
+    if not models:
+        console.print(f"Your library is empty: [dim]{root}[/]")
+        console.print("[dim]Pull one with[/] kodo pull [dim]· browse candidates with[/] kodo sources")
         return
 
-    lib = _library_names()
-
-    def in_library(name: str) -> bool:
-        return name.lower() in lib or name.rsplit("/", 1)[-1].lower() in lib
-
-    pulled = sum(1 for e in shown if in_library(e.name))
-    shown_total = _human_size(sum(e.size_bytes for e in shown))
-    console.print(
-        f"\n[bold]{len(shown)} models · {shown_total}[/] in local app caches "
-        f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
-    )
-    console.print(
-        "[dim]These are caches on this machine (e.g. ~/.cache/huggingface), not your library.[/]\n"
-        f"[dim]Your library lives at[/] {get_settings().backup_root} [dim]— see[/] kodo library.\n"
-    )
-    for src in sorted({e.source for e in shown}, key=lambda s: s.value):
-        rows = sorted((e for e in shown if e.source is src), key=lambda e: e.name)
-        table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
-        table.add_column("IN LIBRARY", justify="center")
-        table.add_column("FORMAT")
+    total = _human_size(sum(m.size_bytes for m in models))
+    console.print(f"\n[bold]{len(models)} models · {total}[/] in your library [dim]{root}[/]\n")
+    for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
+        rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
+        subtotal = _human_size(sum(m.size_bytes for m in rows))
+        title = f"[{_FORMAT_STYLE[fmt]}][bold]{fmt.value}[/][/]  [dim]{len(rows)} · {subtotal}[/]"
+        table = Table(box=box.SIMPLE_HEAD, title=title, title_justify="left", pad_edge=False)
         table.add_column("SIZE", justify="right")
         table.add_column("NAME", style="white")
-        for e in rows:
-            mark = "[green]✓[/]" if in_library(e.name) else "[dim]—[/]"
-            table.add_row(mark, _fmt_cell(e.model_format), e.size_human, e.name)
+        for m in rows:
+            table.add_row(m.size_human, m.name)
         console.print(table)
-    if hidden and not show_all:
-        console.print(f"\n[dim]{hidden} partial / no-weight cache entries hidden — use --all to show them.[/]")
 
 
 # Hidden short alias: `kodo ls` == `kodo list`.
@@ -130,48 +104,99 @@ def pull(
     typer.echo(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")
 
 
-@app.command("library")
-def library_list() -> None:
-    """List models stored in the on-drive library, grouped by format."""
-    root = get_settings().backup_root
-    models = library_ops.scan()
-    if not models:
-        console.print(f"Library is empty: [dim]{root}[/]")
+@app.command()
+def sources(
+    source: SourceOption = None,
+    show_all: Annotated[bool, typer.Option("--all", "-a", help="Include embedding/vision/partial entries.")] = False,
+) -> None:
+    """Browse models in your app caches (HF / Ollama / LM Studio) you can pull.
+
+    These live in caches on this machine (e.g. ~/.cache/huggingface) — *not* your
+    library. The IN LIBRARY column marks what you've already pulled; pull leftover
+    local models onto the drive with ``kodo pull --move`` to free local disk.
+    Non-chat (embedding/vision) and partial entries are hidden unless ``--all``.
+    """
+    entries = catalog_ops.list_models(source).entries
+    chat_models = [e for e in entries if e.generative]
+    hidden = len(entries) - len(chat_models)
+    shown = entries if show_all else chat_models
+    if not shown:
+        console.print("No chat models found in local app caches.")
+        if hidden:
+            console.print(f"[dim]({hidden} embedding / vision / partial entries — use --all to see them)[/]")
         return
 
-    total = _human_size(sum(m.size_bytes for m in models))
-    console.print(f"\n[bold]{len(models)} models[/], {total} in [dim]{root}[/]\n")
-    for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
-        rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
-        subtotal = _human_size(sum(m.size_bytes for m in rows))
-        title = f"[{_FORMAT_STYLE[fmt]}][bold]{fmt.value}[/][/]  [dim]{len(rows)} · {subtotal}[/]"
-        table = Table(box=box.SIMPLE_HEAD, title=title, title_justify="left", pad_edge=False)
+    lib = _library_names()
+
+    def in_library(name: str) -> bool:
+        return name.lower() in lib or name.rsplit("/", 1)[-1].lower() in lib
+
+    pulled = sum(1 for e in shown if in_library(e.name))
+    shown_total = _human_size(sum(e.size_bytes for e in shown))
+    console.print(
+        f"\n[bold]{len(shown)} models · {shown_total}[/] in local app caches "
+        f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
+    )
+    console.print("[dim]Caches on this machine, not your library — see[/] kodo list [dim]for your library.[/]\n")
+    for src in sorted({e.source for e in shown}, key=lambda s: s.value):
+        rows = sorted((e for e in shown if e.source is src), key=lambda e: e.name)
+        table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
+        table.add_column("IN LIBRARY", justify="center")
+        table.add_column("FORMAT")
         table.add_column("SIZE", justify="right")
         table.add_column("NAME", style="white")
-        for m in rows:
-            table.add_row(m.size_human, m.name)
+        if show_all:
+            table.add_column("CHAT?", justify="center")
+        for e in rows:
+            mark = "[green]✓[/]" if in_library(e.name) else "[dim]—[/]"
+            extra = (["[green]chat[/]" if e.generative else "[dim]no[/]"]) if show_all else []
+            table.add_row(mark, _fmt_cell(e.model_format), e.size_human, e.name, *extra)
         console.print(table)
+    if hidden and not show_all:
+        console.print(
+            f"\n[dim]{hidden} non-chat (embedding/vision) or partial entries hidden — use --all to show them.[/]"
+        )
+
+
+def _not_chat_msg(name: str, model_format: ModelFormat) -> str:
+    return f"[red]{name!r} is not a chat model[/] ({model_format.value}) — kodo runs generative LLMs only."
 
 
 def _resolve_library_model(name: str, model_format: ModelFormat | None) -> library_ops.LibraryModel:
-    """Resolve a single library model by name, or exit with a helpful message."""
+    """Resolve a generative library model by name, or exit with a helpful message."""
     matches = library_ops.find(name, model_format=model_format)
     if not matches:
-        console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().backup_root}[/]).")
         q = name.lower()
         in_sources = [
             e for e in catalog_ops.list_models().entries if q in (e.name.lower(), e.name.rsplit("/", 1)[-1].lower())
         ]
-        if in_sources:
-            src = in_sources[0].source.value
-            console.print(f"[yellow]It is in {src}; pull it first:[/]  kodo pull {src} {in_sources[0].name}")
+        hit = in_sources[0] if in_sources else None
+        if hit and not hit.generative:
+            console.print(_not_chat_msg(hit.name, hit.model_format))
+        elif hit:
+            console.print(
+                f"[yellow]{name!r} is not in your library yet — pull it first:[/]  "
+                f"kodo pull {hit.source.value} {hit.name}"
+            )
+        else:
+            console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().backup_root}[/]).")
         raise typer.Exit(1)
     if len(matches) > 1:
         console.print(f"[yellow]{name!r} is ambiguous; narrow with --format:[/]")
         for m in matches:
             console.print(f"  {m.model_format.value:<6} {m.name}")
         raise typer.Exit(1)
-    return matches[0]
+    model = matches[0]
+    if not model.generative:
+        console.print(_not_chat_msg(model.name, model.model_format))
+        raise typer.Exit(1)
+    if model.is_ollama:
+        # Ollama's GGUFs (e.g. gemma3) don't load in stock llama.cpp — run via Ollama.
+        store = get_settings().backup_root / "ollama"
+        console.print(f"[red]{model.name!r} is an Ollama model[/] — kodo runs GGUF/MLX, not Ollama's format.")
+        console.print(f"[yellow]Run it with Ollama:[/]  OLLAMA_MODELS={store} ollama run {model.name}")
+        raise typer.Exit(1)
+    return model
 
 
 @app.command()
@@ -210,11 +235,11 @@ def chat(
     model_format: FormatOption = None,
     max_tokens: Annotated[int | None, typer.Option("--max-tokens", "-n", help="Cap generated tokens.")] = None,
 ) -> None:
-    """Chat with a library model: interactive by default, one-shot with ``-p``.
+    """Chat with a library model: a clean streaming REPL, or one-shot with ``-p``.
 
-    ``kodo chat <model>`` opens an interactive session; ``kodo chat <model> -p "..."``
-    prints only the completion to stdout (pipeable). Interactive uses llama.cpp's
-    llama-cli (GGUF) or mlx_lm.chat (MLX).
+    ``kodo chat <model>`` opens an interactive REPL; ``kodo chat <model> -p "..."``
+    prints only the completion to stdout (pipeable). Both talk to the model's
+    OpenAI ``/v1`` — same clean path for GGUF and MLX.
     """
     model = _resolve_library_model(name, model_format)
     try:
@@ -222,10 +247,7 @@ def chat(
             # Scripted: print only the reply to stdout (errors go to stderr).
             print(runtime.generate(model, prompt, max_tokens))  # noqa: T201
         else:
-            console.print(
-                f"Chatting with [bold]{_fmt_cell(model.model_format)}[/] {model.name}  [dim](Ctrl-C to exit)[/]"
-            )
-            runtime.chat(model)
+            runtime.chat_repl(model, max_tokens)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc

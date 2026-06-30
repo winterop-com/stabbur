@@ -10,7 +10,7 @@ top-level format directory (``gguf/`` or ``mlx/``).
 import shutil
 from pathlib import Path
 
-from kodo import cards
+from kodo import arch, cards
 from kodo.config import get_settings
 from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
 from kodo.sources.base import copy_tree, dir_stats
@@ -53,11 +53,13 @@ def list_models(models_dir: Path | None = None) -> list[ModelEntry]:
     entries: list[ModelEntry] = []
     for model_dir in _model_dirs(root):
         size_bytes, file_count = dir_stats(model_dir)
+        model_format = _classify(model_dir)
         entries.append(
             ModelEntry(
                 source=ModelSource.lmstudio,
                 name=model_dir.relative_to(root).as_posix(),
-                model_format=_classify(model_dir),
+                model_format=model_format,
+                generative=arch.is_generative(model_format, model_dir),
                 path=model_dir,
                 size_bytes=size_bytes,
                 file_count=file_count,

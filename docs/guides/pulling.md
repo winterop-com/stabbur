@@ -13,13 +13,13 @@ kodo pull ollama gemma4:31b
 ## See what's available vs already pulled
 
 ```bash
-kodo list
+kodo sources
 ```
 
-`kodo list` shows models in your local source stores with an **IN LIBRARY** column
+`kodo sources` shows models in your app caches with an **IN LIBRARY** column
 (✓ = already pulled) and a summary like `12 models · 3 already in library · 9 to
-pull`. It's the "what can I pull" view; [`kodo library`](library.md) is the "what
-do I have" view.
+pull`. It's the "what can I pull" view; [`kodo list`](library.md) is the "what
+do I have" (your library) view.
 
 ## Move instead of copy
 
@@ -39,5 +39,5 @@ kodo pull ollama gemma4:31b --move      # preserves blobs shared with other mode
 ## Per-format destinations
 
 LM Studio and HF land in the format-centric layout (`gguf/`, `mlx/`, …); Ollama
-keeps its native store. Either way the model shows up in `kodo library` and is
+keeps its native store. Either way the model shows up in `kodo list` and is
 runnable. See [The library](library.md) for the full layout.

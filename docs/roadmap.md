@@ -75,7 +75,7 @@ one on-ramp.
 
 ## Discovering models (`kodo search`)
 
-`kodo list` shows what's already in your local source stores; `kodo search
+`kodo sources` shows what's already in your local app caches; `kodo search
 <query>` will find **new** models to pull — querying the Hugging Face Hub
 (filtered to GGUF/MLX, sortable by downloads/likes/size) and surfacing results you
 can `kodo pull` directly. Closes the loop: discover → pull → run, without leaving

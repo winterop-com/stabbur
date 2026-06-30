@@ -52,6 +52,9 @@ docstring-code-line-length = "dynamic"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "__pycache__"]
+markers = [
+  "slow: live end-to-end tests that start a real runtime (deselect with -m 'not slow')",
+]
 
 [tool.coverage.run]
 branch = true

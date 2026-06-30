@@ -26,12 +26,12 @@ flowchart LR
 
 ```bash
 uv sync
-kodo list                       # what's in your local source stores
-kodo pull lmstudio <name>       # copy a model into the library (--move to relocate)
-kodo library                    # what's in the library
+kodo list                       # your library (the models on your drive)
+kodo sources                    # models in app caches you could pull
+kodo pull lmstudio <name>       # pull one into the library (--move to relocate)
 kodo run <name>                 # serve it: OpenAI /v1 + (for GGUF) a web chat UI
 kodo chat <name> -p "hello"     # one-shot, scriptable answer
-make run MODEL=<name>          # backend + browser UI, locked to one model
+make run MODEL=<name>           # backend + browser UI, locked to one model
 ```
 
 Start at [Getting started](getting-started.md), or jump to the

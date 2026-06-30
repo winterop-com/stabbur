@@ -47,6 +47,9 @@ class ModelEntry(BaseModel):
     """Repo id (HF), ``model:tag`` (Ollama), or folder/file name (LM Studio)."""
 
     model_format: ModelFormat = ModelFormat.unknown
+    generative: bool = True
+    """Whether this is a generative chat LLM (vs an embedding/vision encoder)."""
+
     path: Path
     """Absolute path to the model on the local filesystem."""
 

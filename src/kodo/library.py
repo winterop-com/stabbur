@@ -14,6 +14,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, computed_field
 
+from kodo import arch
 from kodo.config import get_settings
 from kodo.models import ModelFormat, _human_size
 from kodo.sources import ollama
@@ -31,6 +32,12 @@ class LibraryModel(BaseModel):
 
     name: str
     model_format: ModelFormat
+    generative: bool = True
+    """Whether this is a generative chat LLM (vs an embedding/vision encoder)."""
+
+    is_ollama: bool = False
+    """True if this lives in the Ollama store — runnable only via Ollama, not kodo."""
+
     path: Path
     """Where the model lives (a directory, or the Ollama manifest)."""
 
@@ -120,6 +127,7 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
             LibraryModel(
                 name=_clean_name(model_dir.relative_to(base)),
                 model_format=fmt,
+                generative=arch.is_generative(fmt, model_dir),
                 path=model_dir,
                 load_target=load_target,
                 mmproj=mmproj,
@@ -143,6 +151,7 @@ def _scan_ollama(base: Path) -> list[LibraryModel]:
             LibraryModel(
                 name=name,
                 model_format=ModelFormat.gguf,
+                is_ollama=True,
                 path=manifest,
                 load_target=model_blob,
                 mmproj=mmproj_blob,

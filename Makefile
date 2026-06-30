@@ -1,4 +1,4 @@
-.PHONY: help install lint check test coverage run dev serve build docs docs-serve docs-build clean
+.PHONY: help install lint check test test-slow coverage build docs docs-serve docs-build clean
 
 # ==============================================================================
 # Venv
@@ -21,9 +21,6 @@ help:
 	@echo "  check       CI gate: verify formatting/lint/types/tests (no changes)"
 	@echo "  test        Run tests"
 	@echo "  coverage    Run tests with coverage reporting"
-	@echo "  run         Start backend + UI (use MODEL=<name> to lock to one model)"
-	@echo "  dev         Run the API with auto-reload"
-	@echo "  serve       Run the API (no reload)"
 	@echo "  build       Build wheel + sdist"
 	@echo "  docs        Serve the docs locally with live reload"
 	@echo "  docs-build  Build the docs site"
@@ -48,32 +45,22 @@ check:
 	@echo ">>> Running type checker"
 	@$(UV) run mypy --explicit-package-bases src tests
 	@$(UV) run pyright
-	@echo ">>> Running tests"
-	@$(UV) run pytest -q
+	@echo ">>> Running tests (excluding slow)"
+	@$(UV) run pytest -q -m "not slow"
 
 test:
-	@echo ">>> Running tests"
-	@$(UV) run pytest -q
+	@echo ">>> Running tests (excluding slow)"
+	@$(UV) run pytest -q -m "not slow"
+
+test-slow:
+	@echo ">>> Running slow live e2e (needs llama-server + a library model)"
+	@$(UV) run pytest -q -m slow -s
 
 coverage:
-	@echo ">>> Running tests with coverage"
-	@$(UV) run coverage run -m pytest -q
+	@echo ">>> Running tests with coverage (excluding slow)"
+	@$(UV) run coverage run -m pytest -q -m "not slow"
 	@$(UV) run coverage report
 	@$(UV) run coverage xml
-
-# make run               → backend + UI, free model switching
-# make run MODEL=<name>  → backend + UI locked to one model (extension backend)
-run:
-	@echo ">>> Starting backend + UI$(if $(MODEL), (locked: $(MODEL)),)"
-	@$(UV) run local-llm serve --ui $(if $(MODEL),--model $(MODEL),)
-
-dev:
-	@echo ">>> Starting dev server (fastapi dev, auto-reload)"
-	@$(UV) run fastapi dev src/kodo/app.py
-
-serve:
-	@echo ">>> Starting server"
-	@$(UV) run local-llm serve
 
 build:
 	@echo ">>> Building wheel + sdist"

@@ -184,14 +184,9 @@ def test_library_finds_ollama_native(tmp_path: Path) -> None:
     assert models[0].load_target.name == "sha256-model"
 
 
-def test_runtime_chat_command(tmp_path: Path) -> None:
+def test_serves_web_ui(tmp_path: Path) -> None:
     _make_library(tmp_path)
     gguf = library.find("Model-GGUF", root=tmp_path)[0]
     mlx = library.find("Model-MLX", root=tmp_path)[0]
-
-    assert runtime.build_chat_command(gguf)[0] == "llama-cli"
-    assert "--conversation" in runtime.build_chat_command(gguf)
-    assert runtime.build_chat_command(mlx)[0] == "mlx_lm.chat"
-
     assert runtime.serves_web_ui(gguf) is True
     assert runtime.serves_web_ui(mlx) is False

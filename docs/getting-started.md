@@ -34,9 +34,10 @@ See [The library](guides/library.md) for storage/filesystem notes.
 ## First run
 
 ```bash
-kodo list                                   # models in your local source stores
-kodo pull lmstudio lmstudio-community/...    # copy one into the library
-kodo library                                 # confirm it's in the library
+kodo list                                   # your library (empty at first)
+kodo sources                                # models in app caches you could pull
+kodo pull lmstudio lmstudio-community/...    # pull one into the library
+kodo list                                   # now it's in your library
 kodo run lmstudio-community/...              # serve it (open the printed Chat UI link)
 ```
 

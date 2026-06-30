@@ -30,13 +30,13 @@ uv sync
 ## CLI
 
 ```bash
-kodo list                     # what's in the local source stores (HF/Ollama/LM Studio)
-kodo list -s ollama           # filter by source
+kodo list                     # your library (the models on your drive)
+kodo sources                  # models in app caches (HF/Ollama/LM Studio) you could pull
 kodo pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
 kodo pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
-kodo library                  # what's in the on-drive library
 kodo run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, MLX→mlx_lm
-kodo serve                    # start the FastAPI browse API
+kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"   # one-shot, scriptable
+kodo serve --ui               # browser UI over your library
 ```
 
 Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
