@@ -9,8 +9,10 @@ make run                             # same, via the Makefile
 make run MODEL=<name>                # locked to one model (see below)
 ```
 
-The SPA is built to `frontend/dist` and mounted at `/` (API routes take
-precedence). If it isn't built yet, the API still runs and `serve --ui` says so.
+The SPA (built to `frontend/dist`) is served via FastAPI's first-party
+`app.frontend()` with `fallback="index.html"`, so client-side routes resolve to
+the SPA while API path operations still match first. If it isn't built yet, the
+API still runs and `serve --ui` says so.
 
 ## Single-origin proxy
 

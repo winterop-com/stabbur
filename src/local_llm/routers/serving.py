@@ -1,9 +1,9 @@
 """Model lifecycle + OpenAI `/v1` proxy for the browser UI."""
 
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -26,15 +26,16 @@ class ServerStatus(BaseModel):
     locked: bool = False
 
 
-def _manager(request: Request) -> ServerManager:
+def get_manager(request: Request) -> ServerManager:
+    """Dependency: the app's singleton runtime manager."""
     manager: ServerManager = request.app.state.manager
     return manager
 
 
-@router.get("/api/status")
-async def status(request: Request) -> ServerStatus:
-    """Report the loaded model and runtime state."""
-    manager = _manager(request)
+ManagerDep = Annotated[ServerManager, Depends(get_manager)]
+
+
+async def _status(manager: ServerManager) -> ServerStatus:
     current = manager.current
     return ServerStatus(
         state=(await manager.state()).value,
@@ -43,8 +44,14 @@ async def status(request: Request) -> ServerStatus:
     )
 
 
+@router.get("/api/status")
+async def status(manager: ManagerDep) -> ServerStatus:
+    """Report the loaded model and runtime state."""
+    return await _status(manager)
+
+
 @router.post("/api/load/{name:path}")
-async def load(name: str, request: Request) -> ServerStatus:
+async def load(name: str, manager: ManagerDep) -> ServerStatus:
     """Load (or switch to) a model by name; rejected in locked mode."""
     if get_settings().serve_model is not None:
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
@@ -54,16 +61,15 @@ async def load(name: str, request: Request) -> ServerStatus:
     if len(matches) > 1:
         raise HTTPException(status_code=409, detail=f"{name!r} is ambiguous across formats")
     try:
-        _manager(request).load(matches[0])
+        manager.load(matches[0])
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return await status(request)
+    return await _status(manager)
 
 
 @router.api_route("/v1/{path:path}", methods=["GET", "POST"])
-async def proxy_v1(path: str, request: Request) -> StreamingResponse:
+async def proxy_v1(path: str, request: Request, manager: ManagerDep) -> StreamingResponse:
     """Stream-proxy OpenAI `/v1/*` calls to the loaded runtime."""
-    manager = _manager(request)
     if manager.current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
 

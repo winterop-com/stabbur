@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from local_llm import library as library_ops
 from local_llm.config import Settings, get_settings
@@ -57,10 +56,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(catalog.router)
     app.include_router(serving.router)
 
-    # Serve the SPA at the root when enabled and built (API routes registered
-    # above take precedence; this is the catch-all for the browser UI).
+    # Serve the SPA via FastAPI's first-party frontend() when enabled and built.
+    # API path operations are matched first; fallback="index.html" supports the
+    # SPA's client-side routing.
     if settings.serve_ui and settings.frontend_dir.is_dir():
-        app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="ui")
+        app.frontend("/", directory=str(settings.frontend_dir), fallback="index.html")
 
     return app
 
