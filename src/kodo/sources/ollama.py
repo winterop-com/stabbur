@@ -6,13 +6,35 @@ addressed blobs (``blobs/sha256-...``). Listing reads the manifests; backing
 up copies a manifest together with the blobs it references.
 """
 
+import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 
 from kodo import cards
 from kodo.config import get_settings
 from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
+
+# Ollama blob digests are content-addressed: "sha256:" + the sha256 hex of the blob.
+_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _expected_hex(digest: str, name: str) -> str:
+    """Return the hex of a well-formed ``sha256:<hex>`` digest, or raise if malformed."""
+    if not _DIGEST_RE.match(digest):
+        raise ValueError(f"Ollama manifest for {name!r} has a malformed blob digest: {digest!r}")
+    return digest.split(":", 1)[1]
+
+
+def _sha256_hex(path: Path) -> str:
+    """Stream the sha256 hex of a file in bounded memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 # Text layers worth extracting as instructions, in display order.
 _CARD_LAYERS = {
@@ -262,9 +284,11 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
             "refusing to back up a corrupt manifest"
         )
 
-    # Validate the whole set is present BEFORE writing anything, so a missing blob
-    # can never leave a manifest in the backup pointing at absent content.
+    # Validate digest format and presence BEFORE writing anything: a malformed
+    # digest must be rejected before it reaches _blob_path(), and a missing blob
+    # must never leave a manifest in the backup pointing at absent content.
     for digest in digests:
+        _expected_hex(digest, name)
         blob = _blob_path(root, digest)
         if not blob.is_file():
             raise FileNotFoundError(
@@ -272,23 +296,28 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
                 f"({blob}); the source is incomplete, refusing to write a partial backup"
             )
 
-    # Copy blobs FIRST, each atomically (temp file + rename) and size-checked, so
-    # a partial blob is never published and the manifest — the file that references
-    # them — is only written after every blob is present. A failure mid-copy (disk
-    # full, drive unplugged) thus can't leave a manifest pointing at missing content.
+    # Copy blobs FIRST, each atomically (temp file + rename) and content-verified,
+    # so a partial or corrupt blob is never published and the manifest — the file
+    # that references them — is only written after every blob is present and its
+    # sha256 matches its digest. A failure mid-copy (disk full, drive unplugged)
+    # thus can't leave a manifest pointing at missing/corrupt content.
     blobs_dir = dest_root / "blobs"
     blobs_dir.mkdir(parents=True, exist_ok=True)
     size_bytes = 0
     file_count = 0
     for digest in digests:
+        expected = _expected_hex(digest, name)
         blob = _blob_path(root, digest)
         dest_blob = blobs_dir / blob.name
-        if not (dest_blob.is_file() and dest_blob.stat().st_size == blob.stat().st_size):
+        # Content-addressed: reuse an existing dest only if its sha256 matches (size
+        # alone can't catch a same-size corrupt backup); verify fresh copies too,
+        # which also catches a corrupt source blob.
+        if not (dest_blob.is_file() and _sha256_hex(dest_blob) == expected):
             tmp_blob = blobs_dir / f".{blob.name}.partial"
             try:
                 shutil.copy2(blob, tmp_blob)
-                if tmp_blob.stat().st_size != blob.stat().st_size:
-                    raise OSError(f"short copy of Ollama blob {digest} for {name!r}")
+                if _sha256_hex(tmp_blob) != expected:
+                    raise OSError(f"checksum mismatch for Ollama blob {digest} of {name!r} (corrupt source or copy)")
                 tmp_blob.replace(dest_blob)  # atomic publish
             except OSError:
                 tmp_blob.unlink(missing_ok=True)

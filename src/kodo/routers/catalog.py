@@ -8,14 +8,18 @@ from kodo.models import Catalog, ModelSource, PullResult
 router = APIRouter(prefix="/models", tags=["models"])
 
 
+# These handlers are deliberately sync (`def`, not `async def`): catalog scans
+# filesystem trees and pulls do large disk copies / snapshot_download. FastAPI runs
+# sync path operations in a worker thread, so they never block the event loop and
+# stall unrelated status/proxy traffic.
 @router.get("")
-async def list_models(source: ModelSource | None = None) -> Catalog:
+def list_models(source: ModelSource | None = None) -> Catalog:
     """List discovered models, optionally filtered to a single source."""
     return catalog.list_models(source)
 
 
 @router.post("/{source}/pull")
-async def pull_model(source: ModelSource, name: str) -> PullResult:
+def pull_model(source: ModelSource, name: str) -> PullResult:
     """Pull a single model from ``source`` into the library.
 
     Args:

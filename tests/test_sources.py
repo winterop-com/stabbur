@@ -1,5 +1,6 @@
 """Tests for the source-store adapters against synthetic stores."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -11,21 +12,31 @@ from kodo.models import ModelFormat, ModelSource
 from kodo.sources import base, lmstudio, ollama
 
 
-def _make_ollama_store(root: Path) -> None:
-    """Create a minimal Ollama-style store with one model:tag and a blob."""
-    blob_digest = "sha256:abc123"
-    blob = root / "blobs" / blob_digest.replace(":", "-")
-    blob.parent.mkdir(parents=True)
-    blob.write_bytes(b"x" * 2048)
+def _add_blob(store: Path, content: bytes) -> str:
+    """Write a content-addressed Ollama blob and return its ``sha256:<hex>`` digest."""
+    hex_ = hashlib.sha256(content).hexdigest()
+    (store / "blobs").mkdir(parents=True, exist_ok=True)
+    (store / "blobs" / f"sha256-{hex_}").write_bytes(content)
+    return f"sha256:{hex_}"
 
+
+def _blob_name(digest: str) -> str:
+    """The on-disk blob filename for a ``sha256:<hex>`` digest."""
+    return digest.replace(":", "-")
+
+
+def _make_ollama_store(root: Path) -> str:
+    """Create a minimal Ollama-style store with one model:tag; return the blob digest."""
+    digest = _add_blob(root, b"x" * 2048)
     manifest = root / "manifests" / "registry.ollama.ai" / "library" / "llama3" / "latest"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text(json.dumps({"layers": [{"digest": blob_digest, "size": 2048}]}))
+    manifest.write_text(json.dumps({"layers": [{"digest": digest, "size": 2048}]}))
+    return digest
 
 
 def test_ollama_list_and_backup(tmp_path: Path) -> None:
     store = tmp_path / "ollama"
-    _make_ollama_store(store)
+    digest = _make_ollama_store(store)
 
     entries = ollama.list_models(models_dir=store)
     assert len(entries) == 1
@@ -37,7 +48,7 @@ def test_ollama_list_and_backup(tmp_path: Path) -> None:
     library_root = tmp_path / "backup"
     result = ollama.pull("llama3:latest", library_root, models_dir=store)
     assert result.file_count == 2  # manifest + blob
-    assert (library_root / "ollama" / "blobs" / "sha256-abc123").is_file()
+    assert (library_root / "ollama" / "blobs" / _blob_name(digest)).is_file()
 
 
 def _write_ollama_manifest(store: Path, model: str, digests: list[str]) -> None:
@@ -49,21 +60,45 @@ def _write_ollama_manifest(store: Path, model: str, digests: list[str]) -> None:
 
 def test_ollama_move_preserves_shared_blobs(tmp_path: Path) -> None:
     store = tmp_path / "ollama"
-    (store / "blobs").mkdir(parents=True)
-    (store / "blobs" / "sha256-shared").write_bytes(b"s" * 100)
-    (store / "blobs" / "sha256-uniq").write_bytes(b"u" * 200)
-    _write_ollama_manifest(store, "modelA", ["sha256:shared", "sha256:uniq"])
-    _write_ollama_manifest(store, "modelB", ["sha256:shared"])
+    shared = _add_blob(store, b"s" * 100)
+    uniq = _add_blob(store, b"u" * 200)
+    _write_ollama_manifest(store, "modelA", [shared, uniq])
+    _write_ollama_manifest(store, "modelB", [shared])
 
     library_root = tmp_path / "backup"
     ollama.pull("modelA:latest", library_root, models_dir=store, move=True)
 
     # modelA gone; its unique blob gone; shared blob kept (modelB still needs it).
     assert not (store / "manifests" / "registry.ollama.ai" / "library" / "modelA").exists()
-    assert not (store / "blobs" / "sha256-uniq").exists()
-    assert (store / "blobs" / "sha256-shared").is_file()
+    assert not (store / "blobs" / _blob_name(uniq)).exists()
+    assert (store / "blobs" / _blob_name(shared)).is_file()
     assert (store / "manifests" / "registry.ollama.ai" / "library" / "modelB" / "latest").is_file()
-    assert (library_root / "ollama" / "blobs" / "sha256-uniq").is_file()
+    assert (library_root / "ollama" / "blobs" / _blob_name(uniq)).is_file()
+
+
+def test_ollama_pull_malformed_digest_raises(tmp_path: Path) -> None:
+    # A digest that isn't sha256:<64 hex> must be rejected before it hits the path map.
+    store = tmp_path / "ollama"
+    (store / "blobs").mkdir(parents=True)
+    _write_ollama_manifest(store, "bad", ["sha256:xyz"])
+    with pytest.raises(ValueError, match="malformed"):
+        ollama.pull("bad:latest", tmp_path / "backup", models_dir=store)
+
+
+def test_ollama_pull_reverifies_corrupt_same_size_dest(tmp_path: Path) -> None:
+    # A pre-existing dest blob of the SAME size but wrong content (content-addressed
+    # digests make this detectable) must be re-copied, not trusted.
+    store = tmp_path / "ollama"
+    content = b"g" * 128
+    digest = _add_blob(store, content)
+    _write_ollama_manifest(store, "m", [digest])
+    library_root = tmp_path / "backup"
+    blobs = library_root / "ollama" / "blobs"
+    blobs.mkdir(parents=True)
+    (blobs / _blob_name(digest)).write_bytes(b"Z" * 128)  # same size, wrong content
+
+    ollama.pull("m:latest", library_root, models_dir=store)
+    assert (blobs / _blob_name(digest)).read_bytes() == content  # re-copied correct content
 
 
 def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
@@ -71,7 +106,7 @@ def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
     # so pull must fail loudly rather than write a partial (unrestorable) backup.
     store = tmp_path / "ollama"
     (store / "blobs").mkdir(parents=True)
-    _write_ollama_manifest(store, "broken", ["sha256:gone"])
+    _write_ollama_manifest(store, "broken", ["sha256:" + "0" * 64])  # well-formed but absent
 
     library_root = tmp_path / "backup"
     with pytest.raises(FileNotFoundError, match="missing from the store"):
@@ -103,9 +138,8 @@ def test_ollama_pull_manifest_not_published_if_blob_copy_fails(tmp_path: Path, m
     # A copy failure (disk full / drive unplugged) after prevalidation must not
     # leave a manifest referencing content that never finished copying.
     store = tmp_path / "ollama"
-    (store / "blobs").mkdir(parents=True)
-    (store / "blobs" / "sha256-a1").write_bytes(b"w" * 64)
-    _write_ollama_manifest(store, "alpha", ["sha256:a1"])
+    digest = _add_blob(store, b"w" * 64)
+    _write_ollama_manifest(store, "alpha", [digest])
     library_root = tmp_path / "backup"
 
     def _boom(*_a: object, **_k: object) -> None:
