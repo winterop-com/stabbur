@@ -33,6 +33,10 @@ coverage.xml
 .env.*
 !.env.example
 
+# Personal per-machine config (holds absolute library paths). The committed
+# template is kodo.toml.example; each checkout keeps its own kodo.toml.
+/kodo.toml
+
 # Editors / OS
 .idea/
 .vscode/
