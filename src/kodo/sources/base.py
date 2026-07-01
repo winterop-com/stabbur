@@ -1,6 +1,7 @@
 """Filesystem helpers shared by the source-store adapters."""
 
 import shutil
+import tempfile
 from pathlib import Path
 
 
@@ -53,26 +54,26 @@ def copy_tree(src: Path, dest: Path) -> tuple[int, int]:
         raise FileNotFoundError(src)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    staging = dest.parent / f"{dest.name}.partial"
-    previous = dest.parent / f"{dest.name}.old"
-    for leftover in (staging, previous):
-        if leftover.exists():
-            shutil.rmtree(leftover)
-
-    # Copy first; the existing dest is untouched if this fails.
-    shutil.copytree(src, staging, symlinks=False)
-
-    # Publish: move the old copy aside (atomic rename), swap in the new one, then
-    # drop the old copy. dest is never absent for more than a rename.
-    if dest.exists():
-        dest.rename(previous)
+    # Stage in a unique hidden temp dir (a sibling of dest, so the final rename is
+    # on the same filesystem). Being random and dot-prefixed, it can never collide
+    # with or clobber a real model dir (e.g. a repo literally named "Foo.partial"),
+    # and it's removed on any failure — no half-copied .partial left on disk.
+    tmp = Path(tempfile.mkdtemp(prefix=".kodo-stage-", dir=dest.parent))
     try:
-        staging.rename(dest)
-    except OSError:
-        if previous.exists() and not dest.exists():
-            previous.rename(dest)  # roll back to the previous good backup
-        raise
+        staging = tmp / dest.name
+        shutil.copytree(src, staging, symlinks=False)  # dest untouched if this fails
+
+        # Publish: move any existing dest aside, swap in the new copy, then drop
+        # the old one. dest is never absent for more than a rename.
+        previous = tmp / f"{dest.name}.prev"
+        if dest.exists():
+            dest.rename(previous)
+        try:
+            staging.rename(dest)
+        except OSError:
+            if previous.exists() and not dest.exists():
+                previous.rename(dest)  # roll back to the previous good backup
+            raise
     finally:
-        if previous.exists():
-            shutil.rmtree(previous)
+        shutil.rmtree(tmp, ignore_errors=True)
     return dir_stats(dest)

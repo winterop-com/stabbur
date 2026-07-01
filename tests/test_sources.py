@@ -81,8 +81,33 @@ def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
     assert not (library_root / "ollama").exists()
 
 
-def test_copy_tree_preserves_old_backup_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A mid-copy failure must leave any existing backup at dest intact.
+def test_ollama_pull_manifest_not_published_if_blob_copy_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A copy failure (disk full / drive unplugged) after prevalidation must not
+    # leave a manifest referencing content that never finished copying.
+    store = tmp_path / "ollama"
+    (store / "blobs").mkdir(parents=True)
+    (store / "blobs" / "sha256-a1").write_bytes(b"w" * 64)
+    _write_ollama_manifest(store, "alpha", ["sha256:a1"])
+    library_root = tmp_path / "backup"
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ollama.shutil, "copy2", _boom)
+    with pytest.raises(OSError, match="disk full"):
+        ollama.pull("alpha:latest", library_root, models_dir=store)
+
+    # No manifest published, and no leftover partial blob.
+    assert not (library_root / "ollama" / "manifests").exists()
+    leftover = list((library_root / "ollama" / "blobs").glob(".*.partial"))
+    assert leftover == []
+
+
+def test_copy_tree_preserves_old_backup_and_cleans_staging_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A real mid-copy failure (staging partially populated) must leave the existing
+    # backup intact AND leave no staging residue consuming disk.
     src = tmp_path / "src"
     src.mkdir()
     (src / "new.bin").write_bytes(b"n" * 100)
@@ -90,17 +115,34 @@ def test_copy_tree_preserves_old_backup_on_failure(tmp_path: Path, monkeypatch: 
     dest.mkdir(parents=True)
     (dest / "old.bin").write_bytes(b"o" * 200)  # the previous good backup
 
-    def _boom(*a: object, **k: object) -> None:
-        raise OSError("disk full mid-copy")
+    def _boom(_src: str, dst: str, **_: object) -> None:
+        Path(dst).mkdir(parents=True)  # simulate copytree populating staging...
+        (Path(dst) / "half.bin").write_bytes(b"x" * 10)
+        raise OSError("disk full mid-copy")  # ...then failing partway
 
     monkeypatch.setattr(base.shutil, "copytree", _boom)
     with pytest.raises(OSError, match="disk full"):
         base.copy_tree(src, dest)
 
-    # Old backup survives; no staging/backup residue left behind.
+    # Old backup survives untouched; no staging dir left behind anywhere under parent.
     assert (dest / "old.bin").read_bytes() == b"o" * 200
-    assert not (dest.parent / "repo.partial").exists()
-    assert not (dest.parent / "repo.old").exists()
+    assert [p.name for p in dest.parent.iterdir()] == ["repo"]
+
+
+def test_copy_tree_does_not_clobber_sibling_in_model_namespace(tmp_path: Path) -> None:
+    # A real model named like the old temp suffix must not be destroyed by a pull.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "w.bin").write_bytes(b"n" * 100)
+    dest = tmp_path / "lib" / "Foo"
+    sibling = tmp_path / "lib" / "Foo.partial"  # a legitimate model, not our temp
+    sibling.mkdir(parents=True)
+    (sibling / "keep.bin").write_bytes(b"k" * 50)
+
+    base.copy_tree(src, dest)
+
+    assert (dest / "w.bin").is_file()
+    assert (sibling / "keep.bin").read_bytes() == b"k" * 50  # untouched
 
 
 def test_lmstudio_gguf_list_and_backup(tmp_path: Path) -> None:

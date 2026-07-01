@@ -259,20 +259,42 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
                 f"({blob}); the source is incomplete, refusing to write a partial backup"
             )
 
-    dest_manifest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(manifest_path, dest_manifest)
-
-    size_bytes = dest_manifest.stat().st_size
-    file_count = 1
-    verified = True
+    # Copy blobs FIRST, each atomically (temp file + rename) and size-checked, so
+    # a partial blob is never published and the manifest — the file that references
+    # them — is only written after every blob is present. A failure mid-copy (disk
+    # full, drive unplugged) thus can't leave a manifest pointing at missing content.
+    blobs_dir = dest_root / "blobs"
+    blobs_dir.mkdir(parents=True, exist_ok=True)
+    size_bytes = 0
+    file_count = 0
     for digest in digests:
         blob = _blob_path(root, digest)
-        dest_blob = dest_root / "blobs" / blob.name
-        dest_blob.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(blob, dest_blob)
+        dest_blob = blobs_dir / blob.name
+        if not (dest_blob.is_file() and dest_blob.stat().st_size == blob.stat().st_size):
+            tmp_blob = blobs_dir / f".{blob.name}.partial"
+            try:
+                shutil.copy2(blob, tmp_blob)
+                if tmp_blob.stat().st_size != blob.stat().st_size:
+                    raise OSError(f"short copy of Ollama blob {digest} for {name!r}")
+                tmp_blob.replace(dest_blob)  # atomic publish
+            except OSError:
+                tmp_blob.unlink(missing_ok=True)
+                raise
         size_bytes += dest_blob.stat().st_size
         file_count += 1
-        verified = verified and dest_blob.stat().st_size == blob.stat().st_size
+
+    # Manifest last, also atomically — its presence marks the backup as complete.
+    dest_manifest.parent.mkdir(parents=True, exist_ok=True)
+    tmp_manifest = dest_manifest.parent / f".{dest_manifest.name}.partial"
+    try:
+        shutil.copy2(manifest_path, tmp_manifest)
+        tmp_manifest.replace(dest_manifest)
+    except OSError:
+        tmp_manifest.unlink(missing_ok=True)
+        raise
+    size_bytes += dest_manifest.stat().st_size
+    file_count += 1
+    verified = True  # every blob was size-checked above
 
     # The native layout above stays restorable; write a browsable sidecar with
     # the generated model card and metadata under ollama/.library/<name>/.
