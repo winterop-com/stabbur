@@ -5,7 +5,7 @@ as OpenAI function schemas for the model, and executes ``tool_call``s against it
 """
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
 from fastmcp import Client
@@ -34,14 +34,23 @@ def _result_text(result: Any) -> str:
 
 
 class MCPToolset:
-    """A connected MCP server's tools: OpenAI schemas + a call() dispatcher."""
+    """Aggregated tools across one or more MCP servers.
 
-    def __init__(self, client: Client) -> None:
-        self._client = client
+    Exposes OpenAI schemas for every tool and routes ``call(name, ...)`` to the
+    server that owns that tool. On a name collision the first server wins.
+    """
+
+    def __init__(self) -> None:
         self.schemas: list[dict[str, Any]] = []
+        self._owner: dict[str, Client] = {}
 
-    async def _load(self) -> None:
-        self.schemas = [_openai_schema(t) for t in await self._client.list_tools()]
+    async def add(self, client: Client) -> None:
+        """Register a connected client's tools (skipping name collisions)."""
+        for tool in await client.list_tools():
+            if tool.name in self._owner:
+                continue  # first server wins
+            self.schemas.append(_openai_schema(tool))
+            self._owner[tool.name] = client
 
     @property
     def names(self) -> list[str]:
@@ -49,15 +58,20 @@ class MCPToolset:
         return [s["function"]["name"] for s in self.schemas]
 
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
-        """Execute a tool and return its result as text."""
-        return _result_text(await self._client.call_tool(name, arguments))
+        """Execute a tool on its owning server and return its result as text."""
+        client = self._owner.get(name)
+        if client is None:
+            return f"error: unknown tool {name!r}"
+        return _result_text(await client.call_tool(name, arguments))
 
 
 @asynccontextmanager
-async def connect(command: list[str]) -> AsyncGenerator[MCPToolset, None]:
-    """Spawn an MCP server (``command``) over stdio and yield its toolset."""
-    transport = StdioTransport(command=command[0], args=command[1:])
-    async with Client(transport) as client:
-        toolset = MCPToolset(client)
-        await toolset._load()
+async def connect(commands: list[list[str]]) -> AsyncGenerator[MCPToolset, None]:
+    """Spawn one or more MCP servers over stdio and yield a merged toolset."""
+    toolset = MCPToolset()
+    async with AsyncExitStack() as stack:
+        for command in commands:
+            transport = StdioTransport(command=command[0], args=command[1:])
+            client = await stack.enter_async_context(Client(transport))
+            await toolset.add(client)
         yield toolset

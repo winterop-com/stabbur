@@ -4,6 +4,7 @@ Run standalone over stdio: ``kodo-mcp-datetime`` (or ``python -m
 kodo.mcp.datetime_server``). Point kodo at it with ``kodo chat --mcp``.
 """
 
+import asyncio
 from datetime import datetime
 
 from fastmcp import FastMCP
@@ -30,8 +31,14 @@ def day_of_week() -> str:
 
 
 def main() -> None:
-    """Run the server over stdio (for an MCP client to spawn)."""
-    mcp.run()
+    """Run the server over stdio (for an MCP client to spawn).
+
+    Swallow Ctrl-C / stream-closed shutdown noise so exiting is quiet.
+    """
+    try:
+        mcp.run()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
 
 
 if __name__ == "__main__":

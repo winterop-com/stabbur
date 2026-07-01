@@ -16,8 +16,8 @@ async def test_datetime_server_exposes_tools() -> None:
 
 async def test_toolset_schemas_and_call() -> None:
     async with Client(mcp) as client:
-        toolset = tools.MCPToolset(client)
-        await toolset._load()
+        toolset = tools.MCPToolset()
+        await toolset.add(client)
 
         assert "today" in toolset.names
         schema = next(s for s in toolset.schemas if s["function"]["name"] == "today")
@@ -25,3 +25,13 @@ async def test_toolset_schemas_and_call() -> None:
         assert "parameters" in schema["function"]
 
         assert (await toolset.call("day_of_week", {})) in _WEEKDAYS
+        assert (await toolset.call("no_such_tool", {})).startswith("error:")
+
+
+async def test_toolset_merges_servers_and_dedupes() -> None:
+    # Adding the same server twice must not duplicate tools (first server wins).
+    async with Client(mcp) as a, Client(mcp) as b:
+        toolset = tools.MCPToolset()
+        await toolset.add(a)
+        await toolset.add(b)
+        assert toolset.names.count("today") == 1

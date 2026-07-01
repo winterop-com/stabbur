@@ -337,18 +337,19 @@ def chat(
     model_format: FormatOption = None,
     max_tokens: Annotated[int | None, typer.Option("--max-tokens", "-n", help="Cap generated tokens.")] = None,
     mcp: Annotated[
-        str | None,
-        typer.Option("--mcp", help="MCP server command for tools, e.g. --mcp kodo-mcp-datetime."),
-    ] = None,
+        list[str],
+        typer.Option("--mcp", help="MCP server command(s) for tools; repeatable, e.g. --mcp kodo-mcp-datetime."),
+    ] = [],
 ) -> None:
     """Chat with a library model: clean REPL, one-shot with ``-p``, tools with ``--mcp``.
 
     ``kodo chat <model>`` opens an interactive REPL; ``-p "..."`` prints one reply
-    (pipeable); ``--mcp <cmd>`` connects an MCP server so the model can call tools.
+    (pipeable); ``--mcp <cmd>`` (repeatable) connects MCP servers so the model can
+    call their tools.
     """
     model = _resolve_library_model(name, model_format)
     try:
-        if mcp is not None:
+        if mcp:
             _chat_with_tools(model, mcp, prompt, max_tokens)
         elif prompt is not None:
             # Scripted: print only the reply to stdout (errors go to stderr).
@@ -361,23 +362,23 @@ def chat(
 
 
 def _chat_with_tools(
-    model: library_ops.LibraryModel, mcp_command: str, prompt: str | None, max_tokens: int | None
+    model: library_ops.LibraryModel, mcp_commands: list[str], prompt: str | None, max_tokens: int | None
 ) -> None:
-    """Run the tool-calling agent loop (one-shot with a prompt, else a REPL)."""
+    """Run the tool-calling agent loop over one or more MCP servers."""
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
 
     from kodo import agent  # noqa: PLC0415
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
-    command = shlex.split(mcp_command)
+    commands = [shlex.split(c) for c in mcp_commands]
 
     def on_event(kind: str, detail: str) -> None:
         icon = "[cyan]⚙[/]" if kind == "call" else "[dim]↳[/]"
         console.print(f"  {icon} [dim]{detail[:200]}[/]")
 
     async def _run(base: str) -> None:
-        async with mcp_tools.connect(command) as toolset:
+        async with mcp_tools.connect(commands) as toolset:
             console.print(f"[dim]tools:[/] {', '.join(toolset.names) or '(none)'}\n")
             if prompt is not None:
                 answer = await agent.run(base, [{"role": "user", "content": prompt}], toolset, max_tokens, on_event)
