@@ -9,7 +9,7 @@ from kodo import catalog as catalog_ops
 from kodo import cli
 from kodo import library as library_ops
 from kodo.library import LibraryModel
-from kodo.models import Catalog, ModelEntry, ModelFormat, ModelSource
+from kodo.models import Catalog, ModelEntry, ModelFormat, ModelSource, PullResult
 
 runner = CliRunner()
 
@@ -68,6 +68,63 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         again = runner.invoke(cli.app, ["init", "--model", "unsloth/X-GGUF"])
         assert again.exit_code == 1  # refuses to clobber an existing project
         assert "already exists" in again.output
+
+
+def _pull_result(name: str) -> PullResult:
+    return PullResult(
+        source=ModelSource.lmstudio, name=name, destination=Path("/tmp") / name, size_bytes=10, file_count=1
+    )
+
+
+def test_pull_requires_name_or_all() -> None:
+    # Neither name nor --all → usage error; both → usage error.
+    neither = runner.invoke(cli.app, ["pull", "ollama"])
+    assert neither.exit_code == 2
+    assert "either a model name or --all" in neither.output
+    both = runner.invoke(cli.app, ["pull", "ollama", "some:model", "--all"])
+    assert both.exit_code == 2
+
+
+def test_pull_all_imports_missing_and_skips_existing(monkeypatch: pytest.MonkeyPatch) -> None:
+    entries = [
+        _entry("pub/A-GGUF", generative=True, fmt=ModelFormat.gguf),
+        _entry("pub/B-GGUF", generative=True, fmt=ModelFormat.gguf),
+    ]
+    monkeypatch.setattr(catalog_ops, "list_models", lambda *a, **k: Catalog(entries=entries))
+    monkeypatch.setattr(library_ops, "scan", lambda: [_lib_model("pub/A-GGUF")])  # A already in library
+    pulled: list[str] = []
+
+    def fake_pull(source: ModelSource, name: str, **_: object) -> PullResult:
+        pulled.append(name)
+        return _pull_result(name)
+
+    monkeypatch.setattr(catalog_ops, "pull", fake_pull)
+    result = runner.invoke(cli.app, ["pull", "lmstudio", "--all"])
+    assert result.exit_code == 0, result.output
+    assert pulled == ["pub/B-GGUF"]  # only the one missing from the library
+    assert "1 imported" in result.output
+    assert "1 already in library" in result.output
+
+
+def test_pull_all_continues_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    entries = [
+        _entry("pub/A-GGUF", generative=True, fmt=ModelFormat.gguf),
+        _entry("pub/B-GGUF", generative=True, fmt=ModelFormat.gguf),
+    ]
+    monkeypatch.setattr(catalog_ops, "list_models", lambda *a, **k: Catalog(entries=entries))
+    monkeypatch.setattr(library_ops, "scan", lambda: [])
+
+    def fake_pull(source: ModelSource, name: str, **_: object) -> PullResult:
+        if name == "pub/A-GGUF":
+            raise FileNotFoundError("blob missing from the store")
+        return _pull_result(name)
+
+    monkeypatch.setattr(catalog_ops, "pull", fake_pull)
+    result = runner.invoke(cli.app, ["pull", "lmstudio", "--all"])
+    assert result.exit_code == 1  # some failed
+    assert "1 imported" in result.output
+    assert "1 failed" in result.output
+    assert "blob missing" in result.output
 
 
 def test_chat_refuses_ollama_model_with_hint(monkeypatch: pytest.MonkeyPatch) -> None:

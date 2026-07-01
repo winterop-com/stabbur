@@ -58,10 +58,16 @@ Copy a model from a source cache into the library.
 ```bash
 kodo pull lmstudio <name>
 kodo pull ollama gemma4:31b --move    # delete the local source after a verified copy
+kodo pull ollama --all                # import every model from the local store
+kodo pull lmstudio --all --move       # import all, freeing local disk as it goes
 ```
 
 - `--move` — relocate (copy, verify byte-for-byte, then delete the local source
   to free disk). Supported for LM Studio and Ollama.
+- `--all` — import every model from that source's local store instead of a single
+  name (the two are mutually exclusive). Idempotent (skips models already in the
+  library, so it doubles as a sync) and resilient (a failing model is logged and
+  the batch continues; exit code is non-zero if any failed).
 
 ## `kodo run <name>`
 

@@ -124,10 +124,53 @@ def list_models() -> None:
 app.command("ls", hidden=True)(list_models)
 
 
+def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
+    """Import every model from ``source``'s local store into the library.
+
+    Idempotent (skips models already in the library) and resilient (one failing
+    model logs and the batch continues).
+    """
+    entries = catalog_ops.list_models(source).entries
+    if not entries:
+        console.print(f"No {source.value} models found in the local store.")
+        return
+
+    lib = _library_names()
+
+    def in_library(nm: str) -> bool:
+        return nm.lower() in lib or nm.rsplit("/", 1)[-1].lower() in lib
+
+    imported = skipped = failed = 0
+    for entry in sorted(entries, key=lambda e: e.name):
+        if in_library(entry.name):
+            skipped += 1
+            console.print(f"[dim]— skip[/] {entry.name} [dim](already in library)[/]")
+            continue
+        try:
+            result = catalog_ops.pull(source, entry.name, library_root=root, move=move)
+        except Exception as exc:  # noqa: BLE001 - one bad model must not abort the batch
+            failed += 1
+            console.print(f"[red]✗ fail[/] {entry.name} [dim]— {exc}[/]")
+            continue
+        imported += 1
+        console.print(f"[green]✓ pull[/] {entry.name} [dim]({result.size_human})[/]")
+
+    console.print(f"\n[bold]{imported} imported[/] · {skipped} already in library · {failed} failed")
+    if failed:
+        raise typer.Exit(1)
+
+
 @app.command()
 def pull(
     source: Annotated[ModelSource, typer.Argument(help="Source the model belongs to.")],
-    name: Annotated[str, typer.Argument(help="Model id (HF repo, Ollama model:tag, LM Studio path).")],
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Model id (HF repo, Ollama model:tag, LM Studio path). Omit with --all."),
+    ] = None,
+    all_: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Import every model from this source's local store (idempotent)."),
+    ] = False,
     move: Annotated[
         bool,
         typer.Option("--move", help="Delete the local source after a verified copy (frees local disk)."),
@@ -137,8 +180,21 @@ def pull(
         typer.Option("--local", help="Pull into the always-local root (works when the drive is unplugged)."),
     ] = False,
 ) -> None:
-    """Pull (or move) a single model into the library (the drive, or --local)."""
+    """Pull (or move) a model into the library (the drive, or --local).
+
+    Give a model name for one model, or --all to import everything from this
+    source's local store (skipping models already in the library).
+    """
     root = get_settings().local_root if local else None
+    if all_ == (name is not None):
+        console.print("[red]Provide either a model name or --all, not both.[/]")
+        raise typer.Exit(2)
+
+    if all_:
+        _pull_all(source, root, move)
+        return
+
+    assert name is not None  # narrowed by the guard above
     verb = "Moving" if move else "Pulling"
     typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
