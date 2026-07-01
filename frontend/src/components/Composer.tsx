@@ -105,24 +105,28 @@ export function Composer({
     if (items.length) onAdd(items);
   };
 
-  // Mic capture: start → recording; click again → encode WAV → attach.
+  // Finalize a recording (from a manual stop or auto silence): encode + attach.
+  const finishRecording = async () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;
+    setRecState("encoding");
+    try {
+      const url = await rec.stop();
+      onAdd([{ url, kind: "audio" }]);
+    } catch {
+      /* decode/permission error — drop it */
+    } finally {
+      setRecState("idle");
+    }
+  };
+
+  // Mic capture: start → recording; click again (or a silence auto-stop) → attach.
   const toggleRecording = async () => {
     if (recState === "encoding") return;
-    if (recState === "recording") {
-      setRecState("encoding");
-      try {
-        const url = await recRef.current!.stop();
-        onAdd([{ url, kind: "audio" }]);
-      } catch {
-        /* decode/permission error — drop it */
-      } finally {
-        recRef.current = null;
-        setRecState("idle");
-      }
-      return;
-    }
+    if (recState === "recording") return void finishRecording();
     try {
-      recRef.current = await startRecording();
+      recRef.current = await startRecording({ onSilence: () => void finishRecording() });
       setRecState("recording");
     } catch {
       setRecState("idle"); // permission denied / unsupported

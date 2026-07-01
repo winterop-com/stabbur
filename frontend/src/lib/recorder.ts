@@ -47,21 +47,71 @@ export interface Recording {
   cancel: () => void;
 }
 
+/** Options for {@link startRecording}. */
+export interface RecordOptions {
+  /** Fires once when the recording auto-ends after a stretch of silence. */
+  onSilence?: () => void;
+}
+
+// Voice-activity thresholds: RMS above SPEECH_RMS counts as speech; once the user
+// has spoken, SILENCE_MS of quiet auto-ends the take. MAX_MS is a hard cap.
+const SPEECH_RMS = 0.015;
+const SILENCE_MS = 1500;
+const MAX_MS = 60_000;
+
 /** Start recording from the mic. Rejects if permission is denied / unsupported. */
-export async function startRecording(): Promise<Recording> {
+export async function startRecording(opts: RecordOptions = {}): Promise<Recording> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const rec = new MediaRecorder(stream);
   const chunks: Blob[] = [];
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   rec.start();
 
-  const cleanup = () => stream.getTracks().forEach((t) => t.stop());
+  // --- silence detection (VAD) over the live stream ---
+  const vadCtx = new AudioContext();
+  const analyser = vadCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  vadCtx.createMediaStreamSource(stream).connect(analyser);
+  const buf = new Float32Array(analyser.fftSize);
+  const startedAt = Date.now();
+  let spoke = false;
+  let quietSince = Date.now();
+  let vadTimer: number | undefined;
+  let fired = false;
+
+  const stopVad = () => {
+    if (vadTimer !== undefined) clearInterval(vadTimer);
+    vadCtx.close().catch(() => {});
+  };
+  const tick = () => {
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (const x of buf) sum += x * x;
+    const rms = Math.sqrt(sum / buf.length);
+    const now = Date.now();
+    if (rms > SPEECH_RMS) {
+      spoke = true;
+      quietSince = now;
+    }
+    const autoEnd = (spoke && now - quietSince > SILENCE_MS) || now - startedAt > MAX_MS;
+    if (autoEnd && !fired) {
+      fired = true;
+      opts.onSilence?.();
+    }
+  };
+  vadTimer = window.setInterval(tick, 150);
+
+  const cleanup = () => {
+    stopVad();
+    stream.getTracks().forEach((t) => t.stop());
+  };
 
   return {
     stop: () =>
       new Promise<string>((resolve, reject) => {
+        stopVad();
         rec.onstop = async () => {
-          cleanup();
+          stream.getTracks().forEach((t) => t.stop());
           try {
             const webm = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
             const ctx = new AudioContext();
