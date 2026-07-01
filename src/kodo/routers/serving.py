@@ -1,5 +1,8 @@
-"""Model lifecycle + OpenAI `/v1` proxy for the browser UI."""
+"""Model lifecycle, server-side chat (agent loop + MCP), and OpenAI `/v1` proxy."""
 
+import asyncio
+import json
+from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
 import httpx
@@ -8,10 +11,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from kodo import agent, runtime
 from kodo import library as library_ops
-from kodo import runtime
 from kodo.config import Settings
 from kodo.server import ServerManager
+from kodo.tools import MCPToolset
 
 router = APIRouter(tags=["serving"])
 
@@ -87,6 +91,66 @@ def library() -> list[LibraryModelInfo]:
         for m in library_ops.scan()
         if m.generative and not m.is_ollama
     ]
+
+
+class ChatRequest(BaseModel):
+    """A chat turn for the server-side agent loop."""
+
+    messages: list[dict[str, Any]]
+    max_tokens: int | None = None
+
+
+@router.post("/api/chat")
+async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> StreamingResponse:
+    """Run the agent loop (MCP tools + the loaded model) and stream typed SSE.
+
+    Events: ``{"type":"token","text":...}``, ``{"type":"tool","kind":"call"|"result",
+    "detail":...}``, ``{"type":"error","detail":...}``, ``{"type":"done"}``. Unlike
+    the raw ``/v1`` proxy, this executes tool calls server-side so the web UI and
+    extension get tools — and surfaces tool activity the proxy can't.
+    """
+    if manager.current is None:
+        raise HTTPException(status_code=409, detail="No model loaded")
+    toolset: MCPToolset = getattr(request.app.state, "toolset", None) or MCPToolset()
+    base = manager.base_url
+
+    # Apply the project's system prompt (kodo.toml) unless the client sent its own.
+    system_prompt: str = getattr(request.app.state, "system_prompt", "") or ""
+    messages = list(req.messages)
+    if system_prompt and not (messages and messages[0].get("role") == "system"):
+        messages = [{"role": "system", "content": system_prompt}, *messages]
+
+    async def events() -> AsyncGenerator[str, None]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        done = {"type": "done"}
+
+        def on_event(kind: str, detail: str) -> None:
+            queue.put_nowait({"type": "tool", "kind": kind, "detail": detail[:2000]})
+
+        def on_token(text: str) -> None:
+            queue.put_nowait({"type": "token", "text": text})
+
+        async def produce() -> None:
+            try:
+                await agent.run(base, messages, toolset, req.max_tokens, on_event, on_token)
+            except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
+                queue.put_nowait({"type": "error", "detail": str(exc)})
+            finally:
+                queue.put_nowait(done)
+
+        task = asyncio.create_task(produce())
+        try:
+            while True:
+                item = await queue.get()
+                if item is done:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+            yield 'data: {"type": "done"}\n\n'
+        finally:
+            if not task.done():
+                task.cancel()  # client disconnected → cancel the in-flight generation
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post("/api/load/{name:path}")

@@ -1,14 +1,16 @@
 """FastAPI application factory."""
 
+import shlex
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from kodo import config, runtime
+from kodo import config, project, runtime
 from kodo import library as library_ops
+from kodo import tools as mcp_tools
 from kodo.config import Settings, get_settings
 from kodo.routers import catalog, health, serving
 from kodo.server import ServerManager
@@ -16,7 +18,7 @@ from kodo.server import ServerManager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Start a shared HTTP client + runtime manager; clean up on shutdown."""
+    """Start a shared HTTP client, runtime manager, and MCP tools; clean up after."""
     settings: Settings = app.state.settings
     manager: ServerManager = app.state.manager
 
@@ -31,11 +33,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if reason is not None:
             raise RuntimeError(f"locked --model cannot be run: {reason}")
         manager.load(matches[0])
-    try:
-        yield
-    finally:
-        manager.stop()
-        await app.state.http.aclose()
+
+    # Spawn the project's MCP servers (kodo.toml [[mcp]]) once, shared across chat
+    # requests, so the web UI / extension get tools via the server-side agent loop.
+    async with AsyncExitStack() as mcp_stack:
+        proj = project.load()
+        app.state.system_prompt = proj.system_prompt if proj else ""
+        commands = [shlex.split(m.command) for m in proj.mcp] if proj else []
+        if commands:
+            app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(commands))
+        try:
+            yield
+        finally:
+            manager.stop()
+            await app.state.http.aclose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -57,6 +68,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.manager = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
     # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
     app.state.http = httpx.AsyncClient(timeout=None)
+    # MCP toolset + system prompt for the server-side agent loop; populated by
+    # lifespan from kodo.toml (None / "" otherwise).
+    app.state.toolset = None
+    app.state.system_prompt = ""
 
     if settings.cors_origins:
         app.add_middleware(

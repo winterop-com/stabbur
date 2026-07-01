@@ -1,16 +1,20 @@
 """Tests for the serving API (status + proxy guards), no real runtime needed."""
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from kodo import agent
 from kodo import library as library_ops
 from kodo.app import create_app
 from kodo.config import Settings
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
+from kodo.routers import serving
 
 
 @pytest.fixture
@@ -102,6 +106,49 @@ async def test_library_lists_runnable_models(client: AsyncClient, monkeypatch: p
     body = (await client.get("/api/library")).json()
     names = [m["name"] for m in body]
     assert names == ["pub/Chat-GGUF"]  # generative only; embedding excluded
+
+
+async def test_api_chat_streams_tokens_and_tool_events(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # /api/chat runs the agent loop server-side and streams typed SSE: tokens plus
+    # tool call/result events (which the raw /v1 proxy can't surface).
+    class FakeManager:
+        current = object()  # a model is "loaded"
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: int | None,
+        on_event: Callable[[str, str], None],
+        on_token: Callable[[str], None],
+        **_: Any,
+    ) -> str:
+        on_token("Hel")
+        on_event("call", "today()")
+        on_event("result", "Wednesday")
+        on_token("lo")
+        return "Hello"
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    try:
+        r = await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+        assert r.status_code == 200
+        body = r.text
+        assert '"type": "token"' in body and '"text": "Hel"' in body
+        assert '"kind": "call"' in body and '"kind": "result"' in body
+        assert '"type": "done"' in body
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_api_chat_requires_loaded_model(client: AsyncClient) -> None:
+    r = await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 409
 
 
 async def test_locked_unresolvable_model_fails_startup() -> None:
