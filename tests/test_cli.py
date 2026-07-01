@@ -199,3 +199,29 @@ def test_sources_hides_non_chat_by_default(monkeypatch: pytest.MonkeyPatch) -> N
 
     everything = runner.invoke(cli.app, ["sources", "--all"])
     assert "all-MiniLM" in everything.output  # shown with --all
+
+
+def test_split_input_images_detects_dropped_paths(tmp_path: Path) -> None:
+    # A terminal drag-drop inserts the file path as text; the REPL should peel it
+    # out and attach it, leaving the remaining words as the message.
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n")
+    text, images = cli._split_input_images(f"what is this {img}")
+    assert text == "what is this"
+    assert len(images) == 1 and images[0].startswith("data:image/png;base64,")
+
+
+def test_split_input_images_leaves_plain_text(tmp_path: Path) -> None:
+    text, images = cli._split_input_images("just a normal message, no path")
+    assert text == "just a normal message, no path"
+    assert images == []
+
+
+def test_split_input_images_handles_escaped_spaces(tmp_path: Path) -> None:
+    # Terminal drag-drop escapes spaces with a backslash; shlex unescapes them.
+    img = tmp_path / "my pic.jpg"
+    img.write_bytes(b"\xff\xd8\xff")
+    escaped = str(img).replace(" ", "\\ ")
+    text, images = cli._split_input_images(f"describe {escaped}")
+    assert text == "describe"
+    assert len(images) == 1 and images[0].startswith("data:image/jpeg;base64,")

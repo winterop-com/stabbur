@@ -468,13 +468,46 @@ def run(
         raise typer.Exit(1) from exc
 
 
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+
+
+def _image_data_url(path: Path) -> str:
+    """Read an image file into a base64 ``data:`` URL."""
+    import base64  # noqa: PLC0415
+    import mimetypes  # noqa: PLC0415
+
+    mime = mimetypes.guess_type(str(path))[0] or "image/png"
+    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+
+
+def _split_input_images(text: str) -> tuple[str, list[str]]:
+    """Pull image file paths out of a REPL line (from a terminal drag-drop).
+
+    Dragging a file into the terminal inserts its (possibly shell-escaped or
+    quoted) path as text. Detect tokens that resolve to an existing image file,
+    attach them as image data URLs, and return the remaining words as the message.
+    """
+    import shlex  # noqa: PLC0415
+
+    try:
+        tokens = shlex.split(text)  # unescapes ``\ `` and quotes
+    except ValueError:
+        tokens = text.split()  # unbalanced quote (e.g. an apostrophe) → plain split
+    words: list[str] = []
+    images: list[str] = []
+    for tok in tokens:
+        p = Path(tok).expanduser()
+        if p.suffix.lower() in _IMAGE_EXTS and p.is_file():
+            images.append(_image_data_url(p))
+        else:
+            words.append(tok)
+    return " ".join(words), images
+
+
 def _load_images(paths: list[Path], model: library_ops.LibraryModel) -> list[str]:
     """Read image files into base64 data URLs; warn if the model isn't vision-capable."""
     if not paths:
         return []
-    import base64  # noqa: PLC0415
-    import mimetypes  # noqa: PLC0415
-
     from kodo import capabilities  # noqa: PLC0415
 
     if not capabilities.capabilities(model).vision:
@@ -484,8 +517,7 @@ def _load_images(paths: list[Path], model: library_ops.LibraryModel) -> list[str
         if not p.is_file():
             console.print(f"[red]Image not found:[/] {p}")
             raise typer.Exit(1)
-        mime = mimetypes.guess_type(str(p))[0] or "image/png"
-        urls.append(f"data:{mime};base64,{base64.b64encode(p.read_bytes()).decode()}")
+        urls.append(_image_data_url(p))
     return urls
 
 
@@ -706,9 +738,16 @@ def _chat_with_tools(
                         if user in ("/exit", "/quit", "exit", "quit"):
                             break
                         continue
-                    mark = len(history)  # roll-back point if the turn is canceled
-                    history.append({"role": "user", "content": agent.user_content(user, pending_images)})
+                    # Detect image paths dragged into the terminal (inserted as text).
+                    user, dropped = _split_input_images(user)
+                    turn_images = (pending_images or []) + dropped
                     pending_images = None
+                    if dropped:
+                        err.print(f"[grey62](attached {len(dropped)} image{'s' if len(dropped) > 1 else ''})[/]")
+                    if not user and not turn_images:
+                        continue
+                    mark = len(history)  # roll-back point if the turn is canceled
+                    history.append({"role": "user", "content": agent.user_content(user, turn_images or None)})
                     turn_labeled = render  # render mode labels+renders at the end, not inline
                     _think()
                     # In render mode use the returned text (no live tokens); the spinner
