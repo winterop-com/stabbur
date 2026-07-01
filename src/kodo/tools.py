@@ -5,6 +5,7 @@ as OpenAI function schemas for the model, and executes ``tool_call``s against it
 """
 
 import os
+import re
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,15 @@ from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
+
+_NAME_STRIP = re.compile(r"^(kodo-mcp-|mcp-server-|mcp-)")
+
+
+def _default_name(command: list[str]) -> str:
+    """Short server prefix from its launch command (e.g. kodo-mcp-datetime → datetime)."""
+    base = Path(command[0]).name if command else "mcp"
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", _NAME_STRIP.sub("", base)).strip("_")
+    return slug or "mcp"
 
 
 def _openai_schema(tool: Any) -> dict[str, Any]:
@@ -38,43 +48,52 @@ def _result_text(result: Any) -> str:
 class MCPToolset:
     """Aggregated tools across one or more MCP servers.
 
-    Exposes OpenAI schemas for every tool and routes ``call(name, ...)`` to the
-    server that owns that tool. On a name collision the first server wins.
+    Tool names are namespaced by server (``<server>__<tool>``) so tools from
+    different servers never collide and stay unambiguous to the model and the UI;
+    ``call`` strips the prefix and routes to the owning server.
     """
 
     def __init__(self) -> None:
         self.schemas: list[dict[str, Any]] = []
-        self._owner: dict[str, Client] = {}
+        self._owner: dict[str, tuple[Client, str]] = {}  # qualified name → (client, tool name)
 
-    async def add(self, client: Client) -> None:
-        """Register a connected client's tools (skipping name collisions)."""
+    async def add(self, client: Client, prefix: str) -> None:
+        """Register a server's tools under ``<prefix>__<tool>`` (skip duplicates)."""
         for tool in await client.list_tools():
-            if tool.name in self._owner:
-                continue  # first server wins
-            self.schemas.append(_openai_schema(tool))
-            self._owner[tool.name] = client
+            qualified = f"{prefix}__{tool.name}"
+            if qualified in self._owner:
+                continue
+            schema = _openai_schema(tool)
+            schema["function"]["name"] = qualified
+            self.schemas.append(schema)
+            self._owner[qualified] = (client, tool.name)
 
     @property
     def names(self) -> list[str]:
-        """Names of the available tools."""
+        """Names of the available (namespaced) tools."""
         return [s["function"]["name"] for s in self.schemas]
 
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
-        """Execute a tool on its owning server and return its result as text."""
-        client = self._owner.get(name)
-        if client is None:
+        """Execute a namespaced tool on its owning server and return its result as text."""
+        entry = self._owner.get(name)
+        if entry is None:
             return f"error: unknown tool {name!r}"
-        return _result_text(await client.call_tool(name, arguments))
+        client, tool_name = entry
+        return _result_text(await client.call_tool(tool_name, arguments))
 
 
 @asynccontextmanager
 async def connect(commands: list[list[str]]) -> AsyncGenerator[MCPToolset, None]:
-    """Spawn one or more MCP servers over stdio and yield a merged toolset."""
+    """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset."""
     toolset = MCPToolset()
+    used: dict[str, int] = {}  # disambiguate servers that derive the same prefix
     async with AsyncExitStack() as stack:
         for command in commands:
             # Discard the spawned server's stderr (banners/logs) to keep our output clean.
             transport = StdioTransport(command=command[0], args=command[1:], log_file=Path(os.devnull))
             client = await stack.enter_async_context(Client(transport))
-            await toolset.add(client)
+            prefix = _default_name(command)
+            n = used.get(prefix, 0)
+            used[prefix] = n + 1
+            await toolset.add(client, prefix if n == 0 else f"{prefix}{n + 1}")
         yield toolset

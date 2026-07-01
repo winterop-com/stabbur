@@ -17,27 +17,36 @@ async def test_datetime_server_exposes_tools() -> None:
         assert {"current_datetime", "today", "day_of_week"} <= names
 
 
-async def test_toolset_schemas_and_call() -> None:
+async def test_toolset_namespaces_and_calls() -> None:
+    # Tools are namespaced by server (<prefix>__<tool>); call routes back to the
+    # underlying tool name.
     async with Client(mcp) as client:
         toolset = tools.MCPToolset()
-        await toolset.add(client)
+        await toolset.add(client, "datetime")
 
-        assert "today" in toolset.names
-        schema = next(s for s in toolset.schemas if s["function"]["name"] == "today")
+        assert "datetime__today" in toolset.names
+        assert "today" not in toolset.names  # bare name is not exposed
+        schema = next(s for s in toolset.schemas if s["function"]["name"] == "datetime__today")
         assert schema["type"] == "function"
         assert "parameters" in schema["function"]
 
-        assert (await toolset.call("day_of_week", {})) in _WEEKDAYS
+        assert (await toolset.call("datetime__day_of_week", {})) in _WEEKDAYS
         assert (await toolset.call("no_such_tool", {})).startswith("error:")
 
 
-async def test_toolset_merges_servers_and_dedupes() -> None:
-    # Adding the same server twice must not duplicate tools (first server wins).
+async def test_toolset_dedupes_within_a_prefix() -> None:
+    # Same server added twice under the same prefix must not duplicate tools.
     async with Client(mcp) as a, Client(mcp) as b:
         toolset = tools.MCPToolset()
-        await toolset.add(a)
-        await toolset.add(b)
-        assert toolset.names.count("today") == 1
+        await toolset.add(a, "datetime")
+        await toolset.add(b, "datetime")
+        assert toolset.names.count("datetime__today") == 1
+
+
+def test_default_name_derives_prefix() -> None:
+    assert tools._default_name(["kodo-mcp-datetime"]) == "datetime"
+    assert tools._default_name(["/usr/bin/dhis2w-mcp-bridge"]) == "dhis2w_mcp_bridge"
+    assert tools._default_name([]) == "mcp"
 
 
 async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyPatch) -> None:
