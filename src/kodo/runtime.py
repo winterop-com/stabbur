@@ -19,6 +19,7 @@ from contextlib import contextmanager
 
 import httpx
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from kodo.config import get_settings
 from kodo.library import LibraryModel
@@ -90,9 +91,18 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         size = f" ({_human_size(model.size_bytes)})" if model.size_bytes else ""
-        # A spinner while the runtime loads the weights (seconds to minutes for big
-        # models). Non-TTY (piped) output degrades quietly; it's on stderr anyway.
-        with _status_console.status(f"Loading {model.name}{size} …", spinner="dots"):
+        # Spinner + elapsed time while the runtime loads the weights (seconds to
+        # minutes for big models). Readiness is binary (poll /v1/models), so there's
+        # no honest percentage to show — elapsed time is the truthful signal. Non-TTY
+        # (piped) output degrades quietly; it's on stderr anyway.
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=_status_console,
+            transient=True,
+        ) as progress:
+            progress.add_task(f"Loading {model.name}{size} …", total=None)
             deadline = time.time() + get_settings().runtime_load_timeout
             while time.time() < deadline:
                 if proc.poll() is not None:
