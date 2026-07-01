@@ -126,7 +126,7 @@ export function SettingsPanel({
   const fields = metaFields(info?.metadata ?? null);
 
   return (
-    <aside className="flex h-full w-[320px] shrink-0 flex-col border-l border-border bg-muted/40 text-foreground">
+    <aside className="flex h-full w-full min-w-0 flex-col border-l border-border bg-muted/40 text-foreground">
       <div className="flex items-center justify-between px-4 py-3">
         <span className="text-sm font-semibold tracking-tight">Settings</span>
         <Tooltip>

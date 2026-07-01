@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
+import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
+import { ResizeHandle } from "@/components/ui/resizable";
 
 import {
   getLibrary,
@@ -56,6 +58,23 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // --- resizable layout: imperative handles to collapse/expand the rails. ---
+  const leftPanel = useRef<ImperativePanelHandle>(null);
+  const rightPanel = useRef<ImperativePanelHandle>(null);
+  const toggleSidebar = useCallback(() => {
+    const p = leftPanel.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    else p.collapse();
+  }, []);
+  const openSidebar = useCallback(() => leftPanel.current?.expand(), []);
+  const toggleSettings = useCallback(() => {
+    const p = rightPanel.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    else p.collapse();
+  }, []);
 
   // Chat state.
   const [input, setInput] = useState("");
@@ -313,12 +332,25 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-full overflow-hidden">
-        {/* Always mounted; width animates so collapse slides instead of snapping. */}
-        <div
-          className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out ${
-            sidebarOpen ? "w-[260px]" : "w-0"
-          }`}
+      <PanelGroup
+        direction="horizontal"
+        autoSaveId="kodo-layout"
+        className="h-full overflow-hidden"
+      >
+        {/* Left rail: collapsible + resizable. Kept in sync with sidebarOpen so
+            the top-bar re-open button knows when to show. */}
+        <Panel
+          ref={leftPanel}
+          id="sidebar"
+          order={1}
+          collapsible
+          collapsedSize={0}
+          defaultSize={18}
+          minSize={12}
+          maxSize={32}
+          onCollapse={() => setSidebarOpen(false)}
+          onExpand={() => setSidebarOpen(true)}
+          className="min-w-0"
         >
           <Sidebar
             conversations={conversations}
@@ -327,11 +359,16 @@ export function App() {
             onSelect={setActiveId}
             onRename={renameConversation}
             onDelete={deleteConversation}
-            onCollapse={() => setSidebarOpen(false)}
+            onCollapse={toggleSidebar}
           />
-        </div>
+        </Panel>
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        {/* Always mounted (stable child order); hairline hidden when the left
+            rail is collapsed so there's no stray divider at the edge. */}
+        <ResizeHandle className={cn(!sidebarOpen && "pointer-events-none bg-transparent")} />
+
+        <Panel id="main" order={2} minSize={30} className="flex min-w-0 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* top bar */}
           <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
             <div className="flex items-center gap-1">
@@ -341,7 +378,7 @@ export function App() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => setSidebarOpen(true)}
+                      onClick={openSidebar}
                       aria-label="Open sidebar"
                     >
                       <PanelLeft className="h-4 w-4" />
@@ -366,7 +403,7 @@ export function App() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => setSettingsOpen((v) => !v)}
+                    onClick={toggleSettings}
                     aria-label="Settings"
                     aria-pressed={settingsOpen}
                     className={cn(settingsOpen && "bg-accent text-accent-foreground")}
@@ -438,13 +475,26 @@ export function App() {
             </>
           )}
         </main>
+        </Panel>
 
-        {/* Right rail: width animates like the left sidebar; panel mounts when
-            open so the model card fetch fires on open + model change. */}
-        <div
-          className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out ${
-            settingsOpen ? "w-[320px]" : "w-0"
-          }`}
+        {/* Always mounted (so the PanelGroup child order stays stable), but the
+            hairline is hidden while the right rail is collapsed. */}
+        <ResizeHandle className={cn(!settingsOpen && "pointer-events-none bg-transparent")} />
+
+        {/* Right rail: collapsible + resizable. Content mounts only when open so
+            the model-card fetch fires on open + model change. */}
+        <Panel
+          ref={rightPanel}
+          id="settings"
+          order={3}
+          collapsible
+          collapsedSize={0}
+          defaultSize={0}
+          minSize={16}
+          maxSize={40}
+          onCollapse={() => setSettingsOpen(false)}
+          onExpand={() => setSettingsOpen(true)}
+          className="min-w-0"
         >
           {settingsOpen && (
             <SettingsPanel
@@ -452,11 +502,11 @@ export function App() {
               library={library}
               settings={settings}
               onChange={setSettings}
-              onCollapse={() => setSettingsOpen(false)}
+              onCollapse={toggleSettings}
             />
           )}
-        </div>
-      </div>
+        </Panel>
+      </PanelGroup>
     </TooltipProvider>
   );
 }

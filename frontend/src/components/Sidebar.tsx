@@ -57,7 +57,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-muted/40 text-foreground">
+    <aside className="flex h-full w-full min-w-0 flex-col border-r border-border bg-muted/40 text-foreground">
       <div className="flex items-center justify-between px-3 py-3">
         <span className="px-1 text-sm font-semibold tracking-tight">kodo</span>
         <div className="flex items-center gap-0.5">
