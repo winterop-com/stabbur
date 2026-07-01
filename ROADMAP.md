@@ -22,6 +22,15 @@ architecture, and conventions; this file holds what's next.
   known-good audio model before claiming end-to-end support.
 - **Text / document attachments.** Inline pasted/dropped text files as context
   (not multimodal parts — just prepended/attached text). Simpler than image/audio.
+- **Investigate text-to-speech (TTS) models.** Audio *output* — a new modality
+  for the library, distinct from audio input above. Candidates to evaluate:
+  Kokoro (tiny, fast, ONNX/GGUF), Orpheus-TTS (Llama-based → GGUF via llama.cpp +
+  a SNAC decoder), Sesame CSM, Dia, Parler-TTS, Piper. Open questions: runtime
+  (most aren't llama.cpp chat servers — they need their own serving path / a
+  decoder step), how they fit the `(model x format)` library model, and the UI
+  surface (a "speak" action on assistant replies, or a dedicated TTS view). Start
+  with a spike on Kokoro or Orpheus to gauge how much new runtime plumbing a
+  non-chat model needs before committing.
 - **Chat session export — Markdown + PDF.** Export a conversation from the web
   UI (and a `kodo` CLI command) to a shareable file. Markdown first (messages,
   roles, code fences, tool activity, model + params header) — straightforward
