@@ -488,7 +488,7 @@ def _chat_with_tools(
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
 
-    from rich.status import Status  # noqa: PLC0415
+    from rich.progress import Progress  # noqa: PLC0415
 
     from kodo import (
         agent,  # noqa: PLC0415
@@ -503,7 +503,7 @@ def _chat_with_tools(
     # Per-turn state: a "thinking" spinner shown until the first token/tool-call
     # arrives (model prefill latency otherwise looks dead), and whether the reply
     # label has been printed yet.
-    turn_status: Status | None = None
+    turn_status: Progress | None = None
     turn_labeled = True
 
     def _first_output() -> None:
@@ -571,7 +571,9 @@ def _chat_with_tools(
                     # keeps spinning until the reply is complete, then we render Markdown.
                     reply = await agent.run(base, history, toolset, max_tokens, on_event, None if render else on_token)
                     _first_output()
-                    if render:
+                    if not (reply or "").strip():
+                        err.print("[grey62](no response)[/]")
+                    elif render:
                         chatui.render_reply(console, reply)
                     else:
                         print("\n")  # noqa: T201
@@ -604,11 +606,17 @@ def serve(
 
     import uvicorn  # noqa: PLC0415
 
-    # Propagate to the (possibly reloaded) worker process via env vars.
+    # Propagate to the (possibly reloaded) worker process via env vars — with
+    # --reload, uvicorn imports the app in a fresh process where the CLI callback's
+    # in-memory overrides (--runtime-port, --debug) don't exist.
     if ui:
         os.environ["KODO_SERVE_UI"] = "true"
     if model is not None:
         os.environ["KODO_SERVE_MODEL"] = model
+    if config.runtime_port_override() is not None:
+        os.environ["KODO_RUNTIME_PORT"] = str(config.runtime_port_override())
+    if config.debug_enabled():
+        os.environ["KODO_DEBUG"] = "true"
 
     get_settings.cache_clear()
     settings = get_settings()

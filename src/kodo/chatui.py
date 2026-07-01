@@ -10,7 +10,7 @@ REPL just needs a clean, legible face.
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.status import Status
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.text import Text
 
 # readline-safe colored input prompt: non-printing ANSI is wrapped in \001..\002
@@ -56,9 +56,21 @@ def assistant_prefix(console: Console, *, inline: bool) -> None:
     console.print("[bold cyan]kodo[/] [grey62]›[/] ", end="" if inline else "\n")
 
 
-def thinking(console: Console) -> Status:
-    """A spinner shown between the prompt and the first token/tool-call."""
-    return console.status("[grey62]thinking …[/]", spinner="dots")
+def thinking(console: Console) -> Progress:
+    """A spinner + elapsed timer shown while the model works.
+
+    Elapsed time makes a slow reply (a big model, or a buffered tool-mode
+    response) visibly *working* rather than frozen. Call ``.start()`` / ``.stop()``.
+    """
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[grey62]thinking …[/]"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    )
+    progress.add_task("", total=None)
+    return progress
 
 
 def render_reply(console: Console, text: str) -> None:

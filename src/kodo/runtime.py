@@ -281,7 +281,9 @@ def chat_repl(
                 history.pop()  # drop the unanswered user turn instead of pairing it with an empty reply
                 continue
             status.stop()
-            if render:
+            if not reply.strip():
+                _console.print("[grey62](no response)[/]")
+            elif render:
                 chatui.render_reply(_console, reply)
             else:
                 print("\n", flush=True)

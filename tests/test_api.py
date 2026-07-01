@@ -63,6 +63,30 @@ async def test_load_unrunnable_model_is_422_not_500(
     assert response.status_code == 422, response.text
 
 
+def test_create_app_honors_settings_runtime_port() -> None:
+    # The factory must use the runtime_port from the settings it's given.
+    assert create_app(Settings(runtime_port=8123)).state.manager._port == 8123
+
+
+def test_create_app_autopicks_when_runtime_port_none() -> None:
+    assert create_app(Settings(runtime_port=None)).state.manager._port > 0
+
+
+def test_reload_worker_honors_runtime_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Simulates a --reload worker: fresh process, no in-memory override, reads
+    # KODO_RUNTIME_PORT that serve() propagated into the environment.
+    from kodo import config
+    from kodo.config import get_settings
+
+    monkeypatch.setattr(config, "_runtime_port_override", None)
+    monkeypatch.setenv("KODO_RUNTIME_PORT", "8124")
+    get_settings.cache_clear()
+    try:
+        assert create_app().state.manager._port == 8124
+    finally:
+        get_settings.cache_clear()
+
+
 async def test_locked_unresolvable_model_fails_startup() -> None:
     # A locked --model that names no library model must fail startup loudly, not
     # silently start with nothing loaded (and then reject /api/load for being locked).

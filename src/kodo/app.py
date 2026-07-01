@@ -52,7 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
-    app.state.manager = ServerManager(port=config.pinned_runtime_port())
+    # Honor the passed settings' runtime_port; the CLI --runtime-port override
+    # (process-global) still wins when set. None → ServerManager auto-picks.
+    app.state.manager = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
     # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
     app.state.http = httpx.AsyncClient(timeout=None)
 

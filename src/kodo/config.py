@@ -153,6 +153,11 @@ def set_runtime_port(port: int | None) -> None:
     _runtime_port_override = port
 
 
+def runtime_port_override() -> int | None:
+    """The CLI ``--runtime-port`` override, or ``None`` if not set."""
+    return _runtime_port_override
+
+
 def pinned_runtime_port() -> int | None:
     """The pinned runtime port (``--runtime-port`` > setting), or ``None`` to auto-pick."""
     if _runtime_port_override is not None:
