@@ -89,8 +89,10 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     # Internal port the model runtime (llama-server / mlx_lm.server) listens on;
-    # the API proxies /v1 to it so the SPA stays single-origin.
-    runtime_port: int = 8090
+    # the API proxies /v1 to it so the SPA stays single-origin. ``None`` (the
+    # default) auto-picks a free port, so concurrent kodo sessions don't collide;
+    # set an int to pin it.
+    runtime_port: int | None = None
 
     # How long to wait for a runtime to become ready before giving up. Generous
     # by default — big models (15-20 GB) can take minutes to load, especially on
@@ -136,3 +138,20 @@ def set_debug(on: bool) -> None:
 def debug_enabled() -> bool:
     """Whether debug output is on (via ``--debug`` or ``KODO_DEBUG``)."""
     return _debug or get_settings().debug
+
+
+# CLI ``--runtime-port`` override; takes precedence over the setting when set.
+_runtime_port_override: int | None = None
+
+
+def set_runtime_port(port: int | None) -> None:
+    """Pin the model-runtime port for this process (CLI ``--runtime-port``)."""
+    global _runtime_port_override
+    _runtime_port_override = port
+
+
+def pinned_runtime_port() -> int | None:
+    """The pinned runtime port (``--runtime-port`` > setting), or ``None`` to auto-pick."""
+    if _runtime_port_override is not None:
+        return _runtime_port_override
+    return get_settings().runtime_port

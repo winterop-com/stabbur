@@ -32,7 +32,8 @@ src/kodo/
 ## Serving
 
 `serve` runs FastAPI. A `ServerManager` owns at most one runtime child process
-(`llama-server` / `mlx_lm.server`) on an internal `runtime_port`. The
+(`llama-server` / `mlx_lm.server`) on an internal port — auto-picked free by
+default, or pinned via `runtime_port` / `--runtime-port`. The
 `serving` router exposes `/api/status`, `/api/load/{name}`, and a streaming
 `/v1/{path}` proxy, so the browser SPA (and the future extension) talk to one
 stable origin while the underlying model is swapped underneath.

@@ -36,10 +36,16 @@ def _main(
         bool,
         typer.Option("--debug", help="Verbose diagnostics: runtime command + live runtime logs (else discarded)."),
     ] = False,
+    runtime_port: Annotated[
+        int | None,
+        typer.Option("--runtime-port", help="Pin the model-runtime port (default: auto-pick a free port)."),
+    ] = None,
 ) -> None:
     """Build and run a local library of LLM models."""
     if debug:
         config.set_debug(True)
+    if runtime_port is not None:
+        config.set_runtime_port(runtime_port)
 
 
 SourceOption = Annotated[

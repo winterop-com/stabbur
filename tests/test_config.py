@@ -20,6 +20,15 @@ def test_debug_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
     config.set_debug(False)  # restore
 
 
+def test_pinned_runtime_port_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    # --runtime-port pins the port; unset means auto-pick (None).
+    monkeypatch.setattr(config, "_runtime_port_override", None)
+    config.set_runtime_port(9999)
+    assert config.pinned_runtime_port() == 9999
+    config.set_runtime_port(None)
+    assert config._runtime_port_override is None
+
+
 def test_settings_read_library_root_from_kodo_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # kodo.toml is the primary config: a top-level key maps to a Settings field.
     _write_toml(tmp_path, 'library_root = "/data/library"\n[project]\nmodel = "x"\n')

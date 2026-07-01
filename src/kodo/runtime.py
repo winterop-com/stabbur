@@ -12,6 +12,7 @@ works identically for GGUF and MLX.
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -25,9 +26,17 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from kodo import chatui
-from kodo.config import debug_enabled, get_settings
+from kodo.config import debug_enabled, get_settings, pinned_runtime_port
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat, _human_size
+
+
+def find_free_port() -> int:
+    """Ask the OS for a free localhost TCP port (best-effort; small TOCTOU window)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
 
 # Progress/spinner goes to stderr so one-shot stdout (piped output) stays clean.
 _status_console = Console(stderr=True)
@@ -102,13 +111,12 @@ def run(model: LibraryModel, host: str, port: int) -> None:
     _exec(build_command(model, host, port))
 
 
-def _early_exit_error(cmd: list[str], code: int | None, log_dir: Path | None) -> RuntimeError:
+def _early_exit_error(cmd: list[str], code: int | None, log_dir: Path | None, port: int) -> RuntimeError:
     """Build a RuntimeError explaining why the runtime exited during startup.
 
     Includes the tail of the captured runtime log (when not in --debug) and a
     port-in-use hint, so "exited before becoming ready" is actually diagnosable.
     """
-    port = get_settings().runtime_port
     tail = ""
     if log_dir is not None:
         try:
@@ -133,11 +141,14 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
     Raises:
         RuntimeError: If the runtime binary is missing or never becomes ready.
     """
-    cmd = build_command(model, "127.0.0.1", get_settings().runtime_port)
+    # Auto-pick a free port unless one is pinned, so concurrent kodo sessions
+    # don't fight over a fixed port.
+    port = pinned_runtime_port() or find_free_port()
+    cmd = build_command(model, "127.0.0.1", port)
     if shutil.which(cmd[0]) is None:
         raise RuntimeError(f"{cmd[0]!r} not found on PATH. {_INSTALL_HINTS.get(cmd[0], '')}".strip())
 
-    base = f"http://127.0.0.1:{get_settings().runtime_port}"
+    base = f"http://127.0.0.1:{port}"
     # In --debug, stream the runtime's logs live (inherit stderr); otherwise capture
     # them to a temp file (never DEVNULL) so an early exit can report the real cause.
     debug = debug_enabled()
@@ -169,7 +180,7 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
             deadline = time.time() + get_settings().runtime_load_timeout
             while time.time() < deadline:
                 if proc.poll() is not None:
-                    raise _early_exit_error(cmd, proc.returncode, log_dir)
+                    raise _early_exit_error(cmd, proc.returncode, log_dir, port)
                 try:
                     if httpx.get(f"{base}/v1/models", timeout=2).status_code < 500:
                         break

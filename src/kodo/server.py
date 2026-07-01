@@ -26,9 +26,11 @@ class ServerState(StrEnum):
 class ServerManager:
     """Owns at most one runtime child process and tracks the loaded model."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8090) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int | None = None) -> None:
         self._host = host
-        self._port = port
+        # None → auto-pick a free port (chosen once, up front, so base_url is stable
+        # for the proxy); pin it by passing an explicit port.
+        self._port = port if port is not None else runtime.find_free_port()
         self._proc: subprocess.Popen[bytes] | None = None
         self._model: LibraryModel | None = None
 

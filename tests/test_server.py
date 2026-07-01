@@ -25,3 +25,9 @@ def test_current_reaps_dead_runtime(tmp_path: Path) -> None:
     assert manager.current is None
     assert manager._model is None
     assert manager._proc is None
+
+
+def test_manager_autopicks_free_port_when_unset() -> None:
+    # port=None → auto-pick a free port; an explicit port is honored verbatim.
+    assert ServerManager(port=None)._port > 0
+    assert ServerManager(port=8123)._port == 8123

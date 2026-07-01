@@ -7,8 +7,8 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from kodo import config, runtime
 from kodo import library as library_ops
-from kodo import runtime
 from kodo.config import Settings, get_settings
 from kodo.routers import catalog, health, serving
 from kodo.server import ServerManager
@@ -52,7 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
-    app.state.manager = ServerManager(port=settings.runtime_port)
+    app.state.manager = ServerManager(port=config.pinned_runtime_port())
     # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
     app.state.http = httpx.AsyncClient(timeout=None)
 

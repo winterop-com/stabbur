@@ -188,7 +188,7 @@ def test_runtime_early_exit_error_reports_cause(tmp_path: Path) -> None:
     log_dir.mkdir()
     (log_dir / "llama-server.log").write_text("E srv start: couldn't bind HTTP server socket, port: 8090\n")
 
-    err = runtime._early_exit_error(["llama-server"], 1, log_dir)
+    err = runtime._early_exit_error(["llama-server"], 1, log_dir, 8090)
     msg = str(err)
     assert "already in use" in msg  # friendly port hint
     assert "couldn't bind" in msg  # includes the runtime log tail

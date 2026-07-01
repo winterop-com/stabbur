@@ -26,8 +26,8 @@ The app keeps one stable origin while swapping the underlying runtime:
 | `GET /health`, `GET /docs` | health check, OpenAPI docs |
 
 So the SPA only ever talks to `serve`'s origin; `serve` starts `llama-server` /
-`mlx_lm.server` on an internal port (`runtime_port`, default 8090) and proxies to
-it.
+`mlx_lm.server` on an internal port (auto-picked free by default; pin it with
+`runtime_port` / `--runtime-port`) and proxies to it.
 
 ## Locked single-model mode
 
