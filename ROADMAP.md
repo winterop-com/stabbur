@@ -6,13 +6,22 @@ architecture, and conventions; this file holds what's next.
 
 ## Open / next ideas
 
-- **Attachments (files/images) — CLI + web UI.** Let the user drop/paste files
-  and images into a chat: images to vision-capable models (multimodal input,
-  gated on the model's detected `vision` capability), text/docs inlined as
-  context. Web: drag-drop + paste onto the composer (shadcn `Attachment`),
-  sent as OpenAI multimodal `content` parts. CLI: an `--attach`/`--image` flag
-  (and a drag-drop path onto the REPL). Backends: llama-server (`--mmproj`) and
-  mlx_lm already accept image inputs; kodo wires the plumbing.
+- **Image attachments — DONE (web + CLI).** Drag/paste/pick images into the
+  composer (gated on the model's detected `vision` capability), rendered as
+  thumbnails and click-to-fullscreen in the thread; `kodo chat --image/-i` on the
+  CLI. Sent as OpenAI `image_url` content parts; `agent.user_content` builds them.
+- **Audio input — next multimodal step.** Same shape as images, for audio-capable
+  models (Gemma 3n, Qwen2-Audio, Ultravox, Voxtral). Work: (1) detect an `audio`
+  capability (`audio_config` in the model config) alongside `vision`; (2) accept
+  audio files in the composer (drag/pick) and a `kodo chat --audio` flag;
+  (3) send as OpenAI `input_audio` content parts (base64 + format) — extend
+  `agent.user_content`. Runtimes already support it: llama-server via `mtmd`
+  (`--mmproj`) and mlx-vlm ("images, audio, and text"). Note: two Gemma 3n MLX
+  models already in the library carry `audio_config`, but the E4B checkpoint
+  currently fails to load in mlx-vlm (`vision_tower` mismatch) — verify against a
+  known-good audio model before claiming end-to-end support.
+- **Text / document attachments.** Inline pasted/dropped text files as context
+  (not multimodal parts — just prepended/attached text). Simpler than image/audio.
 - **Chat session export — Markdown + PDF.** Export a conversation from the web
   UI (and a `kodo` CLI command) to a shareable file. Markdown first (messages,
   roles, code fences, tool activity, model + params header) — straightforward
