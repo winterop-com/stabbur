@@ -438,6 +438,14 @@ def chat(
         list[str],
         typer.Option("--mcp", help="MCP server command(s) for tools; repeatable, e.g. --mcp kodo-mcp-datetime."),
     ] = [],
+    tools: Annotated[
+        bool,
+        typer.Option("--tools/--no-tools", help="Attach MCP tools. Use --no-tools for non-tool-trained models."),
+    ] = True,
+    system: Annotated[
+        str | None,
+        typer.Option("--system", help="System prompt for this session (overrides kodo.toml)."),
+    ] = None,
     render: Annotated[
         bool,
         typer.Option("--render", help="Render each reply as Markdown (code highlighting etc); no live streaming."),
@@ -446,9 +454,10 @@ def chat(
     """Chat with a library model: clean REPL, one-shot with ``-p``, tools with ``--mcp``.
 
     In a project dir, ``kodo.toml`` supplies the default model, its MCP tool
-    servers, and a system prompt; ``--mcp`` flags add to (not replace) those.
-    ``--render`` prints formatted Markdown instead of streaming; it's ignored for
-    ``-p`` so scripted output stays plain.
+    servers, and a system prompt; ``--mcp`` flags add to (not replace) those,
+    ``--system`` overrides the prompt, and ``--no-tools`` drops tools entirely
+    (some models regurgitate the tool schema instead of calling it). ``--render``
+    prints formatted Markdown instead of streaming; it's ignored for ``-p``.
     """
     proj = project.load()
     model_name = name or (proj.model if proj else None)
@@ -456,8 +465,8 @@ def chat(
         console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
-    mcp_commands = list(mcp) + [m.command for m in (proj.mcp if proj else [])]
-    system_prompt = proj.system_prompt if proj else ""
+    mcp_commands = (list(mcp) + [m.command for m in (proj.mcp if proj else [])]) if tools else []
+    system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     render_reply = render and prompt is None  # -p stays plain for scripting
     try:
         if prompt is not None and not mcp_commands:

@@ -98,6 +98,7 @@ class ChatRequest(BaseModel):
 
     messages: list[dict[str, Any]]
     max_tokens: int | None = None
+    use_tools: bool = True  # off → don't attach MCP tools (for non-tool-trained models)
 
 
 @router.post("/api/chat")
@@ -111,7 +112,11 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     """
     if manager.current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
-    toolset: MCPToolset = getattr(request.app.state, "toolset", None) or MCPToolset()
+    # use_tools off → empty toolset (non-tool-trained models otherwise regurgitate
+    # the injected tool schema as text instead of calling tools).
+    toolset: MCPToolset = (
+        (getattr(request.app.state, "toolset", None) or MCPToolset()) if req.use_tools else MCPToolset()
+    )
     base = manager.base_url
 
     # Apply the project's system prompt (kodo.toml) unless the client sent its own.

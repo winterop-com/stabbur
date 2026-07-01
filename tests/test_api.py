@@ -151,6 +151,45 @@ async def test_api_chat_requires_loaded_model(client: AsyncClient) -> None:
     assert r.status_code == 409
 
 
+async def test_api_chat_use_tools_flag_drops_tools(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # use_tools=false must run the loop with an empty toolset (for non-tool models),
+    # even when the server has MCP tools configured.
+    from kodo.tools import MCPToolset
+
+    class FakeManager:
+        current = object()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    ts = MCPToolset()
+    ts.schemas = [{"type": "function", "function": {"name": "today"}}]
+    app.state.toolset = ts
+    seen: dict[str, list[str]] = {}
+
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: MCPToolset,
+        max_tokens: int | None,
+        on_event: Callable[[str, str], None],
+        on_token: Callable[[str], None],
+        **_: Any,
+    ) -> str:
+        seen["names"] = toolset.names
+        return ""
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    try:
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "use_tools": False})
+        assert seen["names"] == []  # tools dropped
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "use_tools": True})
+        assert seen["names"] == ["today"]  # tools attached
+    finally:
+        app.dependency_overrides.clear()
+
+
 async def test_locked_unresolvable_model_fails_startup() -> None:
     # A locked --model that names no library model must fail startup loudly, not
     # silently start with nothing loaded (and then reject /api/load for being locked).
