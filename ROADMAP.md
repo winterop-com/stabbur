@@ -18,15 +18,25 @@ architecture, and conventions; this file holds what's next.
   is both vision and audio.
 - **Text / document attachments.** Inline pasted/dropped text files as context
   (not multimodal parts — just prepended/attached text). Simpler than image/audio.
-- **Investigate text-to-speech (TTS) models.** Audio *output* — a new modality
-  for the library, distinct from audio input above. Candidates to evaluate:
-  Kokoro (tiny, fast, ONNX/GGUF), Orpheus-TTS (Llama-based → GGUF via llama.cpp +
-  a SNAC decoder), Sesame CSM, Dia, Parler-TTS, Piper. Open questions: runtime
-  (most aren't llama.cpp chat servers — they need their own serving path / a
-  decoder step), how they fit the `(model x format)` library model, and the UI
-  surface (a "speak" action on assistant replies, or a dedicated TTS view). Start
-  with a spike on Kokoro or Orpheus to gauge how much new runtime plumbing a
-  non-chat model needs before committing.
+- **Text-to-speech (TTS) — SPIKE DONE; recommend OuteTTS via `llama-tts`.**
+  Finding: llama.cpp ships **`llama-tts`** (already on this machine via brew), and
+  it generates speech end-to-end from the existing runtime family — no new engine.
+  Verified PoC: `llama-tts --tts-oute-default -p "..." -o out.wav` produced a
+  3.56s / 24 kHz WAV in ~2 s. A TTS model here is a small GGUF (~400 MB OuteTTS)
+  paired with a vocoder GGUF (~130 MB WavTokenizer); `--tts-oute-default`
+  auto-fetches both.
+  - **Fit:** reuses kodo's "spawn a llama.cpp binary" pattern, but `llama-tts` is
+    a **one-shot CLI** (writes a WAV), not an OpenAI server — so the plumbing is a
+    subprocess wrapper (text → WAV bytes), not a `/v1` proxy.
+  - **Proposed first cut:** a `kodo.tts` wrapper around `llama-tts`; a
+    `kodo speak "text" [-o out.wav]` CLI (plays via `afplay` on macOS); a
+    `POST /api/speak` endpoint returning WAV; and a **speaker/play icon on
+    assistant replies** in the web UI (the "listen" affordance). Start with
+    `--tts-oute-default` (auto-managed models) so no library changes are needed;
+    add TTS-model detection + vocoder pairing to the library later.
+  - **Alternatives (later):** Kokoro (ONNX; needs onnxruntime + kokoro-onnx — more
+    voices/quality) and Orpheus-3B (Llama GGUF + a SNAC decoder — larger, more
+    expressive). OuteTTS-via-llama-tts is the lowest-friction start.
 - **Chat session export — Markdown + PDF.** Export a conversation from the web
   UI (and a `kodo` CLI command) to a shareable file. Markdown first (messages,
   roles, code fences, tool activity, model + params header) — straightforward
