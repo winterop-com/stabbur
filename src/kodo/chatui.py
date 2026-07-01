@@ -40,8 +40,11 @@ def header(console: Console, *, model: str, model_format: str, tools: list[str],
     body.append("\ntools   ", style="grey62")
     body.append(", ".join(tools) if tools else "none", style="cyan" if tools else "grey62")
     if server is not None:
-        body.append("\nserver  ", style="grey62")
+        # Label it as the OpenAI API base, not a web page — a browser GET on /v1
+        # itself 404s (it's a prefix); GET /v1/models is the browsable check.
+        body.append("\napi     ", style="grey62")
         body.append(f"{server}/v1", style="grey62")
+        body.append("  (OpenAI-compatible)", style="grey50")
     console.print(
         Panel(body, title="[bold]kodo chat[/]", title_align="left", border_style="grey37", padding=(0, 1), expand=False)
     )
