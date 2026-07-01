@@ -7,11 +7,11 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from kodo import agent, capabilities, cards, doctor, runtime, sampling
+from kodo import agent, capabilities, cards, doctor, runtime, sampling, tts
 from kodo import library as library_ops
 from kodo.config import Settings
 from kodo.sampling import ModelSampling
@@ -327,6 +327,32 @@ async def load(name: str, manager: ManagerDep, settings: ConfDep, n_ctx: int | N
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return await _status(manager, settings)
+
+
+class SpeakRequest(BaseModel):
+    """Text to synthesize into speech."""
+
+    text: str
+
+
+@router.post("/api/speak")
+async def speak(req: SpeakRequest) -> Response:
+    """Text-to-speech: synthesize ``text`` to a WAV (llama-tts / OuteTTS).
+
+    Runs the (blocking) synthesis in a worker thread so the event loop stays free;
+    returns ``audio/wav`` bytes the browser can play. 503 if TTS isn't installed.
+    """
+    if not tts.available():
+        raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
+    if not req.text.strip():
+        raise HTTPException(status_code=422, detail="text is empty")
+    try:
+        wav_path = await asyncio.to_thread(tts.synthesize, req.text)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    data = wav_path.read_bytes()
+    wav_path.unlink(missing_ok=True)
+    return Response(content=data, media_type="audio/wav")
 
 
 @router.post("/api/unload")

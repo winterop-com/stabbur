@@ -1,5 +1,6 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
+import shutil
 from collections.abc import Awaitable
 from pathlib import Path
 from typing import Annotated
@@ -466,6 +467,39 @@ def run(
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
+
+
+@app.command()
+def speak(
+    words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Write the WAV here (default: a temp file, played aloud)."),
+    ] = None,
+    play: Annotated[
+        bool,
+        typer.Option("--play/--no-play", help="Play the audio after generating (macOS afplay)."),
+    ] = True,
+) -> None:
+    """Text-to-speech: synthesize ``text`` to a WAV via llama.cpp's llama-tts.
+
+    Uses the default OuteTTS model + vocoder (auto-downloaded on first use). With
+    ``-o`` writes the WAV to that path; otherwise a temp file is played aloud.
+    """
+    from kodo import tts  # noqa: PLC0415
+
+    text = " ".join(words)  # accept an unquoted multi-word phrase
+    try:
+        with console.status("[cyan]Synthesizing speech…", spinner="dots"):
+            wav = tts.synthesize(text, output)
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Wrote[/] {wav}")
+    if play and output is None and shutil.which("afplay"):
+        import subprocess  # noqa: PLC0415
+
+        subprocess.run(["afplay", str(wav)])  # noqa: S603, S607 - local playback of our own file
 
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}

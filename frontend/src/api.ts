@@ -135,6 +135,20 @@ export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);
 /** Fetch the system-health report (runtimes, library, project). */
 export const getDoctor = () => fetch("/api/doctor").then(json<DoctorReport>);
 
+/** Synthesize text to speech (llama-tts); returns a WAV blob to play. */
+export async function speak(text: string): Promise<Blob> {
+  const res = await fetch("/api/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+  return res.blob();
+}
+
 /** Roll up a report to its worst status (fail > warn > ok). */
 export function overallStatus(report: DoctorReport | null): CheckStatus | null {
   if (!report) return null;

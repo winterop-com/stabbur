@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ChatImage } from "@/components/ChatImage";
 import { CopyButton } from "@/components/CopyButton";
 import { Markdown } from "@/components/Markdown";
+import { SpeakButton } from "@/components/SpeakButton";
 import { ToolMarkerChip } from "@/components/ToolMarkerChip";
 import type { ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -105,6 +106,7 @@ export function MessageItem({
       {!streaming && (message.content || hasTools) && (
         <div className="mt-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
           {message.content && !message.error && <CopyButton text={message.content} />}
+          {message.content && !message.error && <SpeakButton text={message.content} />}
           {canRegenerate && (
             <Tooltip>
               <TooltipTrigger asChild>
