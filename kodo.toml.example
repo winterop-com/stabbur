@@ -1,0 +1,47 @@
+# kodo config — the primary config file (no .env needed).
+#
+# Copy to `kodo.toml` (or run `kodo init`). One file holds two things:
+#   1. Library/runtime config as top-level keys (WHERE models live, ports, ...).
+#   2. The project's ASSISTANT: [project] (model + system prompt) and [[mcp]]
+#      tool servers, read by `kodo chat` / `kodo serve` in this directory.
+#
+# Precedence (high to low): CLI flags, KODO_* env vars, kodo.toml, .env.
+# So kodo.toml is authoritative; a KODO_* env var is the per-machine escape
+# hatch (e.g. a different drive mount path on Linux).
+#
+# Note: `kodo ls` reads `backup_root` (below) to find the library on disk.
+
+# --- Library / runtime (top-level keys map to Settings fields) ---
+
+# Where the model library lives (often the external drive). Use an absolute path.
+backup_root = "/Volumes/LLM/Library"
+
+# Always-local root, never on an external drive (default: ~/.kodo/library).
+# `kodo pull --local` targets it so a small model works when the drive is out.
+# local_root = "/Users/you/.kodo/library"
+
+# Serve settings (used by `kodo serve`).
+# host = "127.0.0.1"
+# port = 8000
+# serve_ui = true
+
+# --- The assistant this project defines ---
+
+[project]
+# A model already in your library (full name or bare repo/tag). Pull it with
+# `kodo pull huggingface <model>`, or `kodo init` pulls it for you.
+model = "gemma-4-12B-it-QAT-GGUF"
+
+# Prepended to every conversation. Leave "" for none.
+system_prompt = ""
+
+# Tools via MCP: one [[mcp]] block per server kodo spawns (over stdio) and
+# exposes to the model. `command` is required; `name` is an optional label.
+
+# [[mcp]]
+# name = "datetime"
+# command = "kodo-mcp-datetime"
+
+# [[mcp]]
+# name = "dhis2"
+# command = "dhis2w-mcp-bridge"

@@ -51,17 +51,24 @@ def _fmt_cell(model_format: ModelFormat) -> str:
     return f"[{_FORMAT_STYLE[model_format]}]{model_format.value}[/]"
 
 
-def _project_toml(model: str) -> str:
-    """Render a thin kodo.toml project manifest bound to ``model``."""
+def _project_toml(model: str, backup_root: Path) -> str:
+    """Render a kodo.toml: library config + the assistant bound to ``model``.
+
+    This is kodo's primary config file — no ``.env`` needed. Top-level keys
+    configure the library/runtime; ``[project]`` and ``[[mcp]]`` define the
+    assistant. Any value can be overridden per machine with a ``KODO_*`` env var.
+    """
     return (
-        "# kodo project — a thin assistant manifest.\n"
+        "# kodo config — library location + this project's assistant, in one file.\n"
+        "# kodo's primary config (no .env needed). Override any value per machine\n"
+        "# with a KODO_* env var (e.g. KODO_BACKUP_ROOT).\n\n"
+        "# Where the model library lives (often the external drive).\n"
+        f'backup_root = "{backup_root}"\n\n'
+        "# The assistant this project defines.\n"
         "[project]\n"
         f'model = "{model}"\n'
         'system_prompt = ""\n\n'
-        "[serve]\n"
-        'host = "127.0.0.1"\n'
-        "port = 8000\n\n"
-        "# Tools via MCP (uncomment and point at an MCP server):\n"
+        "# Tools via MCP (repeatable; uncomment and point at an MCP server):\n"
         "# [[mcp]]\n"
         '# name = "dhis2"\n'
         '# command = "dhis2w-mcp-bridge"\n'
@@ -232,7 +239,7 @@ def init(
             console.print(f"[red]Pull failed:[/] {exc}")
             raise typer.Exit(1) from exc
 
-    proj.write_text(_project_toml(model))
+    proj.write_text(_project_toml(model, get_settings().backup_root))
     console.print(f"\n[green]Created kodo.toml[/] (model: {model})")
     console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 

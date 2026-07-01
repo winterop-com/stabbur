@@ -53,19 +53,27 @@ make dev                              # uvicorn with --reload
 
 ## Configuration
 
-All paths are env-configurable (prefix `KODO_`). To move the library to the
-external drive, change one value:
+Config lives in **`kodo.toml`** (run `kodo init`, or copy `kodo.toml.example`).
+Top-level keys set the library/runtime; `[project]` / `[[mcp]]` define the
+assistant. To put the library on the external drive:
 
-```bash
-export KODO_BACKUP_ROOT=/Volumes/LLM/Library
+```toml
+# kodo.toml
+backup_root = "/Volumes/LLM/Library"
 ```
 
-| Variable                     | Default                  |
-| ---------------------------- | ------------------------ |
-| `KODO_BACKUP_ROOT`      | `data`                   |
-| `KODO_OLLAMA_MODELS_DIR`| `~/.ollama/models`       |
-| `KODO_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models`  |
-| `KODO_HF_TOKEN`         | (uses HF login if unset) |
+Any value can be overridden per machine with a `KODO_*` env var (e.g.
+`KODO_BACKUP_ROOT=/mnt/llm/Library` on Linux). Precedence, high to low:
+CLI flags, `KODO_*` env vars, `kodo.toml`, `.env` (an optional fallback — you
+don't need it).
+
+| Key (`kodo.toml`) / env var                 | Default                  |
+| ------------------------------------------- | ------------------------ |
+| `backup_root` / `KODO_BACKUP_ROOT`          | `data`                   |
+| `local_root` / `KODO_LOCAL_ROOT`            | `~/.kodo/library`        |
+| `ollama_models_dir` / `KODO_OLLAMA_MODELS_DIR` | `~/.ollama/models`    |
+| `lmstudio_models_dir` / `KODO_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models` |
+| `hf_token` / `KODO_HF_TOKEN`                | (uses HF login if unset) |
 
 ## Develop
 

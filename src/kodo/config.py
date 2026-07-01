@@ -1,14 +1,23 @@
-"""Application configuration loaded from the environment.
+"""Application configuration.
 
-All paths are configurable so that moving the backup root to a mounted
-cloud drive later is a single change (the ``KODO_BACKUP_ROOT`` env var
-or ``backup_root`` field), not a refactor.
+``kodo.toml`` in the working directory is the primary config source: it holds
+both the library location (``backup_root``) and the project/assistant manifest
+(``[project]`` / ``[[mcp]]``, read separately by :mod:`kodo.project`). Every
+value can still be overridden per machine with a ``KODO_*`` environment
+variable; ``.env`` remains an optional low-priority fallback.
+
+Precedence (high to low): CLI args, ``KODO_*`` env vars, ``kodo.toml``, ``.env``.
 """
 
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
 
 
 def _default_lmstudio_dir() -> Path:
@@ -24,13 +33,42 @@ def _default_lmstudio_dir() -> Path:
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables.
+    """Application settings — read from ``kodo.toml`` first, then env vars.
 
-    Environment variables are prefixed with ``KODO_`` (e.g.
-    ``KODO_BACKUP_ROOT=/Volumes/cloud/llm-backup``).
+    Top-level keys in ``kodo.toml`` (e.g. ``backup_root = "/Volumes/LLM/Library"``)
+    map directly to these fields; the ``[project]`` / ``[[mcp]]`` tables are
+    ignored here and read by :mod:`kodo.project`. A ``KODO_*`` environment
+    variable (e.g. ``KODO_BACKUP_ROOT``) overrides the file per machine.
     """
 
-    model_config = SettingsConfigDict(env_prefix="KODO_", env_file=".env")
+    model_config = SettingsConfigDict(
+        env_prefix="KODO_",
+        env_file=".env",
+        toml_file="kodo.toml",
+        extra="ignore",
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Order the sources: init args > env vars > kodo.toml > .env > secrets.
+
+        ``kodo.toml`` is the primary config file, so it outranks ``.env``; real
+        environment variables still win for genuine per-machine overrides.
+        """
+        return (
+            init_settings,
+            env_settings,
+            TomlConfigSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
     app_name: str = "kodo"
     debug: bool = False

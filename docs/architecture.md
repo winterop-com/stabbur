@@ -8,7 +8,7 @@ and every data type is a `BaseModel` (no `@dataclass`).
 
 ```
 src/kodo/
-├── config.py    # Settings (KODO_* env vars; backup_root, serve_ui, …)
+├── config.py    # Settings (kodo.toml + KODO_* env vars; backup_root, serve_ui, …)
 ├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
 ├── catalog.py   # list/pull across the source stores
 ├── library.py   # scan the on-drive library → LibraryModel (+ load_target, mmproj)
