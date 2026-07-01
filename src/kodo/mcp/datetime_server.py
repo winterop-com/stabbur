@@ -36,7 +36,7 @@ def main() -> None:
     Swallow Ctrl-C / stream-closed shutdown noise so exiting is quiet.
     """
     try:
-        mcp.run()
+        mcp.run(show_banner=False)
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
 

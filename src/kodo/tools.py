@@ -4,8 +4,10 @@ kodo is the MCP *client* — it spawns an MCP server (over stdio), lists its too
 as OpenAI function schemas for the model, and executes ``tool_call``s against it.
 """
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastmcp import Client
@@ -71,7 +73,8 @@ async def connect(commands: list[list[str]]) -> AsyncGenerator[MCPToolset, None]
     toolset = MCPToolset()
     async with AsyncExitStack() as stack:
         for command in commands:
-            transport = StdioTransport(command=command[0], args=command[1:])
+            # Discard the spawned server's stderr (banners/logs) to keep our output clean.
+            transport = StdioTransport(command=command[0], args=command[1:], log_file=Path(os.devnull))
             client = await stack.enter_async_context(Client(transport))
             await toolset.add(client)
         yield toolset
