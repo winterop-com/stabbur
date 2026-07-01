@@ -143,6 +143,12 @@ def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None, sy
 
 def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt: str = "") -> None:
     """Interactive terminal chat — a clean streaming REPL over the model's /v1."""
+    try:
+        import readline  # up-arrow recall + line editing for input()
+
+        readline.set_history_length(1000)
+    except ImportError:
+        pass
     history: list[dict[str, str]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
     with _serve(model) as base:
         print(f"chatting with {model.name} — /exit or Ctrl-D to quit\n", flush=True)
@@ -160,8 +166,11 @@ def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt:
             body: dict[str, object] = {"messages": history, "stream": True}
             if max_tokens is not None:
                 body["max_tokens"] = max_tokens
-            print("kodo › ", end="", flush=True)
+            # Spinner until the first token (prefill latency otherwise looks dead).
             reply = ""
+            first = True
+            status = _status_console.status("[dim]thinking …[/]", spinner="dots")
+            status.start()
             with httpx.stream("POST", f"{base}/v1/chat/completions", json=body, timeout=600) as r:
                 for line in r.iter_lines():
                     if not line.startswith("data:"):
@@ -171,7 +180,13 @@ def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt:
                         break
                     content = json.loads(payload)["choices"][0]["delta"].get("content")
                     if content:
+                        if first:
+                            status.stop()
+                            print("kodo › ", end="", flush=True)
+                            first = False
                         print(content, end="", flush=True)
                         reply += content
+            if first:  # nothing streamed back
+                status.stop()
             print("\n", flush=True)
             history.append({"role": "assistant", "content": reply})

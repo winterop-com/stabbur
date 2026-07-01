@@ -398,6 +398,8 @@ def _chat_with_tools(
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
 
+    from rich.status import Status  # noqa: PLC0415
+
     from kodo import agent  # noqa: PLC0415
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
@@ -405,25 +407,57 @@ def _chat_with_tools(
     # Tool activity is meta → stderr, so `-p` stdout stays just the answer.
     err = Console(stderr=True)
 
+    # Per-turn state: a "thinking" spinner shown until the first token/tool-call
+    # arrives (model prefill latency otherwise looks dead), and whether the reply
+    # label has been printed yet.
+    turn_status: Status | None = None
+    turn_labeled = True
+
+    def _first_output() -> None:
+        nonlocal turn_status, turn_labeled
+        if turn_status is not None:
+            turn_status.stop()
+            turn_status = None
+        if not turn_labeled:
+            err.print("[dim]kodo ›[/]")
+            turn_labeled = True
+
+    def _think() -> None:
+        nonlocal turn_status
+        turn_status = err.status("[dim]thinking …[/]", spinner="dots")
+        turn_status.start()
+
     def on_event(kind: str, detail: str) -> None:
+        _first_output()
         icon = "[cyan]⚙[/]" if kind == "call" else "[dim]↳[/]"
         err.print(f"  {icon} [dim]{detail[:200]}[/]")
 
     def on_token(text: str) -> None:
+        _first_output()
         print(text, end="", flush=True)  # noqa: T201
 
     def seed() -> list[dict[str, object]]:
         return [{"role": "system", "content": system_prompt}] if system_prompt else []
 
     async def _run(base: str) -> None:
+        nonlocal turn_labeled
         async with mcp_tools.connect(commands) as toolset:
             err.print(f"[dim]tools:[/] {', '.join(toolset.names) or '(none)'}\n")
             if prompt is not None:
+                turn_labeled = True  # -p mode: stdout is just the answer, no label
+                _think()
                 await agent.run(
                     base, [*seed(), {"role": "user", "content": prompt}], toolset, max_tokens, on_event, on_token
                 )
+                _first_output()
                 print()  # noqa: T201 - newline after streamed answer
             else:
+                try:
+                    import readline  # noqa: PLC0415 - up-arrow recall + line editing for input()
+
+                    readline.set_history_length(1000)
+                except ImportError:
+                    pass
                 history: list[dict[str, object]] = seed()
                 while True:
                     try:
@@ -436,8 +470,10 @@ def _chat_with_tools(
                             break
                         continue
                     history.append({"role": "user", "content": user})
-                    err.print("[dim]kodo ›[/]")
+                    turn_labeled = False
+                    _think()
                     await agent.run(base, history, toolset, max_tokens, on_event, on_token)
+                    _first_output()
                     print("\n")  # noqa: T201
 
     with runtime._serve(model) as base:
