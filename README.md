@@ -36,10 +36,20 @@ kodo list                     # your library (the models on your drive)
 kodo sources                  # models in app caches (HF/Ollama/LM Studio) you could pull
 kodo pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
 kodo pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
+kodo doctor                   # pre-flight: runtimes, library, project
 kodo run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, MLX→mlx_lm
-kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"   # one-shot, scriptable
+kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"          # one-shot, scriptable
+kodo chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
+kodo chat ultravox-v0_5-llama-3_2-1b-GGUF -p "transcribe" -a clip.wav   # audio input
+kodo speak hello there        # text-to-speech (llama-tts)
 kodo serve --ui               # browser UI over your library
 ```
+
+**Multimodal & voice:** kodo detects each model's capabilities (tool calling,
+vision, audio) and runs the right runtime — GGUF via llama.cpp (`llama-server`,
+plus `--mmproj` for vision/audio and `llama-tts` for speech), MLX via
+`mlx_lm`/`mlx-vlm`. The web UI and CLI let you attach images/audio (or record
+from the mic) to multimodal models, and read replies aloud.
 
 Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
 the library, pulling, running & chatting, the web UI, and using models directly.

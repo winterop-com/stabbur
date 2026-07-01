@@ -6,10 +6,24 @@ Tailwind chat UI with a model picker).
 
 ![kodo web UI](../assets/web-ui.png)
 
-The chat surface: a model picker (with tool/vision capability hints and an eject
-action), a per-server tools menu, a system-health indicator, and a settings rail
-for the system prompt, sampling, and context length. Settings are per
-conversation, so each chat starts fresh.
+## Features
+
+- **Model picker** — grouped by format, with per-model **capability icons**
+  (tools · vision · audio), a rich hover tooltip (format/size/context/caps),
+  **filter chips** to narrow by capability, and an **eject** action to free memory.
+- **Tools** — a per-server fly-out menu with a master switch, per-server
+  toggle-all, and per-tool switches (scales from 3 tools to hundreds).
+- **Multimodal input** — for vision/audio models, attach **images** and **audio**
+  via drag-drop, paste, or the picker, or **record from the mic** (auto-stops on
+  silence). Images open fullscreen on click; audio plays inline. kodo nudges you
+  toward an audio-specialist model when one fits better.
+- **Listen (text-to-speech)** — a speaker button on each reply reads it aloud; the
+  settings rail picks the **voice** (a library TTS model).
+- **Settings rail** — system prompt (authoritative; blank = none), sampling
+  (with model-recommended defaults shown), and **context length** (presets +
+  custom; reloads the model). Settings are **per conversation**, so each chat
+  starts fresh.
+- **System health** — a status dot opening the same checks as `kodo doctor`.
 
 **Build the UI once** (it's not committed — only its source is):
 
@@ -45,8 +59,15 @@ The app keeps one stable origin while swapping the underlying runtime:
 
 | Endpoint | Purpose |
 | -------- | ------- |
-| `GET /api/status` | `{state, model, locked}` — `stopped` / `loading` / `ready` |
-| `POST /api/load/{name}` | load or switch to a model (rejected in locked mode) |
+| `GET /api/status` | runtime state (`stopped`/`loading`/`ready`), model, n_ctx, error |
+| `GET /api/library` | runnable models + capabilities (vision/audio/tools/context) |
+| `GET /api/model?name=` | one model's card + metadata + recommended sampling |
+| `POST /api/load/{name}` | load/switch a model (`?n_ctx=` sets context; locked → 409) |
+| `POST /api/unload` | eject the loaded model (frees memory) |
+| `POST /api/chat` | server-side agent loop (tools + multimodal) → typed SSE |
+| `GET /api/tools` | attached MCP tools (namespaced `<server>__<tool>`) |
+| `GET /api/doctor` | system-health report (mirrors `kodo doctor`) |
+| `GET /api/tts`, `POST /api/speak` | list TTS models; synthesize text → WAV |
 | `POST /v1/{path}` | stream-proxied to the loaded runtime's `/v1` |
 | `GET /health`, `GET /docs` | health check, OpenAPI docs |
 

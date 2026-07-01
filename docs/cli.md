@@ -66,6 +66,10 @@ kodo pull lmstudio <name>
 kodo pull ollama gemma4:31b --move    # delete the local source after a verified copy
 kodo pull ollama --all                # import every model from the local store
 kodo pull lmstudio --all --move       # import all, freeing local disk as it goes
+# Hugging Face:
+kodo pull huggingface lmstudio-community/gemma-4-12B-it-QAT-GGUF --include '*Q4_K_M*'
+kodo pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' \
+         --vocoder ggml-org/WavTokenizer          # a TTS model + its vocoder
 ```
 
 - `--move` — relocate (copy, verify byte-for-byte, then delete the local source
@@ -74,6 +78,10 @@ kodo pull lmstudio --all --move       # import all, freeing local disk as it goe
   name (the two are mutually exclusive). Idempotent (skips models already in the
   library, so it doubles as a sync) and resilient (a failing model is logged and
   the batch continues; exit code is non-zero if any failed).
+- `--include <glob>` — Hugging Face only; fetch only matching files (repeatable),
+  e.g. one GGUF quant from a multi-quant repo. Model cards and configs come along.
+- `--vocoder <repo>` — Hugging Face only; co-locate a vocoder (e.g. WavTokenizer)
+  with the model so it's recognized as a **text-to-speech** model (see `kodo speak`).
 
 ## `kodo run <name>`
 
@@ -94,6 +102,8 @@ kodo chat <name>                      # interactive streaming REPL
 kodo chat <name> -p "prompt"          # one-shot, prints just the answer (pipeable)
 kodo chat <name> -p "prompt" -n 256   # --max-tokens
 kodo chat <name> --render             # render each reply as Markdown (code highlighting)
+kodo chat <name> --system "..."       # session system prompt (overrides kodo.toml)
+kodo chat <name> --mcp <cmd>          # attach an MCP tool server (repeatable)
 ```
 
 By default replies **stream** token-by-token as plain text (fast, pipe-safe).
@@ -102,8 +112,42 @@ headers, lists, and syntax-highlighted fenced code — when it's done (so you lo
 the live token stream). It's ignored under `-p` so scripted output stays plain.
 Up-arrow recalls previous prompts.
 
+**Multimodal input** — for vision/audio models, attach files:
+
+```bash
+kodo chat <name> -p "what is this?" --image photo.jpg    # vision model
+kodo chat <name> -p "transcribe" --audio clip.wav         # audio model
+```
+
+`--image`/`-i` and `--audio`/`-a` are repeatable. In the REPL you can also just
+**drag a file into the terminal** — the inserted path is detected and attached.
+Sent as OpenAI multimodal content; kodo warns if the model lacks that modality.
+
 Non-chat models (embeddings, vision encoders) are refused with a clear message —
 kodo runs generative LLMs only.
+
+## `kodo speak <text...>`
+
+Text-to-speech via llama.cpp's `llama-tts`. Without `--model` uses the default
+OuteTTS model + vocoder (auto-downloaded on first use); `--model` picks a TTS
+model from your library (see `kodo pull --vocoder`).
+
+```bash
+kodo speak hello there                 # synthesize + play aloud (macOS)
+kodo speak "some text" -o out.wav      # write a WAV instead of playing
+kodo speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library TTS model
+```
+
+## `kodo doctor`
+
+Pre-flight system health: are the runtime binaries kodo spawns installed
+(`llama-server`, and `mlx_lm.server`/`mlx_vlm.server` on Apple Silicon), is the
+library reachable and non-empty, and does the project point at a present model.
+Exits non-zero if any check fails.
+
+```bash
+kodo doctor
+```
 
 ## `kodo serve`
 
