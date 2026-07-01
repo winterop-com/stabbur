@@ -1,11 +1,11 @@
-// localStorage-backed persistence for conversations, settings, and theme.
-// The system prompt is stored once, app-wide (not per-conversation), and is
-// prepended as a {role:"system"} message on every /api/chat request.
+// localStorage-backed persistence for conversations and theme. Settings (system
+// prompt, sampling, tools, context length) are stored *per conversation* — each
+// chat owns its own, so a new chat starts from DEFAULT_SETTINGS and one chat's
+// settings never leak into the next.
 
 import type { Conversation } from "@/lib/types";
 
 const CONVERSATIONS_KEY = "kodo.conversations";
-const SETTINGS_KEY = "kodo.settings";
 const THEME_KEY = "kodo.theme";
 
 export interface Settings {
@@ -14,6 +14,10 @@ export interface Settings {
   temperature: number | null;
   topP: number | null;
   useTools: boolean;
+  /** Namespaced tool names the user switched off (denylist; new tools default on). */
+  disabledTools: string[];
+  /** Preferred context window (tokens) applied when a model is loaded; null = runtime default. */
+  contextLength: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,10 +26,28 @@ export const DEFAULT_SETTINGS: Settings = {
   temperature: null,
   topP: null,
   useTools: true,
+  disabledTools: [],
+  contextLength: null,
 };
 
 export function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Coerce an untrusted/partial object into a valid Settings (missing → default). */
+export function normalizeSettings(parsed: Partial<Settings> | undefined | null): Settings {
+  if (!parsed || typeof parsed !== "object") return { ...DEFAULT_SETTINGS };
+  return {
+    systemPrompt: typeof parsed.systemPrompt === "string" ? parsed.systemPrompt : "",
+    maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : null,
+    temperature: typeof parsed.temperature === "number" ? parsed.temperature : null,
+    topP: typeof parsed.topP === "number" ? parsed.topP : null,
+    useTools: typeof parsed.useTools === "boolean" ? parsed.useTools : true,
+    disabledTools: Array.isArray(parsed.disabledTools)
+      ? parsed.disabledTools.filter((t): t is string => typeof t === "string")
+      : [],
+    contextLength: typeof parsed.contextLength === "number" ? parsed.contextLength : null,
+  };
 }
 
 export function loadConversations(): Conversation[] {
@@ -34,7 +56,8 @@ export function loadConversations(): Conversation[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Conversation[];
     if (!Array.isArray(parsed)) return [];
-    return parsed;
+    // Back-fill settings for conversations saved before they were per-conversation.
+    return parsed.map((c) => ({ ...c, settings: normalizeSettings(c.settings) }));
   } catch {
     return [];
   }
@@ -45,31 +68,6 @@ export function saveConversations(convs: Conversation[]): void {
     localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
   } catch {
     // storage full / unavailable — best-effort
-  }
-}
-
-export function loadSettings(): Settings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    return {
-      systemPrompt: typeof parsed.systemPrompt === "string" ? parsed.systemPrompt : "",
-      maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : null,
-      temperature: typeof parsed.temperature === "number" ? parsed.temperature : null,
-      topP: typeof parsed.topP === "number" ? parsed.topP : null,
-      useTools: typeof parsed.useTools === "boolean" ? parsed.useTools : true,
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-export function saveSettings(s: Settings): void {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-  } catch {
-    // ignore
   }
 }
 

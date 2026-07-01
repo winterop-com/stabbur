@@ -13,6 +13,9 @@ export interface Status {
   state: "stopped" | "loading" | "ready";
   model: string | null;
   locked: boolean;
+  n_ctx: number | null;
+  error: string | null;
+  default_system_prompt: string;
 }
 
 export interface LibModel {
@@ -20,6 +23,18 @@ export interface LibModel {
   model_format: string;
   size_bytes: number;
   size_human: string;
+  vision: boolean;
+  tools: boolean;
+  context_length: number | null;
+}
+
+/** Model-recommended sampling defaults (from generation_config.json). */
+export interface ModelSampling {
+  temperature: number | null;
+  top_p: number | null;
+  top_k: number | null;
+  min_p: number | null;
+  repeat_penalty: number | null;
 }
 
 /** Detailed info for a single model, incl. its markdown card. */
@@ -30,6 +45,30 @@ export interface ModelInfo {
   path: string;
   card: string | null;
   metadata: Record<string, unknown> | null;
+  sampling: ModelSampling;
+}
+
+export type CheckStatus = "ok" | "warn" | "fail";
+
+/** One health check from /api/doctor. */
+export interface HealthCheck {
+  name: string;
+  status: CheckStatus;
+  detail: string;
+  hint: string | null;
+}
+
+/** The full system-health report. */
+export interface DoctorReport {
+  checks: HealthCheck[];
+}
+
+/** One MCP tool attached to the server (namespaced <server>__<tool>). */
+export interface ToolInfo {
+  name: string;
+  server: string;
+  tool: string;
+  description: string;
 }
 
 /** Options forwarded to /api/chat as sampling / tool parameters. */
@@ -38,6 +77,10 @@ export interface ChatOptions {
   temperature?: number;
   topP?: number;
   useTools?: boolean;
+  /** Allow-list of namespaced tool names; undefined → all attached tools. */
+  enabledTools?: string[];
+  /** Authoritative system prompt ("" = none); undefined → server's project default. */
+  systemPrompt?: string;
 }
 
 /** A parsed /api/chat SSE event. */
@@ -56,13 +99,38 @@ async function json<T>(res: Response): Promise<T> {
 export const getStatus = () => fetch("/api/status").then(json<Status>);
 export const getLibrary = () => fetch("/api/library").then(json<LibModel[]>);
 
+/** List the MCP tools attached to the server (empty if none configured). */
+export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);
+
+/** Fetch the system-health report (runtimes, library, project). */
+export const getDoctor = () => fetch("/api/doctor").then(json<DoctorReport>);
+
+/** Roll up a report to its worst status (fail > warn > ok). */
+export function overallStatus(report: DoctorReport | null): CheckStatus | null {
+  if (!report) return null;
+  if (report.checks.some((c) => c.status === "fail")) return "fail";
+  if (report.checks.some((c) => c.status === "warn")) return "warn";
+  return "ok";
+}
+
 /** Fetch detailed info (card + metadata) for one model by name. */
 export const getModelInfo = (name: string) =>
   fetch(`/api/model?name=${encodeURIComponent(name)}`).then(json<ModelInfo>);
 
-export async function loadModel(name: string): Promise<Status> {
+/** Eject the loaded model (stops its runtime, frees memory). */
+export async function unloadModel(): Promise<Status> {
+  const res = await fetch("/api/unload", { method: "POST" });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+  return json<Status>(res);
+}
+
+export async function loadModel(name: string, nCtx?: number | null): Promise<Status> {
   // /api/load/{name:path} accepts slashes; don't encode them away.
-  const res = await fetch(`/api/load/${name}`, { method: "POST" });
+  const query = nCtx != null ? `?n_ctx=${nCtx}` : "";
+  const res = await fetch(`/api/load/${name}${query}`, { method: "POST" });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
@@ -89,10 +157,14 @@ export async function* streamChat(
     temperature?: number;
     top_p?: number;
     use_tools: boolean;
+    enabled_tools?: string[];
+    system_prompt?: string;
   } = { messages, use_tools: options.useTools ?? true };
   if (options.maxTokens != null) body.max_tokens = options.maxTokens;
   if (options.temperature != null) body.temperature = options.temperature;
   if (options.topP != null) body.top_p = options.topP;
+  if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
+  if (options.systemPrompt !== undefined) body.system_prompt = options.systemPrompt;
 
   const res = await fetch("/api/chat", {
     method: "POST",

@@ -1,31 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeft, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
+import { PanelLeft, PanelRight, PanelRightClose, SquarePen, Sun, Moon } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
 
 import {
+  getDoctor,
   getLibrary,
   getStatus,
+  getTools,
   loadModel,
   streamChat,
+  unloadModel,
+  type DoctorReport,
   type LibModel,
   type Msg,
   type Status,
+  type ToolInfo,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Composer } from "@/components/Composer";
+import { HealthMenu } from "@/components/HealthMenu";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
+import { ToolsControl } from "@/components/ToolsControl";
 import {
+  DEFAULT_SETTINGS,
   deriveTitle,
   loadConversations,
-  loadSettings,
   saveConversations,
-  saveSettings,
   uid,
   type Settings,
 } from "@/lib/store";
@@ -44,6 +50,8 @@ export function App() {
   // Server state.
   const [status, setStatus] = useState<Status | null>(null);
   const [library, setLibrary] = useState<LibModel[]>([]);
+  const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [health, setHealth] = useState<DoctorReport | null>(null);
   const [loadingName, setLoadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,13 +63,22 @@ export function App() {
     if (fromUrl && convs.some((c) => c.id === fromUrl)) return fromUrl; // deep link survives reload
     return convs.length ? [...convs].sort((a, b) => b.updatedAt - a.updatedAt)[0].id : null;
   });
-  const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  // Settings live per-conversation (see activeSettings below). This holds the
+  // draft used before a conversation exists (the empty state); it seeds the first
+  // conversation on send, then resets — so nothing carries between chats.
+  const [draftSettings, setDraftSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // --- resizable layout: imperative handles to collapse/expand the rails. ---
   const leftPanel = useRef<ImperativePanelHandle>(null);
   const rightPanel = useRef<ImperativePanelHandle>(null);
+  // Animate programmatic collapse/expand, but never during a manual drag (which
+  // must track the cursor 1:1). react-resizable-panels sets flex inline, so a CSS
+  // flex transition animates the collapse — suppressed while a handle is dragging.
+  const [dragging, setDragging] = useState(false);
+  // react-resizable-panels animates the panel via inline flex-grow; transition that.
+  const railTransition = dragging ? "" : "transition-[flex-grow] duration-200 ease-out";
   const toggleSidebar = useCallback(() => {
     const p = leftPanel.current;
     if (!p) return;
@@ -83,7 +100,6 @@ export function App() {
 
   // --- persistence ---
   useEffect(() => saveConversations(conversations), [conversations]);
-  useEffect(() => saveSettings(settings), [settings]);
 
   // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
   // so a reload / bookmark / back-button lands on the same chat. ---
@@ -107,9 +123,27 @@ export function App() {
   const refreshStatus = useCallback(() => getStatus().then(setStatus).catch(() => {}), []);
   useEffect(() => {
     refreshStatus();
-    getLibrary().then(setLibrary).catch((e) => setError(String(e)));
+    // Library + tools + health are cheap-ish filesystem reads: fetch on mount and
+    // refresh on a slow interval so a transient failure (e.g. a server restart)
+    // self-heals and newly-pulled models appear without a manual reload.
+    const refreshSlow = () => {
+      getLibrary()
+        .then((lib) => {
+          setLibrary(lib);
+          // Clear a prior library-fetch error on recovery (but not model-load errors).
+          setError((e) => (e && e.startsWith("Library: ") ? null : e));
+        })
+        .catch((e) => setError(`Library: ${e}`));
+      getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
+      getDoctor().then(setHealth).catch(() => {});
+    };
+    refreshSlow();
     const t = setInterval(refreshStatus, 2000);
-    return () => clearInterval(t);
+    const s = setInterval(refreshSlow, 10000);
+    return () => {
+      clearInterval(t);
+      clearInterval(s);
+    };
   }, [refreshStatus]);
 
   const ready = !!status?.model && status.state === "ready";
@@ -120,14 +154,25 @@ export function App() {
   );
   const messages = activeConv?.messages ?? [];
 
+  // Effective settings = the active conversation's own settings, or the draft
+  // when no conversation is active yet. Editing writes back to whichever applies.
+  const settings = activeConv?.settings ?? draftSettings;
+  const updateSettings = useCallback(
+    (next: Settings) => {
+      if (activeId) setConversations((prev) => prev.map((c) => (c.id === activeId ? { ...c, settings: next } : c)));
+      else setDraftSettings(next);
+    },
+    [activeId],
+  );
+
   // --- model load: POST then poll /api/status until ready ---
   const pick = useCallback(
-    async (name: string) => {
+    async (name: string, nCtx?: number | null) => {
       if (status?.locked || loadingName) return;
       setError(null);
       setLoadingName(name);
       try {
-        setStatus(await loadModel(name));
+        setStatus(await loadModel(name, nCtx === undefined ? settings.contextLength : nCtx));
         // Poll until the server reports ready (or leaves loading).
         const deadline = Date.now() + 120_000;
         // eslint-disable-next-line no-constant-condition
@@ -144,7 +189,27 @@ export function App() {
         refreshStatus();
       }
     },
-    [status?.locked, loadingName, refreshStatus],
+    [status?.locked, loadingName, refreshStatus, settings.contextLength],
+  );
+
+  // Eject the loaded model (frees memory); rejected in locked mode.
+  const eject = useCallback(async () => {
+    if (status?.locked) return;
+    try {
+      setStatus(await unloadModel());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      refreshStatus();
+    }
+  }, [status?.locked, refreshStatus]);
+
+  // Reload the current model with a new context window (context is load-time).
+  const reloadWithContext = useCallback(
+    (nCtx: number | null) => {
+      if (status?.model) pick(status.model, nCtx);
+    },
+    [status?.model, pick],
   );
 
   // --- conversation helpers ---
@@ -152,11 +217,22 @@ export function App() {
     setConversations((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
   }, []);
 
-  const newConversation = useCallback((): string => {
+  // Create a conversation with its own settings snapshot. The explicit "New chat"
+  // button starts from DEFAULT_SETTINGS (a truly fresh chat); sending from the
+  // empty state passes the configured draft so it carries into that first chat.
+  const newConversation = useCallback((initial: Settings = DEFAULT_SETTINGS): string => {
     const now = Date.now();
-    const conv: Conversation = { id: uid(), title: "New chat", messages: [], createdAt: now, updatedAt: now };
+    const conv: Conversation = {
+      id: uid(),
+      title: "New chat",
+      messages: [],
+      settings: initial,
+      createdAt: now,
+      updatedAt: now,
+    };
     setConversations((prev) => [conv, ...prev]);
     setActiveId(conv.id);
+    setDraftSettings(DEFAULT_SETTINGS); // next empty state starts clean
     return conv.id;
   }, []);
 
@@ -186,17 +262,25 @@ export function App() {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
 
-      // Build the wire payload: optional system prompt + history.
-      const wire: Msg[] = [];
-      if (settings.systemPrompt.trim()) wire.push({ role: "system", content: settings.systemPrompt.trim() });
-      for (const m of priorMessages) wire.push({ role: m.role, content: m.content });
+      // History only — the system prompt is sent authoritatively via the
+      // system_prompt field (so an empty field means *no* system prompt, not a
+      // silent fallback to the project default).
+      const wire: Msg[] = priorMessages.map((m) => ({ role: m.role, content: m.content }));
 
       try {
+        // Allow-list = attached tools minus the user's denylist (sent only when
+        // something is off, so the default keeps every tool available).
+        const disabled = new Set(settings.disabledTools);
+        const someOff = tools.some((t) => disabled.has(t.name));
+        const enabledTools = someOff ? tools.filter((t) => !disabled.has(t.name)).map((t) => t.name) : undefined;
+
         for await (const evt of streamChat(wire, ctrl.signal, {
           maxTokens: settings.maxTokens ?? undefined,
           temperature: settings.temperature ?? undefined,
           topP: settings.topP ?? undefined,
           useTools: settings.useTools,
+          enabledTools,
+          systemPrompt: settings.systemPrompt,
         })) {
           if (evt.type === "token") {
             upsertConv(convId, (c) => ({
@@ -251,7 +335,7 @@ export function App() {
         abortRef.current = null;
       }
     },
-    [settings, upsertConv],
+    [settings, tools, upsertConv],
   );
 
   // --- send a new user turn ---
@@ -260,7 +344,7 @@ export function App() {
     if (!text || streaming || !ready) return;
 
     let convId = activeId;
-    if (!convId) convId = newConversation();
+    if (!convId) convId = newConversation(draftSettings); // carry empty-state config into the first chat
 
     const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
     const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
@@ -330,6 +414,51 @@ export function App() {
     return -1;
   }, [messages]);
 
+  // --- tool enable/disable (denylist), on the active conversation's settings ---
+  const toggleTool = useCallback(
+    (name: string, enabled: boolean) => {
+      const set = new Set(settings.disabledTools);
+      if (enabled) set.delete(name);
+      else set.add(name);
+      updateSettings({ ...settings, disabledTools: [...set] });
+    },
+    [settings, updateSettings],
+  );
+  const toggleServer = useCallback(
+    (names: string[], enabled: boolean) => {
+      const set = new Set(settings.disabledTools);
+      for (const n of names) (enabled ? set.delete(n) : set.add(n));
+      updateSettings({ ...settings, disabledTools: [...set] });
+    },
+    [settings, updateSettings],
+  );
+  const setUseTools = useCallback(
+    (on: boolean) => updateSettings({ ...settings, useTools: on }),
+    [settings, updateSettings],
+  );
+
+  // Controls docked in the composer: model picker + tools (the natural spot).
+  const disabledSet = useMemo(() => new Set(settings.disabledTools), [settings.disabledTools]);
+  const composerControls = (
+    <>
+      <ModelSelector
+        status={status}
+        library={library}
+        loadingName={loadingName}
+        onPick={pick}
+        onEject={eject}
+      />
+      <ToolsControl
+        tools={tools}
+        useTools={settings.useTools}
+        disabled={disabledSet}
+        onToggleUse={setUseTools}
+        onToggleTool={toggleTool}
+        onToggleServer={toggleServer}
+      />
+    </>
+  );
+
   return (
     <TooltipProvider delayDuration={300}>
       <PanelGroup
@@ -350,7 +479,7 @@ export function App() {
           maxSize={32}
           onCollapse={() => setSidebarOpen(false)}
           onExpand={() => setSidebarOpen(true)}
-          className="min-w-0"
+          className={cn("min-w-0", railTransition)}
         >
           <Sidebar
             conversations={conversations}
@@ -365,31 +494,51 @@ export function App() {
 
         {/* Always mounted (stable child order); hairline hidden when the left
             rail is collapsed so there's no stray divider at the edge. */}
-        <ResizeHandle className={cn(!sidebarOpen && "pointer-events-none bg-transparent")} />
+        <ResizeHandle
+          onDragging={setDragging}
+          className={cn(!sidebarOpen && "pointer-events-none bg-transparent")}
+        />
 
-        <Panel id="main" order={2} minSize={30} className="flex min-w-0 flex-col">
+        <Panel id="main" order={2} minSize={30} className={cn("flex min-w-0 flex-col", railTransition)}>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* top bar */}
           <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
             <div className="flex items-center gap-1">
+              {/* When the sidebar is collapsed, keep its actions reachable in the
+                  top bar (open + new chat), like chapkit's persistent rail. */}
               {!sidebarOpen && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={openSidebar}
-                      aria-label="Open sidebar"
-                    >
-                      <PanelLeft className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Open sidebar</TooltipContent>
-                </Tooltip>
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={openSidebar}
+                        aria-label="Open sidebar"
+                      >
+                        <PanelLeft className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Open sidebar</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={newConversation}
+                        aria-label="New chat"
+                      >
+                        <SquarePen className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>New chat</TooltipContent>
+                  </Tooltip>
+                </>
               )}
-              <ModelSelector status={status} library={library} loadingName={loadingName} onPick={pick} />
             </div>
             <div className="flex items-center gap-0.5">
+              <HealthMenu health={health} />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
@@ -404,22 +553,29 @@ export function App() {
                     variant="ghost"
                     size="icon-sm"
                     onClick={toggleSettings}
-                    aria-label="Settings"
+                    aria-label={settingsOpen ? "Close settings panel" : "Open settings panel"}
                     aria-pressed={settingsOpen}
-                    className={cn(settingsOpen && "bg-accent text-accent-foreground")}
                   >
-                    <SettingsIcon className="h-4 w-4" />
+                    {settingsOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Settings</TooltipContent>
+                <TooltipContent>{settingsOpen ? "Close settings" : "Open settings"}</TooltipContent>
               </Tooltip>
             </div>
           </header>
 
-          {error && (
-            <div className="mx-auto mt-1 w-full max-w-3xl px-4">
+          {(error || status?.error) && (
+            <div className="mx-auto mt-1 w-full max-w-4xl px-4">
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {error}
+                {error && <div>{error}</div>}
+                {status?.error && (
+                  <details className={error ? "mt-1" : undefined}>
+                    <summary className="cursor-pointer">The model runtime stopped unexpectedly.</summary>
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] opacity-80">
+                      {status.error}
+                    </pre>
+                  </details>
+                )}
               </div>
             </div>
           )}
@@ -430,7 +586,7 @@ export function App() {
               <h1 className="mb-8 text-2xl font-semibold tracking-tight">
                 {ready ? "What can I help with?" : "Select a model to start"}
               </h1>
-              <div className="w-full max-w-3xl">
+              <div className="w-full max-w-4xl">
                 <Composer
                   value={input}
                   onChange={setInput}
@@ -439,13 +595,14 @@ export function App() {
                   streaming={streaming}
                   ready={ready}
                   autoFocus
+                  leftSlot={composerControls}
                 />
               </div>
             </div>
           ) : (
             <>
               <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-                <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
+                <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6">
                   {messages.map((m, i) => (
                     <MessageItem
                       key={m.id}
@@ -458,7 +615,7 @@ export function App() {
                 </div>
               </div>
               <div className="shrink-0 px-4 pb-4">
-                <div className="mx-auto w-full max-w-3xl">
+                <div className="mx-auto w-full max-w-4xl">
                   <Composer
                     value={input}
                     onChange={setInput}
@@ -466,6 +623,7 @@ export function App() {
                     onStop={stop}
                     streaming={streaming}
                     ready={ready}
+                    leftSlot={composerControls}
                   />
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
                     kodo runs your model locally. Responses may be inaccurate.
@@ -479,7 +637,10 @@ export function App() {
 
         {/* Always mounted (so the PanelGroup child order stays stable), but the
             hairline is hidden while the right rail is collapsed. */}
-        <ResizeHandle className={cn(!settingsOpen && "pointer-events-none bg-transparent")} />
+        <ResizeHandle
+          onDragging={setDragging}
+          className={cn(!settingsOpen && "pointer-events-none bg-transparent")}
+        />
 
         {/* Right rail: collapsible + resizable. Content mounts only when open so
             the model-card fetch fires on open + model change. */}
@@ -494,15 +655,17 @@ export function App() {
           maxSize={40}
           onCollapse={() => setSettingsOpen(false)}
           onExpand={() => setSettingsOpen(true)}
-          className="min-w-0"
+          className={cn("min-w-0", railTransition)}
         >
           {settingsOpen && (
             <SettingsPanel
               status={status}
               library={library}
               settings={settings}
-              onChange={setSettings}
+              onChange={updateSettings}
               onCollapse={toggleSettings}
+              onReloadContext={reloadWithContext}
+              busy={loadingName != null}
             />
           )}
         </Panel>

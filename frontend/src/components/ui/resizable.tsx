@@ -8,9 +8,17 @@ import { cn } from "@/lib/utils";
  * with the thin `border-border` dividers used elsewhere. The hit area is wider
  * than the visible line so it stays easy to grab.
  */
-export function ResizeHandle({ className }: { className?: string }) {
+export function ResizeHandle({
+  className,
+  onDragging,
+}: {
+  className?: string;
+  /** Forwarded so the layout can disable its collapse transition mid-drag (keeps drag 1:1). */
+  onDragging?: (isDragging: boolean) => void;
+}) {
   return (
     <PanelResizeHandle
+      onDragging={onDragging}
       className={cn(
         "group relative flex w-px shrink-0 items-stretch justify-center bg-border outline-none",
         "transition-colors data-[resize-handle-state=hover]:bg-primary/50 data-[resize-handle-state=drag]:bg-primary/70",

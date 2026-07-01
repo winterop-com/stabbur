@@ -1,4 +1,5 @@
 import type { Role } from "@/api";
+import type { Settings } from "@/lib/store";
 
 /** An inline tool-activity marker shown within an assistant turn. */
 export interface ToolMarker {
@@ -16,11 +17,13 @@ export interface ChatMessage {
   error?: boolean;
 }
 
-/** A persisted conversation. */
+/** A persisted conversation. Settings are per-conversation, not global, so each
+ *  chat starts fresh and its system prompt / sampling never leak into the next. */
 export interface Conversation {
   id: string;
   title: string;
   messages: ChatMessage[];
+  settings: Settings;
   createdAt: number;
   updatedAt: number;
 }

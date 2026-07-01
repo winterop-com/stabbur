@@ -4,7 +4,6 @@ import { PanelRightClose } from "lucide-react";
 import { getModelInfo, type LibModel, type ModelInfo, type Status } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -32,6 +31,18 @@ function Section({
       {children}
     </section>
   );
+}
+
+/** Format a token count compactly: 262144 -> "256K", 8192 -> "8K". */
+function fmtTokens(n: number): string {
+  return n >= 1024 && n % 1024 === 0 ? `${n / 1024}K` : n.toLocaleString();
+}
+
+/** Common context sizes, capped at the model's trained max (which is always included). */
+function contextPresets(max: number | null): number[] {
+  const std = [4096, 8192, 16384, 32768, 65536, 131072, 262144];
+  if (!max) return std;
+  return [...new Set([...std.filter((v) => v <= max), max])].sort((a, b) => a - b);
 }
 
 /** Parse a numeric-string input into number | null (blank / invalid -> null). */
@@ -72,12 +83,16 @@ export function SettingsPanel({
   settings,
   onChange,
   onCollapse,
+  onReloadContext,
+  busy,
 }: {
   status: Status | null;
   library: LibModel[];
   settings: Settings;
   onChange: (s: Settings) => void;
   onCollapse: () => void;
+  onReloadContext: (nCtx: number | null) => void;
+  busy: boolean;
 }) {
   const modelName = status?.model ?? null;
   const libEntry = library.find((m) => m.name === modelName) ?? null;
@@ -91,6 +106,9 @@ export function SettingsPanel({
   const [maxTokens, setMaxTokens] = useState(settings.maxTokens != null ? String(settings.maxTokens) : "");
   const [temperature, setTemperature] = useState(settings.temperature != null ? String(settings.temperature) : "");
   const [topP, setTopP] = useState(settings.topP != null ? String(settings.topP) : "");
+  const [context, setContext] = useState(settings.contextLength != null ? String(settings.contextLength) : "");
+  // "Custom…" selected in the context dropdown → reveal a free-form token input.
+  const [customCtx, setCustomCtx] = useState(false);
 
   // Fetch the card whenever the panel model changes (panel is only mounted when
   // effectively open; App unmounts/keeps width, but we guard on modelName).
@@ -124,6 +142,11 @@ export function SettingsPanel({
   const fmt = info?.model_format ?? libEntry?.model_format ?? null;
   const size = info?.size_human ?? libEntry?.size_human ?? null;
   const fields = metaFields(info?.metadata ?? null);
+  // Model-recommended sampling → shown as the input placeholder so a blank field
+  // clearly means "use the model's recommended value", not an arbitrary default.
+  const rec = info?.sampling ?? null;
+  const recPlaceholder = (v: number | null | undefined) =>
+    v != null ? `${v} (recommended)` : "model default";
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l border-border bg-muted/40 text-foreground">
@@ -149,28 +172,26 @@ export function SettingsPanel({
             className="min-h-24 resize-y bg-background/60 text-sm"
           />
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Applied to every conversation, prepended to each request.
+            Overrides the project default. Blank = no system prompt (e.g. roleplay / uncensored
+            models that break character or refuse under assistant framing).
           </p>
-        </Section>
-
-        {/* Tools */}
-        <Section title="Tools">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <label htmlFor="use-tools" className="text-sm font-medium">
-                Tools
-              </label>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Attach MCP tools (turn off for models that aren't tool-trained).
+          {status?.default_system_prompt && status.default_system_prompt !== settings.systemPrompt && (
+            <div className="mt-2 rounded-md border border-border bg-background/40 p-2">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium text-muted-foreground">Project default (kodo.toml)</span>
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...settings, systemPrompt: status.default_system_prompt })}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  Use
+                </button>
+              </div>
+              <p className="line-clamp-3 text-[11px] text-muted-foreground" title={status.default_system_prompt}>
+                {status.default_system_prompt}
               </p>
             </div>
-            <Switch
-              id="use-tools"
-              checked={settings.useTools}
-              onCheckedChange={(v) => onChange({ ...settings, useTools: v })}
-              aria-label="Attach MCP tools"
-            />
-          </div>
+          )}
         </Section>
 
         {/* Sampling */}
@@ -209,10 +230,12 @@ export function SettingsPanel({
                   setTemperature(e.target.value);
                   onChange({ ...settings, temperature: parseNum(e.target.value, { min: 0 }) });
                 }}
-                placeholder="model default"
+                placeholder={recPlaceholder(rec?.temperature)}
                 className="h-8 bg-background/60"
               />
-              <p className="text-[11px] text-muted-foreground">Blank = model default.</p>
+              <p className="text-[11px] text-muted-foreground">
+                Blank = {rec?.temperature != null ? "the model's recommended value." : "model default."}
+              </p>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -230,22 +253,94 @@ export function SettingsPanel({
                   setTopP(e.target.value);
                   onChange({ ...settings, topP: parseNum(e.target.value, { min: 0 }) });
                 }}
-                placeholder="model default"
+                placeholder={recPlaceholder(rec?.top_p)}
                 className="h-8 bg-background/60"
               />
-              <p className="text-[11px] text-muted-foreground">Blank = model default.</p>
+              <p className="text-[11px] text-muted-foreground">
+                Blank = {rec?.top_p != null ? "the model's recommended value." : "model default."}
+              </p>
             </div>
           </div>
         </Section>
 
-        {/* Context length — not yet supported at load time. */}
+        {/* Context length — load-time; changing it reloads the model. */}
         <Section title="Context length">
-          <div className="flex items-center justify-between gap-3 opacity-60">
-            <Input disabled placeholder="coming soon" className="h-8 bg-background/60" />
-          </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Needs load-time support (not built yet).
-          </p>
+          {(() => {
+            const isMlx = (libEntry?.model_format ?? "").toLowerCase() === "mlx";
+            const parsed = parseNum(context, { int: true, min: 1 });
+            const max = libEntry?.context_length ?? null;
+            const presets = contextPresets(max);
+            const overMax = parsed != null && max != null && parsed > max;
+            const dirty = (parsed ?? null) !== (status?.n_ctx ?? null);
+            // Custom mode when explicitly chosen, or when the current value isn't a preset.
+            const custom = customCtx || (context !== "" && !presets.some((p) => String(p) === context));
+            const apply = () => {
+              onChange({ ...settings, contextLength: parsed });
+              onReloadContext(parsed);
+            };
+            return (
+              <>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={custom ? "custom" : context}
+                    disabled={isMlx || !modelName}
+                    onChange={(e) => {
+                      if (e.target.value === "custom") {
+                        setCustomCtx(true);
+                      } else {
+                        setCustomCtx(false);
+                        setContext(e.target.value);
+                      }
+                    }}
+                    className="h-8 flex-1 rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option value="">Default{max ? ` (up to ${fmtTokens(max)})` : ""}</option>
+                    {presets.map((v) => (
+                      <option key={v} value={String(v)}>
+                        {fmtTokens(v)}
+                        {v === max ? " (max)" : ""} · {v.toLocaleString()} tokens
+                      </option>
+                    ))}
+                    <option value="custom">Custom…</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isMlx || !modelName || busy || overMax || !dirty}
+                    onClick={apply}
+                    className="h-8 shrink-0"
+                  >
+                    {busy ? "Loading…" : "Apply"}
+                  </Button>
+                </div>
+                {custom && (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={max ?? undefined}
+                    value={context}
+                    autoFocus
+                    disabled={isMlx || !modelName}
+                    onChange={(e) => setContext(e.target.value)}
+                    placeholder={max ? `tokens (max ${max.toLocaleString()})` : "tokens"}
+                    className="mt-2 h-8 bg-background/60"
+                  />
+                )}
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {isMlx
+                    ? "MLX derives context from the model; not adjustable here."
+                    : overMax
+                      ? `Exceeds the model's trained ${max?.toLocaleString()} tokens.`
+                      : "Set at load time (GGUF). Apply reloads the model. Blank = runtime default."}
+                </p>
+                {status?.n_ctx != null && !isMlx && (
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Loaded with {status.n_ctx.toLocaleString()} tokens.
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </Section>
 
         {/* Model + card — reference info, kept at the bottom. */}

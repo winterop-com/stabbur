@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ export function Composer({
   streaming,
   ready,
   autoFocus,
+  leftSlot,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -25,15 +26,21 @@ export function Composer({
   streaming: boolean;
   ready: boolean;
   autoFocus?: boolean;
+  /** Controls docked at the bottom-left of the composer (model picker, tools). */
+  leftSlot?: React.ReactNode;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-grow the textarea to fit content (capped by max-height via CSS).
-  useEffect(() => {
+  // Auto-grow the textarea to fit content (capped by max-height via CSS). When
+  // empty we leave the natural rows={1} height (height:auto) rather than trust
+  // scrollHeight — at mount, before layout/fonts settle, scrollHeight can read
+  // the max and stick (the effect only re-runs on value change), leaving the box
+  // stuck tall. Only measure-and-grow once there's actual content.
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    if (el.value) el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
 
   useEffect(() => {
@@ -60,7 +67,8 @@ export function Composer({
           className="max-h-[200px] w-full resize-none bg-transparent text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>
-      <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 pt-1">
+      <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+        <div className="flex min-w-0 items-center gap-1">{leftSlot}</div>
         {streaming ? (
           <Button
             size="icon"
