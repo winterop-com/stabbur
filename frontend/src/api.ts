@@ -4,21 +4,37 @@
 
 export type Role = "user" | "assistant" | "system";
 
-/** An OpenAI multimodal content part (text or an image data/URL). */
+/** An OpenAI multimodal content part (text, an image data/URL, or audio). */
 export type ContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "input_audio"; input_audio: { data: string; format: string } };
 
 export interface Msg {
   role: Role;
   content: string | ContentPart[];
 }
 
-/** Build a message's content: plain string, or multimodal parts when images are attached. */
-export function buildContent(text: string, images?: string[]): string | ContentPart[] {
-  if (!images || images.length === 0) return text;
-  const parts: ContentPart[] = images.map((url) => ({ type: "image_url", image_url: { url } }));
-  if (text) parts.unshift({ type: "text", text });
+/** Parse an audio data URL into an OpenAI input_audio part ({data, format}). */
+function audioPart(dataUrl: string): ContentPart {
+  let format = "wav";
+  let data = dataUrl;
+  if (dataUrl.startsWith("data:")) {
+    const [header, payload] = dataUrl.split(",");
+    data = payload ?? dataUrl;
+    const sub = header.slice(5).split(";")[0].split("/")[1] || "wav"; // audio/wav -> wav
+    format = ({ mpeg: "mp3", "x-wav": "wav", wave: "wav" } as Record<string, string>)[sub] ?? sub;
+  }
+  return { type: "input_audio", input_audio: { data, format } };
+}
+
+/** Build a message's content: plain string, or multimodal parts for images/audio. */
+export function buildContent(text: string, images?: string[], audios?: string[]): string | ContentPart[] {
+  if ((!images || !images.length) && (!audios || !audios.length)) return text;
+  const parts: ContentPart[] = [];
+  if (text) parts.push({ type: "text", text });
+  for (const url of images ?? []) parts.push({ type: "image_url", image_url: { url } });
+  for (const url of audios ?? []) parts.push(audioPart(url));
   return parts;
 }
 
@@ -37,6 +53,7 @@ export interface LibModel {
   size_bytes: number;
   size_human: string;
   vision: boolean;
+  audio: boolean;
   tools: boolean;
   context_length: number | null;
 }

@@ -7,12 +7,20 @@ export interface ToolMarker {
   detail: string;
 }
 
+/** A pending composer attachment (image or audio), as a data URL. */
+export type MediaKind = "image" | "audio";
+export interface Attachment {
+  url: string;
+  kind: MediaKind;
+}
+
 /** One message in a conversation. Assistant turns may carry tool markers. */
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
   images?: string[]; // attached image data URLs (user turns, vision models)
+  audios?: string[]; // attached audio data URLs (user turns, audio models)
   reasoning?: string; // reasoning-model thinking (shown collapsed)
   tools?: ToolMarker[];
   error?: boolean;

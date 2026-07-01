@@ -1,19 +1,35 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, ImagePlus, Square, X } from "lucide-react";
+import { ArrowUp, Paperclip, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { Attachment, MediaKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** Read image File objects into data URLs (skips non-images). */
-async function filesToDataUrls(files: FileList | File[]): Promise<string[]> {
-  const imgs = [...files].filter((f) => f.type.startsWith("image/"));
+/** Which attachment kinds the loaded model accepts. */
+export interface Accept {
+  image: boolean;
+  audio: boolean;
+}
+
+/** Classify a File into an accepted media kind, or null. */
+function kindOf(file: File, accept: Accept): MediaKind | null {
+  if (file.type.startsWith("image/") && accept.image) return "image";
+  if (file.type.startsWith("audio/") && accept.audio) return "audio";
+  return null;
+}
+
+/** Read accepted image/audio Files into typed data-URL attachments. */
+async function filesToAttachments(files: FileList | File[], accept: Accept): Promise<Attachment[]> {
+  const wanted = [...files]
+    .map((f) => ({ f, kind: kindOf(f, accept) }))
+    .filter((x): x is { f: File; kind: MediaKind } => x.kind !== null);
   return Promise.all(
-    imgs.map(
-      (f) =>
-        new Promise<string>((resolve, reject) => {
+    wanted.map(
+      ({ f, kind }) =>
+        new Promise<Attachment>((resolve, reject) => {
           const r = new FileReader();
-          r.onload = () => resolve(r.result as string);
+          r.onload = () => resolve({ url: r.result as string, kind });
           r.onerror = reject;
           r.readAsDataURL(f);
         }),
@@ -37,9 +53,9 @@ export function Composer({
   autoFocus,
   leftSlot,
   attachments,
-  canAttachImages,
-  onAddImages,
-  onRemoveImage,
+  accept,
+  onAdd,
+  onRemove,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -50,12 +66,12 @@ export function Composer({
   autoFocus?: boolean;
   /** Controls docked at the bottom-left of the composer (model picker, tools). */
   leftSlot?: React.ReactNode;
-  /** Attached image data URLs (pending send). */
-  attachments: string[];
-  /** Whether the loaded model accepts images (gates the attach affordances). */
-  canAttachImages: boolean;
-  onAddImages: (dataUrls: string[]) => void;
-  onRemoveImage: (index: number) => void;
+  /** Pending attachments (image/audio). */
+  attachments: Attachment[];
+  /** Which modalities the loaded model accepts (gates the attach affordances). */
+  accept: Accept;
+  onAdd: (items: Attachment[]) => void;
+  onRemove: (index: number) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -78,48 +94,63 @@ export function Composer({
   }, [autoFocus]);
 
   const canSend = ready && !streaming && (value.trim().length > 0 || attachments.length > 0);
+  const canAttach = accept.image || accept.audio;
+  const acceptAttr = [accept.image && "image/*", accept.audio && "audio/*"].filter(Boolean).join(",");
 
   const addFiles = async (files: FileList | File[]) => {
-    if (!canAttachImages) return;
-    const urls = await filesToDataUrls(files);
-    if (urls.length) onAddImages(urls);
+    const items = await filesToAttachments(files, accept);
+    if (items.length) onAdd(items);
   };
 
   return (
     <div
       className={cn(
         "rounded-3xl border border-border bg-card shadow-sm transition-colors",
-        dragOver && canAttachImages && "border-primary ring-2 ring-primary/40",
+        dragOver && canAttach && "border-primary ring-2 ring-primary/40",
       )}
       onDragOver={(e) => {
-        if (!canAttachImages) return;
+        if (!canAttach) return;
         e.preventDefault();
         setDragOver(true);
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
         setDragOver(false);
-        if (!canAttachImages || !e.dataTransfer.files.length) return;
+        if (!canAttach || !e.dataTransfer.files.length) return;
         e.preventDefault();
         void addFiles(e.dataTransfer.files);
       }}
     >
-      {/* Attached-image thumbnails */}
+      {/* Attachment previews: images as thumbnails, audio as a small player */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pt-3">
-          {attachments.map((src, i) => (
-            <div key={i} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border">
-              <img src={src} alt={`attachment ${i + 1}`} className="h-full w-full object-cover" />
-              <button
-                type="button"
-                onClick={() => onRemoveImage(i)}
-                className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="Remove image"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+          {attachments.map((att, i) =>
+            att.kind === "image" ? (
+              <div key={i} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border">
+                <img src={att.url} alt={`attachment ${i + 1}`} className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => onRemove(i)}
+                  className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <div key={i} className="group relative flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
+                <audio src={att.url} controls className="h-8 max-w-[12rem]" />
+                <button
+                  type="button"
+                  onClick={() => onRemove(i)}
+                  className="rounded-full bg-background/80 p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ),
+          )}
         </div>
       )}
 
@@ -139,7 +170,7 @@ export function Composer({
               .filter((it) => it.kind === "file")
               .map((it) => it.getAsFile())
               .filter((f): f is File => f !== null);
-            if (canAttachImages && files.some((f) => f.type.startsWith("image/"))) {
+            if (canAttach && files.some((f) => kindOf(f, accept) !== null)) {
               e.preventDefault();
               void addFiles(files);
             }
@@ -151,12 +182,12 @@ export function Composer({
       </div>
       <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
         <div className="flex min-w-0 items-center gap-1">
-          {canAttachImages && (
+          {canAttach && (
             <>
               <input
                 ref={fileInput}
                 type="file"
-                accept="image/*"
+                accept={acceptAttr}
                 multiple
                 className="hidden"
                 onChange={(e) => {
@@ -170,12 +201,15 @@ export function Composer({
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => fileInput.current?.click()}
-                    aria-label="Attach image"
+                    aria-label="Attach file"
                   >
-                    <ImagePlus className="h-4 w-4" />
+                    <Paperclip className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Attach image (drag or paste too)</TooltipContent>
+                <TooltipContent>
+                  Attach {accept.image && accept.audio ? "image or audio" : accept.audio ? "audio" : "image"} (drag
+                  or paste too)
+                </TooltipContent>
               </Tooltip>
             </>
           )}

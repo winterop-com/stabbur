@@ -27,6 +27,7 @@ export function MessageItem({
 }) {
   if (message.role === "user") {
     const images = message.images ?? [];
+    const audios = message.audios ?? [];
     return (
       <div className="group flex flex-col items-end">
         {images.length > 0 && (
@@ -38,6 +39,13 @@ export function MessageItem({
                 alt={`attachment ${i + 1}`}
                 className="max-h-48 rounded-xl border border-border object-contain"
               />
+            ))}
+          </div>
+        )}
+        {audios.length > 0 && (
+          <div className="mb-1.5 flex max-w-[85%] flex-col items-end gap-1.5">
+            {audios.map((src, i) => (
+              <audio key={i} src={src} controls className="h-9 w-64 rounded-full" />
             ))}
           </div>
         )}

@@ -36,7 +36,7 @@ import {
   uid,
   type Settings,
 } from "@/lib/store";
-import type { ChatMessage, Conversation, ToolMarker } from "@/lib/types";
+import type { Attachment, ChatMessage, Conversation, ToolMarker } from "@/lib/types";
 import { useTheme } from "@/lib/useTheme";
 
 /** Parse the active conversation id from the URL hash (#/c/<id>), or null. */
@@ -96,7 +96,7 @@ export function App() {
 
   // Chat state.
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]); // pending image data URLs
+  const [attachments, setAttachments] = useState<Attachment[]>([]); // pending image/audio attachments
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -149,8 +149,10 @@ export function App() {
   }, [refreshStatus]);
 
   const ready = !!status?.model && status.state === "ready";
-  // Whether the loaded model accepts images (drives composer attach gating).
-  const visionModel = !!library.find((m) => m.name === status?.model)?.vision;
+  // Which attachment modalities the loaded model accepts (composer gating).
+  const loadedModel = library.find((m) => m.name === status?.model);
+  const visionModel = !!loadedModel?.vision;
+  const audioModel = !!loadedModel?.audio;
 
   const activeConv = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -271,7 +273,7 @@ export function App() {
       // silent fallback to the project default).
       const wire: Msg[] = priorMessages.map((m) => ({
         role: m.role,
-        content: buildContent(m.content, m.images),
+        content: buildContent(m.content, m.images, m.audios),
       }));
 
       try {
@@ -348,8 +350,9 @@ export function App() {
   // --- send a new user turn ---
   const send = useCallback(async () => {
     const text = input.trim();
-    const images = attachments;
-    if ((!text && images.length === 0) || streaming || !ready) return;
+    const images = attachments.filter((a) => a.kind === "image").map((a) => a.url);
+    const audios = attachments.filter((a) => a.kind === "audio").map((a) => a.url);
+    if ((!text && attachments.length === 0) || streaming || !ready) return;
 
     let convId = activeId;
     if (!convId) convId = newConversation(draftSettings); // carry empty-state config into the first chat
@@ -359,6 +362,7 @@ export function App() {
       role: "user",
       content: text,
       ...(images.length ? { images } : {}),
+      ...(audios.length ? { audios } : {}),
     };
     const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
 
@@ -367,7 +371,7 @@ export function App() {
 
     upsertConv(convId, (c) => ({
       ...c,
-      title: c.messages.length === 0 ? deriveTitle(text || "Image") : c.title,
+      title: c.messages.length === 0 ? deriveTitle(text || "Attachment") : c.title,
       updatedAt: Date.now(),
       messages: [...c.messages, userMsg, assistantMsg],
     }));
@@ -451,10 +455,13 @@ export function App() {
     [settings, updateSettings],
   );
 
-  // --- image attachments ---
-  const addImages = useCallback((urls: string[]) => setAttachments((a) => [...a, ...urls]), []);
-  const removeImage = useCallback((i: number) => setAttachments((a) => a.filter((_, idx) => idx !== i)), []);
-  const canAttachImages = ready && visionModel;
+  // --- attachments (image / audio) ---
+  const addAttachments = useCallback((items: Attachment[]) => setAttachments((a) => [...a, ...items]), []);
+  const removeAttachment = useCallback((i: number) => setAttachments((a) => a.filter((_, idx) => idx !== i)), []);
+  const accept = useMemo(
+    () => ({ image: ready && visionModel, audio: ready && audioModel }),
+    [ready, visionModel, audioModel],
+  );
 
   // Controls docked in the composer: model picker + tools (the natural spot).
   const disabledSet = useMemo(() => new Set(settings.disabledTools), [settings.disabledTools]);
@@ -616,9 +623,9 @@ export function App() {
                   autoFocus
                   leftSlot={composerControls}
                   attachments={attachments}
-                  canAttachImages={canAttachImages}
-                  onAddImages={addImages}
-                  onRemoveImage={removeImage}
+                  accept={accept}
+                  onAdd={addAttachments}
+                  onRemove={removeAttachment}
                 />
               </div>
             </div>
@@ -648,9 +655,9 @@ export function App() {
                     ready={ready}
                     leftSlot={composerControls}
                     attachments={attachments}
-                    canAttachImages={canAttachImages}
-                    onAddImages={addImages}
-                    onRemoveImage={removeImage}
+                    accept={accept}
+                    onAdd={addAttachments}
+                    onRemove={removeAttachment}
                   />
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
                     kodo runs your model locally. Responses may be inaccurate.
