@@ -22,8 +22,9 @@ async def _stream_turn(
     base_url: str,
     body: dict[str, Any],
     on_token: TokenSink | None,
+    on_reasoning: TokenSink | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Stream one completion; return (content, tool_calls). Emits content tokens live."""
+    """Stream one completion; return (content, tool_calls). Emits content + reasoning live."""
     content = ""
     calls: dict[int, dict[str, str]] = {}
     async with http.stream("POST", f"{base_url}/v1/chat/completions", json=body) as resp:
@@ -39,6 +40,10 @@ async def _stream_turn(
                 content += delta["content"]
                 if on_token:
                     on_token(delta["content"])
+            # Reasoning models (gemma-4, Qwen3.5, …) stream their thinking here, not in
+            # content; surface it separately instead of dropping it (→ blank replies).
+            if delta.get("reasoning_content") and on_reasoning:
+                on_reasoning(delta["reasoning_content"])
             for tc in delta.get("tool_calls") or []:
                 slot = calls.setdefault(tc["index"], {"id": "", "name": "", "args": ""})
                 if tc.get("id"):
@@ -59,13 +64,15 @@ async def run(
     max_tokens: int | None = None,
     on_event: ToolEvent | None = None,
     on_token: TokenSink | None = None,
+    on_reasoning: TokenSink | None = None,
     max_rounds: int = 8,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
     ``messages`` is mutated in place (assistant/tool turns) so a REPL keeps the
     conversation. ``on_event`` reports tool activity; ``on_token`` receives the
-    final reply's tokens as they stream. Bounded by ``max_rounds``.
+    final reply's tokens; ``on_reasoning`` receives a reasoning model's thinking
+    tokens (separate channel). Bounded by ``max_rounds``.
     """
     async with httpx.AsyncClient(timeout=600) as http:
         for _ in range(max_rounds):
@@ -77,7 +84,7 @@ async def run(
                 body["tool_choice"] = "auto"
             if max_tokens is not None:
                 body["max_tokens"] = max_tokens
-            content, calls = await _stream_turn(http, base_url, body, on_token)
+            content, calls = await _stream_turn(http, base_url, body, on_token, on_reasoning)
             if not calls:
                 messages.append({"role": "assistant", "content": content})
                 return content

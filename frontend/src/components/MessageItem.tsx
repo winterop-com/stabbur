@@ -42,6 +42,20 @@ export function MessageItem({
 
   return (
     <div className="group flex flex-col items-start">
+      {message.reasoning && (
+        <details
+          open={streaming && !message.content}
+          className="mb-2 w-full rounded-lg border border-border/60 bg-muted/30 px-3 py-2"
+        >
+          <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">
+            Thinking
+          </summary>
+          <div className="mt-1.5 whitespace-pre-wrap text-xs italic leading-relaxed text-muted-foreground">
+            {message.reasoning}
+          </div>
+        </details>
+      )}
+
       {hasTools && (
         <div className="mb-2 flex w-full flex-col gap-1.5">
           {message.tools!.map((t, i) => (

@@ -25,6 +25,7 @@ export interface LibModel {
 /** A parsed /api/chat SSE event. */
 export type ChatEvent =
   | { type: "token"; text: string }
+  | { type: "reasoning"; text: string }
   | { type: "tool"; kind: "call" | "result"; detail: string }
   | { type: "error"; detail: string }
   | { type: "done" };
@@ -109,6 +110,8 @@ function parseEvent(evt: unknown): ChatEvent | null {
   switch (e.type) {
     case "token":
       return { type: "token", text: typeof e.text === "string" ? e.text : "" };
+    case "reasoning":
+      return { type: "reasoning", text: typeof e.text === "string" ? e.text : "" };
     case "tool":
       return {
         type: "tool",

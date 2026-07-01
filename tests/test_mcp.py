@@ -43,7 +43,9 @@ async def test_toolset_merges_servers_and_dedupes() -> None:
 async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyPatch) -> None:
     # A no-tool-call turn must record the assistant reply in ``messages`` so a
     # REPL keeps prior answers in context on the next turn.
-    async def fake_stream(http: Any, base_url: str, body: Any, on_token: Any) -> tuple[str, list[Any]]:
+    async def fake_stream(
+        http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
+    ) -> tuple[str, list[Any]]:
         return "final answer", []
 
     monkeypatch.setattr(agent, "_stream_turn", fake_stream)

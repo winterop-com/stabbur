@@ -155,6 +155,14 @@ export function App() {
                 m.id === assistantId ? { ...m, content: m.content + evt.text } : m,
               ),
             }));
+          } else if (evt.type === "reasoning") {
+            upsertConv(convId, (c) => ({
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === assistantId ? { ...m, reasoning: (m.reasoning ?? "") + evt.text } : m,
+              ),
+            }));
           } else if (evt.type === "tool") {
             const marker: ToolMarker = { kind: evt.kind, detail: evt.detail };
             upsertConv(convId, (c) => ({
@@ -276,7 +284,12 @@ export function App() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full overflow-hidden">
-        {sidebarOpen && (
+        {/* Always mounted; width animates so collapse slides instead of snapping. */}
+        <div
+          className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out ${
+            sidebarOpen ? "w-[260px]" : "w-0"
+          }`}
+        >
           <Sidebar
             conversations={conversations}
             activeId={activeId}
@@ -287,7 +300,7 @@ export function App() {
             onDelete={deleteConversation}
             onCollapse={() => setSidebarOpen(false)}
           />
-        )}
+        </div>
 
         <main className="flex min-w-0 flex-1 flex-col">
           {/* top bar */}

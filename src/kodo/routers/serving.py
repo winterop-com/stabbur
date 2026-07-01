@@ -135,9 +135,12 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         def on_token(text: str) -> None:
             queue.put_nowait({"type": "token", "text": text})
 
+        def on_reasoning(text: str) -> None:
+            queue.put_nowait({"type": "reasoning", "text": text})
+
         async def produce() -> None:
             try:
-                await agent.run(base, messages, toolset, req.max_tokens, on_event, on_token)
+                await agent.run(base, messages, toolset, req.max_tokens, on_event, on_token, on_reasoning=on_reasoning)
             except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                 queue.put_nowait({"type": "error", "detail": str(exc)})
             finally:

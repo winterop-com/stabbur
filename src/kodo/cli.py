@@ -581,6 +581,11 @@ def _chat_with_tools(
         _first_output()
         print(text, end="", flush=True)  # noqa: T201
 
+    def on_reasoning(text: str) -> None:
+        # Reasoning models' thinking → dim on stderr (keeps -p stdout the answer only).
+        _first_output()
+        err.print(text, end="", style="grey42")
+
     def seed() -> list[dict[str, object]]:
         return [{"role": "system", "content": system_prompt}] if system_prompt else []
 
@@ -591,7 +596,13 @@ def _chat_with_tools(
                 turn_labeled = True  # -p mode: stdout is just the answer, no label
                 _think()
                 await agent.run(
-                    base, [*seed(), {"role": "user", "content": prompt}], toolset, max_tokens, on_event, on_token
+                    base,
+                    [*seed(), {"role": "user", "content": prompt}],
+                    toolset,
+                    max_tokens,
+                    on_event,
+                    on_token,
+                    on_reasoning=on_reasoning,
                 )
                 _first_output()
                 print()  # noqa: T201 - newline after streamed answer
@@ -629,7 +640,15 @@ def _chat_with_tools(
                     # keeps spinning until the reply is complete, then we render Markdown.
                     # ESC cancels the turn (returns to the prompt) — better than Ctrl-C.
                     reply, canceled = await _run_cancelable(
-                        agent.run(base, history, toolset, max_tokens, on_event, None if render else on_token)
+                        agent.run(
+                            base,
+                            history,
+                            toolset,
+                            max_tokens,
+                            on_event,
+                            None if render else on_token,
+                            on_reasoning=on_reasoning,
+                        )
                     )
                     _first_output()
                     if canceled:
