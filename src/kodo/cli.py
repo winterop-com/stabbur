@@ -404,16 +404,15 @@ def run(
     host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
     port: Annotated[int, typer.Option(help="Bind port.")] = 8080,
 ) -> None:
-    """Serve a library model (OpenAI-compatible API + web chat UI for GGUF).
+    """Expose a library model's raw runtime server (foreground, OpenAI-compatible).
 
-    GGUF runs on llama.cpp's llama-server; MLX runs on mlx_lm.server.
+    GGUF runs on llama.cpp's llama-server; MLX on mlx_lm.server. This is the raw
+    runtime (no kodo proxy) on a fixed port — handy for pointing an external
+    OpenAI client at one model. For chatting, use ``kodo chat``; for the browser
+    UI and model switching, ``kodo serve``.
     """
     model = _resolve_library_model(name, model_format)
     console.print(f"\nServing [bold]{_fmt_cell(model.model_format)}[/] {model.name}")
-    if runtime.serves_web_ui(model):
-        console.print(f"  Chat UI:     [link=http://{host}:{port}]http://{host}:{port}[/]")
-    else:
-        console.print("  Chat UI:     [dim]none for MLX — use[/] kodo chat")
     console.print(f"  OpenAI API:  http://{host}:{port}/v1")
     console.print("  [dim]Ctrl-C to stop[/]\n")
     try:
@@ -461,13 +460,13 @@ def chat(
     system_prompt = proj.system_prompt if proj else ""
     render_reply = render and prompt is None  # -p stays plain for scripting
     try:
-        if mcp_commands:
-            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render=render_reply)
-        elif prompt is not None:
-            # Scripted: print only the reply to stdout (errors go to stderr).
+        if prompt is not None and not mcp_commands:
+            # Scripted one-shot, no tools: print only the reply to stdout (clean for
+            # piping); errors go to stderr. Everything else goes through the one
+            # interactive/agent path below (tools optional, empty list = plain chat).
             print(runtime.generate(model, prompt, max_tokens, system_prompt))  # noqa: T201
         else:
-            runtime.chat_repl(model, max_tokens, system_prompt, render=render_reply)
+            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render=render_reply)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc

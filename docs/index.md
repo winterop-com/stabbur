@@ -10,7 +10,7 @@ flowchart LR
     hf["HF cache"] -->|kodo pull| lib
     ol["Ollama"] -->|kodo pull| lib
     ls["LM Studio"] -->|kodo pull| lib
-    lib["Library on your drive<br/>gguf/ · mlx/ · cards + metadata"] -->|kodo run / chat / serve --ui| rt["llama-server / mlx_lm.server<br/>OpenAI /v1 + web chat UI"]
+    lib["Library on your drive<br/>gguf/ · mlx/ · cards + metadata"] -->|kodo run / chat / serve --ui| rt["llama-server / mlx_lm.server<br/>OpenAI /v1 "]
 ```
 
 ## Why
@@ -29,7 +29,7 @@ uv sync
 kodo list                       # your library (the models on your drive)
 kodo sources                    # models in app caches you could pull
 kodo pull lmstudio <name>       # pull one into the library (--move to relocate)
-kodo run <name>                 # serve it: OpenAI /v1 + (for GGUF) a web chat UI
+kodo run <name>                 # serve it: raw OpenAI /v1 (foreground)
 kodo chat <name> -p "hello"     # one-shot, scriptable answer
 make run MODEL=<name>           # backend + browser UI, locked to one model
 ```

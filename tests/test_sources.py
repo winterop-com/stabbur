@@ -393,11 +393,3 @@ def test_scan_spans_drive_and_local_roots(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(library, "get_settings", lambda: settings)
     names = {m.name for m in library.scan()}  # no explicit root → spans both
     assert names == {"pub/Drive-GGUF", "pub/Local-GGUF"}
-
-
-def test_serves_web_ui(tmp_path: Path) -> None:
-    _make_library(tmp_path)
-    gguf = library.find("Model-GGUF", root=tmp_path)[0]
-    mlx = library.find("Model-MLX", root=tmp_path)[0]
-    assert runtime.serves_web_ui(gguf) is True
-    assert runtime.serves_web_ui(mlx) is False

@@ -5,11 +5,11 @@ any OpenAI client attaches the same way.
 
 | Format | Server | Notes |
 | ------ | ------ | ----- |
-| GGUF   | llama.cpp `llama-server` | cross-platform; built-in web chat UI |
+| GGUF   | llama.cpp `llama-server` | cross-platform |
 | MLX    | `mlx_lm.server`          | Apple Silicon only |
 
-`chat` and `run` both talk to that server's `/v1` — so the terminal chat is a
-clean kodo REPL, not the raw llama.cpp UI.
+`chat` talks to that server's `/v1` behind a clean kodo REPL; `run` exposes the
+raw runtime directly. For the browser UI, use `kodo serve --ui`.
 
 ## Serve a model
 
@@ -18,13 +18,12 @@ kodo run <name>                       # default 127.0.0.1:8080
 kodo run <name> --host 0.0.0.0 --port 9000
 ```
 
-`run` resolves the model in the library, starts the right runtime, and prints the
-endpoints. For GGUF it also prints the **web chat UI** link (llama-server ships
-one); for MLX use `kodo chat`.
+`run` resolves the model in the library, starts the right runtime (foreground),
+and prints its OpenAI endpoint — handy for pointing an external client at one
+model. For chatting use `kodo chat`; for the browser UI use `kodo serve --ui`.
 
 ```
 Serving gguf lmstudio-community/gemma-4-12B-it-QAT-GGUF
-  Chat UI:     http://127.0.0.1:8080
   OpenAI API:  http://127.0.0.1:8080/v1
 ```
 

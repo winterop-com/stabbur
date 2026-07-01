@@ -69,12 +69,12 @@ async def run(
     """
     async with httpx.AsyncClient(timeout=600) as http:
         for _ in range(max_rounds):
-            body: dict[str, Any] = {
-                "messages": messages,
-                "tools": toolset.schemas,
-                "tool_choice": "auto",
-                "stream": True,
-            }
+            body: dict[str, Any] = {"messages": messages, "stream": True}
+            # Omit tools entirely when there are none, so a no-tool chat is plain
+            # completion (no --jinja tool parsing / buffering).
+            if toolset.schemas:
+                body["tools"] = toolset.schemas
+                body["tool_choice"] = "auto"
             if max_tokens is not None:
                 body["max_tokens"] = max_tokens
             content, calls = await _stream_turn(http, base_url, body, on_token)

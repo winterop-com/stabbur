@@ -1,15 +1,13 @@
 """Run library models via their OpenAI-compatible server.
 
-* **GGUF** → llama.cpp ``llama-server`` (cross-platform; also a web chat UI).
-* **MLX**  → ``mlx_lm.server`` (Apple Silicon; API only).
+* **GGUF** → llama.cpp ``llama-server`` (cross-platform).
+* **MLX**  → ``mlx_lm.server`` (Apple Silicon).
 
-``run`` execs the server in the foreground (for the web UI). ``chat`` and
-``generate`` start the server, talk to its ``/v1``, and shut it down — so the
-terminal chat is a clean kodo REPL, not the raw llama.cpp conversation UI, and
-works identically for GGUF and MLX.
+``run`` execs the server in the foreground (raw runtime on a fixed port).
+``generate`` / the chat REPL start the server, talk to its ``/v1``, and shut it
+down — a clean kodo REPL that works identically for GGUF and MLX.
 """
 
-import json
 import os
 import shutil
 import socket
@@ -25,7 +23,6 @@ import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from kodo import chatui
 from kodo.config import debug_enabled, get_settings, pinned_runtime_port
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat, _human_size
@@ -40,17 +37,11 @@ def find_free_port() -> int:
 
 # Progress/spinner goes to stderr so one-shot stdout (piped output) stays clean.
 _status_console = Console(stderr=True)
-_console = Console()  # stdout, for the interactive REPL frame
 
 _INSTALL_HINTS = {
     "llama-server": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",
     "mlx_lm.server": "Install mlx-lm: `uv tool install mlx-lm` (Apple Silicon only).",
 }
-
-
-def serves_web_ui(model: LibraryModel) -> bool:
-    """Whether this model's server provides a built-in web chat UI."""
-    return model.model_format is ModelFormat.gguf  # llama-server ships one
 
 
 def build_command(model: LibraryModel, host: str, port: int) -> list[str]:
@@ -217,74 +208,3 @@ def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None, sy
         resp.raise_for_status()
         content: str = resp.json()["choices"][0]["message"]["content"]
         return content
-
-
-def chat_repl(
-    model: LibraryModel, max_tokens: int | None = None, system_prompt: str = "", render: bool = False
-) -> None:
-    """Interactive terminal chat — a clean streaming REPL over the model's /v1.
-
-    ``render`` buffers each reply and prints it as Markdown when done, instead of
-    streaming tokens live.
-    """
-    try:
-        import readline  # up-arrow recall + line editing for input()
-
-        readline.set_history_length(1000)
-    except ImportError:
-        pass
-    history: list[dict[str, str]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
-    with _serve(model) as base:
-        chatui.header(_console, model=model.name, model_format=model.model_format.value, tools=[], server=base)
-        while True:
-            try:
-                user = input(chatui.USER_PROMPT).strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            if not user:
-                continue
-            if user in ("/exit", "/quit", "exit", "quit"):
-                break
-            history.append({"role": "user", "content": user})
-            body: dict[str, object] = {"messages": history, "stream": True}
-            if max_tokens is not None:
-                body["max_tokens"] = max_tokens
-            # Spinner until the first token (prefill latency otherwise looks dead).
-            # In render mode it keeps spinning through the whole reply, which is
-            # then printed as Markdown in one go.
-            reply = ""
-            first = True
-            status = chatui.thinking(_status_console)
-            status.start()
-            try:
-                with httpx.stream("POST", f"{base}/v1/chat/completions", json=body, timeout=600) as r:
-                    r.raise_for_status()  # a 4xx/5xx must surface, not look like an empty reply
-                    for line in r.iter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        payload = line[len("data:") :].strip()
-                        if payload == "[DONE]":
-                            break
-                        content = json.loads(payload)["choices"][0]["delta"].get("content")
-                        if content:
-                            reply += content
-                            if not render:
-                                if first:
-                                    status.stop()
-                                    chatui.assistant_prefix(_console, inline=True)
-                                    first = False
-                                print(content, end="", flush=True)
-            except httpx.HTTPError as exc:
-                status.stop()
-                _status_console.print(f"[red]runtime error:[/] {exc}")
-                history.pop()  # drop the unanswered user turn instead of pairing it with an empty reply
-                continue
-            status.stop()
-            if not reply.strip():
-                _console.print("[grey62](no response)[/]")
-            elif render:
-                chatui.render_reply(_console, reply)
-            else:
-                print("\n", flush=True)
-            history.append({"role": "assistant", "content": reply})

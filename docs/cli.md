@@ -77,7 +77,7 @@ kodo pull lmstudio --all --move       # import all, freeing local disk as it goe
 
 ## `kodo run <name>`
 
-Serve a library model (OpenAI `/v1`; GGUF also gets llama-server's web chat UI).
+Expose a library model's raw runtime server (foreground; OpenAI `/v1`).
 
 ```bash
 kodo run <name>

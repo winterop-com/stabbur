@@ -47,7 +47,7 @@ kodo list                                   # your library (empty at first)
 kodo sources                                # models in app caches you could pull
 kodo pull lmstudio lmstudio-community/...    # pull one into the library
 kodo list                                   # now it's in your library
-kodo run lmstudio-community/...              # serve it (open the printed Chat UI link)
+kodo run lmstudio-community/...              # serve it (raw OpenAI /v1; foreground)
 ```
 
 Then explore: [Pulling models](guides/pulling.md) ·
