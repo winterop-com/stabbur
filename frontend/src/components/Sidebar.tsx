@@ -87,7 +87,7 @@ export function Sidebar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
-            className="h-8 border-transparent bg-black/20 pl-8 text-sm focus-visible:ring-1"
+            className="h-8 border-transparent bg-background/60 pl-8 text-sm focus-visible:ring-1"
           />
         </div>
       </div>
@@ -109,7 +109,7 @@ export function Sidebar({
               key={c.id}
               className={cn(
                 "group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors",
-                active ? "bg-white/10" : "hover:bg-white/[0.06]",
+                active ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
               )}
             >
               {editing ? (
@@ -122,7 +122,7 @@ export function Sidebar({
                       if (e.key === "Enter") commitEdit();
                       if (e.key === "Escape") setEditingId(null);
                     }}
-                    className="h-6 flex-1 border-transparent bg-black/30 px-1.5 py-0 text-sm"
+                    className="h-6 flex-1 border-transparent bg-background px-1.5 py-0 text-sm"
                   />
                   <Button variant="ghost" size="icon-sm" onClick={commitEdit} aria-label="Save name">
                     <Check className="h-3.5 w-3.5" />

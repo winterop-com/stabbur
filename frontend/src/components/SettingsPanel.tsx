@@ -140,54 +140,8 @@ export function SettingsPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* Model */}
-        <Section title="Model" first>
-          {modelName ? (
-            <>
-              <div className="truncate text-sm font-medium" title={modelName}>
-                {modelName.split("/").pop() ?? modelName}
-              </div>
-              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                {fmt && <span className="rounded bg-black/20 px-1.5 py-0.5">{fmt}</span>}
-                {size && <span className="py-0.5">{size}</span>}
-              </div>
-              {fields.length > 0 && (
-                <dl className="mt-2 space-y-0.5 text-xs">
-                  {fields.map(([k, v]) => (
-                    <div key={k} className="flex gap-2">
-                      <dt className="shrink-0 text-muted-foreground">{k}</dt>
-                      <dd className="truncate" title={v}>
-                        {v}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-
-              <div className="mt-3">
-                <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Model card
-                </div>
-                <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-background/60 px-3 py-2">
-                  {infoLoading ? (
-                    <p className="text-xs text-muted-foreground">Loading…</p>
-                  ) : infoErr ? (
-                    <p className="text-xs text-destructive">{infoErr}</p>
-                  ) : info?.card ? (
-                    <Markdown content={info.card} />
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No model card.</p>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-muted-foreground">No model loaded.</p>
-          )}
-        </Section>
-
-        {/* System prompt */}
-        <Section title="System prompt">
+        {/* System prompt — most important, kept at the top. */}
+        <Section title="System prompt" first>
           <Textarea
             value={settings.systemPrompt}
             onChange={(e) => onChange({ ...settings, systemPrompt: e.target.value })}
@@ -292,6 +246,52 @@ export function SettingsPanel({
           <p className="mt-1.5 text-[11px] text-muted-foreground">
             Needs load-time support (not built yet).
           </p>
+        </Section>
+
+        {/* Model + card — reference info, kept at the bottom. */}
+        <Section title="Model">
+          {modelName ? (
+            <>
+              <div className="truncate text-sm font-medium" title={modelName}>
+                {modelName.split("/").pop() ?? modelName}
+              </div>
+              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                {fmt && <span className="rounded bg-muted px-1.5 py-0.5">{fmt}</span>}
+                {size && <span className="py-0.5">{size}</span>}
+              </div>
+              {fields.length > 0 && (
+                <dl className="mt-2 space-y-0.5 text-xs">
+                  {fields.map(([k, v]) => (
+                    <div key={k} className="flex gap-2">
+                      <dt className="shrink-0 text-muted-foreground">{k}</dt>
+                      <dd className="truncate" title={v}>
+                        {v}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+
+              <div className="mt-3">
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Model card
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-background/60 px-3 py-2">
+                  {infoLoading ? (
+                    <p className="text-xs text-muted-foreground">Loading…</p>
+                  ) : infoErr ? (
+                    <p className="text-xs text-destructive">{infoErr}</p>
+                  ) : info?.card ? (
+                    <Markdown content={info.card} />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No model card.</p>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">No model loaded.</p>
+          )}
         </Section>
       </div>
     </aside>

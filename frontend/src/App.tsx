@@ -30,6 +30,12 @@ import {
 import type { ChatMessage, Conversation, ToolMarker } from "@/lib/types";
 import { useTheme } from "@/lib/useTheme";
 
+/** Parse the active conversation id from the URL hash (#/c/<id>), or null. */
+function conversationIdFromHash(): string | null {
+  const m = window.location.hash.match(/^#\/c\/(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export function App() {
   const { theme, toggle } = useTheme();
 
@@ -43,6 +49,8 @@ export function App() {
   const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
   const [activeId, setActiveId] = useState<string | null>(() => {
     const convs = loadConversations();
+    const fromUrl = conversationIdFromHash();
+    if (fromUrl && convs.some((c) => c.id === fromUrl)) return fromUrl; // deep link survives reload
     return convs.length ? [...convs].sort((a, b) => b.updatedAt - a.updatedAt)[0].id : null;
   });
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
@@ -57,6 +65,24 @@ export function App() {
   // --- persistence ---
   useEffect(() => saveConversations(conversations), [conversations]);
   useEffect(() => saveSettings(settings), [settings]);
+
+  // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
+  // so a reload / bookmark / back-button lands on the same chat. ---
+  useEffect(() => {
+    const target = activeId ? `#/c/${activeId}` : "";
+    if (window.location.hash !== target) {
+      if (target) window.location.hash = target;
+      else history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, [activeId]);
+  useEffect(() => {
+    const onHash = () => {
+      const id = conversationIdFromHash();
+      if (id) setActiveId(id);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   // --- server polling ---
   const refreshStatus = useCallback(() => getStatus().then(setStatus).catch(() => {}), []);
