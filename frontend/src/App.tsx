@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeft, PanelRight, PanelRightClose, SquarePen, Sun, Moon } from "lucide-react";
+import { ArrowDown, PanelLeft, PanelRight, PanelRightClose, SquarePen, Sun, Moon } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -411,10 +411,17 @@ export function App() {
   // --- autoscroll: stick to bottom unless the user scrolled up ---
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const [atBottom, setAtBottom] = useState(true); // drives the scroll-to-bottom button
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stick.current = nearBottom;
+    setAtBottom(nearBottom);
+  }, []);
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, []);
   useEffect(() => {
     const el = scrollRef.current;
@@ -423,6 +430,7 @@ export function App() {
   // On conversation switch, jump to bottom.
   useEffect(() => {
     stick.current = true;
+    setAtBottom(true);
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [activeId]);
@@ -644,7 +652,17 @@ export function App() {
                   ))}
                 </div>
               </div>
-              <div className="shrink-0 px-4 pb-4">
+              <div className="relative shrink-0 px-4 pb-4">
+                {!atBottom && (
+                  <button
+                    type="button"
+                    onClick={scrollToBottom}
+                    aria-label="Scroll to latest"
+                    className="absolute -top-5 left-1/2 z-10 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-md transition-colors hover:bg-accent"
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </button>
+                )}
                 <div className="mx-auto w-full max-w-4xl">
                   <Composer
                     value={input}
