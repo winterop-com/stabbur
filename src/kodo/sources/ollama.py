@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 from kodo import cards
 from kodo.config import get_settings
@@ -57,13 +58,8 @@ def _manifest_name(manifest_path: Path, manifests_root: Path) -> str:
     return f"{base}:{tag}"
 
 
-def _blob_digests(manifest_path: Path) -> list[str]:
-    """Return the blob digests referenced by a manifest (config + layers)."""
-    try:
-        data = json.loads(manifest_path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-
+def _digests_from_manifest(data: dict[str, Any]) -> list[str]:
+    """Extract blob digests (config + layers) from a parsed manifest."""
     digests: list[str] = []
     config = data.get("config")
     if isinstance(config, dict) and "digest" in config:
@@ -72,6 +68,15 @@ def _blob_digests(manifest_path: Path) -> list[str]:
         if isinstance(layer, dict) and "digest" in layer:
             digests.append(str(layer["digest"]))
     return digests
+
+
+def _blob_digests(manifest_path: Path) -> list[str]:
+    """Return the blob digests referenced by a manifest (config + layers)."""
+    try:
+        data = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    return _digests_from_manifest(data)
 
 
 def _blob_path(models_dir: Path, digest: str) -> Path:
@@ -187,12 +192,24 @@ def remove(name: str, models_dir: Path | None = None) -> None:
 
     own = set(_blob_digests(manifest_path))
     still_used: set[str] = set()
+    uncertain = False
     for other in manifests_root.rglob("*"):
-        if other.is_file() and other != manifest_path:
-            still_used |= set(_blob_digests(other))
+        if not (other.is_file() and other != manifest_path):
+            continue
+        try:
+            data = json.loads(other.read_text())
+        except (OSError, json.JSONDecodeError):
+            # An unreadable manifest might reference shared blobs; we can't tell.
+            uncertain = True
+            continue
+        still_used |= set(_digests_from_manifest(data))
 
-    for digest in own - still_used:
-        _blob_path(root, digest).unlink(missing_ok=True)
+    # Only delete blobs we're certain are orphaned. If any other manifest was
+    # unreadable, preserve all blobs — leaving a few possible orphans is far safer
+    # than deleting a layer another (corrupt-looking) model still needs.
+    if not uncertain:
+        for digest in own - still_used:
+            _blob_path(root, digest).unlink(missing_ok=True)
     manifest_path.unlink()
 
     # Prune now-empty parent directories up to (but not including) manifests_root.

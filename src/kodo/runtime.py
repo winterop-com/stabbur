@@ -257,22 +257,29 @@ def chat_repl(
             first = True
             status = chatui.thinking(_status_console)
             status.start()
-            with httpx.stream("POST", f"{base}/v1/chat/completions", json=body, timeout=600) as r:
-                for line in r.iter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    payload = line[len("data:") :].strip()
-                    if payload == "[DONE]":
-                        break
-                    content = json.loads(payload)["choices"][0]["delta"].get("content")
-                    if content:
-                        reply += content
-                        if not render:
-                            if first:
-                                status.stop()
-                                chatui.assistant_prefix(_console, inline=True)
-                                first = False
-                            print(content, end="", flush=True)
+            try:
+                with httpx.stream("POST", f"{base}/v1/chat/completions", json=body, timeout=600) as r:
+                    r.raise_for_status()  # a 4xx/5xx must surface, not look like an empty reply
+                    for line in r.iter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[len("data:") :].strip()
+                        if payload == "[DONE]":
+                            break
+                        content = json.loads(payload)["choices"][0]["delta"].get("content")
+                        if content:
+                            reply += content
+                            if not render:
+                                if first:
+                                    status.stop()
+                                    chatui.assistant_prefix(_console, inline=True)
+                                    first = False
+                                print(content, end="", flush=True)
+            except httpx.HTTPError as exc:
+                status.stop()
+                _status_console.print(f"[red]runtime error:[/] {exc}")
+                history.pop()  # drop the unanswered user turn instead of pairing it with an empty reply
+                continue
             status.stop()
             if render:
                 chatui.render_reply(_console, reply)

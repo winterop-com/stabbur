@@ -58,6 +58,24 @@ def _write_ollama_manifest(store: Path, model: str, digests: list[str]) -> None:
     manifest.write_text(json.dumps({"layers": [{"digest": d} for d in digests]}))
 
 
+def test_ollama_remove_preserves_blobs_when_other_manifest_corrupt(tmp_path: Path) -> None:
+    # If a sibling manifest is unreadable, remove() can't know which blobs it needs,
+    # so it must preserve blobs rather than risk deleting a shared layer.
+    store = tmp_path / "ollama"
+    shared = _add_blob(store, b"s" * 100)
+    uniq = _add_blob(store, b"u" * 60)
+    _write_ollama_manifest(store, "modelA", [shared, uniq])
+    corrupt = store / "manifests" / "registry.ollama.ai" / "library" / "modelB" / "latest"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_text("{not valid json")  # unreadable sibling that may reference 'shared'
+
+    ollama.remove("modelA:latest", models_dir=store)
+
+    assert not (store / "manifests" / "registry.ollama.ai" / "library" / "modelA").exists()
+    assert (store / "blobs" / _blob_name(shared)).is_file()  # preserved (uncertain)
+    assert (store / "blobs" / _blob_name(uniq)).is_file()  # preserved (uncertain)
+
+
 def test_ollama_move_preserves_shared_blobs(tmp_path: Path) -> None:
     store = tmp_path / "ollama"
     shared = _add_blob(store, b"s" * 100)
