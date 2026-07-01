@@ -2,6 +2,7 @@ import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChatImage } from "@/components/ChatImage";
 import { CopyButton } from "@/components/CopyButton";
 import { Markdown } from "@/components/Markdown";
 import { ToolMarkerChip } from "@/components/ToolMarkerChip";
@@ -31,7 +32,7 @@ export function MessageItem({
         {images.length > 0 && (
           <div className="mb-1.5 flex max-w-[85%] flex-wrap justify-end gap-2">
             {images.map((src, i) => (
-              <img
+              <ChatImage
                 key={i}
                 src={src}
                 alt={`attachment ${i + 1}`}
