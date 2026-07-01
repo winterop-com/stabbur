@@ -53,6 +53,21 @@ def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> N
     assert "not a chat model" in result.output
 
 
+def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Model already in the library → init skips the pull.
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
+    with runner.isolated_filesystem():
+        first = runner.invoke(cli.app, ["init", "--model", "unsloth/X-GGUF"])
+        assert first.exit_code == 0, first.output
+        manifest = Path("kodo.toml")
+        assert manifest.exists()
+        assert 'model = "unsloth/X-GGUF"' in manifest.read_text()
+
+        again = runner.invoke(cli.app, ["init", "--model", "unsloth/X-GGUF"])
+        assert again.exit_code == 1  # refuses to clobber an existing project
+        assert "already exists" in again.output
+
+
 def test_chat_refuses_ollama_model_with_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     ollama_model = _lib_model("gemma4:31b")
     ollama_model.is_ollama = True

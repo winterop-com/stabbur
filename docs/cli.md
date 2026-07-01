@@ -4,6 +4,28 @@ The CLI is the **`kodo`** command. Everything centers on your **library** — th
 models on your drive (`KODO_BACKUP_ROOT`). Run any command with `--help` for
 full options.
 
+## `kodo init`
+
+Scaffold a project here (`kodo.toml`) and ensure its model is in the library.
+Idempotent — only pulls the model if it's missing. With no `--model` it offers a
+small curated set and pulls the choice into the always-local library.
+
+```bash
+kodo init                                  # pick a curated starter model
+kodo init --model unsloth/Qwen3.5-4B-GGUF  # bind a specific model
+kodo init --force                          # overwrite an existing kodo.toml
+```
+
+## `kodo search <query>`
+
+Search the Hugging Face Hub for new models to pull (most-downloaded first).
+
+```bash
+kodo search qwen3            # text search
+kodo search qwen3 --gguf     # only GGUF (llama.cpp-ready) repos
+kodo search qwen3 -n 30      # more results
+```
+
 ## `kodo list` (alias `kodo ls`)
 
 List the models in **your library** — what you've pulled, ready to run — grouped

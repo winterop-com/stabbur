@@ -1,5 +1,6 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -38,9 +39,33 @@ FormatOption = Annotated[
 ]
 
 
+# Curated starter models for `kodo init` (verified GGUF repos; kept small).
+_CURATED: list[tuple[str, str]] = [
+    ("unsloth/SmolLM2-360M-Instruct-GGUF", "tiny — runs on anything (~350 MB)"),
+    ("unsloth/Qwen3.5-4B-GGUF", "compact + good at tools (~2.5 GB)"),
+]
+
+
 def _fmt_cell(model_format: ModelFormat) -> str:
     """Render a format value with its color style."""
     return f"[{_FORMAT_STYLE[model_format]}]{model_format.value}[/]"
+
+
+def _project_toml(model: str) -> str:
+    """Render a thin kodo.toml project manifest bound to ``model``."""
+    return (
+        "# kodo project — a thin assistant manifest.\n"
+        "[project]\n"
+        f'model = "{model}"\n'
+        'system_prompt = ""\n\n'
+        "[serve]\n"
+        'host = "127.0.0.1"\n'
+        "port = 8000\n\n"
+        "# Tools via MCP (uncomment and point at an MCP server):\n"
+        "# [[mcp]]\n"
+        '# name = "dhis2"\n'
+        '# command = "dhis2w-mcp-bridge"\n'
+    )
 
 
 def _library_names() -> set[str]:
@@ -168,6 +193,48 @@ def sources(
         console.print(
             f"\n[dim]{hidden} non-chat (embedding/vision) or partial entries hidden — use --all to show them.[/]"
         )
+
+
+@app.command()
+def init(
+    model: Annotated[str | None, typer.Option("--model", help="Model to bind (skips the curated picker).")] = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing kodo.toml.")] = False,
+) -> None:
+    """Scaffold a project here (kodo.toml) and ensure its model is in the library.
+
+    Idempotent: only pulls the model if it's missing. When no --model is given,
+    offers a small curated set and pulls the chosen one into the always-local
+    library so it works even without the drive.
+    """
+    proj = Path("kodo.toml")
+    if proj.exists() and not force:
+        console.print("[red]kodo.toml already exists[/] here — use --force to overwrite.")
+        raise typer.Exit(1)
+
+    if model is None:
+        console.print("[bold]Pick a starter model:[/]")
+        for i, (mid, desc) in enumerate(_CURATED, 1):
+            console.print(f"  {i}. {mid}  [dim]{desc}[/]")
+        choice = typer.prompt("Number", default="1")
+        try:
+            model = _CURATED[int(choice) - 1][0]
+        except (ValueError, IndexError):
+            console.print(f"[red]Not a valid choice: {choice!r}[/]")
+            raise typer.Exit(1) from None
+
+    if library_ops.find(model):
+        console.print(f"[green]✓[/] {model} is already in your library")
+    else:
+        console.print(f"Pulling [bold]{model}[/] into your local library …")
+        try:
+            catalog_ops.pull(ModelSource.huggingface, model, backup_root=get_settings().local_root)
+        except Exception as exc:  # noqa: BLE001 - surface pull/network failures
+            console.print(f"[red]Pull failed:[/] {exc}")
+            raise typer.Exit(1) from exc
+
+    proj.write_text(_project_toml(model))
+    console.print(f"\n[green]Created kodo.toml[/] (model: {model})")
+    console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 
 
 @app.command()
