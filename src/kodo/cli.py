@@ -249,6 +249,13 @@ def pull(
             help="HF only: filename glob(s) to fetch, e.g. --include '*Q4_K_M*' to grab one GGUF quant. Repeatable.",
         ),
     ] = None,
+    vocoder: Annotated[
+        str | None,
+        typer.Option(
+            "--vocoder",
+            help="HF only: a vocoder repo to co-locate as a TTS model, e.g. --vocoder ggml-org/WavTokenizer.",
+        ),
+    ] = None,
 ) -> None:
     """Pull (or move) a model into the library (the drive, or --local).
 
@@ -268,7 +275,7 @@ def pull(
     verb = "Moving" if move else "Pulling"
     typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
-        result = catalog_ops.pull(source, name, library_root=root, move=move, include=include)
+        result = catalog_ops.pull(source, name, library_root=root, move=move, include=include, vocoder=vocoder)
     except Exception as exc:  # noqa: BLE001 - a pull can fail many ways (disk, network, HF Hub); surface it cleanly
         typer.secho(f"Pull failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
@@ -472,6 +479,10 @@ def run(
 @app.command()
 def speak(
     words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
+    model: Annotated[
+        str | None,
+        typer.Option("--model", "-m", help="Library TTS model to use (default: OuteTTS, auto-downloaded)."),
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Write the WAV here (default: a temp file, played aloud)."),
@@ -483,15 +494,24 @@ def speak(
 ) -> None:
     """Text-to-speech: synthesize ``text`` to a WAV via llama.cpp's llama-tts.
 
-    Uses the default OuteTTS model + vocoder (auto-downloaded on first use). With
-    ``-o`` writes the WAV to that path; otherwise a temp file is played aloud.
+    Without ``--model`` uses the default OuteTTS model + vocoder (auto-downloaded
+    on first use); ``--model`` picks a TTS model from your library. With ``-o``
+    writes the WAV to that path; otherwise a temp file is played aloud.
     """
     from kodo import tts  # noqa: PLC0415
 
     text = " ".join(words)  # accept an unquoted multi-word phrase
+    model_path: Path | None = None
+    vocoder_path: Path | None = None
+    if model is not None:
+        matches = [m for m in library_ops.find(model) if m.tts]
+        if not matches:
+            typer.secho(f"No TTS model matches {model!r} (see `kodo list`).", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+        model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
     try:
         with console.status("[cyan]Synthesizing speech…", spinner="dots"):
-            wav = tts.synthesize(text, output)
+            wav = tts.synthesize(text, output, model_path, vocoder_path)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc

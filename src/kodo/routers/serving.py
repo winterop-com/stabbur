@@ -329,10 +329,25 @@ async def load(name: str, manager: ManagerDep, settings: ConfDep, n_ctx: int | N
     return await _status(manager, settings)
 
 
+class TTSModelInfo(BaseModel):
+    """A library TTS model, for the UI's voice picker."""
+
+    name: str
+    languages: list[str] = []
+    size_human: str
+
+
+@router.get("/api/tts")
+def tts_models() -> list[TTSModelInfo]:
+    """List library text-to-speech models (empty if none pulled)."""
+    return [TTSModelInfo(name=m.name, languages=m.languages, size_human=m.size_human) for m in library_ops.tts_models()]
+
+
 class SpeakRequest(BaseModel):
-    """Text to synthesize into speech."""
+    """Text to synthesize into speech, optionally with a chosen library model."""
 
     text: str
+    model: str | None = None  # a library TTS model name; None → default OuteTTS
 
 
 @router.post("/api/speak")
@@ -346,8 +361,14 @@ async def speak(req: SpeakRequest) -> Response:
         raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
     if not req.text.strip():
         raise HTTPException(status_code=422, detail="text is empty")
+    model_path = vocoder_path = None
+    if req.model:
+        matches = [m for m in library_ops.find(req.model) if m.tts]
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"No TTS model matches {req.model!r}")
+        model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
     try:
-        wav_path = await asyncio.to_thread(tts.synthesize, req.text)
+        wav_path = await asyncio.to_thread(tts.synthesize, req.text, None, model_path, vocoder_path)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     data = wav_path.read_bytes()

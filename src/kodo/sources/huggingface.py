@@ -134,3 +134,47 @@ def pull(repo_id: str, library_root: Path, token: str | None = None, include: li
         card_path=card_path,
         metadata_path=metadata_path,
     )
+
+
+def pull_tts(
+    repo_id: str,
+    vocoder_repo: str,
+    library_root: Path,
+    token: str | None = None,
+    include: list[str] | None = None,
+) -> PullResult:
+    """Download a TTS model + its vocoder co-located under the ``tts/`` section.
+
+    A TTS model needs a paired vocoder (e.g. WavTokenizer) to produce audio, so
+    both land in one directory (``library_root/tts/<repo_id>/``) — the layout the
+    library scan recognizes as a TTS model. ``include`` restricts the TTS model
+    files (e.g. one GGUF quant); the vocoder's GGUF(s) are always fetched.
+    """
+    dest = library_root / "tts" / repo_id
+    dest.mkdir(parents=True, exist_ok=True)
+    allow = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
+    snapshot_download(repo_id=repo_id, local_dir=dest, token=token, allow_patterns=allow)
+    # Co-locate the vocoder GGUF so the scan pairs them into one TTS model.
+    snapshot_download(repo_id=vocoder_repo, local_dir=dest, token=token, allow_patterns=["*.gguf"])
+    size_bytes, file_count = dir_stats(dest)
+    card_path = cards.find_card(dest)
+    metadata_path = cards.write_metadata(
+        dest / cards.SIDECAR_DIR,
+        {
+            "source": ModelSource.huggingface.value,
+            "name": repo_id,
+            "vocoder": vocoder_repo,
+            "size_bytes": size_bytes,
+            "file_count": file_count,
+            "card": card_path.name if card_path else None,
+        },
+    )
+    return PullResult(
+        source=ModelSource.huggingface,
+        name=repo_id,
+        destination=dest,
+        size_bytes=size_bytes,
+        file_count=file_count,
+        card_path=card_path,
+        metadata_path=metadata_path,
+    )

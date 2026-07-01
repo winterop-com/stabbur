@@ -32,6 +32,7 @@ def pull(
     library_root: Path | None = None,
     move: bool = False,
     include: list[str] | None = None,
+    vocoder: str | None = None,
 ) -> PullResult:
     """Pull a single model from the given source into the library.
 
@@ -44,6 +45,8 @@ def pull(
             supported for LM Studio only.
         include: Hugging Face only — filename globs to restrict the download
             (e.g. one GGUF quant). Ignored by other sources.
+        vocoder: Hugging Face only — a vocoder repo to co-locate, making this a
+            TTS model under the ``tts/`` section. Ignored by other sources.
 
     Returns:
         A :class:`PullResult` describing what was written.
@@ -56,11 +59,16 @@ def pull(
     root = library_root or get_settings().library_root
     if include and source is not ModelSource.huggingface:
         raise ValueError("--include is only supported for the huggingface source")
+    if vocoder and source is not ModelSource.huggingface:
+        raise ValueError("--vocoder is only supported for the huggingface source")
     match source:
         case ModelSource.huggingface:
             if move:
                 raise NotImplementedError("--move is not supported for Hugging Face yet")
-            return huggingface.pull(name, root, token=get_settings().hf_token, include=include)
+            token = get_settings().hf_token
+            if vocoder:  # TTS model + its vocoder, co-located under tts/
+                return huggingface.pull_tts(name, vocoder, root, token=token, include=include)
+            return huggingface.pull(name, root, token=token, include=include)
         case ModelSource.ollama:
             return ollama.pull(name, root, move=move)
         case ModelSource.lmstudio:

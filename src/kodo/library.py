@@ -268,6 +268,11 @@ def scan(root: Path | None = None) -> list[LibraryModel]:
     return models
 
 
+def tts_models(root: Path | None = None) -> list[LibraryModel]:
+    """Every text-to-speech model in the library (model + paired vocoder)."""
+    return [m for m in scan(root) if m.tts]
+
+
 def find(query: str, root: Path | None = None, model_format: ModelFormat | None = None) -> list[LibraryModel]:
     """Find library models matching ``query`` (full name or bare repo/tag name)."""
     q = query.lower()
