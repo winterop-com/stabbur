@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AudioLines, Check, ChevronDown, Eye, Loader2, Power, Wrench } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -91,11 +91,19 @@ export function ModelSelector({
   onPick: (name: string) => void;
   onEject: () => void;
 }) {
+  // Capability filters: when a chip is on, only models with that capability show.
+  const [filters, setFilters] = useState({ tools: false, vision: false, audio: false });
+  const toggleFilter = (key: "tools" | "vision" | "audio") =>
+    setFilters((f) => ({ ...f, [key]: !f[key] }));
+
   const grouped = useMemo(() => {
+    const shown = library.filter(
+      (m) => (!filters.tools || m.tools) && (!filters.vision || m.vision) && (!filters.audio || m.audio),
+    );
     const by: Record<string, LibModel[]> = {};
-    for (const m of library) (by[m.model_format] ??= []).push(m);
+    for (const m of shown) (by[m.model_format] ??= []).push(m);
     return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
-  }, [library]);
+  }, [library, filters]);
 
   const locked = status?.locked ?? false;
   const busy = loadingName != null || status?.state === "loading";
@@ -129,8 +137,40 @@ export function ModelSelector({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="max-h-[70vh] w-[30rem] overflow-y-auto">
+        {/* Capability filter chips */}
+        {library.length > 0 && (
+          <div className="mb-1 flex items-center gap-1 border-b border-border px-2 pb-2 pt-1">
+            <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">Filter</span>
+            {(
+              [
+                ["tools", Wrench, "Tools"],
+                ["vision", Eye, "Vision"],
+                ["audio", AudioLines, "Audio"],
+              ] as const
+            ).map(([key, Icon, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleFilter(key)}
+                aria-pressed={filters[key]}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+                  filters[key]
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border text-muted-foreground hover:bg-accent",
+                )}
+              >
+                <Icon className="h-3 w-3" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {library.length === 0 && (
           <div className="px-2 py-3 text-sm text-muted-foreground">No models in the library.</div>
+        )}
+        {library.length > 0 && grouped.length === 0 && (
+          <div className="px-2 py-3 text-sm text-muted-foreground">No models match the filters.</div>
         )}
         {grouped.map(([fmt, models], gi) => (
           <div key={fmt}>
