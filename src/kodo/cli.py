@@ -544,7 +544,9 @@ def _chat_with_tools(
                 _first_output()
                 print()  # noqa: T201 - newline after streamed answer
             else:
-                chatui.header(console, model=model.name, model_format=model.model_format.value, tools=toolset.names)
+                chatui.header(
+                    console, model=model.name, model_format=model.model_format.value, tools=toolset.names, server=base
+                )
                 try:
                     import readline  # noqa: PLC0415 - up-arrow recall + line editing for input()
 

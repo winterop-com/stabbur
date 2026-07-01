@@ -27,13 +27,21 @@ def _rl(seq: str) -> str:
 USER_PROMPT = f"{_rl(_ORANGE)}●{_rl(_RESET)} you {_rl(_GREY)}›{_rl(_RESET)} "
 
 
-def header(console: Console, *, model: str, model_format: str, tools: list[str]) -> None:
-    """Print the opening chat banner: model, format, and available tools."""
+def header(console: Console, *, model: str, model_format: str, tools: list[str], server: str | None = None) -> None:
+    """Print the opening chat banner: model, format, tools, and the runtime URL.
+
+    ``server`` is the local runtime's base URL — kodo runs ``llama-server`` /
+    ``mlx_lm.server`` in the background and talks to its OpenAI ``/v1``; showing it
+    makes the live endpoint discoverable (e.g. to curl during the session).
+    """
     body = Text()
     body.append(model, style="bold")
     body.append(f"  ·  {model_format}", style="grey62")
-    body.append("\ntools  ", style="grey62")
+    body.append("\ntools   ", style="grey62")
     body.append(", ".join(tools) if tools else "none", style="cyan" if tools else "grey62")
+    if server is not None:
+        body.append("\nserver  ", style="grey62")
+        body.append(f"{server}/v1", style="grey62")
     console.print(
         Panel(body, title="[bold]kodo chat[/]", title_align="left", border_style="grey37", padding=(0, 1), expand=False)
     )

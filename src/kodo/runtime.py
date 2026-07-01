@@ -235,7 +235,7 @@ def chat_repl(
         pass
     history: list[dict[str, str]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
     with _serve(model) as base:
-        chatui.header(_console, model=model.name, model_format=model.model_format.value, tools=[])
+        chatui.header(_console, model=model.name, model_format=model.model_format.value, tools=[], server=base)
         while True:
             try:
                 user = input(chatui.USER_PROMPT).strip()
