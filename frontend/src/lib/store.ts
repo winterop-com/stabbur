@@ -11,9 +11,18 @@ const THEME_KEY = "kodo.theme";
 export interface Settings {
   systemPrompt: string;
   maxTokens: number | null;
+  temperature: number | null;
+  topP: number | null;
+  useTools: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { systemPrompt: "", maxTokens: null };
+export const DEFAULT_SETTINGS: Settings = {
+  systemPrompt: "",
+  maxTokens: null,
+  temperature: null,
+  topP: null,
+  useTools: true,
+};
 
 export function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -47,6 +56,9 @@ export function loadSettings(): Settings {
     return {
       systemPrompt: typeof parsed.systemPrompt === "string" ? parsed.systemPrompt : "",
       maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : null,
+      temperature: typeof parsed.temperature === "number" ? parsed.temperature : null,
+      topP: typeof parsed.topP === "number" ? parsed.topP : null,
+      useTools: typeof parsed.useTools === "boolean" ? parsed.useTools : true,
     };
   } catch {
     return DEFAULT_SETTINGS;

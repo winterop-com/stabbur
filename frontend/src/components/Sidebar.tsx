@@ -12,14 +12,13 @@ import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
- * ChatGPT-style left rail: compose + collapse at top, a search field, a
- * "Recents" conversation list (hover reveals rename/delete), and a pinned
- * bottom row showing the current model.
+ * ChatGPT-style left rail: compose + collapse at top, a search field, and a
+ * "Recents" conversation list (hover reveals rename/delete). The current model
+ * lives in the top bar, not here.
  */
 export function Sidebar({
   conversations,
   activeId,
-  modelLabel,
   onNew,
   onSelect,
   onRename,
@@ -28,7 +27,6 @@ export function Sidebar({
 }: {
   conversations: Conversation[];
   activeId: string | null;
-  modelLabel: string;
   onNew: () => void;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
@@ -168,17 +166,6 @@ export function Sidebar({
             </div>
           );
         })}
-      </div>
-
-      <div className="border-t border-white/10 px-3 py-3">
-        <div className="flex items-center gap-2 rounded-lg px-1 text-sm">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[11px] font-semibold text-primary">
-            {modelLabel.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="truncate text-muted-foreground" title={modelLabel}>
-            {modelLabel}
-          </span>
-        </div>
       </div>
     </aside>
   );

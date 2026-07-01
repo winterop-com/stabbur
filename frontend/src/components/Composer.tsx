@@ -2,14 +2,12 @@ import { useEffect, useRef } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { LibModel, Status } from "@/api";
-import { ModelSelector } from "@/components/ModelSelector";
 import { cn } from "@/lib/utils";
 
 /**
- * Rounded, elevated composer pinned at the bottom center. Holds the textarea,
- * an inline model selector, and a circular send button (swaps to Stop while
- * streaming).
+ * Rounded, elevated composer pinned at the bottom center. Holds the textarea
+ * and a circular send button (swaps to Stop while streaming). The model is
+ * chosen from the top bar, not here.
  */
 export function Composer({
   value,
@@ -18,10 +16,6 @@ export function Composer({
   onStop,
   streaming,
   ready,
-  status,
-  library,
-  loadingName,
-  onPick,
   autoFocus,
 }: {
   value: string;
@@ -30,10 +24,6 @@ export function Composer({
   onStop: () => void;
   streaming: boolean;
   ready: boolean;
-  status: Status | null;
-  library: LibModel[];
-  loadingName: string | null;
-  onPick: (name: string) => void;
   autoFocus?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -70,8 +60,7 @@ export function Composer({
           className="max-h-[200px] w-full resize-none bg-transparent text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>
-      <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
-        <ModelSelector status={status} library={library} loadingName={loadingName} onPick={onPick} />
+      <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 pt-1">
         {streaming ? (
           <Button
             size="icon"

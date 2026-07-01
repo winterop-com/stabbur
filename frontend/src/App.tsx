@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 import {
   getLibrary,
@@ -15,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Composer } from "@/components/Composer";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
-import { SettingsDialog } from "@/components/SettingsDialog";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import {
   deriveTitle,
@@ -146,7 +147,12 @@ export function App() {
       for (const m of priorMessages) wire.push({ role: m.role, content: m.content });
 
       try {
-        for await (const evt of streamChat(wire, ctrl.signal, settings.maxTokens ?? undefined)) {
+        for await (const evt of streamChat(wire, ctrl.signal, {
+          maxTokens: settings.maxTokens ?? undefined,
+          temperature: settings.temperature ?? undefined,
+          topP: settings.topP ?? undefined,
+          useTools: settings.useTools,
+        })) {
           if (evt.type === "token") {
             upsertConv(convId, (c) => ({
               ...c,
@@ -274,8 +280,6 @@ export function App() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [activeId]);
 
-  const modelLabel = status?.model ? status.model.split("/").pop() ?? status.model : "no model";
-
   const lastAssistantIndex = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "assistant") return i;
     return -1;
@@ -293,7 +297,6 @@ export function App() {
           <Sidebar
             conversations={conversations}
             activeId={activeId}
-            modelLabel={modelLabel}
             onNew={newConversation}
             onSelect={setActiveId}
             onRename={renameConversation}
@@ -334,7 +337,14 @@ export function App() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" onClick={() => setSettingsOpen(true)} aria-label="Settings">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setSettingsOpen((v) => !v)}
+                    aria-label="Settings"
+                    aria-pressed={settingsOpen}
+                    className={cn(settingsOpen && "bg-accent text-accent-foreground")}
+                  >
                     <SettingsIcon className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -365,10 +375,6 @@ export function App() {
                   onStop={stop}
                   streaming={streaming}
                   ready={ready}
-                  status={status}
-                  library={library}
-                  loadingName={loadingName}
-                  onPick={pick}
                   autoFocus
                 />
               </div>
@@ -397,10 +403,6 @@ export function App() {
                     onStop={stop}
                     streaming={streaming}
                     ready={ready}
-                    status={status}
-                    library={library}
-                    loadingName={loadingName}
-                    onPick={pick}
                   />
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
                     kodo runs your model locally. Responses may be inaccurate.
@@ -411,12 +413,23 @@ export function App() {
           )}
         </main>
 
-        <SettingsDialog
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          settings={settings}
-          onSave={setSettings}
-        />
+        {/* Right rail: width animates like the left sidebar; panel mounts when
+            open so the model card fetch fires on open + model change. */}
+        <div
+          className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out ${
+            settingsOpen ? "w-[320px]" : "w-0"
+          }`}
+        >
+          {settingsOpen && (
+            <SettingsPanel
+              status={status}
+              library={library}
+              settings={settings}
+              onChange={setSettings}
+              onCollapse={() => setSettingsOpen(false)}
+            />
+          )}
+        </div>
       </div>
     </TooltipProvider>
   );

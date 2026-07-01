@@ -22,6 +22,24 @@ export interface LibModel {
   size_human: string;
 }
 
+/** Detailed info for a single model, incl. its markdown card. */
+export interface ModelInfo {
+  name: string;
+  model_format: string;
+  size_human: string;
+  path: string;
+  card: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/** Options forwarded to /api/chat as sampling / tool parameters. */
+export interface ChatOptions {
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  useTools?: boolean;
+}
+
 /** A parsed /api/chat SSE event. */
 export type ChatEvent =
   | { type: "token"; text: string }
@@ -37,6 +55,10 @@ async function json<T>(res: Response): Promise<T> {
 
 export const getStatus = () => fetch("/api/status").then(json<Status>);
 export const getLibrary = () => fetch("/api/library").then(json<LibModel[]>);
+
+/** Fetch detailed info (card + metadata) for one model by name. */
+export const getModelInfo = (name: string) =>
+  fetch(`/api/model?name=${encodeURIComponent(name)}`).then(json<ModelInfo>);
 
 export async function loadModel(name: string): Promise<Status> {
   // /api/load/{name:path} accepts slashes; don't encode them away.
@@ -54,15 +76,23 @@ export async function loadModel(name: string): Promise<Status> {
  * Args:
  *   messages: the full turn list (prepend a system message upstream if wanted).
  *   signal: abort the in-flight fetch (Stop button).
- *   maxTokens: optional cap forwarded to the backend.
+ *   options: sampling / tool params; blank ones are omitted, use_tools always sent.
  */
 export async function* streamChat(
   messages: Msg[],
   signal: AbortSignal,
-  maxTokens?: number,
+  options: ChatOptions = {},
 ): AsyncGenerator<ChatEvent> {
-  const body: { messages: Msg[]; max_tokens?: number } = { messages };
-  if (maxTokens != null) body.max_tokens = maxTokens;
+  const body: {
+    messages: Msg[];
+    max_tokens?: number;
+    temperature?: number;
+    top_p?: number;
+    use_tools: boolean;
+  } = { messages, use_tools: options.useTools ?? true };
+  if (options.maxTokens != null) body.max_tokens = options.maxTokens;
+  if (options.temperature != null) body.temperature = options.temperature;
+  if (options.topP != null) body.top_p = options.topP;
 
   const res = await fetch("/api/chat", {
     method: "POST",
