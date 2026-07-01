@@ -10,6 +10,7 @@ import {
   getLibrary,
   getStatus,
   getTools,
+  getTts,
   loadModel,
   streamChat,
   unloadModel,
@@ -18,6 +19,7 @@ import {
   type Msg,
   type Status,
   type ToolInfo,
+  type TtsModel,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -52,6 +54,8 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [library, setLibrary] = useState<LibModel[]>([]);
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [ttsModels, setTtsModels] = useState<TtsModel[]>([]);
+  const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("kodo.tts_voice") || "");
   const [health, setHealth] = useState<DoctorReport | null>(null);
   const [loadingName, setLoadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +141,7 @@ export function App() {
         })
         .catch((e) => setError(`Library: ${e}`));
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
+      getTts().then(setTtsModels).catch(() => {}); // TTS models are optional
       getDoctor().then(setHealth).catch(() => {});
     };
     refreshSlow();
@@ -463,6 +468,13 @@ export function App() {
     [settings, updateSettings],
   );
 
+  // TTS voice (a global preference for the Listen button): "" = default OuteTTS.
+  const chooseVoice = useCallback((name: string) => {
+    setTtsVoice(name);
+    if (name) localStorage.setItem("kodo.tts_voice", name);
+    else localStorage.removeItem("kodo.tts_voice");
+  }, []);
+
   // --- attachments (image / audio) ---
   const addAttachments = useCallback((items: Attachment[]) => setAttachments((a) => [...a, ...items]), []);
   const removeAttachment = useCallback((i: number) => setAttachments((a) => a.filter((_, idx) => idx !== i)), []);
@@ -648,6 +660,7 @@ export function App() {
                       streaming={streaming && i === messages.length - 1 && m.role === "assistant"}
                       canRegenerate={!streaming && i === lastAssistantIndex}
                       onRegenerate={regenerate}
+                      ttsVoice={ttsVoice}
                     />
                   ))}
                 </div>
@@ -718,6 +731,9 @@ export function App() {
               onCollapse={toggleSettings}
               onReloadContext={reloadWithContext}
               busy={loadingName != null}
+              ttsModels={ttsModels}
+              ttsVoice={ttsVoice}
+              onChooseVoice={chooseVoice}
             />
           )}
         </Panel>

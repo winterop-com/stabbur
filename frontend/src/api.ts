@@ -135,12 +135,22 @@ export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);
 /** Fetch the system-health report (runtimes, library, project). */
 export const getDoctor = () => fetch("/api/doctor").then(json<DoctorReport>);
 
+/** A library text-to-speech model (for the voice picker). */
+export interface TtsModel {
+  name: string;
+  languages: string[];
+  size_human: string;
+}
+
+/** List library TTS models (empty if none pulled). */
+export const getTts = () => fetch("/api/tts").then(json<TtsModel[]>);
+
 /** Synthesize text to speech (llama-tts); returns a WAV blob to play. */
-export async function speak(text: string): Promise<Blob> {
+export async function speak(text: string, model?: string | null): Promise<Blob> {
   const res = await fetch("/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...(model ? { model } : {}) }),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);

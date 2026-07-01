@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PanelRightClose } from "lucide-react";
 
-import { getModelInfo, type LibModel, type ModelInfo, type Status } from "@/api";
+import { getModelInfo, type LibModel, type ModelInfo, type Status, type TtsModel } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,6 +85,9 @@ export function SettingsPanel({
   onCollapse,
   onReloadContext,
   busy,
+  ttsModels,
+  ttsVoice,
+  onChooseVoice,
 }: {
   status: Status | null;
   library: LibModel[];
@@ -93,6 +96,9 @@ export function SettingsPanel({
   onCollapse: () => void;
   onReloadContext: (nCtx: number | null) => void;
   busy: boolean;
+  ttsModels: TtsModel[];
+  ttsVoice: string;
+  onChooseVoice: (name: string) => void;
 }) {
   const modelName = status?.model ?? null;
   const libEntry = library.find((m) => m.name === modelName) ?? null;
@@ -341,6 +347,27 @@ export function SettingsPanel({
               </>
             );
           })()}
+        </Section>
+
+        {/* Voice — which TTS model the Listen button uses (output speech). */}
+        <Section title="Voice (text-to-speech)">
+          <select
+            value={ttsVoice}
+            onChange={(e) => onChooseVoice(e.target.value)}
+            className="h-8 w-full rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">Default (OuteTTS)</option>
+            {ttsModels.map((m) => (
+              <option key={m.name} value={m.name}>
+                {m.name.split("/").pop()}
+                {m.languages.length > 1 ? ` · ${m.languages.length} langs` : ""}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Used by the Listen button on replies. Pull more with{" "}
+            <code className="text-[10px]">kodo pull … --vocoder …</code>.
+          </p>
         </Section>
 
         {/* Model + card — reference info, kept at the bottom. */}

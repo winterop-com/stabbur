@@ -20,11 +20,13 @@ export function MessageItem({
   streaming,
   canRegenerate,
   onRegenerate,
+  ttsVoice,
 }: {
   message: ChatMessage;
   streaming: boolean;
   canRegenerate: boolean;
   onRegenerate: () => void;
+  ttsVoice?: string;
 }) {
   if (message.role === "user") {
     const images = message.images ?? [];
@@ -106,7 +108,7 @@ export function MessageItem({
       {!streaming && (message.content || hasTools) && (
         <div className="mt-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
           {message.content && !message.error && <CopyButton text={message.content} />}
-          {message.content && !message.error && <SpeakButton text={message.content} />}
+          {message.content && !message.error && <SpeakButton text={message.content} voice={ttsVoice} />}
           {canRegenerate && (
             <Tooltip>
               <TooltipTrigger asChild>

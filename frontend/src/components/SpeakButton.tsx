@@ -11,7 +11,7 @@ type State = "idle" | "loading" | "playing";
  * "Listen" control on an assistant reply: synthesizes the text to speech via
  * /api/speak (llama-tts) and plays it. Click again while playing to stop.
  */
-export function SpeakButton({ text }: { text: string }) {
+export function SpeakButton({ text, voice }: { text: string; voice?: string }) {
   const [state, setState] = useState<State>("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -35,7 +35,7 @@ export function SpeakButton({ text }: { text: string }) {
     if (state === "loading") return;
     setState("loading");
     try {
-      const blob = await speak(text);
+      const blob = await speak(text, voice);
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
