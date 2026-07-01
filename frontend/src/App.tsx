@@ -445,6 +445,18 @@ export function App() {
     return -1;
   }, [messages]);
 
+  // Contextual nudge: audio-native models (Ultravox/Voxtral/Qwen-Audio) understand
+  // speech better than vision-first generalists (gemma) whose audio is a spectrogram
+  // bolt-on. When audio is attached to a generalist and a specialist is in the
+  // library, suggest the switch.
+  const audioSpecialist = (name: string) => /ultravox|voxtral|qwen2?[-_.]?audio|whisper/i.test(name);
+  const audioNudge = useMemo(() => {
+    const hasAudio = attachments.some((a) => a.kind === "audio");
+    if (!hasAudio || !status?.model || audioSpecialist(status.model)) return null;
+    const specialist = library.find((m) => m.audio && audioSpecialist(m.name) && m.name !== status.model);
+    return specialist ?? null;
+  }, [attachments, status?.model, library]);
+
   // --- tool enable/disable (denylist), on the active conversation's settings ---
   const toggleTool = useCallback(
     (name: string, enabled: boolean) => {
@@ -503,6 +515,23 @@ export function App() {
         onToggleServer={toggleServer}
       />
     </>
+  );
+
+  // Shown above the composer when a better audio model is available for the attachment.
+  const nudgeEl = audioNudge && (
+    <div className="mx-auto mb-2 flex w-full max-w-4xl items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-[12px]">
+      <span className="text-muted-foreground">
+        {status!.model!.split("/").pop()} handles audio, but{" "}
+        <span className="font-medium text-foreground">{audioNudge.name.split("/").pop()}</span> is built for speech.
+      </span>
+      <button
+        type="button"
+        onClick={() => pick(audioNudge.name)}
+        className="shrink-0 font-medium text-primary hover:underline"
+      >
+        Switch
+      </button>
+    </div>
   );
 
   return (
@@ -633,6 +662,7 @@ export function App() {
                 {ready ? "What can I help with?" : "Select a model to start"}
               </h1>
               <div className="w-full max-w-4xl">
+                {nudgeEl}
                 <Composer
                   value={input}
                   onChange={setInput}
@@ -677,6 +707,7 @@ export function App() {
                   </button>
                 )}
                 <div className="mx-auto w-full max-w-4xl">
+                  {nudgeEl}
                   <Composer
                     value={input}
                     onChange={setInput}
