@@ -5,9 +5,15 @@ loaded model, and — with `--ui` — the browser single-page app.
 
 ```bash
 kodo serve --ui                       # browse + chat in the browser, switch models
+kodo serve --ui --port 8000           # pin the port for a stable URL/bookmark
 make run                             # same, via the Makefile
 make run MODEL=<name>                # locked to one model (see below)
 ```
+
+By default `serve` **auto-picks a free port** and prints the URL on startup, so it
+never collides with your other services. Pass `--port` (or set `KODO_PORT` /
+`port` in `kodo.toml`) to pin a stable address — useful for a browser bookmark or
+the Chrome-extension origin. `--host` overrides the bind address.
 
 The SPA (built to `frontend/dist`) is served via FastAPI's first-party
 `app.frontend()` with `fallback="index.html"`, so client-side routes resolve to

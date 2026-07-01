@@ -73,7 +73,10 @@ class Settings(BaseSettings):
     app_name: str = "kodo"
     debug: bool = False
     host: str = "127.0.0.1"
-    port: int = 8000
+    # Web server (kodo serve) port. ``None`` (default) auto-picks a free port and
+    # prints the URL on startup; set an int (or pass --port) to pin it for a stable
+    # bookmark / Chrome-extension origin.
+    port: int | None = None
 
     # Serve the browser UI (single-page app) alongside the API. The built
     # frontend is expected at ``frontend_dir``; if missing, the API still runs.

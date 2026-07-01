@@ -568,16 +568,22 @@ def serve(
         str | None,
         typer.Option("--model", help="Lock the server to one model (extension backend); no switching."),
     ] = None,
+    host: Annotated[str | None, typer.Option("--host", help="Bind address (default 127.0.0.1).")] = None,
+    port: Annotated[
+        int | None,
+        typer.Option("--port", help="Web server port (default: auto-pick a free port; pin for a stable URL)."),
+    ] = None,
     reload: Annotated[bool, typer.Option(help="Auto-reload on code changes.")] = False,
 ) -> None:
     """Run the web server (browse API, plus the browser UI with --ui).
 
     With --model the server is locked to a single model (the Chrome-extension
-    backend); otherwise the UI can switch models freely.
+    backend); otherwise the UI can switch models freely. The port defaults to a
+    free auto-picked one (printed below); pass --port to pin a stable URL.
     """
-    import os
+    import os  # noqa: PLC0415
 
-    import uvicorn
+    import uvicorn  # noqa: PLC0415
 
     # Propagate to the (possibly reloaded) worker process via env vars.
     if ui:
@@ -587,7 +593,10 @@ def serve(
 
     get_settings.cache_clear()
     settings = get_settings()
-    base = f"http://{settings.host}:{settings.port}"
+    # Precedence: --host/--port > KODO_HOST/KODO_PORT/kodo.toml > auto-pick a free port.
+    bind_host = host or settings.host
+    bind_port = port or settings.port or runtime.find_free_port()
+    base = f"http://{bind_host}:{bind_port}"
     console.print("\n[bold]kodo[/]")
     if model is not None:
         console.print(f"  Locked:   [bold]{model}[/]")
@@ -601,8 +610,8 @@ def serve(
     console.print("  [dim]Ctrl-C to stop[/]\n")
     uvicorn.run(
         "kodo.app:app",
-        host=settings.host,
-        port=settings.port,
+        host=bind_host,
+        port=bind_port,
         reload=reload,
     )
 
