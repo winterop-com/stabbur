@@ -1,14 +1,14 @@
 # CLI reference
 
 The CLI is the **`kodo`** command. Everything centers on your **library** — the
-models on your drive, at the `backup_root` set in `kodo.toml`. Run any command
+models on your drive, at the `library_root` set in `kodo.toml`. Run any command
 with `--help` for full options.
 
 ## `kodo init`
 
 Scaffold **`kodo.toml`** here — kodo's primary config (no `.env` needed) — and
 ensure its model is in the library. The generated file captures the library
-location (`backup_root`) plus the assistant (`[project]` model + `[[mcp]]`
+location (`library_root`) plus the assistant (`[project]` model + `[[mcp]]`
 tools). Idempotent — only pulls the model if it's missing. With no `--model` it
 offers a small curated set and pulls the choice into the always-local library.
 
@@ -31,7 +31,7 @@ kodo search qwen3 -n 30      # more results
 ## `kodo list` (alias `kodo ls`)
 
 List the models in **your library** — what you've pulled, ready to run — grouped
-by format with sizes. Reads `backup_root` (from `kodo.toml`).
+by format with sizes. Reads `library_root` (from `kodo.toml`).
 
 ```bash
 kodo list

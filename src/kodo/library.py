@@ -1,4 +1,4 @@
-"""Scan and resolve models stored in the on-drive library (``backup_root``).
+"""Scan and resolve models stored in the on-drive library (``library_root``).
 
 Finds runnable models wherever they landed under the library root:
 
@@ -172,7 +172,7 @@ def _scan_root(base: Path) -> list[LibraryModel]:
 def scan(root: Path | None = None) -> list[LibraryModel]:
     """Return every runnable model in the library.
 
-    With no ``root``, the library spans the main ``backup_root`` (often an
+    With no ``root``, the library spans the main ``library_root`` (often an
     external drive) **plus** the always-local ``local_root`` — so locally-kept
     models still appear when the drive is unplugged. Deduped by (name, format)
     so format variants coexist (drive wins on a tie). A single ``root`` is
@@ -184,7 +184,7 @@ def scan(root: Path | None = None) -> list[LibraryModel]:
     settings = get_settings()
     models: list[LibraryModel] = []
     seen: set[tuple[str, ModelFormat]] = set()
-    for base in (settings.backup_root, settings.local_root):
+    for base in (settings.library_root, settings.local_root):
         for m in _scan_root(base):
             # Key on (name, format): the same model in the same format on both
             # roots is one entry (drive wins), but a GGUF on the drive and an MLX

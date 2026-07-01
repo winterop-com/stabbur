@@ -63,7 +63,7 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         assert manifest.exists()
         text = manifest.read_text()
         assert 'model = "unsloth/X-GGUF"' in text
-        assert "backup_root =" in text  # library config lives in kodo.toml, not .env
+        assert "library_root =" in text  # library config lives in kodo.toml, not .env
 
         again = runner.invoke(cli.app, ["init", "--model", "unsloth/X-GGUF"])
         assert again.exit_code == 1  # refuses to clobber an existing project

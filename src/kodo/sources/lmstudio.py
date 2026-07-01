@@ -68,13 +68,13 @@ def list_models(models_dir: Path | None = None) -> list[ModelEntry]:
     return entries
 
 
-def pull(name: str, backup_root: Path, models_dir: Path | None = None, move: bool = False) -> PullResult:
+def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bool = False) -> PullResult:
     """Copy an LM Studio model directory into the library, organized by format.
 
     Args:
         name: The ``publisher/repo`` name as reported by :func:`list_models`.
-        backup_root: Destination library root; the model lands in
-            ``backup_root/<format>/<name>`` (e.g. ``mlx/lmstudio-community/...``).
+        library_root: Destination library root; the model lands in
+            ``library_root/<format>/<name>`` (e.g. ``mlx/lmstudio-community/...``).
         models_dir: Override for the LM Studio models directory.
         move: If true, delete the local source after verifying the copy is
             byte-for-byte complete (frees local disk; leaves 0 local copies).
@@ -92,7 +92,7 @@ def pull(name: str, backup_root: Path, models_dir: Path | None = None, move: boo
 
     src_bytes, _ = dir_stats(src)
     model_format = _classify(src)
-    dest = backup_root / model_format.value / name
+    dest = library_root / model_format.value / name
     size_bytes, file_count = copy_tree(src, dest)
 
     # Only remove the source once the destination byte total matches exactly.

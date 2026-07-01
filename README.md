@@ -59,17 +59,17 @@ assistant. To put the library on the external drive:
 
 ```toml
 # kodo.toml
-backup_root = "/Volumes/LLM/Library"
+library_root = "/Volumes/LLM/Library"
 ```
 
 Any value can be overridden per machine with a `KODO_*` env var (e.g.
-`KODO_BACKUP_ROOT=/mnt/llm/Library` on Linux). Precedence, high to low:
+`KODO_LIBRARY_ROOT=/mnt/llm/Library` on Linux). Precedence, high to low:
 CLI flags, `KODO_*` env vars, `kodo.toml`, `.env` (an optional fallback — you
 don't need it).
 
 | Key (`kodo.toml`) / env var                 | Default                  |
 | ------------------------------------------- | ------------------------ |
-| `backup_root` / `KODO_BACKUP_ROOT`          | `data`                   |
+| `library_root` / `KODO_LIBRARY_ROOT`          | `data`                   |
 | `local_root` / `KODO_LOCAL_ROOT`            | `~/.kodo/library`        |
 | `ollama_models_dir` / `KODO_OLLAMA_MODELS_DIR` | `~/.ollama/models`    |
 | `lmstudio_models_dir` / `KODO_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models` |

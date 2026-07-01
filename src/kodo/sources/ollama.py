@@ -218,15 +218,15 @@ def list_models(models_dir: Path | None = None) -> list[ModelEntry]:
     return entries
 
 
-def pull(name: str, backup_root: Path, models_dir: Path | None = None, move: bool = False) -> PullResult:
+def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bool = False) -> PullResult:
     """Copy an Ollama model (manifest + referenced blobs) into the backup root.
 
-    The layout under ``backup_root/ollama`` mirrors Ollama's own store so it can
+    The layout under ``library_root/ollama`` mirrors Ollama's own store so it can
     be restored by copying back.
 
     Args:
         name: The ``model:tag`` name as reported by :func:`list_models`.
-        backup_root: Destination root.
+        library_root: Destination root.
         models_dir: Override for the Ollama models directory.
         move: If true, remove the local model (manifest + orphaned blobs) after
             verifying every referenced blob copied with a matching size.
@@ -244,7 +244,7 @@ def pull(name: str, backup_root: Path, models_dir: Path | None = None, move: boo
     if manifest_path is None:
         raise FileNotFoundError(f"No Ollama manifest for {name!r}")
 
-    dest_root = backup_root / ModelSource.ollama.value
+    dest_root = library_root / ModelSource.ollama.value
     rel_manifest = manifest_path.relative_to(root)
     dest_manifest = dest_root / rel_manifest
     dest_manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -278,7 +278,7 @@ def pull(name: str, backup_root: Path, models_dir: Path | None = None, move: boo
             "name": name,
             "size_bytes": size_bytes,
             "file_count": file_count,
-            "manifest": dest_manifest.relative_to(backup_root).as_posix(),
+            "manifest": dest_manifest.relative_to(library_root).as_posix(),
         },
     )
 

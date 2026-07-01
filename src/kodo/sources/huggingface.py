@@ -85,19 +85,19 @@ def list_models() -> list[ModelEntry]:
     return entries
 
 
-def pull(repo_id: str, backup_root: Path, token: str | None = None) -> PullResult:
+def pull(repo_id: str, library_root: Path, token: str | None = None) -> PullResult:
     """Download ``repo_id`` into the backup root.
 
     Args:
         repo_id: The Hugging Face repo to download (e.g. ``"meta-llama/Llama-3.2-1B"``).
-        backup_root: Destination root; the model lands in
-            ``backup_root/huggingface/<repo_id>``.
+        library_root: Destination root; the model lands in
+            ``library_root/huggingface/<repo_id>``.
         token: Optional access token for gated or private repos.
 
     Returns:
         A :class:`PullResult` describing what was written.
     """
-    dest = backup_root / ModelSource.huggingface.value / repo_id
+    dest = library_root / ModelSource.huggingface.value / repo_id
     dest.mkdir(parents=True, exist_ok=True)
     snapshot_download(
         repo_id=repo_id,

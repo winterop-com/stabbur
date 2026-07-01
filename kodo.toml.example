@@ -9,12 +9,12 @@
 # So kodo.toml is authoritative; a KODO_* env var is the per-machine escape
 # hatch (e.g. a different drive mount path on Linux).
 #
-# Note: `kodo ls` reads `backup_root` (below) to find the library on disk.
+# Note: `kodo ls` reads `library_root` (below) to find the library on disk.
 
 # --- Library / runtime (top-level keys map to Settings fields) ---
 
 # Where the model library lives (often the external drive). Use an absolute path.
-backup_root = "/Volumes/LLM/Library"
+library_root = "/Volumes/LLM/Library"
 
 # Always-local root, never on an external drive (default: ~/.kodo/library).
 # `kodo pull --local` targets it so a small model works when the drive is out.

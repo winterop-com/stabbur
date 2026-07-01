@@ -8,7 +8,7 @@ Each backed-up model gets a ``.kodo/`` sidecar holding:
 
 The sidecar lives inside the model directory for Hugging Face and LM Studio. For
 Ollama, whose store is content-addressed and must keep its native layout to stay
-restorable, the sidecar goes under ``<backup_root>/ollama/.library/<name>/``.
+restorable, the sidecar goes under ``<library_root>/ollama/.library/<name>/``.
 """
 
 import json

@@ -8,7 +8,7 @@ and every data type is a `BaseModel` (no `@dataclass`).
 
 ```
 src/kodo/
-├── config.py    # Settings (kodo.toml + KODO_* env vars; backup_root, serve_ui, …)
+├── config.py    # Settings (kodo.toml + KODO_* env vars; library_root, serve_ui, …)
 ├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
 ├── catalog.py   # list/pull across the source stores
 ├── library.py   # scan the on-drive library → LibraryModel (+ load_target, mmproj)
@@ -25,7 +25,7 @@ src/kodo/
 
 - **Sources** (`catalog` + `sources/`) — what's in the local HF cache, Ollama,
   and LM Studio stores; the candidates for `kodo pull`.
-- **Library** (`library`) — what's on the drive under `backup_root`; the
+- **Library** (`library`) — what's on the drive under `library_root`; the
   runnable set. `LibraryModel` carries `load_target` (the exact file/dir to hand
   the runtime) and `mmproj` (multimodal projector, if any).
 

@@ -1,6 +1,6 @@
 # The library
 
-The library is the on-drive home for your models, at the `backup_root` set in
+The library is the on-drive home for your models, at the `library_root` set in
 your `kodo.toml`. List it with:
 
 ```bash
@@ -39,7 +39,7 @@ instructions.
 
 ## Local + drive (external drives get unplugged)
 
-The library spans **two roots**: the main `backup_root` (typically the external
+The library spans **two roots**: the main `library_root` (typically the external
 drive) **plus** an always-local root (`local_root`, default `~/.kodo/library`).
 Keep a small model local so kodo still works when the drive is disconnected:
 
@@ -53,12 +53,12 @@ mounted, shows your local models with a "drive offline" note instead of failing.
 ## Storage on an external drive
 
 The library is designed to live on a large external/cloud drive; moving it is a
-one-line change to `backup_root` in `kodo.toml`.
+one-line change to `library_root` in `kodo.toml`.
 
 - **exFAT** is a good choice for a drive shared between macOS and Linux (the only
   filesystem both read/write natively). No journaling — **eject cleanly**; no
   symlinks — dedup is store-once-and-copy, not by link.
 - Mount paths differ per machine (e.g. `/Volumes/LLM` on macOS vs
-  `/media/<user>/LLM` on Linux) — set `backup_root` in `kodo.toml`, or override
-  it per machine with `KODO_BACKUP_ROOT`.
+  `/media/<user>/LLM` on Linux) — set `library_root` in `kodo.toml`, or override
+  it per machine with `KODO_LIBRARY_ROOT`.
 - Re-downloadable weights make the lack of journaling low-stakes.

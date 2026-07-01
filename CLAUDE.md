@@ -16,7 +16,7 @@ library via a Typer CLI and a small FastAPI service.
 
 Downloads currently land in the project-local `data/` directory. **Later this
 moves to a dedicated 5TB WD Passport external drive** — when that happens, only
-`KODO_BACKUP_ROOT` changes (e.g. `/Volumes/kodo-5tb/library`); no code
+`KODO_LIBRARY_ROOT` changes (e.g. `/Volumes/kodo-5tb/library`); no code
 changes required. `data/` is gitignored — model weights must never be committed.
 
 ## Stack & conventions
@@ -33,7 +33,7 @@ changes required. `data/` is gitignored — model weights must never be committe
 
 ```
 src/kodo/
-├── config.py    # Settings (KODO_* env vars); backup_root = data/ default
+├── config.py    # Settings (KODO_* env vars); library_root = data/ default
 ├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
 ├── catalog.py   # aggregates list/pull across sources
 ├── library.py   # scans the on-drive library (gguf/ mlx/ ...)
@@ -72,11 +72,11 @@ Every pull writes a `.kodo/` sidecar (`metadata.json` + `model-card.md`):
 
 - Source code: stays on the Mac + GitHub (small, version-controlled).
 - Model library: on a 5TB **exFAT** WD Passport, mounted `/Volumes/LLM` on this
-  Mac → `KODO_BACKUP_ROOT=/Volumes/LLM/Library` (set in gitignored `.env`).
+  Mac → `KODO_LIBRARY_ROOT=/Volumes/LLM/Library` (set in gitignored `.env`).
   exFAT chosen for Mac + Linux read/write; allocation block 256 KB (good for
   large weights). No journaling — eject cleanly. No symlinks/hardlinks on the
   volume, so dedup must be by "store once, copy to each runtime", not by link.
-  On Linux the mount path differs; set `KODO_BACKUP_ROOT` per machine.
+  On Linux the mount path differs; set `KODO_LIBRARY_ROOT` per machine.
 
 ## Formats, runtimes & the shared library (intended direction)
 
@@ -207,7 +207,7 @@ The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace)
   library; when undecided, offer a curated **2–3** tiny starter models (compact
   GGUF, MLX for Apple Silicon, a tool-capable one). On-ramp: clone → `kodo init` →
   `kodo serve --ui`. Idempotent: pull only models missing from the library; no
-  cwd/`~/.config` "ran" flag (any optional marker lives in `<backup_root>/.kodo/`).
+  cwd/`~/.config` "ran" flag (any optional marker lives in `<library_root>/.kodo/`).
 - Refactor toward the format-centric shared library above (the big one).
 - `make check` is the CI gate (read-only); `make lint` mutates locally.
 - Auto-fetch HF model cards for LM Studio models (infer repo from path).

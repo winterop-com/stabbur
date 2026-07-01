@@ -1,7 +1,7 @@
 """Application configuration.
 
 ``kodo.toml`` in the working directory is the primary config source: it holds
-both the library location (``backup_root``) and the project/assistant manifest
+both the library location (``library_root``) and the project/assistant manifest
 (``[project]`` / ``[[mcp]]``, read separately by :mod:`kodo.project`). Every
 value can still be overridden per machine with a ``KODO_*`` environment
 variable; ``.env`` remains an optional low-priority fallback.
@@ -35,10 +35,10 @@ def _default_lmstudio_dir() -> Path:
 class Settings(BaseSettings):
     """Application settings — read from ``kodo.toml`` first, then env vars.
 
-    Top-level keys in ``kodo.toml`` (e.g. ``backup_root = "/Volumes/LLM/Library"``)
+    Top-level keys in ``kodo.toml`` (e.g. ``library_root = "/Volumes/LLM/Library"``)
     map directly to these fields; the ``[project]`` / ``[[mcp]]`` tables are
     ignored here and read by :mod:`kodo.project`. A ``KODO_*`` environment
-    variable (e.g. ``KODO_BACKUP_ROOT``) overrides the file per machine.
+    variable (e.g. ``KODO_LIBRARY_ROOT``) overrides the file per machine.
     """
 
     model_config = SettingsConfigDict(
@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     # The main library root — point this at the (big) external drive. The library
     # spans this PLUS the always-local ``local_root`` below, so a small model
     # kept locally still works when the external drive is unplugged.
-    backup_root: Path = Path("data")
+    library_root: Path = Path("data")
 
     # Always-local library root (never on an external drive). Keep a small model
     # here for offline / drive-disconnected use; `pull --local` targets it.

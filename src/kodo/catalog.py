@@ -26,14 +26,14 @@ def list_models(source: ModelSource | None = None) -> Catalog:
     return Catalog(entries=entries)
 
 
-def pull(source: ModelSource, name: str, backup_root: Path | None = None, move: bool = False) -> PullResult:
+def pull(source: ModelSource, name: str, library_root: Path | None = None, move: bool = False) -> PullResult:
     """Pull a single model from the given source into the library.
 
     Args:
         source: Which source the model belongs to.
         name: The model identifier as reported by :func:`list_models`.
-        backup_root: Override for the destination root; defaults to the
-            configured ``backup_root``.
+        library_root: Override for the destination root; defaults to the
+            configured ``library_root``.
         move: If true, delete the local source after a verified copy. Currently
             supported for LM Studio only.
 
@@ -44,7 +44,7 @@ def pull(source: ModelSource, name: str, backup_root: Path | None = None, move: 
         NotImplementedError: If ``move`` is requested for a source that does not
             support it yet.
     """
-    root = backup_root or get_settings().backup_root
+    root = library_root or get_settings().library_root
     match source:
         case ModelSource.huggingface:
             if move:

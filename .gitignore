@@ -54,5 +54,5 @@ frontend/dist/
 /site/
 
 # Downloaded models — the library lives here and must never be committed.
-# Override the location with LOCAL_LLM_BACKUP_ROOT when moving to the 5TB drive.
+# Override the location with KODO_LIBRARY_ROOT when moving to the 5TB drive.
 /data/

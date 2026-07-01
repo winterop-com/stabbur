@@ -20,19 +20,19 @@ uv tool install mlx-lm        # MLX: mlx_lm.server + mlx_lm.chat (Apple Silicon 
 
 kodo's config lives in **`kodo.toml`** in your working directory. Run
 `kodo init` to scaffold one (see [kodo.toml.example](https://github.com/winterop-com/kodo/blob/main/kodo.toml.example)),
-or create it by hand. The library location is the `backup_root` key — put it on
+or create it by hand. The library location is the `library_root` key — put it on
 an external/cloud drive:
 
 ```toml
 # kodo.toml
-backup_root = "/Volumes/LLM/Library"
+library_root = "/Volumes/LLM/Library"
 
 [project]
 model = "lmstudio-community/gemma-4-12B-it-QAT-GGUF"
 ```
 
 Every value can be overridden per machine with a `KODO_*` environment variable
-(e.g. a different mount path on Linux: `KODO_BACKUP_ROOT=/mnt/llm/Library`).
+(e.g. a different mount path on Linux: `KODO_LIBRARY_ROOT=/mnt/llm/Library`).
 A `.env` still works as an optional low-priority fallback, but `kodo.toml` is
 the primary config — you don't need `.env`. Precedence, high to low:
 CLI flags, `KODO_*` env vars, `kodo.toml`, `.env`. Settings are

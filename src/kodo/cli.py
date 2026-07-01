@@ -51,7 +51,7 @@ def _fmt_cell(model_format: ModelFormat) -> str:
     return f"[{_FORMAT_STYLE[model_format]}]{model_format.value}[/]"
 
 
-def _project_toml(model: str, backup_root: Path) -> str:
+def _project_toml(model: str, library_root: Path) -> str:
     """Render a kodo.toml: library config + the assistant bound to ``model``.
 
     This is kodo's primary config file — no ``.env`` needed. Top-level keys
@@ -61,9 +61,9 @@ def _project_toml(model: str, backup_root: Path) -> str:
     return (
         "# kodo config — library location + this project's assistant, in one file.\n"
         "# kodo's primary config (no .env needed). Override any value per machine\n"
-        "# with a KODO_* env var (e.g. KODO_BACKUP_ROOT).\n\n"
+        "# with a KODO_* env var (e.g. KODO_LIBRARY_ROOT).\n\n"
         "# Where the model library lives (often the external drive).\n"
-        f'backup_root = "{backup_root}"\n\n'
+        f'library_root = "{library_root}"\n\n'
         "# The assistant this project defines.\n"
         "[project]\n"
         f'model = "{model}"\n'
@@ -88,24 +88,26 @@ def _library_names() -> set[str]:
 def list_models() -> None:
     """List the models in your library — what you've pulled, ready to run.
 
-    The library spans your drive (``KODO_BACKUP_ROOT``) plus an always-local
+    The library spans your drive (``KODO_LIBRARY_ROOT``) plus an always-local
     root, so models kept locally still work when the drive is unplugged. To
     browse models in your app caches that you *could* pull, use ``kodo sources``.
     """
     settings = get_settings()
     models = [m for m in library_ops.scan() if m.generative]
-    drive_off = not settings.backup_root.is_dir()
+    drive_off = not settings.library_root.is_dir()
     if not models:
         console.print("Your library is empty.")
         if drive_off:
-            console.print(f"[yellow]Drive offline:[/] [dim]{settings.backup_root}[/] is not mounted.")
+            console.print(f"[yellow]Drive offline:[/] [dim]{settings.library_root}[/] is not mounted.")
         console.print("[dim]Pull one with[/] kodo pull [dim](or[/] --local[dim]) · browse with[/] kodo sources")
         return
 
     total = _human_size(sum(m.size_bytes for m in models))
     console.print(f"\n[bold]{len(models)} models · {total}[/] in your library\n")
     if drive_off:
-        console.print(f"[yellow]Note: drive offline[/] ([dim]{settings.backup_root}[/]) — showing local models only.\n")
+        console.print(
+            f"[yellow]Note: drive offline[/] ([dim]{settings.library_root}[/]) — showing local models only.\n"
+        )
     for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
         rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
         subtotal = _human_size(sum(m.size_bytes for m in rows))
@@ -140,7 +142,7 @@ def pull(
     verb = "Moving" if move else "Pulling"
     typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
-        result = catalog_ops.pull(source, name, backup_root=root, move=move)
+        result = catalog_ops.pull(source, name, library_root=root, move=move)
     except (NotImplementedError, FileNotFoundError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
@@ -234,12 +236,12 @@ def init(
     else:
         console.print(f"Pulling [bold]{model}[/] into your local library …")
         try:
-            catalog_ops.pull(ModelSource.huggingface, model, backup_root=get_settings().local_root)
+            catalog_ops.pull(ModelSource.huggingface, model, library_root=get_settings().local_root)
         except Exception as exc:  # noqa: BLE001 - surface pull/network failures
             console.print(f"[red]Pull failed:[/] {exc}")
             raise typer.Exit(1) from exc
 
-    proj.write_text(_project_toml(model, get_settings().backup_root))
+    proj.write_text(_project_toml(model, get_settings().library_root))
     console.print(f"\n[green]Created kodo.toml[/] (model: {model})")
     console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 
@@ -288,7 +290,7 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
                 f"kodo pull {hit.source.value} {hit.name}"
             )
         else:
-            console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().backup_root}[/]).")
+            console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().library_root}[/]).")
         raise typer.Exit(1)
     if len(matches) > 1:
         console.print(f"[yellow]{name!r} is ambiguous; narrow with --format:[/]")
@@ -309,7 +311,7 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
         raise typer.Exit(1)
     if model.is_ollama:
         # Ollama's GGUFs (e.g. gemma3) don't load in stock llama.cpp — run via Ollama.
-        store = get_settings().backup_root / "ollama"
+        store = get_settings().library_root / "ollama"
         console.print(f"[red]{model.name!r} is an Ollama model[/] — kodo runs GGUF/MLX, not Ollama's format.")
         console.print(f"[yellow]Run it with Ollama:[/]  OLLAMA_MODELS={store} ollama run {model.name}")
         raise typer.Exit(1)

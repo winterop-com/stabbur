@@ -38,7 +38,7 @@ local models:
 
 Two distinct units:
 
-- **Library** — the *global* model store on the drive (`KODO_BACKUP_ROOT`):
+- **Library** — the *global* model store on the drive (`KODO_LIBRARY_ROOT`):
   machine/checkout-independent, idempotent, never in the cwd.
 - **Project** — a *local* (cwd) definition of an **assistant**: a thin
   `kodo.toml` pointing at a library model + a list of MCP servers + a system
@@ -71,7 +71,7 @@ one on-ramp.
   downloads. No "already ran" flag in the cwd (the checkout isn't the library)
   and none in `~/.config` (per-machine would desync from a shared drive). Any
   optional first-run marker belongs in the **library root**
-  (`<backup_root>/.kodo/`), which travels with the drive. `--force` re-offers.
+  (`<library_root>/.kodo/`), which travels with the drive. `--force` re-offers.
 
 ## Discovering models (`kodo search`)
 

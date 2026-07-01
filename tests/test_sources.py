@@ -34,10 +34,10 @@ def test_ollama_list_and_backup(tmp_path: Path) -> None:
     assert entry.name == "llama3:latest"
     assert entry.size_bytes == 2048
 
-    backup_root = tmp_path / "backup"
-    result = ollama.pull("llama3:latest", backup_root, models_dir=store)
+    library_root = tmp_path / "backup"
+    result = ollama.pull("llama3:latest", library_root, models_dir=store)
     assert result.file_count == 2  # manifest + blob
-    assert (backup_root / "ollama" / "blobs" / "sha256-abc123").is_file()
+    assert (library_root / "ollama" / "blobs" / "sha256-abc123").is_file()
 
 
 def _write_ollama_manifest(store: Path, model: str, digests: list[str]) -> None:
@@ -55,15 +55,15 @@ def test_ollama_move_preserves_shared_blobs(tmp_path: Path) -> None:
     _write_ollama_manifest(store, "modelA", ["sha256:shared", "sha256:uniq"])
     _write_ollama_manifest(store, "modelB", ["sha256:shared"])
 
-    backup_root = tmp_path / "backup"
-    ollama.pull("modelA:latest", backup_root, models_dir=store, move=True)
+    library_root = tmp_path / "backup"
+    ollama.pull("modelA:latest", library_root, models_dir=store, move=True)
 
     # modelA gone; its unique blob gone; shared blob kept (modelB still needs it).
     assert not (store / "manifests" / "registry.ollama.ai" / "library" / "modelA").exists()
     assert not (store / "blobs" / "sha256-uniq").exists()
     assert (store / "blobs" / "sha256-shared").is_file()
     assert (store / "manifests" / "registry.ollama.ai" / "library" / "modelB" / "latest").is_file()
-    assert (backup_root / "ollama" / "blobs" / "sha256-uniq").is_file()
+    assert (library_root / "ollama" / "blobs" / "sha256-uniq").is_file()
 
 
 def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
@@ -73,9 +73,9 @@ def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
     (store / "blobs").mkdir(parents=True)
     _write_ollama_manifest(store, "broken", ["sha256:gone"])
 
-    backup_root = tmp_path / "backup"
+    library_root = tmp_path / "backup"
     with pytest.raises(FileNotFoundError, match="missing from the store"):
-        ollama.pull("broken:latest", backup_root, models_dir=store)
+        ollama.pull("broken:latest", library_root, models_dir=store)
 
 
 def test_lmstudio_gguf_list_and_backup(tmp_path: Path) -> None:
@@ -90,11 +90,11 @@ def test_lmstudio_gguf_list_and_backup(tmp_path: Path) -> None:
     assert entries[0].model_format is ModelFormat.gguf
     assert entries[0].size_bytes == 4096
 
-    backup_root = tmp_path / "backup"
-    result = lmstudio.pull("TheBloke/Mistral-7B-GGUF", backup_root, models_dir=store)
+    library_root = tmp_path / "backup"
+    result = lmstudio.pull("TheBloke/Mistral-7B-GGUF", library_root, models_dir=store)
     assert result.model_format is ModelFormat.gguf
     assert result.size_bytes == 4096
-    assert (backup_root / "gguf" / "TheBloke" / "Mistral-7B-GGUF" / "mistral.Q4_K_M.gguf").is_file()
+    assert (library_root / "gguf" / "TheBloke" / "Mistral-7B-GGUF" / "mistral.Q4_K_M.gguf").is_file()
 
 
 def test_lmstudio_mlx_detected_and_backed_up(tmp_path: Path) -> None:
@@ -108,10 +108,10 @@ def test_lmstudio_mlx_detected_and_backed_up(tmp_path: Path) -> None:
     assert len(entries) == 1
     assert entries[0].model_format is ModelFormat.mlx
 
-    backup_root = tmp_path / "backup"
-    result = lmstudio.pull("mlx-community/Qwen-MLX-4bit", backup_root, models_dir=store)
+    library_root = tmp_path / "backup"
+    result = lmstudio.pull("mlx-community/Qwen-MLX-4bit", library_root, models_dir=store)
     assert result.model_format is ModelFormat.mlx
-    assert (backup_root / "mlx" / "mlx-community" / "Qwen-MLX-4bit" / "model.safetensors").is_file()
+    assert (library_root / "mlx" / "mlx-community" / "Qwen-MLX-4bit" / "model.safetensors").is_file()
 
 
 def test_lmstudio_backup_move_removes_source(tmp_path: Path) -> None:
@@ -120,10 +120,10 @@ def test_lmstudio_backup_move_removes_source(tmp_path: Path) -> None:
     model_dir.mkdir(parents=True)
     (model_dir / "model.gguf").write_bytes(b"w" * 4096)
 
-    backup_root = tmp_path / "backup"
-    result = lmstudio.pull("pub/Model-GGUF", backup_root, models_dir=store, move=True)
+    library_root = tmp_path / "backup"
+    result = lmstudio.pull("pub/Model-GGUF", library_root, models_dir=store, move=True)
 
-    assert (backup_root / "gguf" / "pub" / "Model-GGUF" / "model.gguf").is_file()
+    assert (library_root / "gguf" / "pub" / "Model-GGUF" / "model.gguf").is_file()
     assert not model_dir.exists()  # local source removed after verified copy
     assert result.size_bytes == 4096
 
@@ -193,7 +193,7 @@ def test_scan_keeps_cross_root_format_variants(tmp_path: Path, monkeypatch: pyte
     (local / "mlx" / "pub" / "Foo").mkdir(parents=True)
     (local / "mlx" / "pub" / "Foo" / "weights.safetensors").write_bytes(b"m" * 100)
 
-    settings = Settings(backup_root=drive, local_root=local)
+    settings = Settings(library_root=drive, local_root=local)
     monkeypatch.setattr(library, "get_settings", lambda: settings)
     formats = {m.model_format for m in library.find("Foo")}
     assert formats == {ModelFormat.gguf, ModelFormat.mlx}
@@ -239,7 +239,7 @@ def test_scan_spans_drive_and_local_roots(tmp_path: Path, monkeypatch: pytest.Mo
         d.mkdir(parents=True)
         (d / "m.gguf").write_bytes(b"x" * 100)
 
-    settings = Settings(backup_root=drive, local_root=local)
+    settings = Settings(library_root=drive, local_root=local)
     monkeypatch.setattr(library, "get_settings", lambda: settings)
     names = {m.name for m in library.scan()}  # no explicit root → spans both
     assert names == {"pub/Drive-GGUF", "pub/Local-GGUF"}
