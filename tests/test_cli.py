@@ -159,6 +159,17 @@ def test_pull_single_surfaces_copy_failure_cleanly(monkeypatch: pytest.MonkeyPat
     assert "disk full" in result.output
 
 
+async def test_run_cancelable_passthrough_when_not_tty() -> None:
+    # In non-interactive runs (no TTY) it must just await the coroutine and report
+    # not-canceled — the ESC watcher only engages on a real terminal.
+    async def work() -> str:
+        return "done"
+
+    result, canceled = await cli._run_cancelable(work())
+    assert result == "done"
+    assert canceled is False
+
+
 def test_chat_refuses_ollama_model_with_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     ollama_model = _lib_model("gemma4:31b")
     ollama_model.is_ollama = True

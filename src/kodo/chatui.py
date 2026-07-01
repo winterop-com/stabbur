@@ -27,12 +27,21 @@ def _rl(seq: str) -> str:
 USER_PROMPT = f"{_rl(_ORANGE)}●{_rl(_RESET)} you {_rl(_GREY)}›{_rl(_RESET)} "
 
 
-def header(console: Console, *, model: str, model_format: str, tools: list[str], server: str | None = None) -> None:
+def header(
+    console: Console,
+    *,
+    model: str,
+    model_format: str,
+    tools: list[str],
+    server: str | None = None,
+    esc_cancel: bool = False,
+) -> None:
     """Print the opening chat banner: model, format, tools, and the runtime URL.
 
     ``server`` is the local runtime's base URL — kodo runs ``llama-server`` /
     ``mlx_lm.server`` in the background and talks to its OpenAI ``/v1``; showing it
     makes the live endpoint discoverable (e.g. to curl during the session).
+    ``esc_cancel`` adds the "ESC cancels" hint (only where that's wired up).
     """
     body = Text()
     body.append(model, style="bold")
@@ -48,7 +57,10 @@ def header(console: Console, *, model: str, model_format: str, tools: list[str],
     console.print(
         Panel(body, title="[bold]kodo chat[/]", title_align="left", border_style="grey37", padding=(0, 1), expand=False)
     )
-    console.print("[grey50]/exit or Ctrl-D to quit  ·  ↑ recalls previous prompts[/]\n")
+    hint = "/exit or Ctrl-D to quit  ·  ↑ recalls previous prompts"
+    if esc_cancel:
+        hint += "  ·  ESC cancels a reply"
+    console.print(f"[grey50]{hint}[/]\n")
 
 
 def assistant_prefix(console: Console, *, inline: bool) -> None:

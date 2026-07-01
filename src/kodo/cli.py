@@ -1,5 +1,6 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import Annotated
 
@@ -472,6 +473,49 @@ def chat(
         raise typer.Exit(1) from exc
 
 
+async def _run_cancelable(coro: Awaitable[str]) -> tuple[str | None, bool]:
+    """Await ``coro``, cancelling it if the user presses ESC. Returns (result, canceled).
+
+    asyncio cancellation interrupts the in-flight request even when it's produced no
+    output yet (a buffered tool-mode reply), which a between-iterations flag can't.
+    ESC watching needs a TTY (raw stdin); piped/non-interactive runs just await.
+    """
+    import asyncio  # noqa: PLC0415
+    import os  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    task: asyncio.Task[str] = asyncio.ensure_future(coro)
+    try:
+        import termios  # noqa: PLC0415
+        import tty  # noqa: PLC0415
+    except ImportError:  # no raw-tty support (e.g. Windows)
+        return await task, False
+    if not sys.stdin.isatty():
+        return await task, False
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    loop = asyncio.get_running_loop()
+
+    def _on_key() -> None:
+        try:
+            if os.read(fd, 1) == b"\x1b":  # ESC
+                task.cancel()
+        except OSError:
+            pass
+
+    try:
+        tty.setcbreak(fd)
+        loop.add_reader(fd, _on_key)
+        try:
+            return await task, False
+        except asyncio.CancelledError:
+            return None, True
+    finally:
+        loop.remove_reader(fd)
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
 def _chat_with_tools(
     model: library_ops.LibraryModel,
     mcp_commands: list[str],
@@ -545,7 +589,12 @@ def _chat_with_tools(
                 print()  # noqa: T201 - newline after streamed answer
             else:
                 chatui.header(
-                    console, model=model.name, model_format=model.model_format.value, tools=toolset.names, server=base
+                    console,
+                    model=model.name,
+                    model_format=model.model_format.value,
+                    tools=toolset.names,
+                    server=base,
+                    esc_cancel=True,
                 )
                 try:
                     import readline  # noqa: PLC0415 - up-arrow recall + line editing for input()
@@ -564,17 +613,25 @@ def _chat_with_tools(
                         if user in ("/exit", "/quit", "exit", "quit"):
                             break
                         continue
+                    mark = len(history)  # roll-back point if the turn is canceled
                     history.append({"role": "user", "content": user})
                     turn_labeled = render  # render mode labels+renders at the end, not inline
                     _think()
                     # In render mode use the returned text (no live tokens); the spinner
                     # keeps spinning until the reply is complete, then we render Markdown.
-                    reply = await agent.run(base, history, toolset, max_tokens, on_event, None if render else on_token)
+                    # ESC cancels the turn (returns to the prompt) — better than Ctrl-C.
+                    reply, canceled = await _run_cancelable(
+                        agent.run(base, history, toolset, max_tokens, on_event, None if render else on_token)
+                    )
                     _first_output()
+                    if canceled:
+                        del history[mark:]  # drop the user turn + any partial tool turns
+                        err.print("[grey62](canceled)[/]")
+                        continue
                     if not (reply or "").strip():
                         err.print("[grey62](no response)[/]")
                     elif render:
-                        chatui.render_reply(console, reply)
+                        chatui.render_reply(console, reply or "")
                     else:
                         print("\n")  # noqa: T201
 
