@@ -438,11 +438,17 @@ def chat(
         list[str],
         typer.Option("--mcp", help="MCP server command(s) for tools; repeatable, e.g. --mcp kodo-mcp-datetime."),
     ] = [],
+    render: Annotated[
+        bool,
+        typer.Option("--render", help="Render each reply as Markdown (code highlighting etc); no live streaming."),
+    ] = False,
 ) -> None:
     """Chat with a library model: clean REPL, one-shot with ``-p``, tools with ``--mcp``.
 
     In a project dir, ``kodo.toml`` supplies the default model, its MCP tool
     servers, and a system prompt; ``--mcp`` flags add to (not replace) those.
+    ``--render`` prints formatted Markdown instead of streaming; it's ignored for
+    ``-p`` so scripted output stays plain.
     """
     proj = project.load()
     model_name = name or (proj.model if proj else None)
@@ -452,14 +458,15 @@ def chat(
     model = _resolve_library_model(model_name, model_format)
     mcp_commands = list(mcp) + [m.command for m in (proj.mcp if proj else [])]
     system_prompt = proj.system_prompt if proj else ""
+    render_reply = render and prompt is None  # -p stays plain for scripting
     try:
         if mcp_commands:
-            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt)
+            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render=render_reply)
         elif prompt is not None:
             # Scripted: print only the reply to stdout (errors go to stderr).
             print(runtime.generate(model, prompt, max_tokens, system_prompt))  # noqa: T201
         else:
-            runtime.chat_repl(model, max_tokens, system_prompt)
+            runtime.chat_repl(model, max_tokens, system_prompt, render=render_reply)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
@@ -471,8 +478,13 @@ def _chat_with_tools(
     prompt: str | None,
     max_tokens: int | None,
     system_prompt: str = "",
+    render: bool = False,
 ) -> None:
-    """Run the tool-calling agent loop over one or more MCP servers (streamed reply)."""
+    """Run the tool-calling agent loop over one or more MCP servers (streamed reply).
+
+    ``render`` buffers each reply and prints it as Markdown when done (no live
+    token stream); tool activity still shows live.
+    """
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
 
@@ -551,11 +563,16 @@ def _chat_with_tools(
                             break
                         continue
                     history.append({"role": "user", "content": user})
-                    turn_labeled = False
+                    turn_labeled = render  # render mode labels+renders at the end, not inline
                     _think()
-                    await agent.run(base, history, toolset, max_tokens, on_event, on_token)
+                    # In render mode use the returned text (no live tokens); the spinner
+                    # keeps spinning until the reply is complete, then we render Markdown.
+                    reply = await agent.run(base, history, toolset, max_tokens, on_event, None if render else on_token)
                     _first_output()
-                    print("\n")  # noqa: T201
+                    if render:
+                        chatui.render_reply(console, reply)
+                    else:
+                        print("\n")  # noqa: T201
 
     with runtime._serve(model) as base:
         asyncio.run(_run(base))

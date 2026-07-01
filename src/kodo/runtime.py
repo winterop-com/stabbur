@@ -219,8 +219,14 @@ def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None, sy
         return content
 
 
-def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt: str = "") -> None:
-    """Interactive terminal chat — a clean streaming REPL over the model's /v1."""
+def chat_repl(
+    model: LibraryModel, max_tokens: int | None = None, system_prompt: str = "", render: bool = False
+) -> None:
+    """Interactive terminal chat — a clean streaming REPL over the model's /v1.
+
+    ``render`` buffers each reply and prints it as Markdown when done, instead of
+    streaming tokens live.
+    """
     try:
         import readline  # up-arrow recall + line editing for input()
 
@@ -245,6 +251,8 @@ def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt:
             if max_tokens is not None:
                 body["max_tokens"] = max_tokens
             # Spinner until the first token (prefill latency otherwise looks dead).
+            # In render mode it keeps spinning through the whole reply, which is
+            # then printed as Markdown in one go.
             reply = ""
             first = True
             status = chatui.thinking(_status_console)
@@ -258,13 +266,16 @@ def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt:
                         break
                     content = json.loads(payload)["choices"][0]["delta"].get("content")
                     if content:
-                        if first:
-                            status.stop()
-                            chatui.assistant_prefix(_console, inline=True)
-                            first = False
-                        print(content, end="", flush=True)
                         reply += content
-            if first:  # nothing streamed back
-                status.stop()
-            print("\n", flush=True)
+                        if not render:
+                            if first:
+                                status.stop()
+                                chatui.assistant_prefix(_console, inline=True)
+                                first = False
+                            print(content, end="", flush=True)
+            status.stop()
+            if render:
+                chatui.render_reply(_console, reply)
+            else:
+                print("\n", flush=True)
             history.append({"role": "assistant", "content": reply})

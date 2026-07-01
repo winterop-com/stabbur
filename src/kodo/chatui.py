@@ -8,6 +8,7 @@ REPL just needs a clean, legible face.
 """
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
@@ -47,3 +48,13 @@ def assistant_prefix(console: Console, *, inline: bool) -> None:
 def thinking(console: Console) -> Status:
     """A spinner shown between the prompt and the first token/tool-call."""
     return console.status("[grey62]thinking …[/]", spinner="dots")
+
+
+def render_reply(console: Console, text: str) -> None:
+    """Print the reply label + the reply rendered as Markdown (--render mode).
+
+    Trades live token streaming for formatted output: headers, lists, and
+    syntax-highlighted fenced code blocks.
+    """
+    assistant_prefix(console, inline=False)
+    console.print(Markdown(text))

@@ -90,10 +90,17 @@ kodo run <name> --format gguf         # disambiguate across formats
 Chat with a library model — interactive by default, one-shot with `-p`.
 
 ```bash
-kodo chat <name>                      # interactive (llama-cli / mlx_lm.chat)
+kodo chat <name>                      # interactive streaming REPL
 kodo chat <name> -p "prompt"          # one-shot, prints just the answer (pipeable)
 kodo chat <name> -p "prompt" -n 256   # --max-tokens
+kodo chat <name> --render             # render each reply as Markdown (code highlighting)
 ```
+
+By default replies **stream** token-by-token as plain text (fast, pipe-safe).
+`--render` instead buffers each reply and prints it as **formatted Markdown** —
+headers, lists, and syntax-highlighted fenced code — when it's done (so you lose
+the live token stream). It's ignored under `-p` so scripted output stays plain.
+Up-arrow recalls previous prompts.
 
 Non-chat models (embeddings, vision encoders) are refused with a clear message —
 kodo runs generative LLMs only.
@@ -103,7 +110,8 @@ kodo runs generative LLMs only.
 Run the web server (browse API + `/v1` proxy; browser UI with `--ui`).
 
 ```bash
-kodo serve --ui                       # browse + chat, switch models
+kodo serve --ui                       # browse + chat, switch models (auto-picks a free port)
+kodo serve --ui --port 8000           # pin the port for a stable URL
 kodo serve --ui --model <name>        # locked single-model mode (extension backend)
 kodo serve --reload                   # dev auto-reload
 ```
