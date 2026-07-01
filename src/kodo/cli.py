@@ -336,16 +336,21 @@ def chat(
     ] = None,
     model_format: FormatOption = None,
     max_tokens: Annotated[int | None, typer.Option("--max-tokens", "-n", help="Cap generated tokens.")] = None,
+    mcp: Annotated[
+        str | None,
+        typer.Option("--mcp", help="MCP server command for tools, e.g. --mcp kodo-mcp-datetime."),
+    ] = None,
 ) -> None:
-    """Chat with a library model: a clean streaming REPL, or one-shot with ``-p``.
+    """Chat with a library model: clean REPL, one-shot with ``-p``, tools with ``--mcp``.
 
-    ``kodo chat <model>`` opens an interactive REPL; ``kodo chat <model> -p "..."``
-    prints only the completion to stdout (pipeable). Both talk to the model's
-    OpenAI ``/v1`` — same clean path for GGUF and MLX.
+    ``kodo chat <model>`` opens an interactive REPL; ``-p "..."`` prints one reply
+    (pipeable); ``--mcp <cmd>`` connects an MCP server so the model can call tools.
     """
     model = _resolve_library_model(name, model_format)
     try:
-        if prompt is not None:
+        if mcp is not None:
+            _chat_with_tools(model, mcp, prompt, max_tokens)
+        elif prompt is not None:
             # Scripted: print only the reply to stdout (errors go to stderr).
             print(runtime.generate(model, prompt, max_tokens))  # noqa: T201
         else:
@@ -353,6 +358,48 @@ def chat(
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
+
+
+def _chat_with_tools(
+    model: library_ops.LibraryModel, mcp_command: str, prompt: str | None, max_tokens: int | None
+) -> None:
+    """Run the tool-calling agent loop (one-shot with a prompt, else a REPL)."""
+    import asyncio  # noqa: PLC0415
+    import shlex  # noqa: PLC0415
+
+    from kodo import agent  # noqa: PLC0415
+    from kodo import tools as mcp_tools  # noqa: PLC0415
+
+    command = shlex.split(mcp_command)
+
+    def on_event(kind: str, detail: str) -> None:
+        icon = "[cyan]⚙[/]" if kind == "call" else "[dim]↳[/]"
+        console.print(f"  {icon} [dim]{detail[:200]}[/]")
+
+    async def _run(base: str) -> None:
+        async with mcp_tools.connect(command) as toolset:
+            console.print(f"[dim]tools:[/] {', '.join(toolset.names) or '(none)'}\n")
+            if prompt is not None:
+                answer = await agent.run(base, [{"role": "user", "content": prompt}], toolset, max_tokens, on_event)
+                print(answer)  # noqa: T201
+            else:
+                history: list[dict[str, object]] = []
+                while True:
+                    try:
+                        user = input("you › ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        break
+                    if not user:
+                        continue
+                    if user in ("/exit", "/quit", "exit", "quit"):
+                        break
+                    history.append({"role": "user", "content": user})
+                    answer = await agent.run(base, history, toolset, max_tokens, on_event)
+                    console.print(f"kodo › {answer}\n")
+
+    with runtime._serve(model) as base:
+        asyncio.run(_run(base))
 
 
 @app.command()
