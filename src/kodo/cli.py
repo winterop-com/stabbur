@@ -135,10 +135,13 @@ def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
         console.print(f"No {source.value} models found in the local store.")
         return
 
-    lib = _library_names()
+    # Skip on exact identity only: a source model imports to the same library name,
+    # so bare-name aliasing (which would wrongly skip bob/Foo when alice/Foo exists)
+    # must not be used here.
+    lib_names = {m.name.lower() for m in library_ops.scan()}
 
     def in_library(nm: str) -> bool:
-        return nm.lower() in lib or nm.rsplit("/", 1)[-1].lower() in lib
+        return nm.lower() in lib_names
 
     imported = skipped = failed = 0
     for entry in sorted(entries, key=lambda e: e.name):
@@ -199,8 +202,8 @@ def pull(
     typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
         result = catalog_ops.pull(source, name, library_root=root, move=move)
-    except (NotImplementedError, FileNotFoundError) as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+    except Exception as exc:  # noqa: BLE001 - a pull can fail many ways (disk, network, HF Hub); surface it cleanly
+        typer.secho(f"Pull failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
     suffix = " (local copy removed)" if move else ""
     typer.echo(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")

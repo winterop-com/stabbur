@@ -127,6 +127,38 @@ def test_pull_all_continues_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "blob missing" in result.output
 
 
+def test_pull_all_uses_exact_identity_not_bare_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Library has alice/Foo; importing bob/Foo must NOT be skipped as "already there".
+    monkeypatch.setattr(
+        catalog_ops,
+        "list_models",
+        lambda *a, **k: Catalog(entries=[_entry("bob/Foo", generative=True, fmt=ModelFormat.gguf)]),
+    )
+    monkeypatch.setattr(library_ops, "scan", lambda: [_lib_model("alice/Foo")])
+    pulled: list[str] = []
+
+    def fake_pull(source: ModelSource, name: str, **_: object) -> PullResult:
+        pulled.append(name)
+        return _pull_result(name)
+
+    monkeypatch.setattr(catalog_ops, "pull", fake_pull)
+    result = runner.invoke(cli.app, ["pull", "lmstudio", "--all"])
+    assert result.exit_code == 0, result.output
+    assert pulled == ["bob/Foo"]  # distinct model, not aliased to alice/Foo
+
+
+def test_pull_single_surfaces_copy_failure_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A real copy/download failure must be a clean user-facing error, not a traceback.
+    def boom(*_a: object, **_k: object) -> PullResult:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(catalog_ops, "pull", boom)
+    result = runner.invoke(cli.app, ["pull", "ollama", "some:model"])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # handled via Exit(), not an uncaught OSError
+    assert "disk full" in result.output
+
+
 def test_chat_refuses_ollama_model_with_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     ollama_model = _lib_model("gemma4:31b")
     ollama_model.is_ollama = True

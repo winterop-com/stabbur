@@ -81,6 +81,24 @@ def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
     assert not (library_root / "ollama").exists()
 
 
+@pytest.mark.parametrize("body", ["{not valid json", json.dumps({"layers": []})])
+def test_ollama_pull_corrupt_manifest_raises_and_keeps_source(tmp_path: Path, body: str) -> None:
+    # An unreadable manifest, or one with no blobs, is not a restorable model: pull
+    # must fail (and --move must not delete the only source copy), not report success.
+    store = tmp_path / "ollama"
+    (store / "blobs").mkdir(parents=True)
+    manifest = store / "manifests" / "registry.ollama.ai" / "library" / "corrupt" / "latest"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(body)
+    library_root = tmp_path / "backup"
+
+    with pytest.raises(ValueError, match="unreadable|no blobs"):
+        ollama.pull("corrupt:latest", library_root, models_dir=store, move=True)
+
+    assert manifest.exists()  # --move must not have deleted a corrupt source
+    assert not (library_root / "ollama").exists()
+
+
 def test_ollama_pull_manifest_not_published_if_blob_copy_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A copy failure (disk full / drive unplugged) after prevalidation must not
     # leave a manifest referencing content that never finished copying.

@@ -248,9 +248,22 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
     rel_manifest = manifest_path.relative_to(root)
     dest_manifest = dest_root / rel_manifest
 
+    # A corrupt/unreadable manifest, or one referencing no blobs, is not a
+    # restorable model — fail rather than record it as a successful backup (which
+    # with --move would also delete the only source copy).
+    try:
+        json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Ollama manifest for {name!r} is unreadable ({manifest_path}): {exc}") from exc
+    digests = _blob_digests(manifest_path)
+    if not digests:
+        raise ValueError(
+            f"Ollama manifest for {name!r} references no blobs ({manifest_path}); "
+            "refusing to back up a corrupt manifest"
+        )
+
     # Validate the whole set is present BEFORE writing anything, so a missing blob
     # can never leave a manifest in the backup pointing at absent content.
-    digests = _blob_digests(manifest_path)
     for digest in digests:
         blob = _blob_path(root, digest)
         if not blob.is_file():
