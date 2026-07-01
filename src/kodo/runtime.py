@@ -18,10 +18,14 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 import httpx
+from rich.console import Console
 
 from kodo.config import get_settings
 from kodo.library import LibraryModel
-from kodo.models import ModelFormat
+from kodo.models import ModelFormat, _human_size
+
+# Progress/spinner goes to stderr so one-shot stdout (piped output) stays clean.
+_status_console = Console(stderr=True)
 
 _INSTALL_HINTS = {
     "llama-server": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",
@@ -85,18 +89,22 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
     base = f"http://127.0.0.1:{get_settings().runtime_port}"
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        deadline = time.time() + get_settings().runtime_load_timeout
-        while time.time() < deadline:
-            if proc.poll() is not None:
-                raise RuntimeError("runtime exited before becoming ready")
-            try:
-                if httpx.get(f"{base}/v1/models", timeout=2).status_code < 500:
-                    break
-            except httpx.HTTPError:
-                pass
-            time.sleep(0.4)
-        else:
-            raise RuntimeError("runtime did not become ready in time")
+        size = f" ({_human_size(model.size_bytes)})" if model.size_bytes else ""
+        # A spinner while the runtime loads the weights (seconds to minutes for big
+        # models). Non-TTY (piped) output degrades quietly; it's on stderr anyway.
+        with _status_console.status(f"Loading {model.name}{size} …", spinner="dots"):
+            deadline = time.time() + get_settings().runtime_load_timeout
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    raise RuntimeError("runtime exited before becoming ready")
+                try:
+                    if httpx.get(f"{base}/v1/models", timeout=2).status_code < 500:
+                        break
+                except httpx.HTTPError:
+                    pass
+                time.sleep(0.4)
+            else:
+                raise RuntimeError("runtime did not become ready in time")
         yield base
     finally:
         proc.terminate()
