@@ -1,14 +1,26 @@
 # Web UI (`serve --ui`)
 
 `kodo serve` runs the FastAPI app: a browse API, an OpenAI `/v1` proxy to the
-loaded model, and — with `--ui` — the browser single-page app.
+loaded model, and — with `--ui` — the browser single-page app (a React/Vite +
+Tailwind chat UI with a model picker).
+
+**Build the UI once** (it's not committed — only its source is):
+
+```bash
+make frontend                         # npm install + build → frontend/dist
+```
+
+Then serve it:
 
 ```bash
 kodo serve --ui                       # browse + chat in the browser, switch models
 kodo serve --ui --port 8000           # pin the port for a stable URL/bookmark
-make run                             # same, via the Makefile
-make run MODEL=<name>                # locked to one model (see below)
+kodo serve --ui --model <name>        # locked to one model (extension backend)
 ```
+
+For UI development, `make frontend-dev` runs Vite with hot reload (it proxies
+`/api` + `/v1` to `KODO_DEV_API` or `:8000`, so run `kodo serve --port 8000`
+alongside).
 
 By default `serve` **auto-picks a free port** and prints the URL on startup, so it
 never collides with your other services. Pass `--port` (or set `KODO_PORT` /

@@ -87,6 +87,23 @@ def test_reload_worker_honors_runtime_port_env(monkeypatch: pytest.MonkeyPatch) 
         get_settings.cache_clear()
 
 
+async def test_library_lists_runnable_models(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    gen = LibraryModel(
+        name="pub/Chat-GGUF", model_format=ModelFormat.gguf, path=Path("/tmp/a"), load_target=Path("/tmp/a")
+    )
+    emb = LibraryModel(
+        name="st/embed",
+        model_format=ModelFormat.safetensors,
+        generative=False,
+        path=Path("/tmp/b"),
+        load_target=Path("/tmp/b"),
+    )
+    monkeypatch.setattr(library_ops, "scan", lambda: [gen, emb])
+    body = (await client.get("/api/library")).json()
+    names = [m["name"] for m in body]
+    assert names == ["pub/Chat-GGUF"]  # generative only; embedding excluded
+
+
 async def test_locked_unresolvable_model_fails_startup() -> None:
     # A locked --model that names no library model must fail startup loudly, not
     # silently start with nothing loaded (and then reject /api/load for being locked).

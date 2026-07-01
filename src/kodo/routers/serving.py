@@ -27,6 +27,15 @@ class ServerStatus(BaseModel):
     locked: bool = False
 
 
+class LibraryModelInfo(BaseModel):
+    """A runnable library model, for the UI's model picker."""
+
+    name: str
+    model_format: str
+    size_bytes: int
+    size_human: str
+
+
 def get_manager(request: Request) -> ServerManager:
     """Dependency: the app's singleton runtime manager."""
     manager: ServerManager = request.app.state.manager
@@ -63,6 +72,21 @@ async def _status(manager: ServerManager, settings: Settings) -> ServerStatus:
 async def status(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
     """Report the loaded model and runtime state."""
     return await _status(manager, settings)
+
+
+@router.get("/api/library")
+def library() -> list[LibraryModelInfo]:
+    """List runnable (generative) library models for the UI's picker.
+
+    Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
+    """
+    return [
+        LibraryModelInfo(
+            name=m.name, model_format=m.model_format.value, size_bytes=m.size_bytes, size_human=m.size_human
+        )
+        for m in library_ops.scan()
+        if m.generative and not m.is_ollama
+    ]
 
 
 @router.post("/api/load/{name:path}")
