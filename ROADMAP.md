@@ -10,16 +10,12 @@ architecture, and conventions; this file holds what's next.
   composer (gated on the model's detected `vision` capability), rendered as
   thumbnails and click-to-fullscreen in the thread; `kodo chat --image/-i` on the
   CLI. Sent as OpenAI `image_url` content parts; `agent.user_content` builds them.
-- **Audio input — next multimodal step.** Same shape as images, for audio-capable
-  models (Gemma 3n, Qwen2-Audio, Ultravox, Voxtral). Work: (1) detect an `audio`
-  capability (`audio_config` in the model config) alongside `vision`; (2) accept
-  audio files in the composer (drag/pick) and a `kodo chat --audio` flag;
-  (3) send as OpenAI `input_audio` content parts (base64 + format) — extend
-  `agent.user_content`. Runtimes already support it: llama-server via `mtmd`
-  (`--mmproj`) and mlx-vlm ("images, audio, and text"). Note: two Gemma 3n MLX
-  models already in the library carry `audio_config`, but the E4B checkpoint
-  currently fails to load in mlx-vlm (`vision_tower` mismatch) — verify against a
-  known-good audio model before claiming end-to-end support.
+- **Audio input — DONE (web + CLI).** Attach audio to audio-capable models: an
+  `audio` capability detected from the GGUF mmproj (`clip.has_audio_encoder`) or a
+  config `audio_config`, the composer/CLI accept audio (drag/paste/pick,
+  `kodo chat --audio`, REPL drag-drop), sent as OpenAI `input_audio` parts.
+  Verified with ggml-org Ultravox-1B (transcribes a clip); the gemma-4-12B GGUF
+  is both vision and audio.
 - **Text / document attachments.** Inline pasted/dropped text files as context
   (not multimodal parts — just prepended/attached text). Simpler than image/audio.
 - **Investigate text-to-speech (TTS) models.** Audio *output* — a new modality
