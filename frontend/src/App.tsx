@@ -1,194 +1,410 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PanelLeft, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
 
-import { getLibrary, getStatus, loadModel, streamChat, type LibModel, type Msg, type Status } from "./api";
-
-const STATE_COLOR: Record<Status["state"], string> = {
-  ready: "bg-emerald-400",
-  loading: "bg-amber-400",
-  stopped: "bg-zinc-500",
-};
+import {
+  getLibrary,
+  getStatus,
+  loadModel,
+  streamChat,
+  type LibModel,
+  type Msg,
+  type Status,
+} from "@/api";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Composer } from "@/components/Composer";
+import { MessageItem } from "@/components/MessageItem";
+import { ModelSelector } from "@/components/ModelSelector";
+import { SettingsDialog } from "@/components/SettingsDialog";
+import { Sidebar } from "@/components/Sidebar";
+import {
+  deriveTitle,
+  loadConversations,
+  loadSettings,
+  saveConversations,
+  saveSettings,
+  uid,
+  type Settings,
+} from "@/lib/store";
+import type { ChatMessage, Conversation, ToolMarker } from "@/lib/types";
+import { useTheme } from "@/lib/useTheme";
 
 export function App() {
+  const { theme, toggle } = useTheme();
+
+  // Server state.
   const [status, setStatus] = useState<Status | null>(null);
   const [library, setLibrary] = useState<LibModel[]>([]);
   const [loadingName, setLoadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshStatus = () => getStatus().then(setStatus).catch(() => {});
+  // App state.
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    const convs = loadConversations();
+    return convs.length ? [...convs].sort((a, b) => b.updatedAt - a.updatedAt)[0].id : null;
+  });
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Chat state.
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // --- persistence ---
+  useEffect(() => saveConversations(conversations), [conversations]);
+  useEffect(() => saveSettings(settings), [settings]);
+
+  // --- server polling ---
+  const refreshStatus = useCallback(() => getStatus().then(setStatus).catch(() => {}), []);
   useEffect(() => {
     refreshStatus();
     getLibrary().then(setLibrary).catch((e) => setError(String(e)));
     const t = setInterval(refreshStatus, 2000);
     return () => clearInterval(t);
+  }, [refreshStatus]);
+
+  const ready = !!status?.model && status.state === "ready";
+
+  const activeConv = useMemo(
+    () => conversations.find((c) => c.id === activeId) ?? null,
+    [conversations, activeId],
+  );
+  const messages = activeConv?.messages ?? [];
+
+  // --- model load: POST then poll /api/status until ready ---
+  const pick = useCallback(
+    async (name: string) => {
+      if (status?.locked || loadingName) return;
+      setError(null);
+      setLoadingName(name);
+      try {
+        setStatus(await loadModel(name));
+        // Poll until the server reports ready (or leaves loading).
+        const deadline = Date.now() + 120_000;
+        // eslint-disable-next-line no-constant-condition
+        while (Date.now() < deadline) {
+          const s = await getStatus();
+          setStatus(s);
+          if (s.state !== "loading") break;
+          await new Promise((r) => setTimeout(r, 800));
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoadingName(null);
+        refreshStatus();
+      }
+    },
+    [status?.locked, loadingName, refreshStatus],
+  );
+
+  // --- conversation helpers ---
+  const upsertConv = useCallback((id: string, fn: (c: Conversation) => Conversation) => {
+    setConversations((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
   }, []);
 
-  const pick = async (name: string) => {
-    if (status?.locked || loadingName) return;
-    setError(null);
-    setLoadingName(name);
-    try {
-      setStatus(await loadModel(name));
-      await refreshStatus();
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
-    } finally {
-      setLoadingName(null);
-    }
-  };
+  const newConversation = useCallback((): string => {
+    const now = Date.now();
+    const conv: Conversation = { id: uid(), title: "New chat", messages: [], createdAt: now, updatedAt: now };
+    setConversations((prev) => [conv, ...prev]);
+    setActiveId(conv.id);
+    return conv.id;
+  }, []);
 
-  const grouped = useMemo(() => {
-    const by: Record<string, LibModel[]> = {};
-    for (const m of library) (by[m.model_format] ??= []).push(m);
-    return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
-  }, [library]);
-
-  return (
-    <div className="flex h-full">
-      <aside className="flex w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#0e1116]">
-        <div className="flex items-center gap-2 px-4 py-4">
-          <span className="text-lg font-semibold tracking-tight">kodo</span>
-          {status?.locked && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">locked</span>}
-        </div>
-        <div className="flex items-center gap-2 px-4 pb-3 text-sm">
-          <span className={`h-2 w-2 rounded-full ${STATE_COLOR[status?.state ?? "stopped"]}`} />
-          <span className="truncate text-zinc-300">{status?.model ?? "no model loaded"}</span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-          {grouped.map(([fmt, models]) => (
-            <div key={fmt} className="mb-3">
-              <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">{fmt}</div>
-              {models.map((m) => {
-                const active = status?.model === m.name;
-                const busy = loadingName === m.name;
-                return (
-                  <button
-                    key={m.name}
-                    onClick={() => pick(m.name)}
-                    disabled={status?.locked || !!loadingName}
-                    className={`group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm disabled:opacity-60 ${
-                      active ? "bg-zinc-800 text-white" : "text-zinc-300 hover:bg-zinc-800/60"
-                    }`}
-                    title={m.name}
-                  >
-                    <span className="truncate">{m.name.split("/").pop()}</span>
-                    <span className="ml-2 shrink-0 text-[11px] text-zinc-500">{busy ? "…" : m.size_human}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-          {library.length === 0 && <div className="px-2 py-4 text-sm text-zinc-500">No models in the library.</div>}
-        </div>
-        {error && <div className="border-t border-zinc-800 px-4 py-2 text-xs text-red-400">{error}</div>}
-      </aside>
-
-      <Chat status={status} />
-    </div>
+  const deleteConversation = useCallback(
+    (id: string) => {
+      setConversations((prev) => {
+        const next = prev.filter((c) => c.id !== id);
+        if (id === activeId) {
+          const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+          setActiveId(sorted.length ? sorted[0].id : null);
+        }
+        return next;
+      });
+    },
+    [activeId],
   );
-}
 
-function Chat({ status }: { status: Status | null }) {
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
-  const ready = status?.model && status.state === "ready";
+  const renameConversation = useCallback(
+    (id: string, title: string) => upsertConv(id, (c) => ({ ...c, title })),
+    [upsertConv],
+  );
 
+  // --- core: run a chat completion into an assistant turn ---
+  const runCompletion = useCallback(
+    async (convId: string, priorMessages: ChatMessage[], assistantId: string) => {
+      setStreaming(true);
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+
+      // Build the wire payload: optional system prompt + history.
+      const wire: Msg[] = [];
+      if (settings.systemPrompt.trim()) wire.push({ role: "system", content: settings.systemPrompt.trim() });
+      for (const m of priorMessages) wire.push({ role: m.role, content: m.content });
+
+      try {
+        for await (const evt of streamChat(wire, ctrl.signal, settings.maxTokens ?? undefined)) {
+          if (evt.type === "token") {
+            upsertConv(convId, (c) => ({
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === assistantId ? { ...m, content: m.content + evt.text } : m,
+              ),
+            }));
+          } else if (evt.type === "tool") {
+            const marker: ToolMarker = { kind: evt.kind, detail: evt.detail };
+            upsertConv(convId, (c) => ({
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === assistantId ? { ...m, tools: [...(m.tools ?? []), marker] } : m,
+              ),
+            }));
+          } else if (evt.type === "error") {
+            upsertConv(convId, (c) => ({
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: m.content ? `${m.content}\n\n${evt.detail}` : evt.detail, error: true }
+                  : m,
+              ),
+            }));
+          } else if (evt.type === "done") {
+            break;
+          }
+        }
+      } catch (e) {
+        if (!ctrl.signal.aborted) {
+          const detail = e instanceof Error ? e.message : String(e);
+          upsertConv(convId, (c) => ({
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === assistantId ? { ...m, content: m.content || `Error: ${detail}`, error: true } : m,
+            ),
+          }));
+        }
+      } finally {
+        setStreaming(false);
+        abortRef.current = null;
+      }
+    },
+    [settings, upsertConv],
+  );
+
+  // --- send a new user turn ---
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || streaming || !ready) return;
+
+    let convId = activeId;
+    if (!convId) convId = newConversation();
+
+    const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
+    const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
+
+    // Snapshot prior messages (before this turn) for the wire payload.
+    const prior = (conversations.find((c) => c.id === convId)?.messages ?? []).concat(userMsg);
+
+    upsertConv(convId, (c) => ({
+      ...c,
+      title: c.messages.length === 0 ? deriveTitle(text) : c.title,
+      updatedAt: Date.now(),
+      messages: [...c.messages, userMsg, assistantMsg],
+    }));
+    setInput("");
+
+    await runCompletion(convId, prior, assistantMsg.id);
+  }, [input, streaming, ready, activeId, conversations, newConversation, upsertConv, runCompletion]);
+
+  // --- regenerate: drop last assistant turn, re-run the last user turn ---
+  const regenerate = useCallback(async () => {
+    if (streaming || !ready || !activeConv) return;
+    const msgs = activeConv.messages;
+    // Find last assistant message and the user prefix that precedes it.
+    let lastAssistant = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant") {
+        lastAssistant = i;
+        break;
+      }
+    }
+    if (lastAssistant < 0) return;
+    const prior = msgs.slice(0, lastAssistant).filter((m) => m.role !== "assistant" || m.content);
+    // Everything up to (not including) the old assistant turn, plus a fresh one.
+    const kept = msgs.slice(0, lastAssistant);
+    const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
+    upsertConv(activeConv.id, (c) => ({
+      ...c,
+      updatedAt: Date.now(),
+      messages: [...kept, assistantMsg],
+    }));
+    await runCompletion(activeConv.id, kept.length ? kept : prior, assistantMsg.id);
+  }, [streaming, ready, activeConv, upsertConv, runCompletion]);
+
+  const stop = useCallback(() => abortRef.current?.abort(), []);
+
+  // --- autoscroll: stick to bottom unless the user scrolled up ---
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+  // On conversation switch, jump to bottom.
+  useEffect(() => {
+    stick.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [activeId]);
+
+  const modelLabel = status?.model ? status.model.split("/").pop() ?? status.model : "no model";
+
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "assistant") return i;
+    return -1;
   }, [messages]);
 
-  const send = async () => {
-    const text = input.trim();
-    if (!text || busy || !ready) return;
-    const base = [...messages, { role: "user" as const, content: text }];
-    setMessages([...base, { role: "assistant", content: "" }]);
-    setInput("");
-    setBusy(true);
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    try {
-      for await (const tok of streamChat(base, ctrl.signal)) {
-        setMessages((m) => {
-          const c = [...m];
-          c[c.length - 1] = { ...c[c.length - 1], content: c[c.length - 1].content + tok };
-          return c;
-        });
-      }
-    } catch (e) {
-      if (!ctrl.signal.aborted) {
-        setMessages((m) => {
-          const c = [...m];
-          c[c.length - 1] = { role: "assistant", content: `⚠ ${e instanceof Error ? e.message : e}` };
-          return c;
-        });
-      }
-    } finally {
-      setBusy(false);
-      abortRef.current = null;
-    }
-  };
-
   return (
-    <main className="flex min-w-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
-          {messages.length === 0 && (
-            <div className="mt-24 text-center text-zinc-500">
-              {ready ? "Ask anything." : "Pick a model on the left to start."}
+    <TooltipProvider delayDuration={300}>
+      <div className="flex h-full overflow-hidden">
+        {sidebarOpen && (
+          <Sidebar
+            conversations={conversations}
+            activeId={activeId}
+            modelLabel={modelLabel}
+            onNew={newConversation}
+            onSelect={setActiveId}
+            onRename={renameConversation}
+            onDelete={deleteConversation}
+            onCollapse={() => setSidebarOpen(false)}
+          />
+        )}
+
+        <main className="flex min-w-0 flex-1 flex-col">
+          {/* top bar */}
+          <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
+            <div className="flex items-center gap-1">
+              {!sidebarOpen && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setSidebarOpen(true)}
+                      aria-label="Open sidebar"
+                    >
+                      <PanelLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open sidebar</TooltipContent>
+                </Tooltip>
+              )}
+              <ModelSelector status={status} library={library} loadingName={loadingName} onPick={pick} />
             </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-              <div
-                className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-relaxed ${
-                  m.role === "user" ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-100"
-                }`}
-              >
-                {m.content || (busy && i === messages.length - 1 ? "…" : "")}
+            <div className="flex items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
+                    {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{theme === "dark" ? "Light mode" : "Dark mode"}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setSettingsOpen(true)} aria-label="Settings">
+                    <SettingsIcon className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Settings</TooltipContent>
+              </Tooltip>
+            </div>
+          </header>
+
+          {error && (
+            <div className="mx-auto mt-1 w-full max-w-3xl px-4">
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {error}
               </div>
             </div>
-          ))}
-          <div ref={endRef} />
-        </div>
-      </div>
-
-      <div className="border-t border-zinc-800 bg-[#0e1116] px-4 py-3">
-        <div className="mx-auto flex max-w-3xl items-end gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            rows={1}
-            placeholder={ready ? "Message… (Enter to send, Shift+Enter for newline)" : "Load a model to chat"}
-            disabled={!ready}
-            className="max-h-40 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-60"
-          />
-          {busy ? (
-            <button
-              onClick={() => abortRef.current?.abort()}
-              className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600"
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={send}
-              disabled={!ready || !input.trim()}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-40"
-            >
-              Send
-            </button>
           )}
-        </div>
+
+          {messages.length === 0 ? (
+            // Empty state: centered greeting + composer.
+            <div className="flex flex-1 flex-col items-center justify-center px-4">
+              <h1 className="mb-8 text-2xl font-semibold tracking-tight">
+                {ready ? "What can I help with?" : "Select a model to start"}
+              </h1>
+              <div className="w-full max-w-3xl">
+                <Composer
+                  value={input}
+                  onChange={setInput}
+                  onSend={send}
+                  onStop={stop}
+                  streaming={streaming}
+                  ready={ready}
+                  status={status}
+                  library={library}
+                  loadingName={loadingName}
+                  onPick={pick}
+                  autoFocus
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+                <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
+                  {messages.map((m, i) => (
+                    <MessageItem
+                      key={m.id}
+                      message={m}
+                      streaming={streaming && i === messages.length - 1 && m.role === "assistant"}
+                      canRegenerate={!streaming && i === lastAssistantIndex}
+                      onRegenerate={regenerate}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="shrink-0 px-4 pb-4">
+                <div className="mx-auto w-full max-w-3xl">
+                  <Composer
+                    value={input}
+                    onChange={setInput}
+                    onSend={send}
+                    onStop={stop}
+                    streaming={streaming}
+                    ready={ready}
+                    status={status}
+                    library={library}
+                    loadingName={loadingName}
+                    onPick={pick}
+                  />
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                    kodo runs your model locally. Responses may be inaccurate.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </main>
+
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          settings={settings}
+          onSave={setSettings}
+        />
       </div>
-    </main>
+    </TooltipProvider>
   );
 }

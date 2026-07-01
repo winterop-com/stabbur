@@ -1,18 +1,183 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* highlight.js theme for fenced code blocks (works for both light/dark; the
+   surface around it adapts). */
+@import "highlight.js/styles/github-dark.css";
 
 :root {
-  color-scheme: dark;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
+.dark {
+  --background: oklch(0.16 0.006 265);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.2 0.006 265);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.2 0.006 265);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.62 0.19 260);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.27 0.006 265);
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.27 0.006 265);
+  --muted-foreground: oklch(0.68 0.01 265);
+  --accent: oklch(0.3 0.006 265);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.6 0.22 20);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.3 0.006 265);
+  --input: oklch(0.32 0.006 265);
+  --ring: oklch(0.55 0.02 265);
 }
 
-body {
-  background: #0b0d10;
-  color: #e6e8eb;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+}
+
+/* Markdown prose (kept minimal; no @tailwindcss/typography dependency). */
+.prose-chat {
+  line-height: 1.65;
+  word-break: break-word;
+}
+.prose-chat > *:first-child {
+  margin-top: 0;
+}
+.prose-chat > *:last-child {
+  margin-bottom: 0;
+}
+.prose-chat p {
+  margin: 0.5rem 0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+  line-height: 1.3;
+}
+.prose-chat h1 {
+  font-size: 1.4em;
+}
+.prose-chat h2 {
+  font-size: 1.25em;
+}
+.prose-chat h3 {
+  font-size: 1.1em;
+}
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+}
+.prose-chat ul {
+  list-style: disc;
+}
+.prose-chat ol {
+  list-style: decimal;
+}
+.prose-chat li {
+  margin: 0.2rem 0;
+}
+.prose-chat a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-chat blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+  color: var(--muted-foreground);
+}
+.prose-chat table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  display: block;
+  overflow-x: auto;
+}
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.prose-chat th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.prose-chat hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+/* inline code (fenced code is handled by the CodeBlock component) */
+.prose-chat :not(pre) > code {
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

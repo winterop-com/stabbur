@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
@@ -9,6 +11,11 @@ const target = process.env.KODO_DEV_API || "http://localhost:8000";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   build: { outDir: "dist", emptyOutDir: true },
   server: {
     proxy: {

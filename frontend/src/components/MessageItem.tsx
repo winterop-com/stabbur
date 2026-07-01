@@ -1,0 +1,88 @@
+import { RefreshCw } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CopyButton } from "@/components/CopyButton";
+import { Markdown } from "@/components/Markdown";
+import { ToolMarkerChip } from "@/components/ToolMarkerChip";
+import type { ChatMessage } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+/**
+ * One turn. User turns render as a right-aligned muted bubble; assistant turns
+ * render full-width as Markdown (ChatGPT style) with inline tool chips and a
+ * hover action row (copy, + regenerate on the last assistant turn).
+ */
+export function MessageItem({
+  message,
+  streaming,
+  canRegenerate,
+  onRegenerate,
+}: {
+  message: ChatMessage;
+  streaming: boolean;
+  canRegenerate: boolean;
+  onRegenerate: () => void;
+}) {
+  if (message.role === "user") {
+    return (
+      <div className="group flex flex-col items-end">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[0.95rem] leading-relaxed text-foreground">
+          {message.content}
+        </div>
+        <div className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <CopyButton text={message.content} />
+        </div>
+      </div>
+    );
+  }
+
+  const hasTools = message.tools && message.tools.length > 0;
+  const showCursor = streaming && !message.content;
+
+  return (
+    <div className="group flex flex-col items-start">
+      {hasTools && (
+        <div className="mb-2 flex w-full flex-col gap-1.5">
+          {message.tools!.map((t, i) => (
+            <ToolMarkerChip key={i} marker={t} />
+          ))}
+        </div>
+      )}
+
+      <div className={cn("w-full", message.error && "text-destructive")}>
+        {message.error ? (
+          <p className="text-sm">{message.content}</p>
+        ) : message.content ? (
+          <Markdown content={message.content} />
+        ) : showCursor ? (
+          <span className="inline-block h-4 w-2 animate-pulse rounded-sm bg-muted-foreground align-middle" />
+        ) : (
+          !hasTools && <span className="text-sm text-muted-foreground">…</span>
+        )}
+      </div>
+
+      {!streaming && (message.content || hasTools) && (
+        <div className="mt-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
+          {message.content && !message.error && <CopyButton text={message.content} />}
+          {canRegenerate && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={onRegenerate}
+                  className="text-muted-foreground"
+                  aria-label="Regenerate"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Regenerate</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
