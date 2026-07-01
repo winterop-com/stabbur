@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
 
 import {
+  buildContent,
   getDoctor,
   getLibrary,
   getStatus,
@@ -95,6 +96,7 @@ export function App() {
 
   // Chat state.
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]); // pending image data URLs
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -147,6 +149,8 @@ export function App() {
   }, [refreshStatus]);
 
   const ready = !!status?.model && status.state === "ready";
+  // Whether the loaded model accepts images (drives composer attach gating).
+  const visionModel = !!library.find((m) => m.name === status?.model)?.vision;
 
   const activeConv = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -265,7 +269,10 @@ export function App() {
       // History only — the system prompt is sent authoritatively via the
       // system_prompt field (so an empty field means *no* system prompt, not a
       // silent fallback to the project default).
-      const wire: Msg[] = priorMessages.map((m) => ({ role: m.role, content: m.content }));
+      const wire: Msg[] = priorMessages.map((m) => ({
+        role: m.role,
+        content: buildContent(m.content, m.images),
+      }));
 
       try {
         // Allow-list = attached tools minus the user's denylist (sent only when
@@ -341,12 +348,18 @@ export function App() {
   // --- send a new user turn ---
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || !ready) return;
+    const images = attachments;
+    if ((!text && images.length === 0) || streaming || !ready) return;
 
     let convId = activeId;
     if (!convId) convId = newConversation(draftSettings); // carry empty-state config into the first chat
 
-    const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
+    const userMsg: ChatMessage = {
+      id: uid(),
+      role: "user",
+      content: text,
+      ...(images.length ? { images } : {}),
+    };
     const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
 
     // Snapshot prior messages (before this turn) for the wire payload.
@@ -354,14 +367,15 @@ export function App() {
 
     upsertConv(convId, (c) => ({
       ...c,
-      title: c.messages.length === 0 ? deriveTitle(text) : c.title,
+      title: c.messages.length === 0 ? deriveTitle(text || "Image") : c.title,
       updatedAt: Date.now(),
       messages: [...c.messages, userMsg, assistantMsg],
     }));
     setInput("");
+    setAttachments([]);
 
     await runCompletion(convId, prior, assistantMsg.id);
-  }, [input, streaming, ready, activeId, conversations, newConversation, upsertConv, runCompletion]);
+  }, [input, attachments, streaming, ready, activeId, conversations, newConversation, upsertConv, runCompletion]);
 
   // --- regenerate: drop last assistant turn, re-run the last user turn ---
   const regenerate = useCallback(async () => {
@@ -436,6 +450,11 @@ export function App() {
     (on: boolean) => updateSettings({ ...settings, useTools: on }),
     [settings, updateSettings],
   );
+
+  // --- image attachments ---
+  const addImages = useCallback((urls: string[]) => setAttachments((a) => [...a, ...urls]), []);
+  const removeImage = useCallback((i: number) => setAttachments((a) => a.filter((_, idx) => idx !== i)), []);
+  const canAttachImages = ready && visionModel;
 
   // Controls docked in the composer: model picker + tools (the natural spot).
   const disabledSet = useMemo(() => new Set(settings.disabledTools), [settings.disabledTools]);
@@ -596,6 +615,10 @@ export function App() {
                   ready={ready}
                   autoFocus
                   leftSlot={composerControls}
+                  attachments={attachments}
+                  canAttachImages={canAttachImages}
+                  onAddImages={addImages}
+                  onRemoveImage={removeImage}
                 />
               </div>
             </div>
@@ -624,6 +647,10 @@ export function App() {
                     streaming={streaming}
                     ready={ready}
                     leftSlot={composerControls}
+                    attachments={attachments}
+                    canAttachImages={canAttachImages}
+                    onAddImages={addImages}
+                    onRemoveImage={removeImage}
                   />
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
                     kodo runs your model locally. Responses may be inaccurate.

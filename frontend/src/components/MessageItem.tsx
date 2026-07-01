@@ -25,14 +25,31 @@ export function MessageItem({
   onRegenerate: () => void;
 }) {
   if (message.role === "user") {
+    const images = message.images ?? [];
     return (
       <div className="group flex flex-col items-end">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[0.95rem] leading-relaxed text-foreground">
-          {message.content}
-        </div>
-        <div className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <CopyButton text={message.content} />
-        </div>
+        {images.length > 0 && (
+          <div className="mb-1.5 flex max-w-[85%] flex-wrap justify-end gap-2">
+            {images.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt={`attachment ${i + 1}`}
+                className="max-h-48 rounded-xl border border-border object-contain"
+              />
+            ))}
+          </div>
+        )}
+        {message.content && (
+          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[0.95rem] leading-relaxed text-foreground">
+            {message.content}
+          </div>
+        )}
+        {message.content && (
+          <div className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <CopyButton text={message.content} />
+          </div>
+        )}
       </div>
     );
   }

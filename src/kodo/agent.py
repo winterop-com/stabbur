@@ -17,6 +17,22 @@ ToolEvent = Callable[[str, str], None]
 TokenSink = Callable[[str], None]
 
 
+def user_content(text: str, images: list[str] | None = None) -> str | list[dict[str, Any]]:
+    """Build a user message's content: plain text, or OpenAI multimodal parts.
+
+    ``images`` are data/URL strings (``data:image/...;base64,...``). With none,
+    returns the plain string (backward compatible); otherwise a ``content`` array
+    of an optional text part followed by ``image_url`` parts — the format both
+    llama-server (with ``--mmproj``) and mlx-vlm accept.
+    """
+    if not images:
+        return text
+    parts: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": u}} for u in images]
+    if text:
+        parts.insert(0, {"type": "text", "text": text})
+    return parts
+
+
 async def _stream_turn(
     http: httpx.AsyncClient,
     base_url: str,

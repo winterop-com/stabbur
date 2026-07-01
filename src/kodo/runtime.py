@@ -17,7 +17,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 import httpx
 from rich.console import Console
@@ -207,13 +207,24 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
             shutil.rmtree(log_dir, ignore_errors=True)
 
 
-def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None, system_prompt: str = "") -> str:
-    """One-shot chat completion; returns just the reply text (clean for scripting)."""
+def generate(
+    model: LibraryModel,
+    prompt: str,
+    max_tokens: int | None = None,
+    system_prompt: str = "",
+    images: list[str] | None = None,
+) -> str:
+    """One-shot chat completion; returns just the reply text (clean for scripting).
+
+    ``images`` are data-URL strings sent to a vision model as multimodal input.
+    """
+    from kodo import agent  # noqa: PLC0415 - avoid import cycle at module load
+
     with _serve(model) as base:
-        messages: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        messages.append({"role": "user", "content": agent.user_content(prompt, images)})
         body: dict[str, object] = {"messages": messages}
         if max_tokens is not None:
             body["max_tokens"] = max_tokens

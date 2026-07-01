@@ -43,6 +43,21 @@ async def test_toolset_dedupes_within_a_prefix() -> None:
         assert toolset.names.count("datetime__today") == 1
 
 
+def test_user_content_builds_multimodal_parts() -> None:
+    # No images → plain string (backward compatible).
+    assert agent.user_content("hi") == "hi"
+    assert agent.user_content("hi", []) == "hi"
+    # With images → OpenAI content parts: text first, then image_url parts.
+    parts = agent.user_content("describe", ["data:image/png;base64,AAAA"])
+    assert parts == [
+        {"type": "text", "text": "describe"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]
+    # No text → images only (no empty text part).
+    only = agent.user_content("", ["data:image/jpeg;base64,BBBB"])
+    assert only == [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,BBBB"}}]
+
+
 def test_default_name_derives_prefix() -> None:
     assert tools._default_name(["kodo-mcp-datetime"]) == "datetime"
     assert tools._default_name(["/usr/bin/dhis2w-mcp-bridge"]) == "dhis2w_mcp_bridge"

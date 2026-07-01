@@ -4,9 +4,22 @@
 
 export type Role = "user" | "assistant" | "system";
 
+/** An OpenAI multimodal content part (text or an image data/URL). */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface Msg {
   role: Role;
-  content: string;
+  content: string | ContentPart[];
+}
+
+/** Build a message's content: plain string, or multimodal parts when images are attached. */
+export function buildContent(text: string, images?: string[]): string | ContentPart[] {
+  if (!images || images.length === 0) return text;
+  const parts: ContentPart[] = images.map((url) => ({ type: "image_url", image_url: { url } }));
+  if (text) parts.unshift({ type: "text", text });
+  return parts;
 }
 
 export interface Status {

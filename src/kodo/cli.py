@@ -468,6 +468,27 @@ def run(
         raise typer.Exit(1) from exc
 
 
+def _load_images(paths: list[Path], model: library_ops.LibraryModel) -> list[str]:
+    """Read image files into base64 data URLs; warn if the model isn't vision-capable."""
+    if not paths:
+        return []
+    import base64  # noqa: PLC0415
+    import mimetypes  # noqa: PLC0415
+
+    from kodo import capabilities  # noqa: PLC0415
+
+    if not capabilities.capabilities(model).vision:
+        console.print(f"[yellow]Note:[/] {model.name!r} isn't detected as a vision model; images may be ignored.")
+    urls: list[str] = []
+    for p in paths:
+        if not p.is_file():
+            console.print(f"[red]Image not found:[/] {p}")
+            raise typer.Exit(1)
+        mime = mimetypes.guess_type(str(p))[0] or "image/png"
+        urls.append(f"data:{mime};base64,{base64.b64encode(p.read_bytes()).decode()}")
+    return urls
+
+
 @app.command()
 def chat(
     name: Annotated[
@@ -492,6 +513,10 @@ def chat(
         str | None,
         typer.Option("--system", help="System prompt for this session (overrides kodo.toml)."),
     ] = None,
+    image: Annotated[
+        list[Path],
+        typer.Option("--image", "-i", help="Attach image file(s) for a vision model (repeatable)."),
+    ] = [],
     render: Annotated[
         bool,
         typer.Option("--render", help="Render each reply as Markdown (code highlighting etc); no live streaming."),
@@ -514,14 +539,15 @@ def chat(
     mcp_commands = (list(mcp) + [m.command for m in (proj.mcp if proj else [])]) if tools else []
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     render_reply = render and prompt is None  # -p stays plain for scripting
+    images = _load_images(image, model)
     try:
         if prompt is not None and not mcp_commands:
             # Scripted one-shot, no tools: print only the reply to stdout (clean for
             # piping); errors go to stderr. Everything else goes through the one
             # interactive/agent path below (tools optional, empty list = plain chat).
-            print(runtime.generate(model, prompt, max_tokens, system_prompt))  # noqa: T201
+            print(runtime.generate(model, prompt, max_tokens, system_prompt, images))  # noqa: T201
         else:
-            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render=render_reply)
+            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render_reply, images)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
@@ -577,6 +603,7 @@ def _chat_with_tools(
     max_tokens: int | None,
     system_prompt: str = "",
     render: bool = False,
+    images: list[str] | None = None,
 ) -> None:
     """Run the tool-calling agent loop over one or more MCP servers (streamed reply).
 
@@ -643,7 +670,7 @@ def _chat_with_tools(
                 _think()
                 await agent.run(
                     base,
-                    [*seed(), {"role": "user", "content": prompt}],
+                    [*seed(), {"role": "user", "content": agent.user_content(prompt, images)}],
                     toolset,
                     max_tokens,
                     on_event,
@@ -668,6 +695,7 @@ def _chat_with_tools(
                 except ImportError:
                     pass
                 history: list[dict[str, object]] = seed()
+                pending_images = images  # attached with --image; consumed by the first turn
                 while True:
                     try:
                         user = input(chatui.USER_PROMPT).strip()
@@ -679,7 +707,8 @@ def _chat_with_tools(
                             break
                         continue
                     mark = len(history)  # roll-back point if the turn is canceled
-                    history.append({"role": "user", "content": user})
+                    history.append({"role": "user", "content": agent.user_content(user, pending_images)})
+                    pending_images = None
                     turn_labeled = render  # render mode labels+renders at the end, not inline
                     _think()
                     # In render mode use the returned text (no live tokens); the spinner

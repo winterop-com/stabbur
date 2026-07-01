@@ -12,6 +12,7 @@ export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
+  images?: string[]; // attached image data URLs (user turns, vision models)
   reasoning?: string; // reasoning-model thinking (shown collapsed)
   tools?: ToolMarker[];
   error?: boolean;
