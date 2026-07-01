@@ -134,7 +134,7 @@ def pull(
     typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
         result = catalog_ops.pull(source, name, backup_root=root, move=move)
-    except NotImplementedError as exc:
+    except (NotImplementedError, FileNotFoundError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
     suffix = " (local copy removed)" if move else ""

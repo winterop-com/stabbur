@@ -66,6 +66,18 @@ def test_ollama_move_preserves_shared_blobs(tmp_path: Path) -> None:
     assert (backup_root / "ollama" / "blobs" / "sha256-uniq").is_file()
 
 
+def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
+    # Manifest references a blob that is not in the store: the source is corrupt,
+    # so pull must fail loudly rather than write a partial (unrestorable) backup.
+    store = tmp_path / "ollama"
+    (store / "blobs").mkdir(parents=True)
+    _write_ollama_manifest(store, "broken", ["sha256:gone"])
+
+    backup_root = tmp_path / "backup"
+    with pytest.raises(FileNotFoundError, match="missing from the store"):
+        ollama.pull("broken:latest", backup_root, models_dir=store)
+
+
 def test_lmstudio_gguf_list_and_backup(tmp_path: Path) -> None:
     store = tmp_path / "lmstudio"
     model_dir = store / "TheBloke" / "Mistral-7B-GGUF"

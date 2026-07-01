@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from kodo import library as library_ops
-from kodo.config import get_settings
+from kodo.config import Settings
 from kodo.server import ServerManager
 
 router = APIRouter(tags=["serving"])
@@ -38,29 +38,36 @@ def get_http(request: Request) -> httpx.AsyncClient:
     return client
 
 
+def get_conf(request: Request) -> Settings:
+    """Dependency: the app's configured settings (not the global cache)."""
+    settings: Settings = request.app.state.settings
+    return settings
+
+
 ManagerDep = Annotated[ServerManager, Depends(get_manager)]
 HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
+ConfDep = Annotated[Settings, Depends(get_conf)]
 
 
-async def _status(manager: ServerManager) -> ServerStatus:
+async def _status(manager: ServerManager, settings: Settings) -> ServerStatus:
     current = manager.current
     return ServerStatus(
         state=(await manager.state()).value,
         model=current.name if current else None,
-        locked=get_settings().serve_model is not None,
+        locked=settings.serve_model is not None,
     )
 
 
 @router.get("/api/status")
-async def status(manager: ManagerDep) -> ServerStatus:
+async def status(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
     """Report the loaded model and runtime state."""
-    return await _status(manager)
+    return await _status(manager, settings)
 
 
 @router.post("/api/load/{name:path}")
-async def load(name: str, manager: ManagerDep) -> ServerStatus:
+async def load(name: str, manager: ManagerDep, settings: ConfDep) -> ServerStatus:
     """Load (or switch to) a model by name; rejected in locked mode."""
-    if get_settings().serve_model is not None:
+    if settings.serve_model is not None:
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
     matches = library_ops.find(name)
     if not matches:
@@ -71,7 +78,7 @@ async def load(name: str, manager: ManagerDep) -> ServerStatus:
         manager.load(matches[0])
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return await _status(manager)
+    return await _status(manager, settings)
 
 
 @router.api_route("/v1/{path:path}", methods=["GET", "POST"])

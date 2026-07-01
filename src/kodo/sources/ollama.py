@@ -256,8 +256,10 @@ def pull(name: str, backup_root: Path, models_dir: Path | None = None, move: boo
     for digest in _blob_digests(manifest_path):
         blob = _blob_path(root, digest)
         if not blob.is_file():
-            verified = False
-            continue
+            raise FileNotFoundError(
+                f"Ollama blob {digest} referenced by {name!r} is missing from the store "
+                f"({blob}); the source is incomplete, refusing to write a partial backup"
+            )
         dest_blob = dest_root / "blobs" / blob.name
         dest_blob.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(blob, dest_blob)

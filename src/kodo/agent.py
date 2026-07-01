@@ -79,6 +79,7 @@ async def run(
                 body["max_tokens"] = max_tokens
             content, calls = await _stream_turn(http, base_url, body, on_token)
             if not calls:
+                messages.append({"role": "assistant", "content": content})
                 return content
 
             messages.append(

@@ -39,3 +39,23 @@ async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:
 async def test_load_unknown_model_is_404(client: AsyncClient) -> None:
     response = await client.post("/api/load/definitely-not-a-real-model")
     assert response.status_code == 404
+
+
+async def test_locked_unresolvable_model_fails_startup() -> None:
+    # A locked --model that names no library model must fail startup loudly, not
+    # silently start with nothing loaded (and then reject /api/load for being locked).
+    app = create_app(Settings(serve_model="definitely-not-a-real-model"))
+    with pytest.raises(RuntimeError, match="did not resolve"):
+        async with app.router.lifespan_context(app):
+            pass
+
+
+async def test_status_locked_reads_app_settings_not_global(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Global cache claims locked; this app was configured unlocked. The status
+    # endpoint must reflect the app's own settings, not the process-wide cache.
+    monkeypatch.setattr("kodo.config.get_settings", lambda: Settings(serve_model="ghost"))
+    app = create_app(Settings(serve_model=None))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        body = (await inner.get("/api/status")).json()
+    assert body["locked"] is False

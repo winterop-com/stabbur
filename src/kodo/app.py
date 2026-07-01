@@ -21,8 +21,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if settings.serve_model:
         matches = library_ops.find(settings.serve_model)
-        if matches:
-            manager.load(matches[0])
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"locked --model {settings.serve_model!r} did not resolve to exactly one library "
+                f"model (found {len(matches)}); fix the name or library before locking the server"
+            )
+        manager.load(matches[0])
     try:
         yield
     finally:
