@@ -17,19 +17,39 @@ ToolEvent = Callable[[str, str], None]
 TokenSink = Callable[[str], None]
 
 
-def user_content(text: str, images: list[str] | None = None) -> str | list[dict[str, Any]]:
+def _audio_part(data_url: str) -> dict[str, Any]:
+    """Convert an audio ``data:`` URL to an OpenAI ``input_audio`` content part.
+
+    llama-server / mlx-vlm want ``{data: <base64 (no prefix)>, format: "wav"|"mp3"}``
+    (not a data URL like images), so split the mime + payload out.
+    """
+    fmt = "wav"
+    b64 = data_url
+    if data_url.startswith("data:"):
+        header, _, b64 = data_url.partition(",")
+        mime = header[len("data:") :].split(";")[0]  # e.g. audio/wav
+        subtype = mime.split("/")[-1] or "wav"
+        fmt = {"mpeg": "mp3", "x-wav": "wav", "wave": "wav"}.get(subtype, subtype)
+    return {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
+
+
+def user_content(
+    text: str, images: list[str] | None = None, audios: list[str] | None = None
+) -> str | list[dict[str, Any]]:
     """Build a user message's content: plain text, or OpenAI multimodal parts.
 
-    ``images`` are data/URL strings (``data:image/...;base64,...``). With none,
-    returns the plain string (backward compatible); otherwise a ``content`` array
-    of an optional text part followed by ``image_url`` parts — the format both
+    ``images`` / ``audios`` are ``data:`` URL strings. With none, returns the plain
+    string (backward compatible); otherwise a ``content`` array of an optional text
+    part followed by ``image_url`` and ``input_audio`` parts — the format both
     llama-server (with ``--mmproj``) and mlx-vlm accept.
     """
-    if not images:
+    if not images and not audios:
         return text
-    parts: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": u}} for u in images]
+    parts: list[dict[str, Any]] = []
     if text:
-        parts.insert(0, {"type": "text", "text": text})
+        parts.append({"type": "text", "text": text})
+    parts += [{"type": "image_url", "image_url": {"url": u}} for u in images or []]
+    parts += [_audio_part(a) for a in audios or []]
     return parts
 
 

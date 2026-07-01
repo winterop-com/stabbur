@@ -40,6 +40,7 @@ class ModelCapabilities(BaseModel):
     """Static capability hints for one model."""
 
     vision: bool = False
+    audio: bool = False
     tools: bool = False
     context_length: int | None = None
 
@@ -119,8 +120,22 @@ def _gguf_capabilities(model: LibraryModel) -> ModelCapabilities:
     arch = meta.get("general.architecture")
     ctx_meta = _gguf_metadata(model.load_target, {f"{arch}.context_length"}) if arch else {}
     ctx = ctx_meta.get(f"{arch}.context_length")
+
+    # An mmproj projector is either a vision or an audio encoder (or both); read
+    # its ``clip.has_*_encoder`` flags to tell them apart. Older vision-only
+    # projectors predate the flags → treat a bare mmproj as vision.
+    vision = False
+    audio = False
+    if model.mmproj is not None:
+        mm = _gguf_metadata(model.mmproj, {"clip.has_vision_encoder", "clip.has_audio_encoder"})
+        vision = bool(mm.get("clip.has_vision_encoder"))
+        audio = bool(mm.get("clip.has_audio_encoder"))
+        if not vision and not audio:
+            vision = True
+
     return ModelCapabilities(
-        vision=model.mmproj is not None,
+        vision=vision,
+        audio=audio,
         tools=_has_tool_markers(meta.get("tokenizer.chat_template")),
         context_length=int(ctx) if isinstance(ctx, int) else None,
     )
@@ -146,6 +161,7 @@ def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
         or any(k in a for a in architectures for k in ("vl", "vision", "llava", "idefics"))
         or any(k in name_low for k in ("-vl", "vision", "llava"))
     )
+    audio = "audio_config" in config or "audio_token_id" in config
     template = tok.get("chat_template")
     template_str = template if isinstance(template, str) else json.dumps(template) if template else None
     # Multimodal configs nest the language settings under ``text_config``.
@@ -154,6 +170,7 @@ def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
     ctx = config.get("max_position_embeddings") or text_config.get("max_position_embeddings")
     return ModelCapabilities(
         vision=vision,
+        audio=audio,
         tools=_has_tool_markers(template_str),
         context_length=int(ctx) if isinstance(ctx, int) else None,
     )

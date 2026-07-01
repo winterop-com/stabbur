@@ -27,7 +27,9 @@ def _write_gguf(path: Path, kv: dict[str, tuple[int, object]]) -> None:
             out += _gguf_string(str(value))
         elif vtype == 4:  # uint32
             out += struct.pack("<I", int(value))  # type: ignore[call-overload]
-        else:  # pragma: no cover - only the two types above are used in tests
+        elif vtype == 7:  # bool
+            out += struct.pack("<?", bool(value))
+        else:  # pragma: no cover - only the types above are used in tests
             raise ValueError(vtype)
     path.write_bytes(bytes(out))
 
@@ -94,3 +96,25 @@ def test_dir_capabilities_text_only(tmp_path: Path) -> None:
     assert caps.vision is False
     assert caps.tools is False
     assert caps.context_length == 8192
+
+
+def test_gguf_audio_from_mmproj_metadata(tmp_path: Path) -> None:
+    # An mmproj with clip.has_audio_encoder → audio capability (vision off).
+    gguf = tmp_path / "model.gguf"
+    _write_gguf(gguf, {"general.architecture": (8, "llama")})
+    mmproj = tmp_path / "mmproj.gguf"
+    _write_gguf(mmproj, {"clip.has_audio_encoder": (7, 1), "clip.has_vision_encoder": (7, 0)})
+    caps = capabilities.capabilities(_model(tmp_path, ModelFormat.gguf, gguf, mmproj=mmproj))
+    assert caps.audio is True
+    assert caps.vision is False
+
+
+def test_gguf_bare_mmproj_defaults_to_vision(tmp_path: Path) -> None:
+    # An older mmproj with no encoder flags → assume vision (the common case).
+    gguf = tmp_path / "model.gguf"
+    _write_gguf(gguf, {"general.architecture": (8, "llama")})
+    mmproj = tmp_path / "mmproj.gguf"
+    _write_gguf(mmproj, {"general.architecture": (8, "clip")})
+    caps = capabilities.capabilities(_model(tmp_path, ModelFormat.gguf, gguf, mmproj=mmproj))
+    assert caps.vision is True
+    assert caps.audio is False

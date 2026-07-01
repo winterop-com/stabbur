@@ -43,6 +43,7 @@ class LibraryModelInfo(BaseModel):
     size_bytes: int
     size_human: str
     vision: bool = False
+    audio: bool = False
     tools: bool = False
     context_length: int | None = None
 
@@ -106,6 +107,7 @@ def library() -> list[LibraryModelInfo]:
                 size_bytes=m.size_bytes,
                 size_human=m.size_human,
                 vision=caps.vision,
+                audio=caps.audio,
                 tools=caps.tools,
                 context_length=caps.context_length,
             )

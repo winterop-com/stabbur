@@ -9,8 +9,8 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+from kodo import capabilities, config, doctor, project, runtime
 from kodo import catalog as catalog_ops
-from kodo import config, doctor, project, runtime
 from kodo import library as library_ops
 from kodo.config import get_settings
 from kodo.models import CuratedModel, ModelFormat, ModelSource, _human_size
@@ -469,23 +469,24 @@ def run(
 
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac"}
 
 
-def _image_data_url(path: Path) -> str:
-    """Read an image file into a base64 ``data:`` URL."""
+def _media_data_url(path: Path, default_mime: str) -> str:
+    """Read a file into a base64 ``data:`` URL (mime guessed, else ``default_mime``)."""
     import base64  # noqa: PLC0415
     import mimetypes  # noqa: PLC0415
 
-    mime = mimetypes.guess_type(str(path))[0] or "image/png"
+    mime = mimetypes.guess_type(str(path))[0] or default_mime
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
 
 
-def _split_input_images(text: str) -> tuple[str, list[str]]:
-    """Pull image file paths out of a REPL line (from a terminal drag-drop).
+def _split_input_media(text: str) -> tuple[str, list[str], list[str]]:
+    """Pull image/audio file paths out of a REPL line (from a terminal drag-drop).
 
     Dragging a file into the terminal inserts its (possibly shell-escaped or
-    quoted) path as text. Detect tokens that resolve to an existing image file,
-    attach them as image data URLs, and return the remaining words as the message.
+    quoted) path as text. Detect tokens that resolve to an existing image/audio
+    file, attach them as data URLs, and return the remaining words as the message.
     """
     import shlex  # noqa: PLC0415
 
@@ -495,29 +496,33 @@ def _split_input_images(text: str) -> tuple[str, list[str]]:
         tokens = text.split()  # unbalanced quote (e.g. an apostrophe) → plain split
     words: list[str] = []
     images: list[str] = []
+    audios: list[str] = []
     for tok in tokens:
         p = Path(tok).expanduser()
-        if p.suffix.lower() in _IMAGE_EXTS and p.is_file():
-            images.append(_image_data_url(p))
+        ext = p.suffix.lower()
+        if ext in _IMAGE_EXTS and p.is_file():
+            images.append(_media_data_url(p, "image/png"))
+        elif ext in _AUDIO_EXTS and p.is_file():
+            audios.append(_media_data_url(p, "audio/wav"))
         else:
             words.append(tok)
-    return " ".join(words), images
+    return " ".join(words), images, audios
 
 
-def _load_images(paths: list[Path], model: library_ops.LibraryModel) -> list[str]:
-    """Read image files into base64 data URLs; warn if the model isn't vision-capable."""
+def _load_media(
+    paths: list[Path], model: library_ops.LibraryModel, *, kind: str, default_mime: str, capable: bool
+) -> list[str]:
+    """Read image/audio files into data URLs; warn if the model lacks that modality."""
     if not paths:
         return []
-    from kodo import capabilities  # noqa: PLC0415
-
-    if not capabilities.capabilities(model).vision:
-        console.print(f"[yellow]Note:[/] {model.name!r} isn't detected as a vision model; images may be ignored.")
+    if not capable:
+        console.print(f"[yellow]Note:[/] {model.name!r} isn't detected as a {kind} model; {kind} may be ignored.")
     urls: list[str] = []
     for p in paths:
         if not p.is_file():
-            console.print(f"[red]Image not found:[/] {p}")
+            console.print(f"[red]{kind.capitalize()} not found:[/] {p}")
             raise typer.Exit(1)
-        urls.append(_image_data_url(p))
+        urls.append(_media_data_url(p, default_mime))
     return urls
 
 
@@ -549,6 +554,10 @@ def chat(
         list[Path],
         typer.Option("--image", "-i", help="Attach image file(s) for a vision model (repeatable)."),
     ] = [],
+    audio: Annotated[
+        list[Path],
+        typer.Option("--audio", "-a", help="Attach audio file(s) for an audio model (repeatable)."),
+    ] = [],
     render: Annotated[
         bool,
         typer.Option("--render", help="Render each reply as Markdown (code highlighting etc); no live streaming."),
@@ -571,15 +580,17 @@ def chat(
     mcp_commands = (list(mcp) + [m.command for m in (proj.mcp if proj else [])]) if tools else []
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     render_reply = render and prompt is None  # -p stays plain for scripting
-    images = _load_images(image, model)
+    caps = capabilities.capabilities(model)
+    images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision)
+    audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio)
     try:
         if prompt is not None and not mcp_commands:
             # Scripted one-shot, no tools: print only the reply to stdout (clean for
             # piping); errors go to stderr. Everything else goes through the one
             # interactive/agent path below (tools optional, empty list = plain chat).
-            print(runtime.generate(model, prompt, max_tokens, system_prompt, images))  # noqa: T201
+            print(runtime.generate(model, prompt, max_tokens, system_prompt, images, audios))  # noqa: T201
         else:
-            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render_reply, images)
+            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render_reply, images, audios)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
@@ -636,6 +647,7 @@ def _chat_with_tools(
     system_prompt: str = "",
     render: bool = False,
     images: list[str] | None = None,
+    audios: list[str] | None = None,
 ) -> None:
     """Run the tool-calling agent loop over one or more MCP servers (streamed reply).
 
@@ -702,7 +714,7 @@ def _chat_with_tools(
                 _think()
                 await agent.run(
                     base,
-                    [*seed(), {"role": "user", "content": agent.user_content(prompt, images)}],
+                    [*seed(), {"role": "user", "content": agent.user_content(prompt, images, audios)}],
                     toolset,
                     max_tokens,
                     on_event,
@@ -728,6 +740,7 @@ def _chat_with_tools(
                     pass
                 history: list[dict[str, object]] = seed()
                 pending_images = images  # attached with --image; consumed by the first turn
+                pending_audios = audios  # attached with --audio; consumed by the first turn
                 while True:
                     try:
                         user = input(chatui.USER_PROMPT).strip()
@@ -738,16 +751,21 @@ def _chat_with_tools(
                         if user in ("/exit", "/quit", "exit", "quit"):
                             break
                         continue
-                    # Detect image paths dragged into the terminal (inserted as text).
-                    user, dropped = _split_input_images(user)
-                    turn_images = (pending_images or []) + dropped
+                    # Detect image/audio paths dragged into the terminal (inserted as text).
+                    user, dropped_imgs, dropped_auds = _split_input_media(user)
+                    turn_images = (pending_images or []) + dropped_imgs
+                    turn_audios = (pending_audios or []) + dropped_auds
                     pending_images = None
+                    pending_audios = None
+                    dropped = len(dropped_imgs) + len(dropped_auds)
                     if dropped:
-                        err.print(f"[grey62](attached {len(dropped)} image{'s' if len(dropped) > 1 else ''})[/]")
-                    if not user and not turn_images:
+                        err.print(f"[grey62](attached {dropped} file{'s' if dropped > 1 else ''})[/]")
+                    if not user and not turn_images and not turn_audios:
                         continue
                     mark = len(history)  # roll-back point if the turn is canceled
-                    history.append({"role": "user", "content": agent.user_content(user, turn_images or None)})
+                    history.append(
+                        {"role": "user", "content": agent.user_content(user, turn_images or None, turn_audios or None)}
+                    )
                     turn_labeled = render  # render mode labels+renders at the end, not inline
                     _think()
                     # In render mode use the returned text (no live tokens); the spinner

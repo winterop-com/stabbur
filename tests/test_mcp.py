@@ -58,6 +58,19 @@ def test_user_content_builds_multimodal_parts() -> None:
     assert only == [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,BBBB"}}]
 
 
+def test_user_content_builds_audio_parts() -> None:
+    # Audio data URLs become OpenAI input_audio parts: raw base64 (no data: prefix)
+    # + a format derived from the mime type.
+    parts = agent.user_content("transcribe", audios=["data:audio/wav;base64,QUJD"])
+    assert parts == [
+        {"type": "text", "text": "transcribe"},
+        {"type": "input_audio", "input_audio": {"data": "QUJD", "format": "wav"}},
+    ]
+    # mime → format mapping (audio/mpeg → mp3).
+    mp3 = agent.user_content("", audios=["data:audio/mpeg;base64,ZZZ"])
+    assert mp3 == [{"type": "input_audio", "input_audio": {"data": "ZZZ", "format": "mp3"}}]
+
+
 def test_default_name_derives_prefix() -> None:
     assert tools._default_name(["kodo-mcp-datetime"]) == "datetime"
     assert tools._default_name(["/usr/bin/dhis2w-mcp-bridge"]) == "dhis2w_mcp_bridge"

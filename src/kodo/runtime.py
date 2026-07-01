@@ -213,10 +213,11 @@ def generate(
     max_tokens: int | None = None,
     system_prompt: str = "",
     images: list[str] | None = None,
+    audios: list[str] | None = None,
 ) -> str:
     """One-shot chat completion; returns just the reply text (clean for scripting).
 
-    ``images`` are data-URL strings sent to a vision model as multimodal input.
+    ``images`` / ``audios`` are data-URL strings sent to a multimodal model.
     """
     from kodo import agent  # noqa: PLC0415 - avoid import cycle at module load
 
@@ -224,7 +225,7 @@ def generate(
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": agent.user_content(prompt, images)})
+        messages.append({"role": "user", "content": agent.user_content(prompt, images, audios)})
         body: dict[str, object] = {"messages": messages}
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
