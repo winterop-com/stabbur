@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Check, ChevronDown, Eye, Loader2, Power, Wrench } from "lucide-react";
+import { AudioLines, Check, ChevronDown, Eye, Loader2, Power, Wrench } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -35,11 +35,12 @@ function ctxLabel(n: number | null): string | null {
  * every icon stays in a consistent column and the size column stays aligned no
  * matter which capabilities a row has. Detail lives in the row's tooltip.
  */
-function CapabilityIcons({ tools, vision }: { tools: boolean; vision: boolean }) {
+function CapabilityIcons({ tools, vision, audio }: { tools: boolean; vision: boolean; audio: boolean }) {
   return (
     <span className="ml-2 flex shrink-0 items-center gap-1 text-muted-foreground">
       <span className="flex w-3.5 justify-center">{tools && <Wrench className="h-3.5 w-3.5" />}</span>
       <span className="flex w-3.5 justify-center">{vision && <Eye className="h-3.5 w-3.5" />}</span>
+      <span className="flex w-3.5 justify-center">{audio && <AudioLines className="h-3.5 w-3.5" />}</span>
     </span>
   );
 }
@@ -61,7 +62,11 @@ function ModelTooltip({ model }: { model: LibModel }) {
         </span>
         <span className="flex items-center gap-1.5">
           <Eye className="h-3 w-3" />
-          {model.vision ? "Vision (accepts images)" : "Text only"}
+          {model.vision ? "Vision (accepts images)" : "No vision"}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <AudioLines className="h-3 w-3" />
+          {model.audio ? "Audio (accepts speech)" : "No audio"}
         </span>
       </div>
     </div>
@@ -140,7 +145,7 @@ export function ModelSelector({
                   <TooltipTrigger asChild>
                     <DropdownMenuItem onSelect={() => onPick(m.name)}>
                       <span className="flex-1 truncate">{shortName(m.name)}</span>
-                      <CapabilityIcons tools={m.tools} vision={m.vision} />
+                      <CapabilityIcons tools={m.tools} vision={m.vision} audio={m.audio} />
                       <span className="ml-2 w-16 shrink-0 text-right text-[11px] text-muted-foreground">
                         {m.size_human}
                       </span>
