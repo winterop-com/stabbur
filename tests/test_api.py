@@ -1,11 +1,16 @@
 """Tests for the serving API (status + proxy guards), no real runtime needed."""
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from kodo import library as library_ops
 from kodo.app import create_app
 from kodo.config import Settings
+from kodo.library import LibraryModel
+from kodo.models import ModelFormat
 
 
 @pytest.fixture
@@ -39,6 +44,23 @@ async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:
 async def test_load_unknown_model_is_404(client: AsyncClient) -> None:
     response = await client.post("/api/load/definitely-not-a-real-model")
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("fmt", "is_ollama"),
+    [(ModelFormat.safetensors, False), (ModelFormat.gguf, True)],
+)
+async def test_load_unrunnable_model_is_422_not_500(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, fmt: ModelFormat, is_ollama: bool
+) -> None:
+    # safetensors (convert/fine-tune source) and Ollama-native entries resolve to
+    # a match but aren't runnable by kodo — the API must reject them cleanly (422),
+    # not pass them to manager.load and surface a 500 / ValueError traceback.
+    p = Path("/tmp/x")
+    model = LibraryModel(name="pub/X", model_format=fmt, is_ollama=is_ollama, path=p, load_target=p / "w")
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [model])
+    response = await client.post("/api/load/pub/X")
+    assert response.status_code == 422, response.text
 
 
 async def test_locked_unresolvable_model_fails_startup() -> None:

@@ -8,7 +8,7 @@ import pytest
 from kodo import library, runtime
 from kodo.config import Settings
 from kodo.models import ModelFormat, ModelSource
-from kodo.sources import lmstudio, ollama
+from kodo.sources import base, lmstudio, ollama
 
 
 def _make_ollama_store(root: Path) -> None:
@@ -76,6 +76,31 @@ def test_ollama_pull_missing_blob_raises(tmp_path: Path) -> None:
     library_root = tmp_path / "backup"
     with pytest.raises(FileNotFoundError, match="missing from the store"):
         ollama.pull("broken:latest", library_root, models_dir=store)
+
+    # Nothing must be written to the backup — no manifest pointing at absent content.
+    assert not (library_root / "ollama").exists()
+
+
+def test_copy_tree_preserves_old_backup_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A mid-copy failure must leave any existing backup at dest intact.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "new.bin").write_bytes(b"n" * 100)
+    dest = tmp_path / "lib" / "repo"
+    dest.mkdir(parents=True)
+    (dest / "old.bin").write_bytes(b"o" * 200)  # the previous good backup
+
+    def _boom(*a: object, **k: object) -> None:
+        raise OSError("disk full mid-copy")
+
+    monkeypatch.setattr(base.shutil, "copytree", _boom)
+    with pytest.raises(OSError, match="disk full"):
+        base.copy_tree(src, dest)
+
+    # Old backup survives; no staging/backup residue left behind.
+    assert (dest / "old.bin").read_bytes() == b"o" * 200
+    assert not (dest.parent / "repo.partial").exists()
+    assert not (dest.parent / "repo.old").exists()
 
 
 def test_lmstudio_gguf_list_and_backup(tmp_path: Path) -> None:
@@ -234,8 +259,8 @@ def test_library_finds_ollama_native(tmp_path: Path) -> None:
 
 def test_scan_spans_drive_and_local_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     drive, local = tmp_path / "drive", tmp_path / "local"
-    for base, nm in ((drive, "Drive-GGUF"), (local, "Local-GGUF")):
-        d = base / "gguf" / "pub" / nm
+    for root_dir, nm in ((drive, "Drive-GGUF"), (local, "Local-GGUF")):
+        d = root_dir / "gguf" / "pub" / nm
         d.mkdir(parents=True)
         (d / "m.gguf").write_bytes(b"x" * 100)
 

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from kodo import library as library_ops
+from kodo import runtime
 from kodo.config import Settings, get_settings
 from kodo.routers import catalog, health, serving
 from kodo.server import ServerManager
@@ -26,6 +27,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 f"locked --model {settings.serve_model!r} did not resolve to exactly one library "
                 f"model (found {len(matches)}); fix the name or library before locking the server"
             )
+        reason = runtime.runnable_error(matches[0])
+        if reason is not None:
+            raise RuntimeError(f"locked --model cannot be run: {reason}")
         manager.load(matches[0])
     try:
         yield

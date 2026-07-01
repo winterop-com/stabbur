@@ -60,6 +60,27 @@ def build_command(model: LibraryModel, host: str, port: int) -> list[str]:
     raise ValueError(f"No runtime for format {model.model_format.value!r}")
 
 
+def runnable_error(model: LibraryModel) -> str | None:
+    """Return why ``model`` can't be run by kodo, or ``None`` if it's runnable.
+
+    The shared runnability check for the ``/api/load`` endpoint and locked-server
+    startup (the CLI applies the same rules with richer, hint-bearing messages):
+    kodo runs generative GGUF/MLX models; it rejects non-generative (embedding/
+    vision) models, Ollama's native store (run those via Ollama), and safetensors
+    (a convert/fine-tune source, not a runnable build).
+    """
+    if not model.generative:
+        return f"{model.name!r} is not a chat model ({model.model_format.value}); kodo runs generative LLMs only"
+    if model.is_ollama:
+        return f"{model.name!r} is an Ollama model; run it via Ollama, not kodo (kodo runs GGUF/MLX)"
+    if model.model_format is ModelFormat.safetensors:
+        return (
+            f"{model.name!r} is safetensors (a convert/fine-tune source), not directly runnable; "
+            "pull a GGUF or MLX build to run it"
+        )
+    return None
+
+
 def _exec(cmd: list[str]) -> None:
     """Replace the current process with ``cmd`` (binary must exist).
 

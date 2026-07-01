@@ -247,19 +247,26 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
     dest_root = library_root / ModelSource.ollama.value
     rel_manifest = manifest_path.relative_to(root)
     dest_manifest = dest_root / rel_manifest
-    dest_manifest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(manifest_path, dest_manifest)
 
-    size_bytes = dest_manifest.stat().st_size
-    file_count = 1
-    verified = True
-    for digest in _blob_digests(manifest_path):
+    # Validate the whole set is present BEFORE writing anything, so a missing blob
+    # can never leave a manifest in the backup pointing at absent content.
+    digests = _blob_digests(manifest_path)
+    for digest in digests:
         blob = _blob_path(root, digest)
         if not blob.is_file():
             raise FileNotFoundError(
                 f"Ollama blob {digest} referenced by {name!r} is missing from the store "
                 f"({blob}); the source is incomplete, refusing to write a partial backup"
             )
+
+    dest_manifest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(manifest_path, dest_manifest)
+
+    size_bytes = dest_manifest.stat().st_size
+    file_count = 1
+    verified = True
+    for digest in digests:
+        blob = _blob_path(root, digest)
         dest_blob = dest_root / "blobs" / blob.name
         dest_blob.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(blob, dest_blob)

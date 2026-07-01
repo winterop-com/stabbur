@@ -35,9 +35,13 @@ def dir_stats(path: Path) -> tuple[int, int]:
 def copy_tree(src: Path, dest: Path) -> tuple[int, int]:
     """Copy ``src`` into ``dest`` (replacing it) and return its stats.
 
+    The copy is staged into a sibling ``.partial`` directory and only swapped
+    into place once complete, so a mid-copy failure leaves any existing backup at
+    ``dest`` intact rather than destroying it.
+
     Args:
         src: Source directory to copy.
-        dest: Destination directory; removed first if it already exists.
+        dest: Destination directory; replaced atomically if it already exists.
 
     Returns:
         A tuple of the copied byte size and number of files.
@@ -48,8 +52,27 @@ def copy_tree(src: Path, dest: Path) -> tuple[int, int]:
     if not src.exists():
         raise FileNotFoundError(src)
 
-    if dest.exists():
-        shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(src, dest, symlinks=False)
+    staging = dest.parent / f"{dest.name}.partial"
+    previous = dest.parent / f"{dest.name}.old"
+    for leftover in (staging, previous):
+        if leftover.exists():
+            shutil.rmtree(leftover)
+
+    # Copy first; the existing dest is untouched if this fails.
+    shutil.copytree(src, staging, symlinks=False)
+
+    # Publish: move the old copy aside (atomic rename), swap in the new one, then
+    # drop the old copy. dest is never absent for more than a rename.
+    if dest.exists():
+        dest.rename(previous)
+    try:
+        staging.rename(dest)
+    except OSError:
+        if previous.exists() and not dest.exists():
+            previous.rename(dest)  # roll back to the previous good backup
+        raise
+    finally:
+        if previous.exists():
+            shutil.rmtree(previous)
     return dir_stats(dest)

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from kodo import library as library_ops
+from kodo import runtime
 from kodo.config import Settings
 from kodo.server import ServerManager
 
@@ -74,9 +75,12 @@ async def load(name: str, manager: ManagerDep, settings: ConfDep) -> ServerStatu
         raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
     if len(matches) > 1:
         raise HTTPException(status_code=409, detail=f"{name!r} is ambiguous across formats")
+    reason = runtime.runnable_error(matches[0])
+    if reason is not None:
+        raise HTTPException(status_code=422, detail=reason)
     try:
         manager.load(matches[0])
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return await _status(manager, settings)
 
