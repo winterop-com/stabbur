@@ -292,6 +292,14 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
     if not model.generative:
         console.print(_not_chat_msg(model.name, model.model_format))
         raise typer.Exit(1)
+    if model.model_format is ModelFormat.safetensors:
+        # A generative HF checkpoint is still safetensors: a convert/fine-tune
+        # source, not a runnable build. Route the user to a GGUF/MLX instead.
+        console.print(
+            f"[red]{model.name!r} is safetensors[/] — a convert/fine-tune source, not directly "
+            "runnable; pull a GGUF or MLX build to run it."
+        )
+        raise typer.Exit(1)
     if model.is_ollama:
         # Ollama's GGUFs (e.g. gemma3) don't load in stock llama.cpp — run via Ollama.
         store = get_settings().backup_root / "ollama"

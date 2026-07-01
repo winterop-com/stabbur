@@ -167,6 +167,39 @@ def test_runtime_build_command(tmp_path: Path) -> None:
     assert str(mlx.path) in mlx_cmd
 
 
+def test_build_command_refuses_safetensors(tmp_path: Path) -> None:
+    # safetensors is a convert/fine-tune source, not a runnable build: mlx_lm
+    # cannot serve it, so building a command must fail with a clear message.
+    model = library.LibraryModel(
+        name="pub/Full",
+        model_format=ModelFormat.safetensors,
+        generative=True,
+        is_ollama=False,
+        path=tmp_path,
+        load_target=tmp_path,
+        mmproj=None,
+        size_bytes=0,
+    )
+    with pytest.raises(ValueError, match="not directly runnable"):
+        runtime.build_command(model, "127.0.0.1", 8080)
+
+
+def test_scan_keeps_cross_root_format_variants(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same repo, different formats across roots: a GGUF on the drive and an MLX
+    # copy locally must both survive dedup so --format can disambiguate them.
+    drive, local = tmp_path / "drive", tmp_path / "local"
+    (drive / "gguf" / "pub" / "Foo").mkdir(parents=True)
+    (drive / "gguf" / "pub" / "Foo" / "m.gguf").write_bytes(b"g" * 100)
+    (local / "mlx" / "pub" / "Foo").mkdir(parents=True)
+    (local / "mlx" / "pub" / "Foo" / "weights.safetensors").write_bytes(b"m" * 100)
+
+    settings = Settings(backup_root=drive, local_root=local)
+    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    formats = {m.model_format for m in library.find("Foo")}
+    assert formats == {ModelFormat.gguf, ModelFormat.mlx}
+    assert len(library.find("Foo", model_format=ModelFormat.mlx)) == 1
+
+
 def test_library_finds_huggingface_and_ignores_appledouble(tmp_path: Path) -> None:
     hf = tmp_path / "huggingface" / "unsloth" / "X-GGUF"
     hf.mkdir(parents=True)

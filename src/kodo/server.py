@@ -39,7 +39,15 @@ class ServerManager:
 
     @property
     def current(self) -> LibraryModel | None:
-        """The currently loaded model, or ``None``."""
+        """The currently loaded model, or ``None``.
+
+        Reaps a runtime child that has exited (crash / OOM / killed / bad model):
+        a dead process is not a loaded model, so callers (status, the ``/v1``
+        proxy) must not treat the stale name as runnable.
+        """
+        if self._model is not None and not self._alive():
+            self._proc = None
+            self._model = None
         return self._model
 
     def _alive(self) -> bool:

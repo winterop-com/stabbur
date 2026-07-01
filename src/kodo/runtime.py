@@ -45,8 +45,13 @@ def build_command(model: LibraryModel, host: str, port: int) -> list[str]:
         if model.mmproj is not None:
             cmd += ["--mmproj", str(model.mmproj)]
         return cmd
-    if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
+    if model.model_format is ModelFormat.mlx:
         return ["mlx_lm.server", "--model", str(model.load_target), "--host", host, "--port", str(port)]
+    if model.model_format is ModelFormat.safetensors:
+        raise ValueError(
+            f"{model.name!r} is safetensors (a convert/fine-tune source), not directly runnable; "
+            "pull a GGUF or MLX build to run it"
+        )
     raise ValueError(f"No runtime for format {model.model_format.value!r}")
 
 

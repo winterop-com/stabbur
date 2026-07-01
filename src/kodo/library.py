@@ -174,19 +174,25 @@ def scan(root: Path | None = None) -> list[LibraryModel]:
 
     With no ``root``, the library spans the main ``backup_root`` (often an
     external drive) **plus** the always-local ``local_root`` — so locally-kept
-    models still appear when the drive is unplugged. Deduped by name (drive
-    wins). A single ``root`` is honored as-is (used by tests).
+    models still appear when the drive is unplugged. Deduped by (name, format)
+    so format variants coexist (drive wins on a tie). A single ``root`` is
+    honored as-is (used by tests).
     """
     if root is not None:
         return _scan_root(root)
 
     settings = get_settings()
     models: list[LibraryModel] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, ModelFormat]] = set()
     for base in (settings.backup_root, settings.local_root):
         for m in _scan_root(base):
-            if m.name not in seen:
-                seen.add(m.name)
+            # Key on (name, format): the same model in the same format on both
+            # roots is one entry (drive wins), but a GGUF on the drive and an MLX
+            # copy locally are distinct runnable artifacts and must both survive
+            # so ``find(..., model_format=...)`` can disambiguate them.
+            key = (m.name, m.model_format)
+            if key not in seen:
+                seen.add(key)
                 models.append(m)
     return models
 
