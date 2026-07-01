@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # the API proxies /v1 to it so the SPA stays single-origin.
     runtime_port: int = 8090
 
+    # How long to wait for a runtime to become ready before giving up. Generous
+    # by default — big models (15-20 GB) can take minutes to load, especially on
+    # a busy machine. A crashed runtime still fails fast (its process exits).
+    runtime_load_timeout: int = 600
+
     # The main library root — point this at the (big) external drive. The library
     # spans this PLUS the always-local ``local_root`` below, so a small model
     # kept locally still works when the external drive is unplugged.

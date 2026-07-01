@@ -80,7 +80,7 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
     base = f"http://127.0.0.1:{get_settings().runtime_port}"
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        deadline = time.time() + 180
+        deadline = time.time() + get_settings().runtime_load_timeout
         while time.time() < deadline:
             if proc.poll() is not None:
                 raise RuntimeError("runtime exited before becoming ready")
@@ -102,10 +102,14 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
             proc.wait()
 
 
-def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None) -> str:
+def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None, system_prompt: str = "") -> str:
     """One-shot chat completion; returns just the reply text (clean for scripting)."""
     with _serve(model) as base:
-        body: dict[str, object] = {"messages": [{"role": "user", "content": prompt}]}
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        body: dict[str, object] = {"messages": messages}
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
         resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
@@ -114,9 +118,9 @@ def generate(model: LibraryModel, prompt: str, max_tokens: int | None = None) ->
         return content
 
 
-def chat_repl(model: LibraryModel, max_tokens: int | None = None) -> None:
+def chat_repl(model: LibraryModel, max_tokens: int | None = None, system_prompt: str = "") -> None:
     """Interactive terminal chat — a clean streaming REPL over the model's /v1."""
-    history: list[dict[str, str]] = []
+    history: list[dict[str, str]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
     with _serve(model) as base:
         print(f"chatting with {model.name} — /exit or Ctrl-D to quit\n", flush=True)
         while True:

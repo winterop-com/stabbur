@@ -3,7 +3,7 @@
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field
 
 
 class ModelSource(StrEnum):
@@ -109,6 +109,15 @@ class HubModel(BaseModel):
     id: str
     downloads: int = 0
     likes: int = 0
+
+
+class CuratedModel(BaseModel):
+    """A curated starter model offered by `kodo init`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    note: str
 
 
 class ErrorResponse(BaseModel):

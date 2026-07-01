@@ -10,9 +10,9 @@ from rich.table import Table
 
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
-from kodo import runtime
+from kodo import project, runtime
 from kodo.config import get_settings
-from kodo.models import ModelFormat, ModelSource, _human_size
+from kodo.models import CuratedModel, ModelFormat, ModelSource, _human_size
 from kodo.sources import huggingface as hf
 
 console = Console()
@@ -40,9 +40,9 @@ FormatOption = Annotated[
 
 
 # Curated starter models for `kodo init` (verified GGUF repos; kept small).
-_CURATED: list[tuple[str, str]] = [
-    ("unsloth/SmolLM2-360M-Instruct-GGUF", "tiny — runs on anything (~350 MB)"),
-    ("unsloth/Qwen3.5-4B-GGUF", "compact + good at tools (~2.5 GB)"),
+_CURATED: list[CuratedModel] = [
+    CuratedModel(id="unsloth/SmolLM2-360M-Instruct-GGUF", note="tiny — runs on anything (~350 MB)"),
+    CuratedModel(id="unsloth/Qwen3.5-4B-GGUF", note="compact + good at tools (~2.5 GB)"),
 ]
 
 
@@ -213,11 +213,11 @@ def init(
 
     if model is None:
         console.print("[bold]Pick a starter model:[/]")
-        for i, (mid, desc) in enumerate(_CURATED, 1):
-            console.print(f"  {i}. {mid}  [dim]{desc}[/]")
+        for i, curated in enumerate(_CURATED, 1):
+            console.print(f"  {i}. {curated.id}  [dim]{curated.note}[/]")
         choice = typer.prompt("Number", default="1")
         try:
-            model = _CURATED[int(choice) - 1][0]
+            model = _CURATED[int(choice) - 1].id
         except (ValueError, IndexError):
             console.print(f"[red]Not a valid choice: {choice!r}[/]")
             raise typer.Exit(1) from None
@@ -329,7 +329,10 @@ def run(
 
 @app.command()
 def chat(
-    name: Annotated[str, typer.Argument(help="Library model name (full path or bare repo name).")],
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Library model (defaults to the project's model in kodo.toml)."),
+    ] = None,
     prompt: Annotated[
         str | None,
         typer.Option("-p", "--prompt", help="One-shot prompt, prints just the answer (Claude-style -p)."),
@@ -343,28 +346,38 @@ def chat(
 ) -> None:
     """Chat with a library model: clean REPL, one-shot with ``-p``, tools with ``--mcp``.
 
-    ``kodo chat <model>`` opens an interactive REPL; ``-p "..."`` prints one reply
-    (pipeable); ``--mcp <cmd>`` (repeatable) connects MCP servers so the model can
-    call their tools.
+    In a project dir, ``kodo.toml`` supplies the default model, its MCP tool
+    servers, and a system prompt; ``--mcp`` flags add to (not replace) those.
     """
-    model = _resolve_library_model(name, model_format)
+    proj = project.load()
+    model_name = name or (proj.model if proj else None)
+    if model_name is None:
+        console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
+        raise typer.Exit(1)
+    model = _resolve_library_model(model_name, model_format)
+    mcp_commands = list(mcp) + [m.command for m in (proj.mcp if proj else [])]
+    system_prompt = proj.system_prompt if proj else ""
     try:
-        if mcp:
-            _chat_with_tools(model, mcp, prompt, max_tokens)
+        if mcp_commands:
+            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt)
         elif prompt is not None:
             # Scripted: print only the reply to stdout (errors go to stderr).
-            print(runtime.generate(model, prompt, max_tokens))  # noqa: T201
+            print(runtime.generate(model, prompt, max_tokens, system_prompt))  # noqa: T201
         else:
-            runtime.chat_repl(model, max_tokens)
+            runtime.chat_repl(model, max_tokens, system_prompt)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
 
 def _chat_with_tools(
-    model: library_ops.LibraryModel, mcp_commands: list[str], prompt: str | None, max_tokens: int | None
+    model: library_ops.LibraryModel,
+    mcp_commands: list[str],
+    prompt: str | None,
+    max_tokens: int | None,
+    system_prompt: str = "",
 ) -> None:
-    """Run the tool-calling agent loop over one or more MCP servers."""
+    """Run the tool-calling agent loop over one or more MCP servers (streamed reply)."""
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
 
@@ -372,32 +385,43 @@ def _chat_with_tools(
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
     commands = [shlex.split(c) for c in mcp_commands]
+    # Tool activity is meta → stderr, so `-p` stdout stays just the answer.
+    err = Console(stderr=True)
 
     def on_event(kind: str, detail: str) -> None:
         icon = "[cyan]⚙[/]" if kind == "call" else "[dim]↳[/]"
-        console.print(f"  {icon} [dim]{detail[:200]}[/]")
+        err.print(f"  {icon} [dim]{detail[:200]}[/]")
+
+    def on_token(text: str) -> None:
+        print(text, end="", flush=True)  # noqa: T201
+
+    def seed() -> list[dict[str, object]]:
+        return [{"role": "system", "content": system_prompt}] if system_prompt else []
 
     async def _run(base: str) -> None:
         async with mcp_tools.connect(commands) as toolset:
-            console.print(f"[dim]tools:[/] {', '.join(toolset.names) or '(none)'}\n")
+            err.print(f"[dim]tools:[/] {', '.join(toolset.names) or '(none)'}\n")
             if prompt is not None:
-                answer = await agent.run(base, [{"role": "user", "content": prompt}], toolset, max_tokens, on_event)
-                print(answer)  # noqa: T201
+                await agent.run(
+                    base, [*seed(), {"role": "user", "content": prompt}], toolset, max_tokens, on_event, on_token
+                )
+                print()  # noqa: T201 - newline after streamed answer
             else:
-                history: list[dict[str, object]] = []
+                history: list[dict[str, object]] = seed()
                 while True:
                     try:
                         user = input("you › ").strip()
                     except (EOFError, KeyboardInterrupt):
-                        print()
+                        print()  # noqa: T201
                         break
-                    if not user:
+                    if not user or user in ("/exit", "/quit", "exit", "quit"):
+                        if user in ("/exit", "/quit", "exit", "quit"):
+                            break
                         continue
-                    if user in ("/exit", "/quit", "exit", "quit"):
-                        break
                     history.append({"role": "user", "content": user})
-                    answer = await agent.run(base, history, toolset, max_tokens, on_event)
-                    console.print(f"kodo › {answer}\n")
+                    err.print("[dim]kodo ›[/]")
+                    await agent.run(base, history, toolset, max_tokens, on_event, on_token)
+                    print("\n")  # noqa: T201
 
     with runtime._serve(model) as base:
         asyncio.run(_run(base))
