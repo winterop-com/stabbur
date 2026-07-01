@@ -377,6 +377,33 @@ def test_scan_skips_incomplete_gguf_dir(tmp_path: Path) -> None:
     assert models[0].mmproj is not None
 
 
+def test_scan_detects_tts_model_with_vocoder(tmp_path: Path) -> None:
+    # A dir with a model GGUF + a WavTokenizer vocoder is a TTS model: not a chat
+    # model (generative=False), paired with the vocoder, with inferred languages.
+    d = tmp_path / "tts" / "pub" / "OuteTTS-0.2-500M"
+    d.mkdir(parents=True)
+    (d / "OuteTTS-0.2-500M-Q4_K_M.gguf").write_bytes(b"model")
+    (d / "WavTokenizer-Large-75.gguf").write_bytes(b"vocoder")
+
+    models = library.scan(root=tmp_path)
+    assert len(models) == 1
+    m = models[0]
+    assert m.tts is True
+    assert m.generative is False  # excluded from the chat picker
+    assert m.load_target.name.startswith("OuteTTS")
+    assert m.vocoder is not None and m.vocoder.name.startswith("WavTokenizer")
+    assert "en" in m.languages and "ja" in m.languages  # 0.2 → en/zh/ja/ko
+    assert m.name == "pub/OuteTTS-0.2-500M"  # tts/ layout prefix stripped
+
+
+def test_scan_skips_lone_vocoder(tmp_path: Path) -> None:
+    # A dir with only a vocoder (no model) is not a runnable model.
+    d = tmp_path / "tts" / "ggml-org" / "WavTokenizer"
+    d.mkdir(parents=True)
+    (d / "WavTokenizer-Large-75-F16.gguf").write_bytes(b"vocoder")
+    assert library.scan(root=tmp_path) == []
+
+
 def test_catalog_pull_include_rejects_non_hf(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="only supported for the huggingface source"):
         catalog.pull(ModelSource.ollama, "model:tag", library_root=tmp_path, include=["*Q4*"])

@@ -21,7 +21,7 @@ from kodo.sources import ollama
 from kodo.sources.base import dir_stats
 
 # Top-level directories whose name is a layout prefix, stripped from model names.
-_PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "other"}
+_PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "tts", "other"}
 
 # Preferred GGUF quant when a repo ships several, most-preferred first.
 _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
@@ -46,6 +46,15 @@ class LibraryModel(BaseModel):
 
     mmproj: Path | None = None
     """Multimodal projector to load alongside, if any."""
+
+    tts: bool = False
+    """True if this is a text-to-speech model (served via llama-tts, not chat)."""
+
+    vocoder: Path | None = None
+    """The paired vocoder GGUF for a TTS model (e.g. WavTokenizer)."""
+
+    languages: list[str] = []
+    """Languages a TTS model supports (BCP-47-ish codes), for voice/language selection."""
 
     size_bytes: int = 0
     file_count: int = 0
@@ -80,6 +89,45 @@ def _classify_dir(model_dir: Path) -> ModelFormat:
     return ModelFormat.unknown
 
 
+# Filename hints for a vocoder GGUF (paired with a TTS model, e.g. WavTokenizer).
+_VOCODER_HINTS = ("wavtokenizer", "vocoder")
+
+# TTS models supporting more than English, by name substring → language codes.
+# OuteTTS 0.1 is English-only; 0.2 adds zh/ja/ko; 0.3 adds more.
+_TTS_LANGUAGES = {
+    "outetts-0.3": ["en", "zh", "ja", "ko", "de", "fr", "es", "it", "nl", "pt", "pl", "ar"],
+    "outetts-0.2": ["en", "zh", "ja", "ko"],
+    "outetts_0.3": ["en", "zh", "ja", "ko", "de", "fr", "es", "it", "nl", "pt", "pl", "ar"],
+    "outetts_0.2": ["en", "zh", "ja", "ko"],
+}
+
+
+def _find_vocoder(ggufs: list[Path]) -> Path | None:
+    """The vocoder GGUF among ``ggufs`` (by filename hint), if any."""
+    return next((g for g in ggufs if any(h in g.name.lower() for h in _VOCODER_HINTS)), None)
+
+
+def _tts_languages(name: str) -> list[str]:
+    """Languages a TTS model supports, inferred from its name (default English)."""
+    low = name.lower()
+    for key, langs in _TTS_LANGUAGES.items():
+        if key in low:
+            return langs
+    return ["en"]
+
+
+def _pick_weight(weights: list[Path]) -> Path:
+    """Pick the best single weight: split-shard head, else preferred quant, else largest."""
+    shard = next((g for g in weights if "00001-of-" in g.name), None)
+    if shard is not None:
+        return shard
+    for quant in _QUANT_PREFERENCE:
+        match = next((g for g in weights if quant.lower() in g.name.lower()), None)
+        if match is not None:
+            return match
+    return max(weights, key=lambda p: p.stat().st_size)
+
+
 def pick_gguf(model_dir: Path) -> tuple[Path, Path | None]:
     """Pick the main GGUF (+ optional mmproj) from a directory of ``*.gguf`` files.
 
@@ -91,15 +139,7 @@ def pick_gguf(model_dir: Path) -> tuple[Path, Path | None]:
     weights = [g for g in ggufs if g != mmproj]
     if not weights:
         raise FileNotFoundError(f"No .gguf weights in {model_dir}")
-
-    shard = next((g for g in weights if "00001-of-" in g.name), None)
-    if shard is not None:
-        return shard, mmproj
-    for quant in _QUANT_PREFERENCE:
-        match = next((g for g in weights if quant.lower() in g.name.lower()), None)
-        if match is not None:
-            return match, mmproj
-    return max(weights, key=lambda p: p.stat().st_size), mmproj
+    return _pick_weight(weights), mmproj
 
 
 def _scan_dirs(base: Path) -> list[LibraryModel]:
@@ -118,7 +158,33 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
     models: list[LibraryModel] = []
     for model_dir in sorted(dirs):
         fmt = _classify_dir(model_dir)
+        name = _clean_name(model_dir.relative_to(base))
+        size_bytes, file_count = dir_stats(model_dir)
+
         if fmt is ModelFormat.gguf:
+            ggufs = sorted(_weights(model_dir, ".gguf"))
+            vocoder = _find_vocoder(ggufs)
+            if vocoder is not None:
+                # TTS setup: a model GGUF paired with a vocoder. The vocoder alone
+                # isn't a runnable model, so a dir with only a vocoder is skipped.
+                mains = [g for g in ggufs if g != vocoder and not g.name.lower().startswith("mmproj")]
+                if not mains:
+                    continue
+                models.append(
+                    LibraryModel(
+                        name=name,
+                        model_format=fmt,
+                        generative=False,  # not a chat model — served via llama-tts
+                        tts=True,
+                        path=model_dir,
+                        load_target=_pick_weight(mains),
+                        vocoder=vocoder,
+                        languages=_tts_languages(name),
+                        size_bytes=size_bytes,
+                        file_count=file_count,
+                    )
+                )
+                continue
             try:
                 load_target, mmproj = pick_gguf(model_dir)
             except FileNotFoundError:
@@ -127,10 +193,10 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
                 continue
         else:
             load_target, mmproj = model_dir, None
-        size_bytes, file_count = dir_stats(model_dir)
+
         models.append(
             LibraryModel(
-                name=_clean_name(model_dir.relative_to(base)),
+                name=name,
                 model_format=fmt,
                 generative=arch.is_generative(fmt, model_dir),
                 path=model_dir,
