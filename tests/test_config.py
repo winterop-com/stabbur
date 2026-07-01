@@ -4,11 +4,20 @@ from pathlib import Path
 
 import pytest
 
+from kodo import config
 from kodo.config import Settings
 
 
 def _write_toml(tmp_path: Path, body: str) -> None:
     (tmp_path / "kodo.toml").write_text(body)
+
+
+def test_debug_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "_debug", False)
+    assert config.debug_enabled() is False
+    config.set_debug(True)
+    assert config.debug_enabled() is True
+    config.set_debug(False)  # restore
 
 
 def test_settings_read_library_root_from_kodo_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

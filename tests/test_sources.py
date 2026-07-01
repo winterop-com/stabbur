@@ -181,6 +181,19 @@ def test_copy_tree_preserves_old_backup_and_cleans_staging_on_failure(
     assert [p.name for p in dest.parent.iterdir()] == ["repo"]
 
 
+def test_runtime_early_exit_error_reports_cause(tmp_path: Path) -> None:
+    # An early runtime exit surfaces the captured log tail and a port-in-use hint,
+    # instead of the old opaque "exited before becoming ready".
+    log_dir = tmp_path / "log"
+    log_dir.mkdir()
+    (log_dir / "llama-server.log").write_text("E srv start: couldn't bind HTTP server socket, port: 8090\n")
+
+    err = runtime._early_exit_error(["llama-server"], 1, log_dir)
+    msg = str(err)
+    assert "already in use" in msg  # friendly port hint
+    assert "couldn't bind" in msg  # includes the runtime log tail
+
+
 def test_copy_tree_does_not_clobber_sibling_in_model_namespace(tmp_path: Path) -> None:
     # A real model named like the old temp suffix must not be destroyed by a pull.
     src = tmp_path / "src"

@@ -1,0 +1,49 @@
+"""Shared presentation for the terminal chat REPL (rich-styled).
+
+Kept deliberately light: a framed header, a colored input prompt, styled reply
+labels, and a "thinking" spinner. The streamed reply itself stays plain stdout
+(reliable + scriptable); this module only dresses the frame around it. Textual
+was dropped for this project — the browser UI is the rich surface; the terminal
+REPL just needs a clean, legible face.
+"""
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.status import Status
+from rich.text import Text
+
+# readline-safe colored input prompt: non-printing ANSI is wrapped in \001..\002
+# so readline computes the cursor column correctly (arrow keys / history stay sane).
+_ORANGE = "\033[38;5;208m"
+_GREY = "\033[38;5;244m"
+_RESET = "\033[0m"
+
+
+def _rl(seq: str) -> str:
+    return f"\001{seq}\002"
+
+
+USER_PROMPT = f"{_rl(_ORANGE)}●{_rl(_RESET)} you {_rl(_GREY)}›{_rl(_RESET)} "
+
+
+def header(console: Console, *, model: str, model_format: str, tools: list[str]) -> None:
+    """Print the opening chat banner: model, format, and available tools."""
+    body = Text()
+    body.append(model, style="bold")
+    body.append(f"  ·  {model_format}", style="grey62")
+    body.append("\ntools  ", style="grey62")
+    body.append(", ".join(tools) if tools else "none", style="cyan" if tools else "grey62")
+    console.print(
+        Panel(body, title="[bold]kodo chat[/]", title_align="left", border_style="grey37", padding=(0, 1), expand=False)
+    )
+    console.print("[grey50]/exit or Ctrl-D to quit  ·  ↑ recalls previous prompts[/]\n")
+
+
+def assistant_prefix(console: Console, *, inline: bool) -> None:
+    """Print the assistant reply label; ``inline`` keeps the cursor on the line."""
+    console.print("[bold cyan]kodo[/] [grey62]›[/] ", end="" if inline else "\n")
+
+
+def thinking(console: Console) -> Status:
+    """A spinner shown between the prompt and the first token/tool-call."""
+    return console.status("[grey62]thinking …[/]", spinner="dots")

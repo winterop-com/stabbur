@@ -119,3 +119,20 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a cached :class:`Settings` instance."""
     return Settings()
+
+
+# Process-wide debug switch, flipped by the CLI's global ``--debug`` flag (or the
+# ``KODO_DEBUG`` env var). When on, kodo prints extra diagnostics — most usefully,
+# it streams the model runtime's logs instead of discarding them.
+_debug = False
+
+
+def set_debug(on: bool) -> None:
+    """Enable or disable process-wide debug output."""
+    global _debug
+    _debug = on
+
+
+def debug_enabled() -> bool:
+    """Whether debug output is on (via ``--debug`` or ``KODO_DEBUG``)."""
+    return _debug or get_settings().debug

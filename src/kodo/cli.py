@@ -9,8 +9,8 @@ from rich.console import Console
 from rich.table import Table
 
 from kodo import catalog as catalog_ops
+from kodo import config, project, runtime
 from kodo import library as library_ops
-from kodo import project, runtime
 from kodo.config import get_settings
 from kodo.models import CuratedModel, ModelFormat, ModelSource, _human_size
 from kodo.sources import huggingface as hf
@@ -28,6 +28,19 @@ app = typer.Typer(
     help="Browse, pull, and run local LLM models (Hugging Face, Ollama, LM Studio).",
     no_args_is_help=True,
 )
+
+
+@app.callback()
+def _main(
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Verbose diagnostics: runtime command + live runtime logs (else discarded)."),
+    ] = False,
+) -> None:
+    """Build and run a local library of LLM models."""
+    if debug:
+        config.set_debug(True)
+
 
 SourceOption = Annotated[
     ModelSource | None,
@@ -459,7 +472,10 @@ def _chat_with_tools(
 
     from rich.status import Status  # noqa: PLC0415
 
-    from kodo import agent  # noqa: PLC0415
+    from kodo import (
+        agent,  # noqa: PLC0415
+        chatui,  # noqa: PLC0415
+    )
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
     commands = [shlex.split(c) for c in mcp_commands]
@@ -478,18 +494,18 @@ def _chat_with_tools(
             turn_status.stop()
             turn_status = None
         if not turn_labeled:
-            err.print("[dim]kodo ›[/]")
+            chatui.assistant_prefix(err, inline=False)
             turn_labeled = True
 
     def _think() -> None:
         nonlocal turn_status
-        turn_status = err.status("[dim]thinking …[/]", spinner="dots")
+        turn_status = chatui.thinking(err)
         turn_status.start()
 
     def on_event(kind: str, detail: str) -> None:
         _first_output()
-        icon = "[cyan]⚙[/]" if kind == "call" else "[dim]↳[/]"
-        err.print(f"  {icon} [dim]{detail[:200]}[/]")
+        icon = "[cyan]⚙[/]" if kind == "call" else "[grey62]↳[/]"
+        err.print(f"  {icon} [grey62]{detail[:200]}[/]")
 
     def on_token(text: str) -> None:
         _first_output()
@@ -501,7 +517,6 @@ def _chat_with_tools(
     async def _run(base: str) -> None:
         nonlocal turn_labeled
         async with mcp_tools.connect(commands) as toolset:
-            err.print(f"[dim]tools:[/] {', '.join(toolset.names) or '(none)'}\n")
             if prompt is not None:
                 turn_labeled = True  # -p mode: stdout is just the answer, no label
                 _think()
@@ -511,6 +526,7 @@ def _chat_with_tools(
                 _first_output()
                 print()  # noqa: T201 - newline after streamed answer
             else:
+                chatui.header(console, model=model.name, model_format=model.model_format.value, tools=toolset.names)
                 try:
                     import readline  # noqa: PLC0415 - up-arrow recall + line editing for input()
 
@@ -520,7 +536,7 @@ def _chat_with_tools(
                 history: list[dict[str, object]] = seed()
                 while True:
                     try:
-                        user = input("you › ").strip()
+                        user = input(chatui.USER_PROMPT).strip()
                     except (EOFError, KeyboardInterrupt):
                         print()  # noqa: T201
                         break

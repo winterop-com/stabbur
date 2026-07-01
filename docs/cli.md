@@ -4,6 +4,12 @@ The CLI is the **`kodo`** command. Everything centers on your **library** — th
 models on your drive, at the `library_root` set in `kodo.toml`. Run any command
 with `--help` for full options.
 
+**Global flag:** `kodo --debug <command>` turns on verbose diagnostics — it prints
+the exact model-runtime command and streams the runtime's logs live (instead of
+discarding them), which is the first thing to reach for when `kodo chat`/`run`
+reports a model that "exited before becoming ready". (Also settable with
+`KODO_DEBUG=1`.)
+
 ## `kodo init`
 
 Scaffold **`kodo.toml`** here — kodo's primary config (no `.env` needed) — and
