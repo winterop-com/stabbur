@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment, MediaKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +77,8 @@ export function Composer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const recRef = useRef<Recording | null>(null);
+  const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
 
   // Auto-grow the textarea to fit content (capped by max-height via CSS). When
   // empty we leave the natural rows={1} height (height:auto) rather than trust
@@ -100,6 +103,30 @@ export function Composer({
   const addFiles = async (files: FileList | File[]) => {
     const items = await filesToAttachments(files, accept);
     if (items.length) onAdd(items);
+  };
+
+  // Mic capture: start → recording; click again → encode WAV → attach.
+  const toggleRecording = async () => {
+    if (recState === "encoding") return;
+    if (recState === "recording") {
+      setRecState("encoding");
+      try {
+        const url = await recRef.current!.stop();
+        onAdd([{ url, kind: "audio" }]);
+      } catch {
+        /* decode/permission error — drop it */
+      } finally {
+        recRef.current = null;
+        setRecState("idle");
+      }
+      return;
+    }
+    try {
+      recRef.current = await startRecording();
+      setRecState("recording");
+    } catch {
+      setRecState("idle"); // permission denied / unsupported
+    }
   };
 
   return (
@@ -212,6 +239,30 @@ export function Composer({
                 </TooltipContent>
               </Tooltip>
             </>
+          )}
+          {accept.audio && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleRecording}
+                  aria-label={recState === "recording" ? "Stop recording" : "Record audio"}
+                  className={cn(recState === "recording" && "text-destructive")}
+                >
+                  {recState === "encoding" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : recState === "recording" ? (
+                    <Square className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {recState === "recording" ? "Stop & attach recording" : "Record audio from your mic"}
+              </TooltipContent>
+            </Tooltip>
           )}
           {leftSlot}
         </div>
