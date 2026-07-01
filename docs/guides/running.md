@@ -3,10 +3,13 @@
 All runtimes expose an **OpenAI-compatible** API at `http://<host>:<port>/v1`, so
 any OpenAI client attaches the same way.
 
-| Format | Runtime | Notes |
-| ------ | ------- | ----- |
-| GGUF   | llama.cpp `llama-server` / `llama-cli` | cross-platform; built-in web chat UI |
-| MLX    | `mlx_lm.server` / `mlx_lm.chat`        | Apple Silicon only |
+| Format | Server | Notes |
+| ------ | ------ | ----- |
+| GGUF   | llama.cpp `llama-server` | cross-platform; built-in web chat UI |
+| MLX    | `mlx_lm.server`          | Apple Silicon only |
+
+`chat` and `run` both talk to that server's `/v1` — so the terminal chat is a
+clean kodo REPL, not the raw llama.cpp UI.
 
 ## Serve a model
 
@@ -28,7 +31,7 @@ Serving gguf lmstudio-community/gemma-4-12B-it-QAT-GGUF
 ## Chat
 
 ```bash
-kodo chat <name>                      # interactive terminal chat
+kodo chat <name>                      # clean streaming REPL (/exit to quit)
 kodo chat <name> -p "Summarize MoE"   # one-shot: prints only the answer (pipeable)
 kodo chat <name> -p "..." -n 256      # cap generated tokens
 ```

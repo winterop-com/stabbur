@@ -12,6 +12,7 @@ from kodo import library as library_ops
 from kodo import runtime
 from kodo.config import get_settings
 from kodo.models import ModelFormat, ModelSource, _human_size
+from kodo.sources import huggingface as hf
 
 console = Console()
 
@@ -167,6 +168,29 @@ def sources(
         console.print(
             f"\n[dim]{hidden} non-chat (embedding/vision) or partial entries hidden — use --all to show them.[/]"
         )
+
+
+@app.command()
+def search(
+    query: Annotated[str, typer.Argument(help="Text to search the Hugging Face Hub for.")],
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Max results.")] = 20,
+    gguf: Annotated[bool, typer.Option("--gguf", help="Only GGUF (llama.cpp-ready) repos.")] = False,
+) -> None:
+    """Search the Hugging Face Hub for new models to pull."""
+    results = hf.search(query, limit=limit, gguf=gguf)
+    if not results:
+        console.print(f"No Hub results for {query!r} [dim](or you're offline).[/]")
+        return
+
+    console.print(f"\n[bold]{len(results)} results[/] for {query!r} [dim](most downloaded)[/]\n")
+    table = Table(box=box.SIMPLE_HEAD, pad_edge=False)
+    table.add_column("DOWNLOADS", justify="right")
+    table.add_column("LIKES", justify="right")
+    table.add_column("MODEL", style="white")
+    for r in results:
+        table.add_row(f"{r.downloads:,}", f"{r.likes:,}", r.id)
+    console.print(table)
+    console.print("\n[dim]Pull one with[/] kodo pull huggingface <model>")
 
 
 def _not_chat_msg(name: str, model_format: ModelFormat) -> str:

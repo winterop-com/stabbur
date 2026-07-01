@@ -8,11 +8,34 @@ parallel, and checksum-verified, writing directly into the backup root.
 from pathlib import Path
 from typing import Any
 
-from huggingface_hub import scan_cache_dir, snapshot_download
+from huggingface_hub import HfApi, scan_cache_dir, snapshot_download
 
 from kodo import arch, cards
-from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
+from kodo.models import HubModel, ModelEntry, ModelFormat, ModelSource, PullResult
 from kodo.sources.base import dir_stats
+
+
+def search(query: str, limit: int = 20, gguf: bool = False) -> list[HubModel]:
+    """Search the Hugging Face Hub for models to pull, by downloads.
+
+    Args:
+        query: Free-text search (name/description).
+        limit: Max results.
+        gguf: If true, restrict to GGUF repos (llama.cpp-ready).
+
+    Returns:
+        Matching models, most-downloaded first. Empty on any error (e.g. offline).
+    """
+    try:
+        infos = HfApi().list_models(
+            search=query,
+            filter="gguf" if gguf else None,  # tag filter
+            sort="downloads",
+            limit=limit,
+        )
+    except Exception:  # noqa: BLE001 - network/API errors → no results
+        return []
+    return [HubModel(id=i.id, downloads=i.downloads or 0, likes=i.likes or 0) for i in infos]
 
 
 def _classify(repo: Any) -> ModelFormat:

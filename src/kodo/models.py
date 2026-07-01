@@ -103,6 +103,14 @@ class PullResult(BaseModel):
         return _human_size(self.size_bytes)
 
 
+class HubModel(BaseModel):
+    """A model found on the Hugging Face Hub (a `kodo pull` candidate)."""
+
+    id: str
+    downloads: int = 0
+    likes: int = 0
+
+
 class ErrorResponse(BaseModel):
     """Standard error response."""
 
