@@ -65,6 +65,8 @@ async def run(
     on_event: ToolEvent | None = None,
     on_token: TokenSink | None = None,
     on_reasoning: TokenSink | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
     max_rounds: int = 8,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
@@ -84,6 +86,10 @@ async def run(
                 body["tool_choice"] = "auto"
             if max_tokens is not None:
                 body["max_tokens"] = max_tokens
+            if temperature is not None:
+                body["temperature"] = temperature
+            if top_p is not None:
+                body["top_p"] = top_p
             content, calls = await _stream_turn(http, base_url, body, on_token, on_reasoning)
             if not calls:
                 messages.append({"role": "assistant", "content": content})

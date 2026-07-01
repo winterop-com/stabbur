@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from kodo import agent, runtime
+from kodo import agent, cards, runtime
 from kodo import library as library_ops
 from kodo.config import Settings
 from kodo.server import ServerManager
@@ -93,11 +93,55 @@ def library() -> list[LibraryModelInfo]:
     ]
 
 
+class ModelCardInfo(BaseModel):
+    """A model's card + metadata for the UI's info panel."""
+
+    name: str
+    model_format: str
+    size_human: str
+    path: str
+    card: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@router.get("/api/model")
+def model_info(name: str) -> ModelCardInfo:
+    """Return the model card (README/model-card.md) + metadata for a library model."""
+    matches = library_ops.find(name)
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
+    m = matches[0]
+    card_text: str | None = None
+    card_path = cards.find_card(m.path) or (m.path / cards.SIDECAR_DIR / "model-card.md")
+    if card_path.is_file():
+        try:
+            card_text = card_path.read_text(errors="replace")[:100_000]  # cap huge READMEs
+        except OSError:
+            card_text = None
+    metadata: dict[str, Any] | None = None
+    meta_path = m.path / cards.SIDECAR_DIR / "metadata.json"
+    if meta_path.is_file():
+        try:
+            metadata = json.loads(meta_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            metadata = None
+    return ModelCardInfo(
+        name=m.name,
+        model_format=m.model_format.value,
+        size_human=m.size_human,
+        path=str(m.path),
+        card=card_text,
+        metadata=metadata,
+    )
+
+
 class ChatRequest(BaseModel):
     """A chat turn for the server-side agent loop."""
 
     messages: list[dict[str, Any]]
     max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
     use_tools: bool = True  # off → don't attach MCP tools (for non-tool-trained models)
 
 
@@ -140,7 +184,17 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
 
         async def produce() -> None:
             try:
-                await agent.run(base, messages, toolset, req.max_tokens, on_event, on_token, on_reasoning=on_reasoning)
+                await agent.run(
+                    base,
+                    messages,
+                    toolset,
+                    req.max_tokens,
+                    on_event,
+                    on_token,
+                    on_reasoning=on_reasoning,
+                    temperature=req.temperature,
+                    top_p=req.top_p,
+                )
             except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                 queue.put_nowait({"type": "error", "detail": str(exc)})
             finally:

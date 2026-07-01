@@ -151,6 +151,15 @@ async def test_api_chat_requires_loaded_model(client: AsyncClient) -> None:
     assert r.status_code == 409
 
 
+async def test_api_model_returns_card(client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# My Model\n\nUsage info here.")
+    model = LibraryModel(name="pub/M", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "w.gguf")
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [model])
+    body = (await client.get("/api/model", params={"name": "pub/M"})).json()
+    assert body["name"] == "pub/M"
+    assert "My Model" in (body["card"] or "")
+
+
 async def test_api_chat_use_tools_flag_drops_tools(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
