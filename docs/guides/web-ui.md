@@ -4,6 +4,13 @@
 loaded model, and — with `--ui` — the browser single-page app (a React/Vite +
 Tailwind chat UI with a model picker).
 
+![kodo web UI](../assets/web-ui.png)
+
+The chat surface: a model picker (with tool/vision capability hints and an eject
+action), a per-server tools menu, a system-health indicator, and a settings rail
+for the system prompt, sampling, and context length. Settings are per
+conversation, so each chat starts fresh.
+
 **Build the UI once** (it's not committed — only its source is):
 
 ```bash

@@ -5,6 +5,8 @@ Build a **full local library of LLM models**, then **run, chat, and serve** them
 LM Studio, pull them into one library on a drive of your choosing, and serve any
 of them through an OpenAI-compatible API and a browser chat UI.
 
+![kodo web UI](assets/web-ui.png)
+
 ```mermaid
 flowchart LR
     hf["HF cache"] -->|kodo pull| lib

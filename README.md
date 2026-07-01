@@ -2,9 +2,11 @@
 
 A tool for building and keeping a **full local library of LLM models**. It
 discovers models from **Hugging Face**, **Ollama**, and **LM Studio**, pulls
-them into a single library (browse via CLI, a Textual TUI later, or a FastAPI
-service), and runs them from there. The library lives under one configurable
-root you point at an external drive (e.g. a 5TB drive).
+them into a single library (browse via a **Typer CLI** or a **browser chat UI**),
+and runs them from there. The library lives under one configurable root you point
+at an external drive (e.g. a 5TB drive).
+
+![kodo web UI](docs/assets/web-ui.png)
 
 ## Layout
 
