@@ -73,6 +73,13 @@ class MCPToolset:
         """Names of the available (namespaced) tools."""
         return [s["function"]["name"] for s in self.schemas]
 
+    def subset(self, names: set[str]) -> "MCPToolset":
+        """A view exposing only ``names`` (call-routing shared with this toolset)."""
+        view = MCPToolset()
+        view._owner = self._owner
+        view.schemas = [s for s in self.schemas if s["function"]["name"] in names]
+        return view
+
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
         """Execute a namespaced tool on its owning server and return its result as text."""
         entry = self._owner.get(name)

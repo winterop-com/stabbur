@@ -108,13 +108,24 @@ async def test_library_lists_runnable_models(client: AsyncClient, monkeypatch: p
     assert names == ["pub/Chat-GGUF"]  # generative only; embedding excluded
 
 
+async def test_api_doctor_returns_report(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # /api/doctor mirrors `kodo doctor`: a list of typed health checks.
+    monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])
+    body = (await client.get("/api/doctor")).json()
+    assert "checks" in body and isinstance(body["checks"], list)
+    names = {c["name"] for c in body["checks"]}
+    assert "llama.cpp (GGUF)" in names  # runtime checks are always present
+    for c in body["checks"]:
+        assert c["status"] in {"ok", "warn", "fail"}
+
+
 async def test_api_chat_streams_tokens_and_tool_events(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # /api/chat runs the agent loop server-side and streams typed SSE: tokens plus
     # tool call/result events (which the raw /v1 proxy can't surface).
     class FakeManager:
-        current = object()  # a model is "loaded"
+        current = type("M", (), {"load_target": Path("/models/x")})()  # a model is "loaded"
         base_url = "http://runtime"
 
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
@@ -146,6 +157,40 @@ async def test_api_chat_streams_tokens_and_tool_events(
         app.dependency_overrides.clear()
 
 
+async def test_api_unload_stops_the_runtime(app: FastAPI, client: AsyncClient) -> None:
+    # /api/unload ejects the model by calling manager.stop(), returning stopped status.
+    stopped = {"n": 0}
+
+    class FakeManager:
+        current = None
+        n_ctx = None
+        last_error = None
+
+        def stop(self) -> None:
+            stopped["n"] += 1
+
+        async def state(self) -> Any:
+            return type("S", (), {"value": "stopped"})()
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    try:
+        r = await client.post("/api/unload")
+        assert r.status_code == 200
+        assert r.json()["state"] == "stopped"
+        assert stopped["n"] == 1  # runtime actually stopped
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_api_unload_rejected_when_locked(app: FastAPI, client: AsyncClient) -> None:
+    # A locked (single-model) server must refuse ejecting its bound model.
+    app.dependency_overrides[serving.get_conf] = lambda: Settings(serve_model="some-model")
+    try:
+        assert (await client.post("/api/unload")).status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+
+
 async def test_api_chat_requires_loaded_model(client: AsyncClient) -> None:
     r = await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
     assert r.status_code == 409
@@ -168,7 +213,7 @@ async def test_api_chat_use_tools_flag_drops_tools(
     from kodo.tools import MCPToolset
 
     class FakeManager:
-        current = object()
+        current = type("M", (), {"load_target": Path("/models/x")})()
         base_url = "http://runtime"
 
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
@@ -195,6 +240,43 @@ async def test_api_chat_use_tools_flag_drops_tools(
         assert seen["names"] == []  # tools dropped
         await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "use_tools": True})
         assert seen["names"] == ["today"]  # tools attached
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_api_chat_system_prompt_precedence(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # system_prompt precedence: explicit "" → no system message (project default
+    # skipped); explicit string → that prompt; field absent → project default.
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    app.state.toolset = None
+    app.state.system_prompt = "PROJECT DEFAULT"
+    seen: dict[str, Any] = {}
+
+    async def fake_run(base: str, messages: list[dict[str, Any]], *a: Any, **_: Any) -> str:
+        seen["messages"] = messages
+        return ""
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    try:
+        # Explicit empty → no system message at all.
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "system_prompt": ""})
+        assert all(m["role"] != "system" for m in seen["messages"])
+
+        # Explicit non-empty → that exact prompt.
+        await client.post(
+            "/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "system_prompt": "be a cat"}
+        )
+        assert seen["messages"][0] == {"role": "system", "content": "be a cat"}
+
+        # Field absent → falls back to the project default.
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+        assert seen["messages"][0] == {"role": "system", "content": "PROJECT DEFAULT"}
     finally:
         app.dependency_overrides.clear()
 

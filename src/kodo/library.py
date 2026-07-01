@@ -118,11 +118,16 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
     models: list[LibraryModel] = []
     for model_dir in sorted(dirs):
         fmt = _classify_dir(model_dir)
-        size_bytes, file_count = dir_stats(model_dir)
         if fmt is ModelFormat.gguf:
-            load_target, mmproj = pick_gguf(model_dir)
+            try:
+                load_target, mmproj = pick_gguf(model_dir)
+            except FileNotFoundError:
+                # No usable weight yet — an in-progress download (only an mmproj or
+                # .incomplete files present) or a broken dir. Skip until it's whole.
+                continue
         else:
             load_target, mmproj = model_dir, None
+        size_bytes, file_count = dir_stats(model_dir)
         models.append(
             LibraryModel(
                 name=_clean_name(model_dir.relative_to(base)),

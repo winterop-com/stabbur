@@ -11,9 +11,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from kodo import agent, cards, runtime
+from kodo import agent, capabilities, cards, doctor, runtime, sampling
 from kodo import library as library_ops
 from kodo.config import Settings
+from kodo.sampling import ModelSampling
 from kodo.server import ServerManager
 from kodo.tools import MCPToolset
 
@@ -29,6 +30,9 @@ class ServerStatus(BaseModel):
     state: str
     model: str | None = None
     locked: bool = False
+    n_ctx: int | None = None  # context window the current model was loaded with (None = runtime default)
+    error: str | None = None  # why the runtime died (stderr tail), if it exited unexpectedly
+    default_system_prompt: str = ""  # the project (kodo.toml) system prompt, so the UI can prefill/show it
 
 
 class LibraryModelInfo(BaseModel):
@@ -38,6 +42,9 @@ class LibraryModelInfo(BaseModel):
     model_format: str
     size_bytes: int
     size_human: str
+    vision: bool = False
+    tools: bool = False
+    context_length: int | None = None
 
 
 def get_manager(request: Request) -> ServerManager:
@@ -63,19 +70,22 @@ HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
 ConfDep = Annotated[Settings, Depends(get_conf)]
 
 
-async def _status(manager: ServerManager, settings: Settings) -> ServerStatus:
+async def _status(manager: ServerManager, settings: Settings, system_prompt: str = "") -> ServerStatus:
     current = manager.current
     return ServerStatus(
         state=(await manager.state()).value,
         model=current.name if current else None,
         locked=settings.serve_model is not None,
+        n_ctx=manager.n_ctx,
+        error=manager.last_error if current is None else None,
+        default_system_prompt=system_prompt,
     )
 
 
 @router.get("/api/status")
-async def status(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
+async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> ServerStatus:
     """Report the loaded model and runtime state."""
-    return await _status(manager, settings)
+    return await _status(manager, settings, getattr(request.app.state, "system_prompt", "") or "")
 
 
 @router.get("/api/library")
@@ -84,13 +94,23 @@ def library() -> list[LibraryModelInfo]:
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     """
-    return [
-        LibraryModelInfo(
-            name=m.name, model_format=m.model_format.value, size_bytes=m.size_bytes, size_human=m.size_human
+    out: list[LibraryModelInfo] = []
+    for m in library_ops.scan():
+        if not m.generative or m.is_ollama:
+            continue
+        caps = capabilities.capabilities(m)
+        out.append(
+            LibraryModelInfo(
+                name=m.name,
+                model_format=m.model_format.value,
+                size_bytes=m.size_bytes,
+                size_human=m.size_human,
+                vision=caps.vision,
+                tools=caps.tools,
+                context_length=caps.context_length,
+            )
         )
-        for m in library_ops.scan()
-        if m.generative and not m.is_ollama
-    ]
+    return out
 
 
 class ModelCardInfo(BaseModel):
@@ -102,6 +122,7 @@ class ModelCardInfo(BaseModel):
     path: str
     card: str | None = None
     metadata: dict[str, Any] | None = None
+    sampling: ModelSampling = ModelSampling()  # model-recommended defaults (for UI placeholders)
 
 
 @router.get("/api/model")
@@ -132,7 +153,45 @@ def model_info(name: str) -> ModelCardInfo:
         path=str(m.path),
         card=card_text,
         metadata=metadata,
+        sampling=sampling.recommended(m),
     )
+
+
+class ToolInfo(BaseModel):
+    """One MCP tool exposed to the UI (namespaced ``<server>__<tool>``)."""
+
+    name: str
+    server: str
+    tool: str
+    description: str
+
+
+@router.get("/api/doctor")
+def doctor_report(settings: ConfDep) -> doctor.DoctorReport:
+    """System health: runtime binaries, library, and the current project.
+
+    Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
+    Mirrors the ``kodo doctor`` CLI so the UI can show the same status.
+    """
+    return doctor.run_checks(settings)
+
+
+@router.get("/api/tools")
+def tools(request: Request) -> list[ToolInfo]:
+    """List the MCP tools attached to this server (empty if none configured)."""
+    toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
+    if toolset is None:
+        return []
+    out: list[ToolInfo] = []
+    for schema in toolset.schemas:
+        fn = schema["function"]
+        name = fn["name"]
+        server, _, tool = name.partition("__")
+        # Descriptions come from tool docstrings; strip backtick markup (RST/markdown
+        # inline literals) so it reads as prose in the UI (rendered as plain text).
+        desc = fn.get("description", "").replace("`", "")
+        out.append(ToolInfo(name=name, server=server or "mcp", tool=tool or name, description=desc))
+    return out
 
 
 class ChatRequest(BaseModel):
@@ -143,6 +202,11 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     top_p: float | None = None
     use_tools: bool = True  # off → don't attach MCP tools (for non-tool-trained models)
+    enabled_tools: list[str] | None = None  # None → all tools; else only these namespaced names
+    # Authoritative system prompt: a string (incl. "" for *no* system prompt) overrides
+    # the project default; None (field absent) falls back to it. Lets a roleplay model
+    # run with no assistant framing instead of being forced into "I'm an AI" refusals.
+    system_prompt: str | None = None
 
 
 @router.post("/api/chat")
@@ -154,17 +218,33 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     the raw ``/v1`` proxy, this executes tool calls server-side so the web UI and
     extension get tools — and surfaces tool activity the proxy can't.
     """
-    if manager.current is None:
+    current = manager.current
+    if current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
+    model_target = current.load_target
+    # Model-recommended sampling (LM Studio parity); an explicit request value wins.
+    rec = sampling.recommended(current)
+    eff_temperature = req.temperature if req.temperature is not None else rec.temperature
+    eff_top_p = req.top_p if req.top_p is not None else rec.top_p
     # use_tools off → empty toolset (non-tool-trained models otherwise regurgitate
     # the injected tool schema as text instead of calling tools).
     toolset: MCPToolset = (
         (getattr(request.app.state, "toolset", None) or MCPToolset()) if req.use_tools else MCPToolset()
     )
+    # An explicit allow-list narrows the toolset to the tools the user left enabled.
+    if req.enabled_tools is not None:
+        toolset = toolset.subset(set(req.enabled_tools))
     base = manager.base_url
 
-    # Apply the project's system prompt (kodo.toml) unless the client sent its own.
-    system_prompt: str = getattr(request.app.state, "system_prompt", "") or ""
+    # System prompt precedence: an explicit ``system_prompt`` from the client is
+    # authoritative — including "" for *no* system prompt (a roleplay model then
+    # runs with no assistant framing). Only when the field is absent (None) do we
+    # fall back to the project (kodo.toml) prompt. A system message already in
+    # ``messages`` still wins (kept for API clients that inline their own).
+    if req.system_prompt is not None:
+        system_prompt = req.system_prompt
+    else:
+        system_prompt = getattr(request.app.state, "system_prompt", "") or ""
     messages = list(req.messages)
     if system_prompt and not (messages and messages[0].get("role") == "system"):
         messages = [{"role": "system", "content": system_prompt}, *messages]
@@ -192,8 +272,14 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                     on_event,
                     on_token,
                     on_reasoning=on_reasoning,
-                    temperature=req.temperature,
-                    top_p=req.top_p,
+                    temperature=eff_temperature,
+                    top_p=eff_top_p,
+                    top_k=rec.top_k,
+                    min_p=rec.min_p,
+                    repeat_penalty=rec.repeat_penalty,
+                    # mlx-vlm requires the OpenAI ``model`` field match what it loaded
+                    # (the launch path); harmless for llama-server / mlx-lm.
+                    model=str(model_target) if model_target else None,
                 )
             except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                 queue.put_nowait({"type": "error", "detail": str(exc)})
@@ -216,10 +302,16 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
 
 
 @router.post("/api/load/{name:path}")
-async def load(name: str, manager: ManagerDep, settings: ConfDep) -> ServerStatus:
-    """Load (or switch to) a model by name; rejected in locked mode."""
+async def load(name: str, manager: ManagerDep, settings: ConfDep, n_ctx: int | None = None) -> ServerStatus:
+    """Load (or switch to) a model by name; rejected in locked mode.
+
+    ``n_ctx`` sets the context window (GGUF/llama.cpp only); changing it reloads
+    the model since context is fixed at load time.
+    """
     if settings.serve_model is not None:
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
+    if n_ctx is not None and n_ctx < 1:
+        raise HTTPException(status_code=422, detail="n_ctx must be a positive integer")
     matches = library_ops.find(name)
     if not matches:
         raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
@@ -229,9 +321,22 @@ async def load(name: str, manager: ManagerDep, settings: ConfDep) -> ServerStatu
     if reason is not None:
         raise HTTPException(status_code=422, detail=reason)
     try:
-        manager.load(matches[0])
+        manager.load(matches[0], n_ctx)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return await _status(manager, settings)
+
+
+@router.post("/api/unload")
+async def unload(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
+    """Eject the loaded model, stopping its runtime process (frees memory).
+
+    Rejected in locked mode (the server is bound to one model). A no-op if
+    nothing is loaded.
+    """
+    if settings.serve_model is not None:
+        raise HTTPException(status_code=409, detail="Server is locked to a single model")
+    manager.stop()
     return await _status(manager, settings)
 
 

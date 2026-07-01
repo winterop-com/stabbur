@@ -1,4 +1,4 @@
-.PHONY: help install lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
+.PHONY: help install install-mlx lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
 
 # ==============================================================================
 # Venv
@@ -17,6 +17,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  install     Install dependencies"
+	@echo "  install-mlx Install deps + MLX runtimes (Apple Silicon only)"
 	@echo "  lint        Format + autofix, then type-check (mutates files)"
 	@echo "  check       CI gate: verify formatting/lint/types/tests (no changes)"
 	@echo "  test        Run tests"
@@ -30,6 +31,10 @@ help:
 install:
 	@echo ">>> Installing dependencies"
 	@$(UV) sync
+
+install-mlx:
+	@echo ">>> Installing dependencies + MLX runtimes (Apple Silicon only)"
+	@$(UV) sync --extra mlx
 
 lint:
 	@echo ">>> Running linter"

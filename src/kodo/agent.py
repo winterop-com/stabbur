@@ -67,6 +67,10 @@ async def run(
     on_reasoning: TokenSink | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    repeat_penalty: float | None = None,
+    model: str | None = None,
     max_rounds: int = 8,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
@@ -74,11 +78,15 @@ async def run(
     ``messages`` is mutated in place (assistant/tool turns) so a REPL keeps the
     conversation. ``on_event`` reports tool activity; ``on_token`` receives the
     final reply's tokens; ``on_reasoning`` receives a reasoning model's thinking
-    tokens (separate channel). Bounded by ``max_rounds``.
+    tokens (separate channel). ``model`` is sent as the OpenAI ``model`` field —
+    required by mlx-vlm (which 422s without it), ignored by llama-server/mlx-lm.
+    Bounded by ``max_rounds``.
     """
     async with httpx.AsyncClient(timeout=600) as http:
         for _ in range(max_rounds):
             body: dict[str, Any] = {"messages": messages, "stream": True}
+            if model is not None:
+                body["model"] = model
             # Omit tools entirely when there are none, so a no-tool chat is plain
             # completion (no --jinja tool parsing / buffering).
             if toolset.schemas:
@@ -90,6 +98,14 @@ async def run(
                 body["temperature"] = temperature
             if top_p is not None:
                 body["top_p"] = top_p
+            # top_k / min_p / repeat_penalty are OpenAI extensions supported by
+            # llama-server and the MLX servers; unknown ones are ignored upstream.
+            if top_k is not None:
+                body["top_k"] = top_k
+            if min_p is not None:
+                body["min_p"] = min_p
+            if repeat_penalty is not None:
+                body["repeat_penalty"] = repeat_penalty
             content, calls = await _stream_turn(http, base_url, body, on_token, on_reasoning)
             if not calls:
                 messages.append({"role": "assistant", "content": content})

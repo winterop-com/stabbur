@@ -23,6 +23,7 @@ import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
+from kodo import capabilities
 from kodo.config import debug_enabled, get_settings, pinned_runtime_port
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat, _human_size
@@ -40,23 +41,35 @@ _status_console = Console(stderr=True)
 
 _INSTALL_HINTS = {
     "llama-server": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",
-    "mlx_lm.server": "Install mlx-lm: `uv tool install mlx-lm` (Apple Silicon only).",
+    "mlx_lm.server": "Install the MLX runtimes: `uv sync --extra mlx` (Apple Silicon only).",
+    "mlx_vlm.server": "Install the MLX runtimes: `uv sync --extra mlx` (Apple Silicon only).",
 }
 
 
-def build_command(model: LibraryModel, host: str, port: int) -> list[str]:
+def build_command(model: LibraryModel, host: str, port: int, n_ctx: int | None = None) -> list[str]:
     """Build the OpenAI-compatible server command line for ``model``.
+
+    ``n_ctx`` sets the context window at load time (llama.cpp ``-c``); it only
+    applies to GGUF (llama-server). MLX derives its context from the model and
+    ignores it.
 
     Raises:
         ValueError: If the model's format has no known runtime.
     """
     if model.model_format is ModelFormat.gguf:
         cmd = ["llama-server", "-m", str(model.load_target), "--host", host, "--port", str(port)]
+        if n_ctx is not None:
+            cmd += ["-c", str(n_ctx)]
         if model.mmproj is not None:
             cmd += ["--mmproj", str(model.mmproj)]
         return cmd
     if model.model_format is ModelFormat.mlx:
-        return ["mlx_lm.server", "--model", str(model.load_target), "--host", host, "--port", str(port)]
+        # Multimodal (vision) MLX checkpoints wrap the LLM under ``language_model.*``
+        # plus a vision tower — text-only mlx_lm can't load them (it errors on the
+        # extra params and returns nothing). Route those to mlx-vlm, which handles
+        # the wrapper; keep text-only MLX on the lighter mlx_lm.
+        binary = "mlx_vlm.server" if capabilities.capabilities(model).vision else "mlx_lm.server"
+        return [binary, "--model", str(model.load_target), "--host", host, "--port", str(port)]
     if model.model_format is ModelFormat.safetensors:
         raise ValueError(
             f"{model.name!r} is safetensors (a convert/fine-tune source), not directly runnable; "

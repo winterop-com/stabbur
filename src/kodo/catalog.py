@@ -26,7 +26,13 @@ def list_models(source: ModelSource | None = None) -> Catalog:
     return Catalog(entries=entries)
 
 
-def pull(source: ModelSource, name: str, library_root: Path | None = None, move: bool = False) -> PullResult:
+def pull(
+    source: ModelSource,
+    name: str,
+    library_root: Path | None = None,
+    move: bool = False,
+    include: list[str] | None = None,
+) -> PullResult:
     """Pull a single model from the given source into the library.
 
     Args:
@@ -36,6 +42,8 @@ def pull(source: ModelSource, name: str, library_root: Path | None = None, move:
             configured ``library_root``.
         move: If true, delete the local source after a verified copy. Currently
             supported for LM Studio only.
+        include: Hugging Face only — filename globs to restrict the download
+            (e.g. one GGUF quant). Ignored by other sources.
 
     Returns:
         A :class:`PullResult` describing what was written.
@@ -43,13 +51,16 @@ def pull(source: ModelSource, name: str, library_root: Path | None = None, move:
     Raises:
         NotImplementedError: If ``move`` is requested for a source that does not
             support it yet.
+        ValueError: If ``include`` is given for a source that does not support it.
     """
     root = library_root or get_settings().library_root
+    if include and source is not ModelSource.huggingface:
+        raise ValueError("--include is only supported for the huggingface source")
     match source:
         case ModelSource.huggingface:
             if move:
                 raise NotImplementedError("--move is not supported for Hugging Face yet")
-            return huggingface.pull(name, root, token=get_settings().hf_token)
+            return huggingface.pull(name, root, token=get_settings().hf_token, include=include)
         case ModelSource.ollama:
             return ollama.pull(name, root, move=move)
         case ModelSource.lmstudio:

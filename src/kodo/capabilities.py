@@ -1,0 +1,171 @@
+"""Detect per-model capabilities (vision, tool calling, context length).
+
+These are *hints* for the UI's model picker, read statically from the weights on
+disk without loading the model:
+
+* **vision** — the model has a multimodal projector (GGUF ``mmproj``) or a vision
+  config / VL name (MLX / safetensors).
+* **tools** — the model's chat template references tool calling. This is a
+  heuristic: llama.cpp can drive tools generically, but a template that mentions
+  tools is the honest static signal that the model was trained for them.
+* **context_length** — the model's trained context window, used as the ceiling
+  for the context-length control.
+
+GGUF metadata is read with a minimal header parser (the KV block sits at the
+start of the file, so only a small prefix is read). MLX / safetensors read the
+sidecar ``config.json`` / ``tokenizer_config.json``.
+"""
+
+import json
+import struct
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel
+
+from kodo.library import LibraryModel
+from kodo.models import ModelFormat
+
+# GGUF metadata value type codes (ggml spec).
+_GGUF_STRING = 8
+_GGUF_ARRAY = 9
+# Fixed-width scalar type → struct size in bytes.
+_GGUF_SCALAR_SIZE = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+
+# Chat-template markers that indicate the model was trained for tool calling.
+_TOOL_MARKERS = ("tool_call", "tool_calls", "tools", "function_call", "available_tools")
+
+
+class ModelCapabilities(BaseModel):
+    """Static capability hints for one model."""
+
+    vision: bool = False
+    tools: bool = False
+    context_length: int | None = None
+
+
+def _read_gguf_string(fh: Any) -> str:
+    """Read a GGUF string (uint64 length + UTF-8 bytes) from an open file."""
+    (length,) = struct.unpack("<Q", fh.read(8))
+    return bytes(fh.read(length)).decode("utf-8", errors="replace")
+
+
+def _skip_gguf_value(fh: Any, vtype: int) -> None:
+    """Advance past a GGUF value of ``vtype`` we don't need to keep."""
+    if vtype == _GGUF_STRING:
+        (length,) = struct.unpack("<Q", fh.read(8))
+        fh.seek(length, 1)
+    elif vtype == _GGUF_ARRAY:
+        (elem_type,) = struct.unpack("<I", fh.read(4))
+        (count,) = struct.unpack("<Q", fh.read(8))
+        for _ in range(count):
+            _skip_gguf_value(fh, elem_type)
+    else:
+        fh.seek(_GGUF_SCALAR_SIZE.get(vtype, 0), 1)
+
+
+def _read_gguf_scalar(fh: Any, vtype: int) -> Any:
+    """Read a fixed-width GGUF scalar value of ``vtype``."""
+    fmt = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f", 7: "<?", 10: "<Q", 11: "<q", 12: "<d"}
+    code = fmt.get(vtype)
+    if code is None:
+        return None
+    size = _GGUF_SCALAR_SIZE[vtype]
+    (value,) = struct.unpack(code, fh.read(size))
+    return value
+
+
+def _gguf_metadata(path: Path, wanted: set[str]) -> dict[str, Any]:
+    """Read requested scalar/string metadata keys from a GGUF file.
+
+    Only scalar and string values are captured (arrays are skipped); parsing
+    stops once every wanted key is found. Returns ``{}`` on any read/format error.
+    """
+    out: dict[str, Any] = {}
+    try:
+        with path.open("rb") as fh:
+            if fh.read(4) != b"GGUF":
+                return {}
+            struct.unpack("<I", fh.read(4))  # version
+            struct.unpack("<Q", fh.read(8))  # tensor count
+            (kv_count,) = struct.unpack("<Q", fh.read(8))
+            for _ in range(kv_count):
+                key = _read_gguf_string(fh)
+                (vtype,) = struct.unpack("<I", fh.read(4))
+                if key in wanted and vtype == _GGUF_STRING:
+                    out[key] = _read_gguf_string(fh)
+                elif key in wanted and vtype in _GGUF_SCALAR_SIZE:
+                    out[key] = _read_gguf_scalar(fh, vtype)
+                else:
+                    _skip_gguf_value(fh, vtype)
+                if wanted <= out.keys():
+                    break
+    except (OSError, struct.error, ValueError):
+        return out
+    return out
+
+
+def _has_tool_markers(template: str | None) -> bool:
+    """Whether a chat template string references tool calling."""
+    if not template:
+        return False
+    low = template.lower()
+    return any(marker in low for marker in _TOOL_MARKERS)
+
+
+def _gguf_capabilities(model: LibraryModel) -> ModelCapabilities:
+    """Read capabilities from a GGUF file's metadata."""
+    meta = _gguf_metadata(model.load_target, {"general.architecture", "tokenizer.chat_template"})
+    arch = meta.get("general.architecture")
+    ctx_meta = _gguf_metadata(model.load_target, {f"{arch}.context_length"}) if arch else {}
+    ctx = ctx_meta.get(f"{arch}.context_length")
+    return ModelCapabilities(
+        vision=model.mmproj is not None,
+        tools=_has_tool_markers(meta.get("tokenizer.chat_template")),
+        context_length=int(ctx) if isinstance(ctx, int) else None,
+    )
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    """Best-effort JSON object read; ``{}`` on any error."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
+    """Read capabilities from an MLX / safetensors model directory's sidecars."""
+    config = _read_json(model.load_target / "config.json")
+    tok = _read_json(model.load_target / "tokenizer_config.json")
+    architectures = [str(a).lower() for a in (config.get("architectures") or [])]
+    name_low = model.name.lower()
+    vision = (
+        "vision_config" in config
+        or any(k in a for a in architectures for k in ("vl", "vision", "llava", "idefics"))
+        or any(k in name_low for k in ("-vl", "vision", "llava"))
+    )
+    template = tok.get("chat_template")
+    template_str = template if isinstance(template, str) else json.dumps(template) if template else None
+    # Multimodal configs nest the language settings under ``text_config``.
+    tc = config.get("text_config")
+    text_config: dict[str, Any] = tc if isinstance(tc, dict) else {}
+    ctx = config.get("max_position_embeddings") or text_config.get("max_position_embeddings")
+    return ModelCapabilities(
+        vision=vision,
+        tools=_has_tool_markers(template_str),
+        context_length=int(ctx) if isinstance(ctx, int) else None,
+    )
+
+
+def capabilities(model: LibraryModel) -> ModelCapabilities:
+    """Static capability hints for ``model`` (safe: never raises, defaults to False)."""
+    try:
+        if model.model_format is ModelFormat.gguf:
+            return _gguf_capabilities(model)
+        if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
+            return _dir_capabilities(model)
+    except Exception:  # noqa: BLE001 - capability detection is best-effort; never break the picker
+        pass
+    return ModelCapabilities()

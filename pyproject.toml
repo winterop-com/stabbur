@@ -14,6 +14,18 @@ dependencies = [
     "uvicorn[standard]>=0.49.0",
 ]
 
+[project.optional-dependencies]
+# Apple-Silicon MLX runtimes. Optional + platform-gated: kodo spawns these as
+# OpenAI servers (it does not import them), and they have no Linux wheels, so
+# they must never be hard deps. mlx-vlm serves multimodal MLX checkpoints that
+# text-only mlx-lm can't load. Install with `uv sync --extra mlx` on an M-series
+# Mac (a no-op elsewhere). llama.cpp's `llama-server` stays external (a C++
+# binary; `brew install llama.cpp`).
+mlx = [
+    "mlx-lm>=0.31.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-vlm>=0.6.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+
 [project.scripts]
 kodo = "kodo.cli:app"
 kodo-mcp-datetime = "kodo.mcp.datetime_server:main"

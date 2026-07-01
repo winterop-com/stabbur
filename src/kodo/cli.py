@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from kodo import catalog as catalog_ops
-from kodo import config, project, runtime
+from kodo import config, doctor, project, runtime
 from kodo import library as library_ops
 from kodo.config import get_settings
 from kodo.models import CuratedModel, ModelFormat, ModelSource, _human_size
@@ -59,9 +59,10 @@ FormatOption = Annotated[
 ]
 
 
-# Curated starter models for `kodo init` (verified GGUF repos; kept small).
+# Curated starter models for `kodo init` (verified GGUF repos; small but capable
+# — sub-1B toy models are too weak to be useful defaults, so the floor is ~3B).
 _CURATED: list[CuratedModel] = [
-    CuratedModel(id="unsloth/SmolLM2-360M-Instruct-GGUF", note="tiny — runs on anything (~350 MB)"),
+    CuratedModel(id="unsloth/Llama-3.2-3B-Instruct-GGUF", note="light + broadly capable (~2 GB)"),
     CuratedModel(id="unsloth/Qwen3.5-4B-GGUF", note="compact + good at tools (~2.5 GB)"),
 ]
 
@@ -102,6 +103,44 @@ def _library_names() -> set[str]:
         names.add(m.name.lower())
         names.add(m.name.rsplit("/", 1)[-1].lower())
     return names
+
+
+_DOCTOR_STYLE = {
+    doctor.CheckStatus.ok: ("green", "ok"),
+    doctor.CheckStatus.warn: ("yellow", "warn"),
+    doctor.CheckStatus.fail: ("red", "fail"),
+}
+
+
+@app.command("doctor")
+def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
+    """Check system health: runtimes, library, and the current project.
+
+    A quick pre-flight: are the runtime binaries kodo spawns installed, is the
+    library reachable and non-empty, and does the project (if any) point at a
+    model that's present. Exits non-zero if any check fails.
+    """
+    report = doctor.run_checks()
+    table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False)
+    table.add_column("", width=4)
+    table.add_column("Check", style="bold")
+    table.add_column("Detail", overflow="fold")
+    for check in report.checks:
+        color, label = _DOCTOR_STYLE[check.status]
+        detail = check.detail
+        if check.hint:
+            detail += f"\n[dim]{check.hint}[/]"
+        table.add_row(f"[{color}]{label}[/]", check.name, detail)
+    console.print(table)
+
+    color, _ = _DOCTOR_STYLE[report.status]
+    if report.status is doctor.CheckStatus.fail:
+        console.print("\n[red]Some checks failed.[/] Address the items above to run models.")
+        raise typer.Exit(1)
+    if report.status is doctor.CheckStatus.warn:
+        console.print("\n[yellow]All essentials present[/], with warnings above.")
+    else:
+        console.print("\n[green]All good.[/]")
 
 
 @app.command("list")
@@ -202,6 +241,13 @@ def pull(
         bool,
         typer.Option("--local", help="Pull into the always-local root (works when the drive is unplugged)."),
     ] = False,
+    include: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--include",
+            help="HF only: filename glob(s) to fetch, e.g. --include '*Q4_K_M*' to grab one GGUF quant. Repeatable.",
+        ),
+    ] = None,
 ) -> None:
     """Pull (or move) a model into the library (the drive, or --local).
 
@@ -221,7 +267,7 @@ def pull(
     verb = "Moving" if move else "Pulling"
     typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
     try:
-        result = catalog_ops.pull(source, name, library_root=root, move=move)
+        result = catalog_ops.pull(source, name, library_root=root, move=move, include=include)
     except Exception as exc:  # noqa: BLE001 - a pull can fail many ways (disk, network, HF Hub); surface it cleanly
         typer.secho(f"Pull failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc

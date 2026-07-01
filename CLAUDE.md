@@ -147,9 +147,20 @@ Serving is OpenAI-compatible so any client (and our SPA) can attach:
   built-in web chat UI, tool calling (`--jinja` default), experimental **MCP
   host** in its web UI, and a native **router mode** (`--models-dir`, hot-swap by
   model name) worth adopting for "one server, all GGUF".
-- **MLX → `mlx_lm.server`** — Apple Silicon only, OpenAI `/v1`.
+- **MLX → `mlx_lm.server` (text) / `mlx_vlm.server` (multimodal)** — Apple
+  Silicon only, OpenAI `/v1`. Multimodal MLX checkpoints (a `vision_config`;
+  weights under `language_model.*`) can't be loaded by text-only `mlx_lm` — it
+  errors on the extra params and the request silently returns empty — so kodo
+  routes vision-capable MLX to `mlx-vlm`. Runtime is chosen by the detected
+  `vision` capability (`kodo.capabilities`).
 - Ollama new per-tensor models (e.g. `gemma4:12b-mlx`) aren't a single GGUF and
   need Ollama itself; single-GGUF Ollama models run via llama.cpp.
+
+Runtimes are **external processes kodo spawns**, not imported libs. `llama-server`
+is a C++ binary (`brew install llama.cpp`). The MLX runtimes are an optional,
+platform-gated extra (`uv sync --extra mlx` / `make install-mlx`) — never hard
+deps, since they have no Linux wheels. kodo finds them on `PATH`; a missing one
+yields an install hint, not a hang.
 
 `serve --ui` orchestrates: pick a model → FastAPI starts the right runtime and
 proxies `/v1` so the SPA is single-origin.
@@ -166,50 +177,13 @@ is in scope for Phase 1, generically (any MCP server), not just DHIS2.
 - kodo owns the MCP client + loop so every client (web UI, extension, CLI)
   stays thin and tools work uniformly.
 
-## North-star roadmap
+## Roadmap
 
-End goal: a **local, self-hosted DHIS2 assistant** — your own model + DHIS2 tools
-in a Chrome side-panel:
+Forward-looking plans — the north-star DHIS2 assistant, the phased build order,
+and open/next ideas — live in `ROADMAP.md`, not here, so they don't load into
+every session's context. Update `ROADMAP.md` when plans change.
 
-```
-Chrome extension (side panel, shadcn chat)
-  → kodo (serve --ui --model X): runs the model + MCP client + agent loop
-      → MCP server from ../dhis2w-utils  → DHIS2 instance
-```
+## Dev workflow
 
-The DHIS2 MCP side is already built in `~/dev/local/dhis2w-utils` (uv workspace):
-- **`dhis2w-mcp-bridge`** — one tool `dhis2_cli(args, profile)` shelling out to
-  `d2w`; built for small local models (8k context, progressive `--help`). The
-  default target for kodo + a small model.
-- **`dhis2w-mcp-router`** — 2 meta-tools (`search_tools`/`call_tool`), lazy typed
-  discovery, single guarded chokepoint + **read-only mode** (gates DHIS2 writes).
-- **`dhis2w-mcp`** — full ~304 typed tools (big-context hosts).
-- `dhis2w-browser` — Playwright DHIS2 automation (relevant to the extension's
-  later "act on the page" tier).
-
-**Build order (decided):**
-1. **Phase 1 — finish kodo + web chat UI**, including generic tool/MCP
-   support (agent loop + MCP client, pointable at any MCP server). `serve --ui`
-   and `serve --ui --model X` (locked, extension-ready, CORS).
-2. **Phase 2 — DHIS2 + Chrome extension**: point kodo's MCP client at
-   `dhis2w-mcp-bridge`/`-router`; package the chat UI as the side-panel extension
-   against the locked `/v1`.
-3. Later: extension page-context, then page-actions (via `dhis2w-browser`).
-
-## Open / next ideas
-
-- **Projects (assistant definitions)** — two units: the *global* **library**
-  (models on the drive) vs a *local* **project** (`./kodo.toml`: a library
-  model + MCP servers + system prompt + serve settings). Projects make assistants
-  reproducible/shareable; the north-star DHIS2 assistant is just a project. Keep
-  the project file a thin manifest, not a framework.
-- **`kodo init`** — scaffold a project in the cwd and ensure its model is in the
-  library; when undecided, offer a curated **2–3** tiny starter models (compact
-  GGUF, MLX for Apple Silicon, a tool-capable one). On-ramp: clone → `kodo init` →
-  `kodo serve --ui`. Idempotent: pull only models missing from the library; no
-  cwd/`~/.config` "ran" flag (any optional marker lives in `<library_root>/.kodo/`).
-- Refactor toward the format-centric shared library above (the big one).
 - `make check` is the CI gate (read-only); `make lint` mutates locally.
-- Auto-fetch HF model cards for LM Studio models (infer repo from path).
-- A "want list" / sync command to (re-)download a declared set of models.
-- Verify/repair: re-check sizes & checksums against metadata.
+- Run `make lint` and `make test` before committing.

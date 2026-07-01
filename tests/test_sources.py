@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from kodo import library, runtime
+from kodo import catalog, library, runtime
 from kodo.config import Settings
 from kodo.models import ModelFormat, ModelSource
-from kodo.sources import base, lmstudio, ollama
+from kodo.sources import base, huggingface, lmstudio, ollama
 
 
 def _add_blob(store: Path, content: bytes) -> str:
@@ -315,6 +315,71 @@ def test_runtime_build_command(tmp_path: Path) -> None:
     mlx_cmd = runtime.build_command(mlx, "127.0.0.1", 8081)
     assert mlx_cmd[0] == "mlx_lm.server"
     assert str(mlx.path) in mlx_cmd
+
+    # n_ctx sets llama.cpp's context window (GGUF only); MLX ignores it.
+    ctx_cmd = runtime.build_command(gguf, "127.0.0.1", 8080, n_ctx=4096)
+    assert "-c" in ctx_cmd and ctx_cmd[ctx_cmd.index("-c") + 1] == "4096"
+    assert "-c" not in runtime.build_command(mlx, "127.0.0.1", 8081, n_ctx=4096)
+    assert "-c" not in runtime.build_command(gguf, "127.0.0.1", 8080)  # None → no flag
+
+
+def test_build_command_routes_multimodal_mlx_to_vlm(tmp_path: Path) -> None:
+    # A text-only MLX (no vision_config) serves via mlx_lm; a multimodal one
+    # (vision_config present) must route to mlx-vlm, which mlx_lm can't load.
+    text_dir = tmp_path / "mlx" / "pub" / "Text"
+    text_dir.mkdir(parents=True)
+    (text_dir / "model.safetensors").write_bytes(b"w")
+    (text_dir / "config.json").write_text('{"architectures": ["LlamaForCausalLM"]}')
+
+    vlm_dir = tmp_path / "mlx" / "pub" / "Vision"
+    vlm_dir.mkdir(parents=True)
+    (vlm_dir / "model.safetensors").write_bytes(b"w")
+    (vlm_dir / "config.json").write_text('{"architectures": ["Gemma4ForConditionalGeneration"], "vision_config": {}}')
+
+    text = library.find("Text", root=tmp_path)[0]
+    vlm = library.find("Vision", root=tmp_path)[0]
+    assert runtime.build_command(text, "127.0.0.1", 8080)[0] == "mlx_lm.server"
+    assert runtime.build_command(vlm, "127.0.0.1", 8080)[0] == "mlx_vlm.server"
+
+
+def test_hf_pull_include_sets_allow_patterns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # --include restricts the download to matching files, plus small sidecars, so
+    # a single GGUF quant can be pulled from a multi-quant repo.
+    captured: dict[str, object] = {}
+
+    def fake_snapshot(**kwargs: object) -> str:
+        captured.update(kwargs)
+        return str(kwargs["local_dir"])
+
+    monkeypatch.setattr(huggingface, "snapshot_download", fake_snapshot)
+
+    huggingface.pull("pub/Repo-GGUF", tmp_path, include=["*Q4_K_M*", "*mmproj*"])
+    patterns = captured["allow_patterns"]
+    assert patterns == ["*Q4_K_M*", "*mmproj*", "*.md", "*.json", "*.txt"]
+
+    huggingface.pull("pub/Repo", tmp_path)  # no include → no filtering
+    assert captured["allow_patterns"] is None
+
+
+def test_scan_skips_incomplete_gguf_dir(tmp_path: Path) -> None:
+    # A dir with only an mmproj (or nothing but partial downloads) is not yet a
+    # runnable model; scanning it must skip it, not crash the whole scan.
+    d = tmp_path / "gguf" / "pub" / "Repo"
+    d.mkdir(parents=True)
+    (d / "mmproj-Repo-BF16.gguf").write_bytes(b"x")
+    assert library.scan(root=tmp_path) == []  # no runnable model, no exception
+
+    # Once the real quant lands, it resolves normally (with the mmproj attached).
+    (d / "Repo.Q4_K_M.gguf").write_bytes(b"weights")
+    models = library.scan(root=tmp_path)
+    assert len(models) == 1
+    assert models[0].load_target.name == "Repo.Q4_K_M.gguf"
+    assert models[0].mmproj is not None
+
+
+def test_catalog_pull_include_rejects_non_hf(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="only supported for the huggingface source"):
+        catalog.pull(ModelSource.ollama, "model:tag", library_root=tmp_path, include=["*Q4*"])
 
 
 def test_build_command_refuses_safetensors(tmp_path: Path) -> None:

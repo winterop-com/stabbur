@@ -85,7 +85,7 @@ def list_models() -> list[ModelEntry]:
     return entries
 
 
-def pull(repo_id: str, library_root: Path, token: str | None = None) -> PullResult:
+def pull(repo_id: str, library_root: Path, token: str | None = None, include: list[str] | None = None) -> PullResult:
     """Download ``repo_id`` into the backup root.
 
     Args:
@@ -93,16 +93,22 @@ def pull(repo_id: str, library_root: Path, token: str | None = None) -> PullResu
         library_root: Destination root; the model lands in
             ``library_root/huggingface/<repo_id>``.
         token: Optional access token for gated or private repos.
+        include: Optional filename globs to restrict the download (e.g.
+            ``["*Q4_K_M*"]`` to pull one GGUF quant from a multi-quant repo).
+            Small sidecars (``*.md`` / ``*.json`` / ``*.txt``) are always kept so
+            the model card and configs come along.
 
     Returns:
         A :class:`PullResult` describing what was written.
     """
     dest = library_root / ModelSource.huggingface.value / repo_id
     dest.mkdir(parents=True, exist_ok=True)
+    allow_patterns = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
     snapshot_download(
         repo_id=repo_id,
         local_dir=dest,
         token=token,
+        allow_patterns=allow_patterns,
     )
     size_bytes, file_count = dir_stats(dest)
 
