@@ -24,6 +24,7 @@ from textual.message import Message
 from textual.widgets import Collapsible, Static, TextArea
 
 from kodo import agent, attach
+from kodo import sampling as sampling_mod
 from kodo import tools as mcp_tools
 
 
@@ -108,6 +109,7 @@ class ChatApp(App[None]):
         audios: list[str],
         max_tokens: int | None,
         ctx_max: int | None,
+        sampling: "sampling_mod.ModelSampling",
     ) -> None:
         super().__init__()
         self._model_name = model_name
@@ -116,6 +118,7 @@ class ChatApp(App[None]):
         self._servers = servers
         self._max_tokens = max_tokens
         self._ctx_max = ctx_max
+        self._sampling = sampling
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
         self._pending_images: list[str] | None = images
         self._pending_audios: list[str] | None = audios
@@ -321,6 +324,11 @@ class ChatApp(App[None]):
                     on_token,
                     on_reasoning=on_reasoning,
                     on_usage=on_usage,
+                    temperature=self._sampling.temperature,
+                    top_p=self._sampling.top_p,
+                    top_k=self._sampling.top_k,
+                    min_p=self._sampling.min_p,
+                    repeat_penalty=self._sampling.repeat_penalty,
                 )
             except asyncio.CancelledError:  # ESC: drop the partial turn, keep the session
                 finalize_reasoning()
@@ -359,6 +367,7 @@ def run_interactive(
     audios: list[str],
     max_tokens: int | None,
     ctx_max: int | None,
+    sampling: sampling_mod.ModelSampling,
 ) -> None:
     """Build and run the chat TUI (blocking) against an already-serving model."""
     ChatApp(
@@ -371,4 +380,5 @@ def run_interactive(
         audios=audios,
         max_tokens=max_tokens,
         ctx_max=ctx_max,
+        sampling=sampling,
     ).run()

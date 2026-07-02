@@ -922,10 +922,14 @@ def _chat_with_tools(
     from kodo import (
         agent,  # noqa: PLC0415
         chatui,  # noqa: PLC0415
+        sampling,  # noqa: PLC0415
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
     servers = [(name, shlex.split(cmd)) for name, cmd in mcp_servers]
+    # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied
+    # to every CLI chat turn just like the web path does.
+    rec = sampling.recommended(model)
     # Tool activity is meta → stderr, so `-p` stdout stays just the answer.
     err = Console(stderr=True)
 
@@ -1001,6 +1005,11 @@ def _chat_with_tools(
                 on_event,
                 on_token,
                 on_reasoning=on_reasoning,
+                temperature=rec.temperature,
+                top_p=rec.top_p,
+                top_k=rec.top_k,
+                min_p=rec.min_p,
+                repeat_penalty=rec.repeat_penalty,
             )
             _first_output()
             print()  # noqa: T201 - newline after streamed answer
@@ -1027,6 +1036,7 @@ def _chat_with_tools(
             audios=audios or [],
             max_tokens=max_tokens,
             ctx_max=ctx_max,
+            sampling=rec,
         )
 
 

@@ -202,7 +202,7 @@ def generate(
 
     ``images`` / ``audios`` are data-URL strings sent to a multimodal model.
     """
-    from kodo import agent  # noqa: PLC0415 - avoid import cycle at module load
+    from kodo import agent, sampling  # noqa: PLC0415 - avoid import cycle at module load
 
     with _serve(model) as base:
         messages: list[dict[str, Any]] = []
@@ -212,6 +212,8 @@ def generate(
         body: dict[str, object] = {"messages": messages}
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        # Model-recommended sampling (incl. the anti-loop repeat_penalty default).
+        body.update(sampling.recommended(model).model_dump(exclude_none=True))
         resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
         resp.raise_for_status()
         content: str = resp.json()["choices"][0]["message"]["content"]

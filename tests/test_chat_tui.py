@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from kodo import chat_tui
+from kodo.sampling import ModelSampling
 
 
 def _app() -> chat_tui.ChatApp:
@@ -19,6 +20,7 @@ def _app() -> chat_tui.ChatApp:
         audios=[],
         max_tokens=None,
         ctx_max=1024,
+        sampling=ModelSampling(repeat_penalty=1.1),
     )
 
 
@@ -32,6 +34,7 @@ async def test_enter_sends_and_streams_reply(monkeypatch: pytest.MonkeyPatch) ->
         on_token: Any,
         on_reasoning: Any = None,
         on_usage: Any = None,
+        **_kw: Any,
     ) -> str:
         for tok in ("Hello", ", ", "world"):
             on_token(tok)
@@ -66,6 +69,7 @@ async def test_reasoning_collapses_after_answer(monkeypatch: pytest.MonkeyPatch)
         on_token: Any,
         on_reasoning: Any = None,
         on_usage: Any = None,
+        **_kw: Any,
     ) -> str:
         on_reasoning("let me think")
         on_token("the answer")
@@ -99,6 +103,7 @@ async def test_prompts_queue_while_busy_and_run_in_order(monkeypatch: pytest.Mon
         on_token: Any,
         on_reasoning: Any = None,
         on_usage: Any = None,
+        **_kw: Any,
     ) -> str:
         nonlocal calls
         calls += 1
