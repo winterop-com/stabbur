@@ -144,8 +144,14 @@ async function markdownToHtml(content: string): Promise<string> {
 // of the app's theme. Paired with the inlined github (light) highlight theme.
 const PRINT_CSS = `
   *{ box-sizing: border-box; }
+  /* Zero page margin removes the browser's default header/footer (date, URL,
+     page numbers); real margins come from the body padding below. */
+  @page{ margin: 0; }
+  html,body{ margin:0; }
   body{ font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        color:#1a1a1a; margin:0; padding:2rem; max-width:46rem; margin-inline:auto; }
+        color:#1a1a1a; padding:16mm 18mm; }
+  /* Drop empty code boxes left by unterminated fences in model output. */
+  .content pre:empty, .content pre:has(> code:empty){ display:none; }
   header.doc{ border-bottom:1px solid #e2e2e2; padding-bottom:1rem; margin-bottom:1.5rem; }
   header.doc h1{ font-size:1.5rem; margin:0 0 .5rem; }
   header.doc .meta{ color:#666; font-size:.8rem; }
@@ -183,8 +189,10 @@ export async function exportConversationPdf(conv: Conversation, model: string | 
     if (m.role === "system") continue;
     const imgs = (m.images ?? []).map((src) => `<img class="att" src="${src}" alt="attachment" />`).join("");
     const audioNote = (m.audios ?? []).length ? `<p class="note">[audio attached]</p>` : "";
+    // Expanded (open) so the reasoning is actually visible on paper — a collapsed
+    // disclosure is useless in a static PDF.
     const reasoning = m.reasoning?.trim()
-      ? `<details class="think"><summary>Thinking</summary><div class="think-body">${escapeHtml(m.reasoning.trim())}</div></details>`
+      ? `<details class="think" open><summary>Thinking</summary><div class="think-body">${escapeHtml(m.reasoning.trim())}</div></details>`
       : "";
     const tools = (m.tools ?? [])
       .map((t) => `<p class="tool"><strong>${t.kind === "call" ? "Tool call" : "Tool result"}:</strong> ${escapeHtml(t.detail)}</p>`)
