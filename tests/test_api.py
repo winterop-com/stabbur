@@ -56,6 +56,10 @@ async def test_cross_site_mutating_request_blocked(client: AsyncClient) -> None:
     assert r.status_code == 403
     r = await client.post("/api/chat", json={"messages": []}, headers={"sec-fetch-site": "cross-site"})
     assert r.status_code == 403
+    # POST /models/{source}/pull downloads/copies files to disk — also guarded (a
+    # drive-by page must not be able to trigger a background pull side effect).
+    r = await client.post("/models/huggingface/pull?name=whatever", headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
 
 
 async def test_same_origin_and_non_browser_not_blocked(client: AsyncClient) -> None:
@@ -123,6 +127,27 @@ async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest
         r1, r2 = await asyncio.gather(c.post("/api/load/m"), c.post("/api/load/m"))
     assert r1.status_code == 200 and r2.status_code == 200
     assert max_active == 1  # never two loads mutating state at once
+
+
+async def test_load_and_unload_rejected_while_generating(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A running generation reserves the runtime (active_generations > 0); load/unload
+    # must refuse (409) so the runtime it's streaming from is never swapped/killed.
+    fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
+    monkeypatch.setattr("kodo.routers.serving.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("kodo.routers.serving.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr(app.state.manager, "load", lambda *a, **k: None)
+    monkeypatch.setattr(app.state.manager, "stop", lambda *a, **k: None)
+
+    app.state.active_generations = 1
+    assert (await client.post("/api/load/m")).status_code == 409
+    assert (await client.post("/api/unload")).status_code == 409
+
+    # With nothing generating, both proceed (the reject is conditional, not a wall).
+    app.state.active_generations = 0
+    assert (await client.post("/api/load/m")).status_code == 200
+    assert (await client.post("/api/unload")).status_code == 200
 
 
 async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:

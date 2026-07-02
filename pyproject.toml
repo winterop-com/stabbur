@@ -79,6 +79,10 @@ docstring-code-line-length = "dynamic"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "__pycache__"]
+# Exclude the live e2e tests by default so a bare `pytest` / `uv run pytest` stays
+# hermetic (they spawn a real runtime and need a working local model). Opt in with
+# `pytest -m slow`. `make test` passes its own `-m "not slow"`, which still works.
+addopts = "-m 'not slow'"
 markers = [
   "slow: live end-to-end tests that start a real runtime (deselect with -m 'not slow')",
 ]

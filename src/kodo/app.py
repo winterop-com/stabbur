@@ -21,21 +21,25 @@ from kodo.server import ServerManager
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
+_GUARDED_PREFIXES = ("/api", "/v1", "/models")
+
+
 def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
     """Whether to reject a request as a cross-site (drive-by) browser call.
 
-    Guards mutating ``/api`` and ``/v1`` calls. A random webpage in the user's
-    browser can POST to the localhost server — and a no-preflight "simple" request
-    (e.g. ``text/plain`` body, or a no-body POST) still executes server-side,
-    firing MCP tools — so block requests the browser marks cross-site via
-    ``Sec-Fetch-Site``. Allowed through: same-origin (the served SPA), an
-    explicitly-configured origin (extension/dev), and non-browser clients (curl,
-    the CLI, tests — they send no ``Sec-Fetch-Site``).
+    Guards mutating ``/api``, ``/v1``, and ``/models`` calls (the last exposes
+    ``POST /models/{source}/pull``, which downloads/copies files to disk). A random
+    webpage in the user's browser can POST to the localhost server — and a
+    no-preflight "simple" request (e.g. ``text/plain`` body, or a no-body POST)
+    still executes server-side, firing MCP tools / disk writes — so block requests
+    the browser marks cross-site via ``Sec-Fetch-Site``. Allowed through:
+    same-origin (the served SPA), an explicitly-configured origin (extension/dev),
+    and non-browser clients (curl, the CLI, tests — they send no ``Sec-Fetch-Site``).
     """
     if request.method not in _MUTATING_METHODS:
         return False
     path = request.url.path
-    if not (path.startswith("/api") or path.startswith("/v1")):
+    if not path.startswith(_GUARDED_PREFIXES):
         return False
     origin = request.headers.get("origin")
     # Only a *specific* allow-listed origin bypasses the guard. A bare "*" enables
@@ -106,6 +110,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # corrupt the manager's process state (ServerManager has no internal lock, and
     # load/unload now run in worker threads). Async, so waiting doesn't block the loop.
     app.state.lifecycle_lock = asyncio.Lock()
+    # Count of in-flight generations (server-side chat + /v1 proxy streams). A
+    # load/unload refuses while this is > 0 so a running generation never has its
+    # runtime swapped/killed out from under it. Mutated only on the event loop.
+    app.state.active_generations = 0
     # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
     app.state.http = httpx.AsyncClient(timeout=None)
     # MCP toolset + system prompt for the server-side agent loop; populated by

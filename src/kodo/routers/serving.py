@@ -3,13 +3,13 @@
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
-from starlette.background import BackgroundTask
 
 from kodo import agent, capabilities, cards, doctor, kokoro, runtime, sampling, tts
 from kodo import library as library_ops
@@ -79,6 +79,47 @@ ManagerDep = Annotated[ServerManager, Depends(get_manager)]
 HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
 LockDep = Annotated[asyncio.Lock, Depends(get_lifecycle_lock)]
 ConfDep = Annotated[Settings, Depends(get_conf)]
+
+
+async def _acquire_runtime(request: Request) -> None:
+    """Reserve the runtime for a generation.
+
+    Takes the lifecycle lock briefly — so it can't slip in mid load/unload — bumps
+    the active-generation count, then releases the lock. While the count is > 0 a
+    load/unload is refused (see ``_reject_if_generating``), so the runtime a running
+    generation is streaming from is never swapped or killed underneath it.
+    """
+    lock: asyncio.Lock = request.app.state.lifecycle_lock
+    async with lock:
+        request.app.state.active_generations += 1
+
+
+def _release_runtime(request: Request) -> None:
+    """Release a runtime reservation taken by :func:`_acquire_runtime`."""
+    request.app.state.active_generations -= 1
+
+
+@asynccontextmanager
+async def _reserve_runtime(request: Request) -> AsyncGenerator[None, None]:
+    """Hold a runtime reservation for the duration of a ``with`` block."""
+    await _acquire_runtime(request)
+    try:
+        yield
+    finally:
+        _release_runtime(request)
+
+
+def _reject_if_generating(request: Request) -> None:
+    """409 if a generation is in flight — its runtime must not be swapped/stopped.
+
+    Called by load/unload while holding the lifecycle lock, so the count can't
+    change between this check and the mutation.
+    """
+    if request.app.state.active_generations > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="A response is in progress; stop it before switching or unloading the model.",
+        )
 
 
 async def _status(
@@ -254,14 +295,8 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     the raw ``/v1`` proxy, this executes tool calls server-side so the web UI and
     extension get tools — and surfaces tool activity the proxy can't.
     """
-    current = manager.current
-    if current is None:
+    if manager.current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
-    model_target = current.load_target
-    # Model-recommended sampling (LM Studio parity); an explicit request value wins.
-    rec = sampling.recommended(current)
-    eff_temperature = req.temperature if req.temperature is not None else rec.temperature
-    eff_top_p = req.top_p if req.top_p is not None else rec.top_p
     # use_tools off → empty toolset (non-tool-trained models otherwise regurgitate
     # the injected tool schema as text instead of calling tools).
     toolset: MCPToolset = (
@@ -270,7 +305,6 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     # An explicit allow-list narrows the toolset to the tools the user left enabled.
     if req.enabled_tools is not None:
         toolset = toolset.subset(set(req.enabled_tools))
-    base = manager.base_url
 
     # System prompt precedence: an explicit ``system_prompt`` from the client is
     # authoritative — including "" for *no* system prompt (a roleplay model then
@@ -298,48 +332,63 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         def on_reasoning(text: str) -> None:
             queue.put_nowait({"type": "reasoning", "text": text})
 
-        async def produce() -> None:
-            try:
-                await agent.run(
-                    base,
-                    messages,
-                    toolset,
-                    req.max_tokens,
-                    on_event,
-                    on_token,
-                    on_reasoning=on_reasoning,
-                    temperature=eff_temperature,
-                    top_p=eff_top_p,
-                    top_k=rec.top_k,
-                    min_p=rec.min_p,
-                    repeat_penalty=rec.repeat_penalty,
-                    # mlx-vlm requires the OpenAI ``model`` field match what it loaded
-                    # (the launch path); harmless for llama-server / mlx-lm.
-                    model=str(model_target) if model_target else None,
-                )
-            except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
-                queue.put_nowait({"type": "error", "detail": str(exc)})
-            finally:
-                queue.put_nowait(done)
+        # Reserve the runtime for the whole stream so a load/unload can't swap or kill
+        # it mid-generation; read the current model/URL *inside* the reservation.
+        async with _reserve_runtime(request):
+            current = manager.current
+            if current is None:  # swapped out in the race window before we reserved
+                yield f"data: {json.dumps({'type': 'error', 'detail': 'No model loaded'})}\n\n"
+                yield 'data: {"type": "done"}\n\n'
+                return
+            base = manager.base_url
+            model_target = current.load_target
+            # Model-recommended sampling (LM Studio parity); an explicit request value wins.
+            rec = sampling.recommended(current)
+            eff_temperature = req.temperature if req.temperature is not None else rec.temperature
+            eff_top_p = req.top_p if req.top_p is not None else rec.top_p
 
-        task = asyncio.create_task(produce())
-        try:
-            while True:
-                item = await queue.get()
-                if item is done:
-                    break
-                yield f"data: {json.dumps(item)}\n\n"
-            yield 'data: {"type": "done"}\n\n'
-        finally:
-            if not task.done():
-                task.cancel()  # client disconnected → cancel the in-flight generation
+            async def produce() -> None:
+                try:
+                    await agent.run(
+                        base,
+                        messages,
+                        toolset,
+                        req.max_tokens,
+                        on_event,
+                        on_token,
+                        on_reasoning=on_reasoning,
+                        temperature=eff_temperature,
+                        top_p=eff_top_p,
+                        top_k=rec.top_k,
+                        min_p=rec.min_p,
+                        repeat_penalty=rec.repeat_penalty,
+                        # mlx-vlm requires the OpenAI ``model`` field match what it loaded
+                        # (the launch path); harmless for llama-server / mlx-lm.
+                        model=str(model_target) if model_target else None,
+                    )
+                except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
+                    queue.put_nowait({"type": "error", "detail": str(exc)})
+                finally:
+                    queue.put_nowait(done)
+
+            task = asyncio.create_task(produce())
+            try:
+                while True:
+                    item = await queue.get()
+                    if item is done:
+                        break
+                    yield f"data: {json.dumps(item)}\n\n"
+                yield 'data: {"type": "done"}\n\n'
+            finally:
+                if not task.done():
+                    task.cancel()  # client disconnected → cancel the in-flight generation
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post("/api/load/{name:path}")
 async def load(
-    name: str, manager: ManagerDep, settings: ConfDep, lock: LockDep, n_ctx: int | None = None
+    name: str, manager: ManagerDep, settings: ConfDep, lock: LockDep, request: Request, n_ctx: int | None = None
 ) -> ServerStatus:
     """Load (or switch to) a model by name; rejected in locked mode.
 
@@ -366,6 +415,7 @@ async def load(
         # loads); ServerManager's own thread lock is the actual guarantee if a
         # request is cancelled while its worker thread is still inside load().
         async with lock:
+            _reject_if_generating(request)  # don't swap the runtime under a live generation
             await asyncio.to_thread(manager.load, matches[0], n_ctx)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -470,7 +520,7 @@ async def speak(req: SpeakRequest) -> Response:
 
 
 @router.post("/api/unload")
-async def unload(manager: ManagerDep, settings: ConfDep, lock: LockDep) -> ServerStatus:
+async def unload(manager: ManagerDep, settings: ConfDep, lock: LockDep, request: Request) -> ServerStatus:
     """Eject the loaded model, stopping its runtime process (frees memory).
 
     Rejected in locked mode (the server is bound to one model). A no-op if
@@ -481,6 +531,7 @@ async def unload(manager: ManagerDep, settings: ConfDep, lock: LockDep) -> Serve
     # terminate can wait up to 10s — keep it off-loop; the lock serializes it
     # against a concurrent load so they don't fight over the process handle.
     async with lock:
+        _reject_if_generating(request)  # don't kill the runtime under a live generation
         await asyncio.to_thread(manager.stop)
     return await _status(manager, settings)
 
@@ -494,28 +545,40 @@ async def proxy_v1(path: str, request: Request, manager: ManagerDep, client: Htt
     headers (e.g. ``text/event-stream`` for streaming), which the yield form
     cannot set. Bytes are forwarded verbatim, so SSE deltas stream through live.
     """
-    if manager.current is None:
-        raise HTTPException(status_code=409, detail="No model loaded")
-
     body = await request.body()
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROP_HEADERS}
-    req = client.build_request(
-        request.method,
-        f"{manager.base_url}/v1/{path}",
-        content=body,
-        headers=headers,
-        params=request.query_params,
-    )
+    # Reserve the runtime so a load/unload can't swap/kill it mid-proxy; read the URL
+    # under the reservation (and re-check a model is loaded) and release it when the
+    # proxied stream finishes.
+    await _acquire_runtime(request)
     try:
+        if manager.current is None:
+            raise HTTPException(status_code=409, detail="No model loaded")
+        req = client.build_request(
+            request.method,
+            f"{manager.base_url}/v1/{path}",
+            content=body,
+            headers=headers,
+            params=request.query_params,
+        )
         upstream = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
+        _release_runtime(request)
         raise HTTPException(status_code=502, detail=f"runtime unreachable: {exc}") from exc
+    except BaseException:
+        _release_runtime(request)
+        raise
 
     resp_headers: dict[str, Any] = {k: v for k, v in upstream.headers.items() if k.lower() not in _DROP_HEADERS}
-    # Close only the upstream response; the shared client lives for the app's lifetime.
-    return StreamingResponse(
-        upstream.aiter_raw(),
-        status_code=upstream.status_code,
-        headers=resp_headers,
-        background=BackgroundTask(upstream.aclose),
-    )
+
+    async def relay() -> AsyncGenerator[bytes, None]:
+        # Hold the reservation for the whole proxied stream; release + close upstream
+        # when it ends (or the client disconnects and Starlette closes the generator).
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            _release_runtime(request)
+
+    return StreamingResponse(relay(), status_code=upstream.status_code, headers=resp_headers)
