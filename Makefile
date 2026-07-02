@@ -8,6 +8,13 @@ UV := $(shell command -v uv 2> /dev/null)
 VENV_DIR ?= .venv
 PYTHON := $(VENV_DIR)/bin/python
 
+# Type-check the app + every workspace member (packages/kodo-mcp-*). Each member's
+# src/ and tests/ go on MYPYPATH so their flat modules resolve to clean, hyphen-free
+# names (packages/ dir names contain '-'). Globs expand at recipe time, so new
+# members are picked up automatically.
+MYPY = MYPYPATH="$$(echo src packages/*/src packages/*/tests | tr ' ' ':')" $(UV) run mypy \
+	--explicit-package-bases src tests packages/*/src packages/*/tests
+
 # ==============================================================================
 # Targets
 # ==============================================================================
@@ -46,7 +53,7 @@ lint:
 	@$(UV) run ruff format .
 	@$(UV) run ruff check . --fix
 	@echo ">>> Running type checker"
-	@$(UV) run mypy --explicit-package-bases src tests
+	@$(MYPY)
 	@$(UV) run pyright
 
 check:
@@ -54,7 +61,7 @@ check:
 	@$(UV) run ruff format --check .
 	@$(UV) run ruff check .
 	@echo ">>> Running type checker"
-	@$(UV) run mypy --explicit-package-bases src tests
+	@$(MYPY)
 	@$(UV) run pyright
 	@echo ">>> Running tests (excluding slow)"
 	@$(UV) run pytest -q -m "not slow"

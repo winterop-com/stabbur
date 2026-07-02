@@ -10,6 +10,7 @@ dependencies = [
     "hf-xet>=1.5.1",
     "httpx>=0.28.1",
     "huggingface-hub>=1.21.0",
+    "kodo-mcp-datetime",
     "pydantic-settings>=2.14.2",
     "textual>=0.85",
     "typer>=0.25.1",
@@ -41,11 +42,19 @@ tts = [
 
 [project.scripts]
 kodo = "kodo.cli:app"
-kodo-mcp-datetime = "kodo.mcp.datetime_server:main"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
+
+# uv workspace: the app (this package) plus one bundled MCP server per package under
+# packages/kodo-mcp-*/. New servers (e.g. kodo-mcp-weather-yr) are sibling members and
+# join automatically via the glob; add each as a dependency + source below to bundle it.
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+kodo-mcp-datetime = { workspace = true }
 
 [tool.fastapi]
 # Let `fastapi dev` / `fastapi run` auto-detect the app.
@@ -65,8 +74,10 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D"]
+"packages/*/tests/**/*.py" = ["D"]
 "**/__init__.py" = ["D104"]
 "src/**/*.py" = ["D102", "D105", "D107"]
+"packages/*/src/**/*.py" = ["D102", "D105", "D107"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -77,7 +88,7 @@ docstring-code-line-length = "dynamic"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "packages/mcp/tests"]
 norecursedirs = [".git", ".venv", "__pycache__"]
 # Exclude the live e2e tests by default so a bare `pytest` / `uv run pytest` stays
 # hermetic (they spawn a real runtime and need a working local model). Opt in with
@@ -91,7 +102,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo"]
+source = ["kodo", "kodo_mcp"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]
@@ -108,6 +119,8 @@ check_untyped_defs = true
 no_implicit_optional = true
 warn_unused_ignores = true
 strict_equality = true
+# Member roots go on MYPYPATH via the Makefile (glob-expanded) so each flat module
+# (packages/kodo-mcp-*/kodo_mcp_*.py) resolves to a clean, hyphen-free module name.
 mypy_path = ["src"]
 
 [[tool.mypy.overrides]]
@@ -121,7 +134,7 @@ module = ["soundfile.*", "espeakng_loader.*", "kokoro_onnx.*"]
 ignore_missing_imports = true
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "packages/*/src", "packages/*/tests"]
 exclude = ["**/.venv"]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"

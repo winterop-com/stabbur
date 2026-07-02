@@ -1,0 +1,18 @@
+[project]
+name = "kodo-mcp-datetime"
+version = "0.1.0"
+description = "Kodo MCP server: date, time, timezone, and calendar tools (stdlib, over stdio)"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.4.2",
+]
+
+# Console script -> main() re-exported from the package root. A new MCP keeps this
+# line, renaming both sides to its own kodo-mcp-<name>.
+[project.scripts]
+kodo-mcp-datetime = "kodo_mcp_datetime:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

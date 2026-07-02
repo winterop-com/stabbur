@@ -1,12 +1,17 @@
 """A FastMCP server exposing date, time, timezone, and calendar tools.
 
+This module holds the server itself: it builds the ``mcp`` app, registers each
+``@mcp.tool``, and defines ``main()`` (the stdio entry point). ``__init__`` re-exports
+``mcp`` / ``main``; ``__main__`` runs it for ``python -m``. A new MCP server copies this
+package's shape and replaces the tools here — see the package README.
+
 Everything is stdlib (``datetime``, ``zoneinfo``, ``calendar``) — no extra deps.
 Timezones are IANA names (e.g. ``Europe/Oslo``, ``America/New_York``); the special
 values ``local`` and ``UTC`` are also accepted. Datetimes are ISO 8601
 (``2026-07-01T14:30``, optionally with an offset); dates are ``YYYY-MM-DD``.
 
 Run standalone over stdio: ``kodo-mcp-datetime`` (or ``python -m
-kodo.mcp.datetime_server``). Point kodo at it with ``kodo chat --mcp``.
+kodo_mcp_datetime``). Point kodo at it with ``kodo chat --mcp``.
 """
 
 import asyncio
@@ -256,7 +261,3 @@ def main() -> None:
         mcp.run(show_banner=False)
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
-
-
-if __name__ == "__main__":
-    main()
