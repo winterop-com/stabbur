@@ -103,10 +103,21 @@ hf.co/...`) and won't run a loose file in place. So the win is one canonical
 library copy that we *install into* whichever runtime, not a single file used
 live by all.
 
-## UI — web-first (Textual dropped)
+## UI — web-first, plus a Textual terminal chat
 
-Decision: **one browser interface for everything.** Textual/TUI is dropped. The
-single entry point is `kodo serve --ui`:
+Decision: **the browser is the primary, full-featured surface** (library browse +
+chat), via `kodo serve --ui`. The **terminal chat (`kodo chat`, interactive) is a
+Textual TUI** (`src/kodo/chat_tui.py`) — a scrolling markdown transcript, a
+multi-line input (Enter sends; Shift+Return / Ctrl-J / trailing backslash insert a
+newline), live tool/reasoning activity, and a context footer. It reuses the same
+runtime + agent loop; `kodo chat -p` stays a plain scripted one-shot (no TUI).
+
+Note: an earlier decision dropped Textual entirely in favour of web-only; that was
+**reversed** — Textual is the right tool for a terminal chat (a line-editor-plus
+surface, not a full-screen app that fights the web direction), and is available for
+other TUI surfaces later. The browser remains the canonical rich UI.
+
+The web app's single entry point is `kodo serve --ui`:
 
 - **`kodo serve --ui`** — full app: browse the library (grouped by format,
   pull/availability) + chat with any model (pick + switch).

@@ -35,6 +35,16 @@ per-model matrix). Ordered roughly by impact:
 
 ## Open / next ideas
 
+- **Terminal chat is a Textual TUI — DONE.** `kodo chat` (interactive) now runs a
+  full-screen Textual app (`src/kodo/chat_tui.py`): scrolling markdown transcript,
+  multi-line input (Enter sends; Shift+Return / Ctrl-J / trailing backslash =
+  newline), collapsible reasoning ("thought for Ns"), live tool activity, and a
+  context footer. `kodo chat -p` stays a plain scripted one-shot. This **reversed**
+  the earlier "Textual dropped, web-only" decision (see CLAUDE.md) — Textual is the
+  right layer for a terminal chat, and is now available for other TUI surfaces
+  later (e.g. a `kodo tui` library browser) if we want them; the browser stays the
+  canonical rich UI.
+
 - **Model tags (user-defined labels + filtering).** Let the user tag library
   models (e.g. `tested`, `favorite`, `coding`, `roleplay`, `fast`, `broken`) so
   it's easy to see which ones have been tried and to organize a growing library.

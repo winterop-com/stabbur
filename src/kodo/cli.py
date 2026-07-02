@@ -1,7 +1,6 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
 import shutil
-from collections.abc import Awaitable
 from pathlib import Path
 from typing import Annotated
 
@@ -11,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import capabilities, config, doctor, project, runtime
+from kodo import attach, capabilities, config, doctor, project, runtime
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
@@ -724,130 +723,9 @@ def _finish_speak(wav: Path, output: Path | None, play: bool) -> None:
         subprocess.run(["afplay", str(wav)])  # noqa: S603, S607 - local playback of our own file
 
 
-_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac"}
-# Text/doc files dragged into the REPL are inlined into the prompt (work with any
-# model, unlike image/audio). Matched by extension (their MIME is often empty).
-_TEXT_EXTS = {
-    ".txt",
-    ".text",
-    ".md",
-    ".markdown",
-    ".rst",
-    ".json",
-    ".jsonl",
-    ".ndjson",
-    ".csv",
-    ".tsv",
-    ".log",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".ini",
-    ".cfg",
-    ".conf",
-    ".env",
-    ".xml",
-    ".html",
-    ".htm",
-    ".css",
-    ".scss",
-    ".py",
-    ".pyi",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".ts",
-    ".tsx",
-    ".go",
-    ".rs",
-    ".rb",
-    ".java",
-    ".kt",
-    ".kts",
-    ".scala",
-    ".c",
-    ".h",
-    ".cpp",
-    ".cc",
-    ".cxx",
-    ".hpp",
-    ".cs",
-    ".php",
-    ".swift",
-    ".sql",
-    ".sh",
-    ".bash",
-    ".zsh",
-    ".fish",
-    ".ps1",
-    ".r",
-    ".lua",
-    ".pl",
-    ".pm",
-    ".dart",
-    ".ex",
-    ".exs",
-    ".clj",
-    ".hs",
-    ".ml",
-    ".vue",
-    ".svelte",
-    ".tex",
-    ".proto",
-    ".graphql",
-    ".gql",
-}
-
-
-def _media_data_url(path: Path, default_mime: str) -> str:
-    """Read a file into a base64 ``data:`` URL (mime guessed, else ``default_mime``)."""
-    import base64  # noqa: PLC0415
-    import mimetypes  # noqa: PLC0415
-
-    mime = mimetypes.guess_type(str(path))[0] or default_mime
-    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
-
-
-def _inline_files(text: str, files: list[tuple[str, str]]) -> str:
-    """Prepend attached text/doc files to a message as fenced blocks (context)."""
-    if not files:
-        return text
-    blocks = "\n\n".join(f"Attached file: {name}\n```\n{content}\n```" for name, content in files)
-    return f"{blocks}\n\n{text}" if text else blocks
-
-
-def _split_input_media(text: str) -> tuple[str, list[str], list[str], list[tuple[str, str]]]:
-    """Pull dragged file paths out of a REPL line (from a terminal drag-drop).
-
-    Dragging a file into the terminal inserts its (possibly shell-escaped or
-    quoted) path as text. Detect tokens that resolve to an existing image/audio
-    file (attached as data URLs) or text/doc file (read as ``(name, contents)``
-    for inlining), and return the remaining words as the message.
-    """
-    import shlex  # noqa: PLC0415
-
-    try:
-        tokens = shlex.split(text)  # unescapes ``\ `` and quotes
-    except ValueError:
-        tokens = text.split()  # unbalanced quote (e.g. an apostrophe) → plain split
-    words: list[str] = []
-    images: list[str] = []
-    audios: list[str] = []
-    files: list[tuple[str, str]] = []
-    for tok in tokens:
-        p = Path(tok).expanduser()
-        ext = p.suffix.lower()
-        if ext in _IMAGE_EXTS and p.is_file():
-            images.append(_media_data_url(p, "image/png"))
-        elif ext in _AUDIO_EXTS and p.is_file():
-            audios.append(_media_data_url(p, "audio/wav"))
-        elif ext in _TEXT_EXTS and p.is_file():
-            files.append((p.name, p.read_text(encoding="utf-8", errors="replace")))
-        else:
-            words.append(tok)
-    return " ".join(words), images, audios, files
+# Attachment helpers live in kodo.attach (shared with the Textual chat); alias the
+# names used below.
+_media_data_url = attach.media_data_url
 
 
 def _load_media(
@@ -899,18 +777,15 @@ def chat(
         list[Path],
         typer.Option("--audio", "-a", help="Attach audio file(s) for an audio model (repeatable)."),
     ] = [],
-    render: Annotated[
-        bool,
-        typer.Option("--render", help="Render each reply as Markdown (code highlighting etc); no live streaming."),
-    ] = False,
 ) -> None:
-    """Chat with a library model: clean REPL, one-shot with ``-p``, tools with ``--mcp``.
+    """Chat with a library model: full-screen TUI, one-shot with ``-p``, tools with ``--mcp``.
 
-    In a project dir, ``kodo.toml`` supplies the default model, its MCP tool
-    servers, and a system prompt; ``--mcp`` flags add to (not replace) those,
-    ``--system`` overrides the prompt, and ``--no-tools`` drops tools entirely
-    (some models regurgitate the tool schema instead of calling it). ``--render``
-    prints formatted Markdown instead of streaming; it's ignored for ``-p``.
+    Interactive chat opens a Textual app (markdown replies, live tool activity, a
+    context footer); ``-p`` prints just the answer for scripting. In a project dir,
+    ``kodo.toml`` supplies the default model, its MCP tool servers, and a system
+    prompt; ``--mcp`` flags add to (not replace) those, ``--system`` overrides the
+    prompt, and ``--no-tools`` drops tools entirely (some models regurgitate the
+    tool schema instead of calling it).
     """
     proj = project.load()
     model_name = name or (proj.model if proj else None)
@@ -924,7 +799,6 @@ def chat(
         [(None, c) for c in mcp] + [(m.name, m.command) for m in (proj.mcp if proj else [])] if tools else []
     )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
-    render_reply = render and prompt is None  # -p stays plain for scripting
     caps = capabilities.capabilities(model)
     images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision)
     audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio)
@@ -935,53 +809,10 @@ def chat(
             # interactive/agent path below (tools optional, empty list = plain chat).
             print(runtime.generate(model, prompt, max_tokens, system_prompt, images, audios))  # noqa: T201
         else:
-            _chat_with_tools(model, mcp_servers, prompt, max_tokens, system_prompt, render_reply, images, audios)
+            _chat_with_tools(model, mcp_servers, prompt, max_tokens, system_prompt, images, audios)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
-
-
-async def _run_cancelable(coro: Awaitable[str]) -> tuple[str | None, bool]:
-    """Await ``coro``, cancelling it if the user presses ESC. Returns (result, canceled).
-
-    asyncio cancellation interrupts the in-flight request even when it's produced no
-    output yet (a buffered tool-mode reply), which a between-iterations flag can't.
-    ESC watching needs a TTY (raw stdin); piped/non-interactive runs just await.
-    """
-    import asyncio  # noqa: PLC0415
-    import os  # noqa: PLC0415
-    import sys  # noqa: PLC0415
-
-    task: asyncio.Task[str] = asyncio.ensure_future(coro)
-    try:
-        import termios  # noqa: PLC0415
-        import tty  # noqa: PLC0415
-    except ImportError:  # no raw-tty support (e.g. Windows)
-        return await task, False
-    if not sys.stdin.isatty():
-        return await task, False
-
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    loop = asyncio.get_running_loop()
-
-    def _on_key() -> None:
-        try:
-            if os.read(fd, 1) == b"\x1b":  # ESC
-                task.cancel()
-        except OSError:
-            pass
-
-    try:
-        tty.setcbreak(fd)
-        loop.add_reader(fd, _on_key)
-        try:
-            return await task, False
-        except asyncio.CancelledError:
-            return None, True
-    finally:
-        loop.remove_reader(fd)
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def _chat_with_tools(
@@ -990,14 +821,13 @@ def _chat_with_tools(
     prompt: str | None,
     max_tokens: int | None,
     system_prompt: str = "",
-    render: bool = False,
     images: list[str] | None = None,
     audios: list[str] | None = None,
 ) -> None:
-    """Run the tool-calling agent loop over one or more MCP servers (streamed reply).
+    """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
-    ``render`` buffers each reply and prints it as Markdown when done (no live
-    token stream); tool activity still shows live.
+    With ``prompt`` set (``-p``) this streams a single answer to stdout (tools still
+    run); otherwise it hands off to the full-screen Textual chat.
     """
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
@@ -1068,131 +898,51 @@ def _chat_with_tools(
         turn_separated = False
         err.print(text, end="", style="grey42")
 
-    # Live context usage for the status line: the model's trained window (max) and
-    # the server-reported token total after the last turn (None until the first reply).
-    try:
-        ctx_max = capabilities.capabilities(model).context_length
-    except Exception:  # noqa: BLE001 - detection is best-effort; the bar just omits ctx
-        ctx_max = None
-    ctx_used: int | None = None
-
-    def on_usage(usage: dict[str, object]) -> None:
-        nonlocal ctx_used
-        total = usage.get("total_tokens")
-        if isinstance(total, int):
-            ctx_used = total
-            return
-        prompt_toks, completion_toks = usage.get("prompt_tokens"), usage.get("completion_tokens")
-        if isinstance(prompt_toks, int) and isinstance(completion_toks, int):
-            ctx_used = prompt_toks + completion_toks
-
     def seed() -> list[dict[str, object]]:
         return [{"role": "system", "content": system_prompt}] if system_prompt else []
 
-    async def _run(base: str) -> None:
+    async def _run_oneshot(base: str) -> None:
+        """The scripted ``-p`` path (with tools): stream the answer to stdout, no UI."""
         nonlocal turn_labeled
+        assert prompt is not None  # only entered when -p supplied a prompt
         async with mcp_tools.connect(servers) as toolset:
-            if prompt is not None:
-                turn_labeled = True  # -p mode: stdout is just the answer, no label
-                _think()
-                await agent.run(
-                    base,
-                    [*seed(), {"role": "user", "content": agent.user_content(prompt, images, audios)}],
-                    toolset,
-                    max_tokens,
-                    on_event,
-                    on_token,
-                    on_reasoning=on_reasoning,
-                )
-                _first_output()
-                print()  # noqa: T201 - newline after streamed answer
-            else:
-                chatui.header(
-                    console,
-                    model=model.name,
-                    model_format=model.model_format.value,
-                    tools=toolset.names,
-                    server=base,
-                )
-                try:
-                    import readline  # noqa: PLC0415 - up-arrow recall + line editing for input()
-
-                    readline.set_history_length(1000)
-                except ImportError:
-                    pass
-                history: list[dict[str, object]] = seed()
-                pending_images = images  # attached with --image; consumed by the first turn
-                pending_audios = audios  # attached with --audio; consumed by the first turn
-                while True:
-                    chatui.status_line(
-                        console,
-                        model=model.name,
-                        model_format=model.model_format.value,
-                        ctx_used=ctx_used,
-                        ctx_max=ctx_max,
-                        tools=len(toolset.names),
-                    )
-                    try:
-                        user = input(chatui.USER_PROMPT).strip()
-                    except (EOFError, KeyboardInterrupt):
-                        print()  # noqa: T201
-                        break
-                    if not user or user in ("/exit", "/quit", "exit", "quit"):
-                        if user in ("/exit", "/quit", "exit", "quit"):
-                            break
-                        continue
-                    # Detect file paths dragged into the terminal (inserted as text):
-                    # image/audio attach as media; text/doc files inline into the prompt.
-                    user, dropped_imgs, dropped_auds, dropped_files = _split_input_media(user)
-                    turn_images = (pending_images or []) + dropped_imgs
-                    turn_audios = (pending_audios or []) + dropped_auds
-                    pending_images = None
-                    pending_audios = None
-                    dropped = len(dropped_imgs) + len(dropped_auds) + len(dropped_files)
-                    if dropped:
-                        err.print(f"[grey62](attached {dropped} file{'s' if dropped > 1 else ''})[/]")
-                    if not user and not turn_images and not turn_audios and not dropped_files:
-                        continue
-                    content_text = _inline_files(user, dropped_files)
-                    mark = len(history)  # roll-back point if the turn is canceled
-                    history.append(
-                        {
-                            "role": "user",
-                            "content": agent.user_content(content_text, turn_images or None, turn_audios or None),
-                        }
-                    )
-                    turn_labeled = render  # render mode labels+renders at the end, not inline
-                    _think()
-                    # In render mode use the returned text (no live tokens); the spinner
-                    # keeps spinning until the reply is complete, then we render Markdown.
-                    # ESC cancels the turn (returns to the prompt) — better than Ctrl-C.
-                    reply, canceled = await _run_cancelable(
-                        agent.run(
-                            base,
-                            history,
-                            toolset,
-                            max_tokens,
-                            on_event,
-                            None if render else on_token,
-                            on_reasoning=on_reasoning,
-                            on_usage=on_usage,
-                        )
-                    )
-                    _first_output()
-                    if canceled:
-                        del history[mark:]  # drop the user turn + any partial tool turns
-                        err.print("[grey62](canceled)[/]")
-                        continue
-                    if not (reply or "").strip():
-                        err.print("[grey62](no response)[/]")
-                    elif render:
-                        _separate()  # render mode streams no tokens; break off any thinking
-                        chatui.render_reply(console, reply or "")
-                    else:
-                        print("\n")  # noqa: T201
+            turn_labeled = True  # -p mode: stdout is just the answer, no label
+            _think()
+            await agent.run(
+                base,
+                [*seed(), {"role": "user", "content": agent.user_content(prompt, images, audios)}],
+                toolset,
+                max_tokens,
+                on_event,
+                on_token,
+                on_reasoning=on_reasoning,
+            )
+            _first_output()
+            print()  # noqa: T201 - newline after streamed answer
 
     with runtime._serve(model) as base:
-        asyncio.run(_run(base))
+        if prompt is not None:
+            asyncio.run(_run_oneshot(base))
+            return
+        # Interactive: hand off to the full-screen Textual chat (imported lazily so
+        # `kodo ls` and friends don't pay textual's import cost).
+        from kodo import chat_tui  # noqa: PLC0415
+
+        try:
+            ctx_max = capabilities.capabilities(model).context_length
+        except Exception:  # noqa: BLE001 - detection is best-effort; the footer just omits ctx
+            ctx_max = None
+        chat_tui.run_interactive(
+            model_name=model.name,
+            model_format=model.model_format.value,
+            base=base,
+            servers=servers,
+            system_prompt=system_prompt,
+            images=images or [],
+            audios=audios or [],
+            max_tokens=max_tokens,
+            ctx_max=ctx_max,
+        )
 
 
 @app.command()
