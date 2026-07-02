@@ -54,9 +54,24 @@ per-model matrix). Ordered roughly by impact:
   being offline. Editable inline on each card and via the CLI (`kodo tag <model>
   --add tested --remove broken`, `kodo tag <model>` to list, `--clear`); shown in
   `kodo ls -d` and as **filter chips** atop the Models grid (AND filter). Served on
-  each `/api/library` model + `POST /api/tags` to set. *Still open:* a curated
-  default tag set / seeding from `docs/guides/models.md`, and tag filter chips in
-  the in-composer model picker (only the Models view filters today).
+  each `/api/library` model + `POST /api/tags` to set. Chip **color is derived** from
+  the tag name (stable hash into a fixed palette) — so every `tested` is the same
+  color everywhere, zero storage. *Still open:* a curated default tag set / seeding
+  from `docs/guides/models.md`, and tag filter chips in the in-composer model picker
+  (only the Models view filters today).
+
+- **Rich tags via a tag registry (future).** Keep the current design's key insight:
+  assignments stay **string references** (`{model: [tag_names]}` in `tags.json`) —
+  simple, greppable, what the CLI writes. To make tags first-class (custom color,
+  description, icon, grouping), add a **separate, normalized registry** keyed by tag
+  name (`{tag: {color, description, ...}}`), NOT per-model tag objects (which would
+  duplicate metadata across every model and let colors drift). This is fully
+  **non-breaking**: the `tags: string[]` wire type and assignments are untouched; a
+  new registry endpoint (`GET /api/tags/registry`) feeds the UI, which prefers a
+  registry color when present and falls back to the derived one. Pairs with a small
+  color-picker / tag-manager UI and, on the CLI, `kodo tag --color`. Do this only
+  once there's a second registry field to justify it (YAGNI) — derived color covers
+  the common case today.
 
 - **Image attachments — DONE (web + CLI).** Drag/paste/pick images into the
   composer (gated on the model's detected `vision` capability), rendered as

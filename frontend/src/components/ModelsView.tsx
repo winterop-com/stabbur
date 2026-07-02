@@ -45,6 +45,30 @@ const FORMAT_ACCENT: Record<string, string> = {
 };
 const FALLBACK_ACCENT = "border-border bg-muted text-muted-foreground";
 
+// A tag's color is *derived* from its name (stable hash -> fixed palette), so every
+// "tested" is the same color everywhere with zero storage. Full class strings (not
+// built dynamically) so Tailwind keeps them. A future tag registry (see ROADMAP)
+// can override this per tag; until then, derivation is the whole feature.
+const TAG_PALETTE = [
+  "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+  "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  "border-lime-500/30 bg-lime-500/10 text-lime-600 dark:text-lime-400",
+  "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  "border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400",
+  "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  "border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400",
+  "border-pink-500/30 bg-pink-500/10 text-pink-600 dark:text-pink-400",
+];
+
+function tagColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return TAG_PALETTE[h % TAG_PALETTE.length];
+}
+
 function CapChip({ icon: Icon, label, className }: { icon: typeof Wrench; label: string; className: string }) {
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
@@ -93,14 +117,14 @@ function TagDialog({
             tags.map((t) => (
               <span
                 key={t}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs"
+                className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs", tagColor(t))}
               >
                 {t}
                 <button
                   type="button"
                   aria-label={`Remove tag ${t}`}
                   onClick={() => remove(t)}
-                  className="text-muted-foreground/60 hover:text-destructive"
+                  className="opacity-60 hover:text-destructive hover:opacity-100"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -136,7 +160,10 @@ function TagDialog({
                   key={s}
                   type="button"
                   onClick={() => add(s)}
-                  className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                  className={cn(
+                    "inline-flex items-center gap-0.5 rounded-full border border-dashed px-2 py-0.5 text-xs opacity-80 hover:opacity-100",
+                    tagColor(s),
+                  )}
                 >
                   <Plus className="h-3 w-3" />
                   {s}
@@ -172,10 +199,7 @@ function TagRow({
         className="mt-2 flex flex-wrap items-center gap-1 text-left"
       >
         {tags.map((t) => (
-          <span
-            key={t}
-            className="rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-          >
+          <span key={t} className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", tagColor(t))}>
             {t}
           </span>
         ))}
@@ -446,10 +470,9 @@ export function ModelsView({
                   onClick={() => toggleFilter(t)}
                   aria-pressed={on}
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors",
-                    on
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border text-muted-foreground hover:bg-accent",
+                    "rounded-full border px-2 py-0.5 text-[11px] transition-all",
+                    tagColor(t),
+                    on ? "font-medium ring-1 ring-inset ring-current" : "opacity-70 hover:opacity-100",
                   )}
                 >
                   {t}
