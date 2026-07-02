@@ -17,11 +17,22 @@ from fastmcp.client.transports import StdioTransport
 _NAME_STRIP = re.compile(r"^(kodo-mcp-|mcp-server-|mcp-)")
 
 
+def _slug(text: str) -> str:
+    """Identifier slug: runs of non-alphanumerics → single underscores, trimmed."""
+    return re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")
+
+
 def _default_name(command: list[str]) -> str:
     """Short server prefix from its launch command (e.g. kodo-mcp-datetime → datetime)."""
     base = Path(command[0]).name if command else "mcp"
-    slug = re.sub(r"[^a-zA-Z0-9]+", "_", _NAME_STRIP.sub("", base)).strip("_")
-    return slug or "mcp"
+    return _slug(_NAME_STRIP.sub("", base)) or "mcp"
+
+
+def _server_prefix(name: str | None, command: list[str]) -> str:
+    """The tool namespace for a server: its manifest ``name`` if set, else derived."""
+    if name:
+        return _slug(name) or _default_name(command)
+    return _default_name(command)
 
 
 def _openai_schema(tool: Any) -> dict[str, Any]:
@@ -90,16 +101,21 @@ class MCPToolset:
 
 
 @asynccontextmanager
-async def connect(commands: list[list[str]]) -> AsyncGenerator[MCPToolset, None]:
-    """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset."""
+async def connect(servers: list[tuple[str | None, list[str]]]) -> AsyncGenerator[MCPToolset, None]:
+    """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset.
+
+    Each server is ``(name, command)``: the tools are namespaced under the manifest
+    ``name`` when given (``kodo.toml`` ``[[mcp]].name``), else a prefix derived from
+    the executable. ``name`` may be ``None`` for a bare command (e.g. CLI ``--mcp``).
+    """
     toolset = MCPToolset()
     used: dict[str, int] = {}  # disambiguate servers that derive the same prefix
     async with AsyncExitStack() as stack:
-        for command in commands:
+        for name, command in servers:
             # Discard the spawned server's stderr (banners/logs) to keep our output clean.
             transport = StdioTransport(command=command[0], args=command[1:], log_file=Path(os.devnull))
             client = await stack.enter_async_context(Client(transport))
-            prefix = _default_name(command)
+            prefix = _server_prefix(name, command)
             n = used.get(prefix, 0)
             used[prefix] = n + 1
             await toolset.add(client, prefix if n == 0 else f"{prefix}{n + 1}")

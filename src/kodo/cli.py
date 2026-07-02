@@ -790,20 +790,24 @@ def chat(
         console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
-    mcp_commands = (list(mcp) + [m.command for m in (proj.mcp if proj else [])]) if tools else []
+    # (name, command) per server: bare --mcp flags have no name; project [[mcp]]
+    # entries carry their manifest name (used as the tool namespace).
+    mcp_servers: list[tuple[str | None, str]] = (
+        [(None, c) for c in mcp] + [(m.name, m.command) for m in (proj.mcp if proj else [])] if tools else []
+    )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     render_reply = render and prompt is None  # -p stays plain for scripting
     caps = capabilities.capabilities(model)
     images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision)
     audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio)
     try:
-        if prompt is not None and not mcp_commands:
+        if prompt is not None and not mcp_servers:
             # Scripted one-shot, no tools: print only the reply to stdout (clean for
             # piping); errors go to stderr. Everything else goes through the one
             # interactive/agent path below (tools optional, empty list = plain chat).
             print(runtime.generate(model, prompt, max_tokens, system_prompt, images, audios))  # noqa: T201
         else:
-            _chat_with_tools(model, mcp_commands, prompt, max_tokens, system_prompt, render_reply, images, audios)
+            _chat_with_tools(model, mcp_servers, prompt, max_tokens, system_prompt, render_reply, images, audios)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
@@ -854,7 +858,7 @@ async def _run_cancelable(coro: Awaitable[str]) -> tuple[str | None, bool]:
 
 def _chat_with_tools(
     model: library_ops.LibraryModel,
-    mcp_commands: list[str],
+    mcp_servers: list[tuple[str | None, str]],
     prompt: str | None,
     max_tokens: int | None,
     system_prompt: str = "",
@@ -878,7 +882,7 @@ def _chat_with_tools(
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
-    commands = [shlex.split(c) for c in mcp_commands]
+    servers = [(name, shlex.split(cmd)) for name, cmd in mcp_servers]
     # Tool activity is meta → stderr, so `-p` stdout stays just the answer.
     err = Console(stderr=True)
 
@@ -941,7 +945,7 @@ def _chat_with_tools(
 
     async def _run(base: str) -> None:
         nonlocal turn_labeled
-        async with mcp_tools.connect(commands) as toolset:
+        async with mcp_tools.connect(servers) as toolset:
             if prompt is not None:
                 turn_labeled = True  # -p mode: stdout is just the answer, no label
                 _think()

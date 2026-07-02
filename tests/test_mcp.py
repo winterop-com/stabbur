@@ -77,6 +77,16 @@ def test_default_name_derives_prefix() -> None:
     assert tools._default_name([]) == "mcp"
 
 
+def test_server_prefix_prefers_manifest_name() -> None:
+    # A manifest name (kodo.toml [[mcp]].name) wins over the derived prefix, slugified.
+    assert tools._server_prefix("dhis2", ["dhis2w-mcp-bridge"]) == "dhis2"
+    assert tools._server_prefix("My Server", ["whatever"]) == "My_Server"
+    # No name → fall back to the command-derived prefix.
+    assert tools._server_prefix(None, ["kodo-mcp-datetime"]) == "datetime"
+    # Empty / all-punctuation name → fall back rather than yield an empty prefix.
+    assert tools._server_prefix("  ", ["kodo-mcp-datetime"]) == "datetime"
+
+
 async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyPatch) -> None:
     # A no-tool-call turn must record the assistant reply in ``messages`` so a
     # REPL keeps prior answers in context on the next turn.
@@ -91,3 +101,23 @@ async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyP
 
     assert out == "final answer"
     assert messages[-1] == {"role": "assistant", "content": "final answer"}
+
+
+async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A model that keeps calling tools past max_rounds must still deliver a terminal
+    # message: streamed via on_token (so the web UI, which drops the return value,
+    # still shows it) and recorded in history.
+    async def looping_stream(
+        http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
+    ) -> tuple[str, list[Any]]:
+        return "", [{"id": "1", "name": "x__y", "args": "{}"}]
+
+    monkeypatch.setattr(agent, "_stream_turn", looping_stream)
+    tokens: list[str] = []
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+    out = await agent.run("http://runtime", messages, tools.MCPToolset(), None, None, tokens.append, max_rounds=2)
+
+    stopped = "[agent stopped: too many tool rounds]"
+    assert out == stopped
+    assert tokens == [stopped]  # streamed to the client
+    assert messages[-1] == {"role": "assistant", "content": stopped}  # recorded in history
