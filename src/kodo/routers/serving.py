@@ -67,8 +67,15 @@ def get_conf(request: Request) -> Settings:
     return settings
 
 
+def get_lifecycle_lock(request: Request) -> asyncio.Lock:
+    """Dependency: the lock serializing model load/unload (created in create_app)."""
+    lock: asyncio.Lock = request.app.state.lifecycle_lock
+    return lock
+
+
 ManagerDep = Annotated[ServerManager, Depends(get_manager)]
 HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
+LockDep = Annotated[asyncio.Lock, Depends(get_lifecycle_lock)]
 ConfDep = Annotated[Settings, Depends(get_conf)]
 
 
@@ -313,7 +320,9 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
 
 
 @router.post("/api/load/{name:path}")
-async def load(name: str, manager: ManagerDep, settings: ConfDep, n_ctx: int | None = None) -> ServerStatus:
+async def load(
+    name: str, manager: ManagerDep, settings: ConfDep, lock: LockDep, n_ctx: int | None = None
+) -> ServerStatus:
     """Load (or switch to) a model by name; rejected in locked mode.
 
     ``n_ctx`` sets the context window (GGUF/llama.cpp only); changing it reloads
@@ -334,8 +343,10 @@ async def load(name: str, manager: ManagerDep, settings: ConfDep, n_ctx: int | N
     try:
         # load() spawns the runtime but first stops any current one (a terminate
         # that can wait up to 10s) — run it off the event loop so status polling and
-        # other requests don't stall during a slow model swap.
-        await asyncio.to_thread(manager.load, matches[0], n_ctx)
+        # other requests don't stall during a slow model swap. The lock serializes
+        # concurrent load/unload so their process-state mutations can't interleave.
+        async with lock:
+            await asyncio.to_thread(manager.load, matches[0], n_ctx)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return await _status(manager, settings)
@@ -439,7 +450,7 @@ async def speak(req: SpeakRequest) -> Response:
 
 
 @router.post("/api/unload")
-async def unload(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
+async def unload(manager: ManagerDep, settings: ConfDep, lock: LockDep) -> ServerStatus:
     """Eject the loaded model, stopping its runtime process (frees memory).
 
     Rejected in locked mode (the server is bound to one model). A no-op if
@@ -447,7 +458,10 @@ async def unload(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
     """
     if settings.serve_model is not None:
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
-    await asyncio.to_thread(manager.stop)  # terminate can wait up to 10s — keep it off-loop
+    # terminate can wait up to 10s — keep it off-loop; the lock serializes it
+    # against a concurrent load so they don't fight over the process handle.
+    async with lock:
+        await asyncio.to_thread(manager.stop)
     return await _status(manager, settings)
 
 

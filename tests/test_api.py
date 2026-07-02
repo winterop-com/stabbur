@@ -92,6 +92,39 @@ async def test_wildcard_cors_does_not_bypass_cross_site_guard() -> None:
         assert r.status_code == 403
 
 
+async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ServerManager has no internal lock, so two /api/load calls must not run
+    # manager.load() at the same time (interleaving corrupts its process state).
+    import asyncio
+    import threading
+    import time
+
+    fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
+    monkeypatch.setattr("kodo.routers.serving.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("kodo.routers.serving.runtime.runnable_error", lambda m: None)
+
+    active = 0
+    max_active = 0
+    guard = threading.Lock()
+
+    def slow_load(model: Any, n_ctx: int | None = None) -> None:
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.1)
+        with guard:
+            active -= 1
+
+    monkeypatch.setattr(app.state.manager, "load", slow_load)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r1, r2 = await asyncio.gather(c.post("/api/load/m"), c.post("/api/load/m"))
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert max_active == 1  # never two loads mutating state at once
+
+
 async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:
     response = await client.post("/v1/chat/completions", json={"messages": []})
     assert response.status_code == 409

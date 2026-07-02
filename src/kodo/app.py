@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import asyncio
 import shlex
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -101,6 +102,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Honor the passed settings' runtime_port; the CLI --runtime-port override
     # (process-global) still wins when set. None → ServerManager auto-picks.
     app.state.manager = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
+    # Serializes model load/unload so two concurrent requests can't interleave and
+    # corrupt the manager's process state (ServerManager has no internal lock, and
+    # load/unload now run in worker threads). Async, so waiting doesn't block the loop.
+    app.state.lifecycle_lock = asyncio.Lock()
     # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
     app.state.http = httpx.AsyncClient(timeout=None)
     # MCP toolset + system prompt for the server-side agent loop; populated by

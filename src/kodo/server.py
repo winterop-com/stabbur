@@ -141,6 +141,10 @@ class ServerManager:
 
     def stop(self) -> None:
         """Terminate the runtime process if running (no zombies)."""
+        # Clear the loaded-model fields first so a concurrent status read sees
+        # "stopped" and doesn't try to reap the process we're already stopping.
+        self._model = None
+        self._n_ctx = None
         if self._alive():
             assert self._proc is not None
             self._proc.terminate()
@@ -150,5 +154,3 @@ class ServerManager:
                 self._proc.kill()
                 self._proc.wait()
         self._reset_proc()
-        self._model = None
-        self._n_ctx = None
