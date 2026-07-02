@@ -124,8 +124,8 @@ export interface ChatOptions {
   useTools?: boolean;
   /** Allow-list of namespaced tool names; undefined → all attached tools. */
   enabledTools?: string[];
-  /** Authoritative system prompt ("" = none); undefined → server's project default. */
-  systemPrompt?: string;
+  /** Authoritative system prompt ("" = none); null/undefined → server's project default. */
+  systemPrompt?: string | null;
 }
 
 /** A parsed /api/chat SSE event. */
@@ -237,7 +237,7 @@ export async function* streamChat(
   if (options.temperature != null) body.temperature = options.temperature;
   if (options.topP != null) body.top_p = options.topP;
   if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
-  if (options.systemPrompt !== undefined) body.system_prompt = options.systemPrompt;
+  if (options.systemPrompt != null) body.system_prompt = options.systemPrompt; // null → omit (use project default)
 
   const res = await fetch("/api/chat", {
     method: "POST",

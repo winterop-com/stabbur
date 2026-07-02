@@ -172,26 +172,35 @@ export function SettingsPanel({
         {/* System prompt — most important, kept at the top. */}
         <Section title="System prompt" first>
           <Textarea
-            value={settings.systemPrompt}
+            value={settings.systemPrompt ?? ""}
             onChange={(e) => onChange({ ...settings, systemPrompt: e.target.value })}
-            placeholder="e.g. You are a helpful assistant."
+            placeholder={
+              settings.systemPrompt === null && status?.default_system_prompt
+                ? "Using the project default (shown below)"
+                : "e.g. You are a helpful assistant."
+            }
             className="min-h-24 resize-y bg-background/60 text-sm"
           />
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Overrides the project default. Blank = no system prompt (e.g. roleplay / uncensored
-            models that break character or refuse under assistant framing).
+            {settings.systemPrompt === null
+              ? "Empty = the project default below. Type to override; clearing sends no system prompt."
+              : "Overrides the project default. Blank = no system prompt (e.g. roleplay / uncensored models)."}
           </p>
-          {status?.default_system_prompt && status.default_system_prompt !== settings.systemPrompt && (
+          {status?.default_system_prompt && (
             <div className="mt-2 rounded-md border border-border bg-background/40 p-2">
               <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-medium text-muted-foreground">Project default (kodo.toml)</span>
-                <button
-                  type="button"
-                  onClick={() => onChange({ ...settings, systemPrompt: status.default_system_prompt })}
-                  className="text-[11px] font-medium text-primary hover:underline"
-                >
-                  Use
-                </button>
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  Project default (kodo.toml){settings.systemPrompt === null ? " · in use" : ""}
+                </span>
+                {settings.systemPrompt !== null && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...settings, systemPrompt: null })}
+                    className="text-[11px] font-medium text-primary hover:underline"
+                  >
+                    Use
+                  </button>
+                )}
               </div>
               <p className="line-clamp-3 text-[11px] text-muted-foreground" title={status.default_system_prompt}>
                 {status.default_system_prompt}

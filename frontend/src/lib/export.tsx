@@ -96,7 +96,7 @@ export function conversationToMarkdown(conv: Conversation, model: string | null)
   if (sampling.length) meta.push(`- **Sampling:** ${sampling.join(", ")}`);
   out.push(...meta, "");
 
-  const sys = conv.settings.systemPrompt.trim();
+  const sys = (conv.settings.systemPrompt ?? "").trim();
   if (sys) out.push("**System prompt:**", "", "```text", sys, "```", "");
 
   out.push("---", "");
@@ -249,7 +249,7 @@ export async function exportConversationPdf(conv: Conversation, model: string | 
   const metaBits: string[] = [];
   if (modelLabel) metaBits.push(`<span><strong>Model:</strong> ${escapeHtml(modelLabel)}</span>`);
   metaBits.push(`<span><strong>Exported:</strong> ${isoDate(Date.now())}</span>`);
-  const sys = conv.settings.systemPrompt.trim();
+  const sys = (conv.settings.systemPrompt ?? "").trim();
   const sysBlock = sys ? `<pre class="sys">${escapeHtml(sys)}</pre>` : "";
 
   const html =

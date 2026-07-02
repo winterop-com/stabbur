@@ -9,7 +9,9 @@ const CONVERSATIONS_KEY = "kodo.conversations";
 const THEME_KEY = "kodo.theme";
 
 export interface Settings {
-  systemPrompt: string;
+  // null = use the project default (kodo.toml); "" = explicitly no system prompt;
+  // a string = override. Kept distinct so a project's prompt applies by default.
+  systemPrompt: string | null;
   maxTokens: number | null;
   temperature: number | null;
   topP: number | null;
@@ -21,7 +23,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  systemPrompt: "",
+  systemPrompt: null, // default to the project prompt; the user can override or clear it
   maxTokens: null,
   temperature: null,
   topP: null,
@@ -38,7 +40,7 @@ export function uid(): string {
 export function normalizeSettings(parsed: Partial<Settings> | undefined | null): Settings {
   if (!parsed || typeof parsed !== "object") return { ...DEFAULT_SETTINGS };
   return {
-    systemPrompt: typeof parsed.systemPrompt === "string" ? parsed.systemPrompt : "",
+    systemPrompt: typeof parsed.systemPrompt === "string" ? parsed.systemPrompt : null,
     maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : null,
     temperature: typeof parsed.temperature === "number" ? parsed.temperature : null,
     topP: typeof parsed.topP === "number" ? parsed.topP : null,

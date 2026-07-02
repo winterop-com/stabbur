@@ -34,10 +34,11 @@ Tailwind chat UI with a model picker).
   model + params header) or **PDF** (a styled, self-contained document opened in a
   print window for "Save as PDF"; mermaid diagrams are rendered to inline SVG).
   Both run client-side from conversation state.
-- **Settings rail** — system prompt (authoritative; blank = none), sampling
-  (with model-recommended defaults shown), and **context length** (presets +
-  custom; reloads the model). Settings are **per conversation**, so each chat
-  starts fresh.
+- **Settings rail** — system prompt (a new chat uses the **project default**
+  from `kodo.toml`; type to override, or clear it to send no system prompt),
+  sampling (with model-recommended defaults shown), and **context length**
+  (presets + custom; reloads the model). Settings are **per conversation**, so
+  each chat starts fresh.
 - **System health** — a status dot opening the same checks as `kodo doctor`.
 
 **Build the UI once** (it's not committed — only its source is):
