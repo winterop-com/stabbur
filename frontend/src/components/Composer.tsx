@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment, MediaKind } from "@/lib/types";
@@ -75,7 +75,7 @@ export function Composer({
   onRemove: (index: number) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const fileInputId = useId();
   const [dragOver, setDragOver] = useState(false);
   const recRef = useRef<Recording | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
@@ -215,33 +215,28 @@ export function Composer({
         <div className="flex min-w-0 items-center gap-1">
           {canAttach && (
             <>
+              {/* A <label> tied to the input opens the file dialog natively — more
+                  robust than a JS .click() on a hidden input. The input is
+                  visually hidden but stays in the layout tree (sr-only). */}
               <input
-                ref={fileInput}
+                id={fileInputId}
                 type="file"
                 accept={acceptAttr}
                 multiple
-                className="hidden"
+                className="sr-only"
                 onChange={(e) => {
                   if (e.target.files) void addFiles(e.target.files);
                   e.target.value = ""; // allow re-picking the same file
                 }}
               />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => fileInput.current?.click()}
-                    aria-label="Attach file"
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Attach {accept.image && accept.audio ? "image or audio" : accept.audio ? "audio" : "image"} (drag
-                  or paste too)
-                </TooltipContent>
-              </Tooltip>
+              <label
+                htmlFor={fileInputId}
+                aria-label="Attach file"
+                title={`Attach ${accept.image && accept.audio ? "image or audio" : accept.audio ? "audio" : "image"} (drag or paste too)`}
+                className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "cursor-pointer")}
+              >
+                <Paperclip className="h-4 w-4" />
+              </label>
             </>
           )}
           {accept.audio && (
