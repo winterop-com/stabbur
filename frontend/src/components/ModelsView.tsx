@@ -54,82 +54,145 @@ function CapChip({ icon: Icon, label, className }: { icon: typeof Wrench; label:
   );
 }
 
-/** Tag chips + an inline adder, editable. Kept out of the load button so nested
- *  clicks (remove / add) don't trigger a model load. */
+/** A roomy tag editor dialog: current tags (removable), a free-text adder, and
+ *  one-click chips for tags already used elsewhere in the library. */
+function TagDialog({
+  label,
+  tags,
+  suggestions,
+  open,
+  onOpenChange,
+  onChange,
+}: {
+  label: string;
+  tags: string[];
+  suggestions: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (tags: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = (raw: string) => {
+    const t = normalizeTag(raw);
+    if (t && !tags.includes(t)) onChange([...tags, t]);
+    setDraft("");
+  };
+  const remove = (t: string) => onChange(tags.filter((x) => x !== t));
+  const unused = suggestions.filter((s) => !tags.includes(s));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-sm">Tags</DialogTitle>
+          <DialogDescription className="break-all">{label}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex min-h-8 flex-wrap gap-1.5">
+          {tags.length ? (
+            tags.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs"
+              >
+                {t}
+                <button
+                  type="button"
+                  aria-label={`Remove tag ${t}`}
+                  onClick={() => remove(t)}
+                  className="text-muted-foreground/60 hover:text-destructive"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))
+          ) : (
+            <span className="text-xs text-muted-foreground">No tags yet.</span>
+          )}
+        </div>
+
+        <Input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add(draft);
+            }
+          }}
+          placeholder="Add a tag and press Enter"
+          className="h-9"
+        />
+
+        {unused.length > 0 && (
+          <div>
+            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Existing tags
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {unused.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => add(s)}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                >
+                  <Plus className="h-3 w-3" />
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The card's tag display: chips (read-only) + an edit trigger that opens the dialog. */
 function TagRow({
+  label,
   tags,
   suggestions,
   onChange,
 }: {
+  label: string;
   tags: string[];
   suggestions: string[];
   onChange: (tags: string[]) => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-
-  const commit = () => {
-    const t = normalizeTag(draft);
-    if (t && !tags.includes(t)) onChange([...tags, t]);
-    setDraft("");
-    setAdding(false);
-  };
-  const remove = (t: string) => onChange(tags.filter((x) => x !== t));
-
+  const [open, setOpen] = useState(false);
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1">
-      {tags.map((t) => (
-        <span
-          key={t}
-          className="group/tag inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-        >
-          {t}
-          <button
-            type="button"
-            aria-label={`Remove tag ${t}`}
-            onClick={() => remove(t)}
-            className="text-muted-foreground/60 hover:text-destructive"
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Edit tags"
+        className="mt-2 flex flex-wrap items-center gap-1 text-left"
+      >
+        {tags.map((t) => (
+          <span
+            key={t}
+            className="rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
           >
-            <X className="h-2.5 w-2.5" />
-          </button>
-        </span>
-      ))}
-      {adding ? (
-        <>
-          <Input
-            autoFocus
-            list="kodo-tag-suggestions"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
-              if (e.key === "Escape") {
-                setDraft("");
-                setAdding(false);
-              }
-            }}
-            onBlur={commit}
-            placeholder="tag"
-            className="h-5 w-20 border-transparent bg-background px-1.5 py-0 text-[11px]"
-          />
-          <datalist id="kodo-tag-suggestions">
-            {suggestions.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          aria-label="Add tag"
-          className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-primary/50 hover:text-foreground"
-        >
+            {t}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-primary/50 hover:text-foreground">
           <Plus className="h-2.5 w-2.5" />
-          tag
-        </button>
-      )}
-    </div>
+          {tags.length ? "edit" : "tag"}
+        </span>
+      </button>
+      <TagDialog
+        label={label}
+        tags={tags}
+        suggestions={suggestions}
+        open={open}
+        onOpenChange={setOpen}
+        onChange={onChange}
+      />
+    </>
   );
 }
 
@@ -249,7 +312,12 @@ function ModelCard({
         {ctx && <span className="ml-auto">{ctx} ctx</span>}
       </div>
 
-      <TagRow tags={model.tags} suggestions={suggestions} onChange={(t) => onSetTags(model.name, t)} />
+      <TagRow
+        label={model.name}
+        tags={model.tags}
+        suggestions={suggestions}
+        onChange={(t) => onSetTags(model.name, t)}
+      />
 
       {/* Explicit actions: details (any model) + load/chat (deliberate, never on card click). */}
       <div className="mt-3 flex items-center justify-between gap-2">
