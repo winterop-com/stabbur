@@ -5,6 +5,26 @@ import tempfile
 from pathlib import Path
 
 
+def safe_join(root: Path, name: str) -> Path:
+    """Join ``name`` under ``root``, rejecting anything that escapes ``root``.
+
+    ``name`` comes from an untrusted caller (an HTTP query, a CLI arg). An absolute
+    path or ``..`` segments would otherwise let a pull read/copy/delete directories
+    outside the intended root — so resolve the result and require it stays under
+    (or equal to) ``root``.
+
+    Raises:
+        ValueError: If ``name`` is empty/absolute or resolves outside ``root``.
+    """
+    if not name or Path(name).is_absolute():
+        raise ValueError(f"invalid model name {name!r}: must be a relative path")
+    resolved = (root / name).resolve()
+    root_resolved = root.resolve()
+    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
+        raise ValueError(f"invalid model name {name!r}: escapes {root}")
+    return resolved
+
+
 def dir_stats(path: Path) -> tuple[int, int]:
     """Return ``(total_bytes, file_count)`` for everything under ``path``.
 

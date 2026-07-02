@@ -13,7 +13,7 @@ from pathlib import Path
 from kodo import arch, cards
 from kodo.config import get_settings
 from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
-from kodo.sources.base import copy_tree, dir_stats
+from kodo.sources.base import copy_tree, dir_stats, safe_join
 
 
 def _classify(model_dir: Path) -> ModelFormat:
@@ -86,13 +86,16 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
         FileNotFoundError: If ``name`` does not resolve to a directory.
     """
     root = models_dir or get_settings().lmstudio_models_dir
-    src = root / name
+    # ``name`` is untrusted (HTTP query / CLI arg); keep both the source read and the
+    # library write strictly under their roots so an absolute path or ``..`` can't
+    # copy (or, with --move, delete) arbitrary directories.
+    src = safe_join(root, name)
     if not src.is_dir():
         raise FileNotFoundError(f"No LM Studio model at {src}")
 
     src_bytes, _ = dir_stats(src)
     model_format = _classify(src)
-    dest = library_root / model_format.value / name
+    dest = safe_join(library_root, f"{model_format.value}/{name}")
     size_bytes, file_count = copy_tree(src, dest)
 
     # Only remove the source once the destination byte total matches exactly.

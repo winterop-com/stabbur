@@ -221,10 +221,13 @@ export function App() {
       setError(null);
       setLoadingName(name);
       try {
-        setStatus(await loadModel(name, nCtx === undefined ? settings.contextLength : nCtx));
-        // Poll until the server reports ready (or leaves loading).
-        const deadline = Date.now() + 120_000;
-        // eslint-disable-next-line no-constant-condition
+        const first = await loadModel(name, nCtx === undefined ? settings.contextLength : nCtx);
+        setStatus(first);
+        // Poll until the server reports ready (or leaves loading). Keep polling as
+        // long as the runtime itself allows a load to take (server-reported), so a
+        // big 15-20 GB model isn't abandoned mid-load with the UI re-enabling pick().
+        const timeoutMs = (first.runtime_load_timeout || 600) * 1000 + 30_000;
+        const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
           const s = await getStatus();
           setStatus(s);

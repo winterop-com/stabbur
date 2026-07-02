@@ -60,6 +60,7 @@ export interface Status {
   error: string | null;
   default_system_prompt: string;
   project_model: string | null; // the project's bound model (kodo.toml), to auto-load on open
+  runtime_load_timeout: number; // seconds a load may take; the UI polls at least this long
 }
 
 export interface LibModel {

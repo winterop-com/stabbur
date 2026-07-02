@@ -35,6 +35,7 @@ class ServerStatus(BaseModel):
     error: str | None = None  # why the runtime died (stderr tail), if it exited unexpectedly
     default_system_prompt: str = ""  # the project (kodo.toml) system prompt, so the UI can prefill/show it
     project_model: str | None = None  # the project's bound model, so the UI auto-loads it on open
+    runtime_load_timeout: int = 600  # seconds a load may take, so the UI polls as long as the runtime does
 
 
 class LibraryModelInfo(BaseModel):
@@ -134,6 +135,7 @@ async def _status(
         error=manager.last_error if current is None else None,
         default_system_prompt=system_prompt,
         project_model=project_model,
+        runtime_load_timeout=settings.runtime_load_timeout,
     )
 
 

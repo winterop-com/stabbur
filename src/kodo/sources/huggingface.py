@@ -13,7 +13,7 @@ from huggingface_hub import HfApi, scan_cache_dir, snapshot_download
 
 from kodo import arch, cards
 from kodo.models import HubModel, ModelEntry, ModelFormat, ModelSource, PullResult
-from kodo.sources.base import dir_stats
+from kodo.sources.base import dir_stats, safe_join
 
 # Preferred GGUF quant when a repo ships several (mirrors the library's pick), used
 # to estimate what a pull would actually download rather than the whole repo.
@@ -137,7 +137,10 @@ def pull(repo_id: str, library_root: Path, token: str | None = None, include: li
     Returns:
         A :class:`PullResult` describing what was written.
     """
-    dest = library_root / ModelSource.huggingface.value / repo_id
+    # Validate the (untrusted) repo id keeps the destination under the library root
+    # *before* creating any directory — an absolute path or ``..`` would otherwise
+    # mkdir outside the library even if the download later fails.
+    dest = safe_join(library_root, f"{ModelSource.huggingface.value}/{repo_id}")
     dest.mkdir(parents=True, exist_ok=True)
     allow_patterns = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
     snapshot_download(
@@ -186,7 +189,7 @@ def pull_tts(
     library scan recognizes as a TTS model. ``include`` restricts the TTS model
     files (e.g. one GGUF quant); the vocoder's GGUF(s) are always fetched.
     """
-    dest = library_root / "tts" / repo_id
+    dest = safe_join(library_root, f"tts/{repo_id}")  # keep the write under the library root
     dest.mkdir(parents=True, exist_ok=True)
     allow = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
     snapshot_download(repo_id=repo_id, local_dir=dest, token=token, allow_patterns=allow)

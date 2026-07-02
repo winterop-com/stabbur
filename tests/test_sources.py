@@ -501,3 +501,23 @@ def test_scan_spans_drive_and_local_roots(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(library, "get_settings", lambda: settings)
     names = {m.name for m in library.scan()}  # no explicit root → spans both
     assert names == {"pub/Drive-GGUF", "pub/Local-GGUF"}
+
+
+def test_safe_join_allows_normal_names(tmp_path: Path) -> None:
+    assert base.safe_join(tmp_path, "pub/repo") == (tmp_path / "pub/repo").resolve()
+    assert base.safe_join(tmp_path, "gguf/pub/repo") == (tmp_path / "gguf/pub/repo").resolve()
+
+
+@pytest.mark.parametrize("bad", ["/etc/passwd", "../../secret", "pub/../../escape", "", "a/../../.."])
+def test_safe_join_rejects_escapes(tmp_path: Path, bad: str) -> None:
+    # An absolute path or a ``..`` that climbs out of the root must be refused.
+    with pytest.raises(ValueError):
+        base.safe_join(tmp_path, bad)
+
+
+def test_lmstudio_pull_rejects_traversal_name(tmp_path: Path) -> None:
+    # A malicious name must not let the source read/copy outside the LM Studio root.
+    store = tmp_path / "lmstudio"
+    (store / "pub" / "Real-GGUF").mkdir(parents=True)
+    with pytest.raises(ValueError):
+        lmstudio.pull("../../../../etc", tmp_path / "lib", models_dir=store)
