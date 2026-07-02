@@ -1160,6 +1160,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "fastmcp" },
+    { name = "hf-xet" },
     { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "pydantic-settings" },
@@ -1196,6 +1197,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.138.2" },
     { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "hf-xet", specifier = ">=1.5.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=1.21.0" },
     { name = "kokoro-onnx", marker = "extra == 'tts'", specifier = ">=0.4.9" },

@@ -35,6 +35,17 @@ per-model matrix). Ordered roughly by impact:
 
 ## Open / next ideas
 
+- **Model tags (user-defined labels + filtering).** Let the user tag library
+  models (e.g. `tested`, `favorite`, `coding`, `roleplay`, `fast`, `broken`) so
+  it's easy to see which ones have been tried and to organize a growing library.
+  Tags are **user metadata** (distinct from the auto-detected `vision`/`audio`/
+  `tools` capabilities), stored in the model's `.kodo/metadata.json` sidecar (or a
+  small library-level index), editable via CLI (`kodo tag <model> +tested -broken`)
+  and the web UI. Surface them as **filter chips** in the picker alongside the
+  existing capability chips, and a column in `kodo list`. A curated default set
+  plus free-form tags. Pairs well with `docs/guides/models.md` (the tested/limits
+  status could seed initial tags).
+
 - **Image attachments — DONE (web + CLI).** Drag/paste/pick images into the
   composer (gated on the model's detected `vision` capability), rendered as
   thumbnails and click-to-fullscreen in the thread; `kodo chat --image/-i` on the

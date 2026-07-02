@@ -309,7 +309,7 @@ export function SettingsPanel({
                     }}
                     className="h-8 flex-1 rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <option value="">Default{max ? ` (up to ${fmtTokens(max)})` : ""}</option>
+                    <option value="">Default{max ? ` — model's full ${fmtTokens(max)}` : ""}</option>
                     {presets.map((v) => (
                       <option key={v} value={String(v)}>
                         {fmtTokens(v)}
@@ -346,7 +346,7 @@ export function SettingsPanel({
                     ? "MLX derives context from the model; not adjustable here."
                     : overMax
                       ? `Exceeds the model's trained ${max?.toLocaleString()} tokens.`
-                      : "Set at load time (GGUF). Apply reloads the model. Blank = runtime default."}
+                      : `Set at load time (GGUF); Apply reloads the model. Default loads the model's full trained context${max ? ` (${max.toLocaleString()} tokens)` : ""} — pick a smaller value to use less memory.`}
                 </p>
                 {status?.n_ctx != null && !isMlx && (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
