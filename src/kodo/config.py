@@ -87,9 +87,12 @@ class Settings(BaseSettings):
     # backend. Empty means free model switching.
     serve_model: str | None = None
 
-    # CORS origins allowed to call the API (the Chrome extension origin goes
-    # here). Default is permissive since this binds to localhost.
-    cors_origins: list[str] = ["*"]
+    # Cross-origin origins allowed to call the API. Default is **same-origin only**
+    # (empty list → no CORS middleware): the web UI is served by this same app, so
+    # it needs no CORS, and a permissive default would let any website you visit
+    # drive your local models + MCP tools from the browser. Add explicit origins
+    # (e.g. the Chrome-extension origin, or a dev server) to allow cross-origin use.
+    cors_origins: list[str] = []
 
     # Internal port the model runtime (llama-server / mlx_lm.server) listens on;
     # the API proxies /v1 to it so the SPA stays single-origin. ``None`` (the

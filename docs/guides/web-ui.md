@@ -96,10 +96,21 @@ So the SPA only ever talks to `serve`'s origin; `serve` starts `llama-server` /
 kodo serve --ui --model <name>        # or: make run MODEL=<name>
 ```
 
-Locks the server to one model: no switching, a stable `/v1`, and CORS configured
-for cross-origin callers. This is the intended backend for the
-[Chrome extension](../roadmap.md) — the extension's side panel points at this
-endpoint.
+Locks the server to one model: no switching and a stable `/v1`. This is the
+intended backend for the [Chrome extension](../roadmap.md) — the extension's side
+panel points at this endpoint. Set `cors_origins` to the extension's origin so it
+can call across origins (see below).
 
-`cors_origins` (default `["*"]`, fine for localhost) controls allowed origins —
-set it to the extension origin when locking down.
+## Cross-origin access
+
+By default the server is **same-origin only**: the web UI is served by this same
+app so it needs no CORS, and mutating `/api` / `/v1` calls that a browser marks
+**cross-site** (via `Sec-Fetch-Site`) are rejected with `403`. This stops a random
+website you visit from driving your local models or MCP tools from the browser
+(even a no-preflight "simple" request can execute server-side otherwise). Non-browser
+clients (curl, the CLI) and same-origin requests are unaffected.
+
+To allow a real cross-origin caller (the Chrome extension, or a separate dev
+server), list its origin in `cors_origins` (`kodo.toml` or `KODO_CORS_ORIGINS`) —
+that both enables CORS for it and exempts it from the cross-site guard. `["*"]`
+re-opens it to everything; avoid that outside throwaway local testing.

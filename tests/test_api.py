@@ -49,6 +49,36 @@ async def test_status_exposes_project_model(app: FastAPI, client: AsyncClient) -
     assert body["project_model"] == "acme/widget-3b"
 
 
+async def test_cross_site_mutating_request_blocked(client: AsyncClient) -> None:
+    # A drive-by page's browser marks the request cross-site; mutating calls are
+    # rejected before reaching the handler (so no model load / tool run).
+    r = await client.post("/api/load/whatever", headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
+    r = await client.post("/api/chat", json={"messages": []}, headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
+
+
+async def test_same_origin_and_non_browser_not_blocked(client: AsyncClient) -> None:
+    # The served SPA (same-origin) and non-browser clients (no Sec-Fetch-Site, e.g.
+    # curl/CLI) pass the guard — they get the handler's own status, never 403.
+    assert (await client.post("/api/load/ghost", headers={"sec-fetch-site": "same-origin"})).status_code != 403
+    assert (await client.post("/api/load/ghost")).status_code != 403
+    # Safe (read-only) methods are never guarded, even cross-site.
+    assert (await client.get("/api/status", headers={"sec-fetch-site": "cross-site"})).status_code == 200
+
+
+async def test_allowlisted_origin_not_blocked() -> None:
+    # An explicitly-configured origin (extension/dev) is allowed cross-site.
+    app = create_app(Settings(serve_model=None, cors_origins=["http://ext.local"]))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        r = await inner.post(
+            "/api/load/ghost",
+            headers={"sec-fetch-site": "cross-site", "origin": "http://ext.local"},
+        )
+        assert r.status_code != 403
+
+
 async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:
     response = await client.post("/v1/chat/completions", json={"messages": []})
     assert response.status_code == 409

@@ -5,8 +5,10 @@ from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import RequestResponseEndpoint
 
 from kodo import config, project, runtime
 from kodo import library as library_ops
@@ -14,6 +16,33 @@ from kodo import tools as mcp_tools
 from kodo.config import Settings, get_settings
 from kodo.routers import catalog, health, serving
 from kodo.server import ServerManager
+
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
+    """Whether to reject a request as a cross-site (drive-by) browser call.
+
+    Guards mutating ``/api`` and ``/v1`` calls. A random webpage in the user's
+    browser can POST to the localhost server — and a no-preflight "simple" request
+    (e.g. ``text/plain`` body, or a no-body POST) still executes server-side,
+    firing MCP tools — so block requests the browser marks cross-site via
+    ``Sec-Fetch-Site``. Allowed through: same-origin (the served SPA), an
+    explicitly-configured origin (extension/dev), and non-browser clients (curl,
+    the CLI, tests — they send no ``Sec-Fetch-Site``).
+    """
+    if request.method not in _MUTATING_METHODS:
+        return False
+    path = request.url.path
+    if not (path.startswith("/api") or path.startswith("/v1")):
+        return False
+    origin = request.headers.get("origin")
+    if origin and ("*" in allowed_origins or origin in allowed_origins):
+        return False  # explicitly trusted cross-origin caller
+    site = request.headers.get("sec-fetch-site")
+    if site is None:
+        return False  # non-browser client (no Sec-Fetch metadata)
+    return site not in ("same-origin", "none")
 
 
 @asynccontextmanager
@@ -84,6 +113,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # Reject cross-site (drive-by) browser calls to mutating endpoints, so a random
+    # webpage can't load models / run MCP tools on the local server. Same-origin SPA,
+    # allow-listed origins, and non-browser clients are unaffected.
+    @app.middleware("http")
+    async def _cross_site_guard(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if _cross_site_blocked(request, settings.cors_origins):
+            return JSONResponse({"detail": "cross-site request blocked"}, status_code=403)
+        return await call_next(request)
 
     app.include_router(health.router)
     app.include_router(catalog.router)
