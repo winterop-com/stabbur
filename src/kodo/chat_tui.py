@@ -123,6 +123,7 @@ class ChatApp(App[None]):
         self.toolset = mcp_tools.MCPToolset()  # replaced once MCP servers connect
         self._stack = AsyncExitStack()
         self._busy = False
+        self._queue: list[str] = []  # prompts submitted while a reply is streaming
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="transcript")
@@ -164,6 +165,9 @@ class ChatApp(App[None]):
         if n_tools:
             line1.append("  ·  ", style="grey37")
             line1.append(f"{n_tools} tool{'s' if n_tools != 1 else ''}", style="cyan")
+        if self._queue:
+            line1.append("  ·  ", style="grey37")
+            line1.append(f"{len(self._queue)} queued", style="yellow")
 
         line2 = Text()
         line2.append("▸ ", style="cyan")
@@ -177,18 +181,33 @@ class ChatApp(App[None]):
     # -- input / generation ----------------------------------------------------
 
     def action_cancel(self) -> None:
+        # ESC stops the current reply and drops anything queued behind it.
+        self._queue.clear()
         if self._busy:
             self.workers.cancel_group(self, "gen")
+            self._refresh_status()
 
     def on_chat_input_submitted(self, message: ChatInput.Submitted) -> None:
         text = message.text.strip()
-        if self._busy or not text:
+        if not text:
             return
         if text in ("/exit", "/quit", "exit", "quit"):
             self.exit()
             return
         self.query_one(ChatInput).text = ""
-        self.run_worker(self._generate(message.text), group="gen", exclusive=True)
+        # Send now if idle, otherwise queue behind the in-flight reply.
+        self._queue.append(message.text)
+        self._refresh_status()
+        self._pump()
+
+    def _pump(self) -> None:
+        """Start the next queued prompt if nothing is generating."""
+        if self._busy or not self._queue:
+            return
+        self._busy = True
+        raw_text = self._queue.pop(0)
+        self._refresh_status()
+        self.run_worker(self._generate(raw_text), group="gen")
 
     async def _append(self, widget: Static) -> Static:
         await self.query_one("#transcript", VerticalScroll).mount(widget)
@@ -198,9 +217,7 @@ class ChatApp(App[None]):
         self.query_one("#transcript", VerticalScroll).scroll_end(animate=False)
 
     async def _generate(self, raw_text: str) -> None:
-        self._busy = True
-        input_w = self.query_one(ChatInput)
-        input_w.disabled = True
+        input_w = self.query_one(ChatInput)  # kept enabled so the user can queue more
         try:
             text, imgs, auds, files = attach.split_input_media(raw_text)
             imgs = (self._pending_images or []) + imgs
@@ -326,8 +343,9 @@ class ChatApp(App[None]):
             self._scroll_end()
         finally:
             self._busy = False
-            input_w.disabled = False
             input_w.focus()
+            self._refresh_status()
+            self._pump()  # drain the next queued prompt, if any
 
 
 def run_interactive(
