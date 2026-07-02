@@ -73,6 +73,27 @@ def _fmt_cell(model_format: ModelFormat) -> str:
     return f"[{_FORMAT_STYLE[model_format]}]{model_format.value}[/]"
 
 
+def _caps_label(caps: "capabilities.ModelCapabilities | None") -> str:
+    """A compact, colored list of a model's capabilities (present ones only)."""
+    if caps is None:
+        return "[dim]?[/]"
+    parts = []
+    if caps.tools:
+        parts.append("[cyan]tools[/]")
+    if caps.vision:
+        parts.append("[magenta]vision[/]")
+    if caps.audio:
+        parts.append("[green]audio[/]")
+    return " ".join(parts) or "[dim]—[/]"
+
+
+def _fmt_ctx(n: int | None) -> str:
+    """Human-readable context window (e.g. 262144 → 256K)."""
+    if not n:
+        return "[dim]—[/]"
+    return f"{round(n / 1024)}K" if n >= 1024 else str(n)
+
+
 def _project_toml(model: str, library_root: Path) -> str:
     """Render a kodo.toml: library config + the assistant bound to ``model``.
 
@@ -174,9 +195,15 @@ def list_models() -> None:
         title = f"[{_FORMAT_STYLE[fmt]}][bold]{fmt.value}[/][/]  [dim]{len(rows)} · {subtotal}[/]"
         table = Table(box=box.SIMPLE_HEAD, title=title, title_justify="left", pad_edge=False)
         table.add_column("SIZE", justify="right")
+        table.add_column("CAPS")
+        table.add_column("CTX", justify="right")
         table.add_column("NAME", style="white")
         for m in rows:
-            table.add_row(m.size_human, m.name)
+            try:
+                caps = capabilities.capabilities(m)
+            except Exception:  # noqa: BLE001 - detection is best-effort; never break the listing
+                caps = None
+            table.add_row(m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None), m.name)
         console.print(table)
 
 
