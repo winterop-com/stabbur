@@ -1,0 +1,23 @@
+[project]
+name = "kodo-mcp-benchmark"
+version = "0.1.0"
+description = "Kodo MCP server: language coding benchmarks with a Docker-sandboxed executor"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.4.2",
+    "pluginkit>=0.4.7",
+    "pydantic>=2.0",
+    "typer>=0.25.1",
+]
+
+[project.scripts]
+kodo-mcp-benchmark = "kodo_mcp_benchmark:main"
+
+# Discovered by kodo's PluginManager (group "kodo.plugins"); adds `kodo benchmark`.
+[project.entry-points."kodo.plugins"]
+benchmark = "kodo_mcp_benchmark.plugin:PLUGIN"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

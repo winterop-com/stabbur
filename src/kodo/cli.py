@@ -2,7 +2,7 @@
 
 import shutil
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich import box
@@ -16,6 +16,9 @@ from kodo import library as library_ops
 from kodo.config import get_settings
 from kodo.models import CuratedModel, ModelFormat, ModelSource, _human_size
 from kodo.sources import huggingface as hf
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
 
 console = Console()
 
@@ -1099,6 +1102,43 @@ def serve(
         port=bind_port,
         reload=reload,
     )
+
+
+# --- plugins ---------------------------------------------------------------
+
+
+class _HostContext:
+    """kodo's ``PluginContext``: hands plugins the model runtime (serve/complete/resolve)."""
+
+    console = console
+
+    def resolve_model(self, name: str | None, model_format: str | None = None) -> library_ops.LibraryModel:
+        proj = project.load()
+        model_name = name or (proj.model if proj else None)
+        if model_name is None:
+            console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
+            raise typer.Exit(1)
+        return _resolve_library_model(model_name, ModelFormat(model_format) if model_format else None)
+
+    def serve(self, model: library_ops.LibraryModel) -> "AbstractContextManager[str]":
+        return runtime._serve(model)
+
+    def complete(
+        self, base: str, model: library_ops.LibraryModel, prompt: str, system: str = "", max_tokens: int | None = None
+    ) -> str:
+        return runtime.complete(base, model, prompt, system, max_tokens)
+
+
+def _mount_plugins() -> None:
+    """Discover ``kodo.plugins`` and mount each plugin's command group on the CLI."""
+    from kodo import plugins  # noqa: PLC0415 - keep pluginkit off the hot path for `--help`
+
+    pm = plugins.load_plugins()
+    for name, sub in plugins.command_groups(pm, _HostContext()):
+        app.add_typer(sub, name=name)
+
+
+_mount_plugins()
 
 
 if __name__ == "__main__":

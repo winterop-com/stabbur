@@ -202,19 +202,38 @@ def generate(
 
     ``images`` / ``audios`` are data-URL strings sent to a multimodal model.
     """
-    from kodo import agent, sampling  # noqa: PLC0415 - avoid import cycle at module load
+    from kodo import agent  # noqa: PLC0415 - avoid import cycle at module load
 
     with _serve(model) as base:
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": agent.user_content(prompt, images, audios)})
-        body: dict[str, object] = {"messages": messages}
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        # Model-recommended sampling (incl. the anti-loop repeat_penalty default).
-        body.update(sampling.recommended(model).model_dump(exclude_none=True))
-        resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
-        resp.raise_for_status()
-        content: str = resp.json()["choices"][0]["message"]["content"]
-        return content
+        return _chat(base, model, messages, max_tokens)
+
+
+def _chat(base: str, model: LibraryModel, messages: list[dict[str, Any]], max_tokens: int | None = None) -> str:
+    """POST one chat completion to an already-served ``base`` and return the reply text."""
+    from kodo import sampling  # noqa: PLC0415 - avoid import cycle at module load
+
+    body: dict[str, object] = {"messages": messages}
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
+    # Model-recommended sampling (incl. the anti-loop repeat_penalty default).
+    body.update(sampling.recommended(model).model_dump(exclude_none=True))
+    resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
+    resp.raise_for_status()
+    content: str = resp.json()["choices"][0]["message"]["content"]
+    return content
+
+
+def complete(base: str, model: LibraryModel, prompt: str, system: str = "", max_tokens: int | None = None) -> str:
+    """One completion against an already-served ``base`` URL — no serve/teardown per call.
+
+    For callers (e.g. a benchmark driver) that serve a model once and prompt it many times.
+    """
+    messages: list[dict[str, Any]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    return _chat(base, model, messages, max_tokens)

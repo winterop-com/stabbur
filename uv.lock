@@ -16,6 +16,7 @@ resolution-markers = [
 [manifest]
 members = [
     "kodo",
+    "kodo-mcp-benchmark",
     "kodo-mcp-datetime",
 ]
 
@@ -1169,7 +1170,9 @@ dependencies = [
     { name = "hf-xet" },
     { name = "httpx" },
     { name = "huggingface-hub" },
+    { name = "kodo-mcp-benchmark" },
     { name = "kodo-mcp-datetime" },
+    { name = "pluginkit" },
     { name = "pydantic-settings" },
     { name = "textual" },
     { name = "typer" },
@@ -1208,10 +1211,12 @@ requires-dist = [
     { name = "hf-xet", specifier = ">=1.5.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=1.21.0" },
+    { name = "kodo-mcp-benchmark", editable = "packages/kodo-mcp-benchmark" },
     { name = "kodo-mcp-datetime", editable = "packages/kodo-mcp-datetime" },
     { name = "kokoro-onnx", marker = "extra == 'tts'", specifier = ">=0.4.9" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.31.3" },
     { name = "mlx-vlm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.6.3" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "soundfile", marker = "extra == 'tts'", specifier = ">=0.13.1" },
     { name = "textual", specifier = ">=0.85" },
@@ -1233,6 +1238,25 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.15.20" },
+]
+
+[[package]]
+name = "kodo-mcp-benchmark"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-benchmark" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "pluginkit" },
+    { name = "pydantic" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "typer", specifier = ">=0.25.1" },
 ]
 
 [[package]]
@@ -1997,6 +2021,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "pluginkit"
+version = "0.4.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/2b/c53c947eb1faa1ad8e1b32c2c4389f44fb28792124ac22a85aca9539b42c/pluginkit-0.4.7.tar.gz", hash = "sha256:9c004086f8701bd2654be54e0499ca265010277a6ac22bbc9bcdba378176353c", size = 15917, upload-time = "2026-06-25T14:01:18.943Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/5c/613c04353afc4b478728dbd8e35260607ff43fecedf888d6282881d1395a/pluginkit-0.4.7-py3-none-any.whl", hash = "sha256:42c07fd44713d3302bfe727ceaed5171ff7aa302188c8ac77602ec370ddbc1d1", size = 18742, upload-time = "2026-06-25T14:01:17.767Z" },
 ]
 
 [[package]]

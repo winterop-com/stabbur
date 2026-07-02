@@ -10,7 +10,9 @@ dependencies = [
     "hf-xet>=1.5.1",
     "httpx>=0.28.1",
     "huggingface-hub>=1.21.0",
+    "kodo-mcp-benchmark",
     "kodo-mcp-datetime",
+    "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
     "textual>=0.85",
     "typer>=0.25.1",
@@ -55,6 +57,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 kodo-mcp-datetime = { workspace = true }
+kodo-mcp-benchmark = { workspace = true }
 
 [tool.fastapi]
 # Let `fastapi dev` / `fastapi run` auto-detect the app.
@@ -88,7 +91,7 @@ docstring-code-line-length = "dynamic"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "packages/mcp/tests"]
+testpaths = ["tests", "packages"]  # recurse packages/ to pick up every member's tests/
 norecursedirs = [".git", ".venv", "__pycache__"]
 # Exclude the live e2e tests by default so a bare `pytest` / `uv run pytest` stays
 # hermetic (they spawn a real runtime and need a working local model). Opt in with
@@ -102,7 +105,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo", "kodo_mcp"]
+source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_benchmark"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]
