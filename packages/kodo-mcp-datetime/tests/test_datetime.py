@@ -115,3 +115,18 @@ async def test_convert_time_validates_from_timezone_even_with_explicit_offset() 
 async def test_add_to_date_out_of_range_is_a_clean_error() -> None:
     with pytest.raises(ToolError):  # underflow past year 1, surfaced as a ToolError not a raw traceback
         await _call("add_to_date", date="2026-07-01", years=-3000)
+
+
+async def test_datetime_inputs_reject_malformed_spellings() -> None:
+    # Only YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS] are accepted; fromisoformat's looser forms aren't.
+    for bad in ("2026-07-01:00", "20260701T00:00", "2026-7-1T00:00"):
+        with pytest.raises(ToolError):
+            await _call("add_to_date", date=bad, days=1)
+    # A well-formed datetime still works and keeps its shape.
+    assert await _call("add_to_date", date="2026-07-01T14:30", days=1) == "2026-07-02T14:30:00"
+
+
+async def test_list_timezones_matches_human_spelling() -> None:
+    # "New York" / "new-york" should find America/New_York (spaces/hyphens -> underscore).
+    assert "America/New_York" in await _call("list_timezones", contains="new york")
+    assert "America/New_York" in await _call("list_timezones", contains="New-York")

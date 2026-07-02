@@ -26,6 +26,8 @@ mcp: FastMCP = FastMCP("kodo-datetime")
 
 _BAD_TZ = "unknown timezone {name!r} — use an IANA name like 'Europe/Oslo', 'UTC', or 'local'"
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")  # strict YYYY-MM-DD (no compact/week forms)
+# YYYY-MM-DD, optionally T/space + HH:MM[:SS][.ffffff][+HH:MM | Z] — the documented spellings.
+_ISO_DATETIME = re.compile(r"\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:\d{2}|Z)?)?$")
 
 # A short, geographically spread set returned by an unfiltered ``list_timezones`` — the
 # full IANA set is ~600 zones, so an unfiltered slice would omit UTC and most cities.
@@ -73,11 +75,19 @@ def _now(name: str = "local") -> datetime:
 
 
 def _parse_dt(value: str) -> datetime:
-    """Parse an ISO date or datetime string into a datetime (a date → midnight)."""
+    """Parse a strict ISO date or datetime into a datetime (a bare date → midnight).
+
+    Only the documented spellings are accepted (``YYYY-MM-DD`` or ``YYYY-MM-DDTHH:MM[:SS]``
+    with an optional offset); compact/partial forms ``fromisoformat`` would otherwise take
+    (e.g. ``20260701``, ``2026-07-01:00``) are rejected.
+    """
+    bad = f"invalid ISO datetime {value!r} (expected 'YYYY-MM-DD' or e.g. '2026-07-01T14:30')"
+    if not _ISO_DATETIME.fullmatch(value):
+        raise ValueError(bad)
     try:
         return datetime.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError(f"invalid ISO datetime {value!r} (expected e.g. '2026-07-01T14:30')") from exc
+        raise ValueError(bad) from exc
 
 
 def _parse_date(value: str) -> date:
@@ -98,8 +108,8 @@ def _check_year(year: int) -> None:
 
 
 def _is_date_only(value: str) -> bool:
-    """Whether an input string is a bare date (no time component)."""
-    return "T" not in value and ":" not in value
+    """Whether an input string is a bare ``YYYY-MM-DD`` (no time component)."""
+    return bool(_ISO_DATE.fullmatch(value))
 
 
 def _localize(dt: datetime, tz: ZoneInfo | None) -> datetime:
@@ -153,7 +163,10 @@ def day_of_week(date: str = "") -> str:
 
 @mcp.tool
 def time_in(timezones: list[str]) -> dict[str, str]:
-    """Current time in each of several timezones — ``{timezone: ISO datetime}``."""
+    """Current time in each of several timezones — ``{timezone: ISO datetime}``.
+
+    Keyed by timezone, so repeated names collapse to one entry.
+    """
     return {name: _now(name).isoformat(timespec="seconds") for name in timezones}
 
 
@@ -197,11 +210,12 @@ def list_timezones(contains: str = "") -> list[str]:
 
     With no filter, returns a short spread of common zones (the full set is ~600, so an
     unfiltered slice would omit UTC and most cities). With a filter, a case-insensitive
-    substring match (e.g. ``Europe``, ``oslo``), sorted and capped at 100 results.
+    substring match with spaces/hyphens treated as ``_`` (so ``new york`` matches
+    ``America/New_York``), sorted and capped at 100 results.
     """
     if not contains:
         return _COMMON_ZONES
-    q = contains.lower()
+    q = contains.strip().lower().replace(" ", "_").replace("-", "_")
     return sorted(z for z in available_timezones() if q in z.lower())[:100]
 
 
