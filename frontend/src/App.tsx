@@ -313,15 +313,16 @@ export function App() {
     newConversation();
     setView("chat");
   }, [newConversation]);
-  // Load a model from the Models grid, then drop into chat (skip a reload if it's
-  // already the loaded one).
-  const pickAndChat = useCallback(
+  // From the Models grid: "Load" loads in place (stays on the grid; the card flips
+  // to "Chat" when ready — no jarring auto-switch). "Chat" starts a fresh chat with
+  // the loaded model rather than dropping into whatever conversation was open.
+  const loadModelInPlace = useCallback(
     (name: string) => {
-      setView("chat");
       if (status?.model !== name) pick(name);
     },
     [status?.model, pick],
   );
+  const chatWithLoaded = useCallback(() => startNewChat(), [startNewChat]);
   // Edit a model's user tags: optimistic local update, then persist (server
   // normalizes/dedupes, so reconcile with what it returns).
   const setTags = useCallback(async (name: string, tags: string[]) => {
@@ -749,7 +750,8 @@ export function App() {
               loaded={libraryLoaded}
               status={status}
               loadingName={loadingName}
-              onPick={pickAndChat}
+              onLoad={loadModelInPlace}
+              onChat={chatWithLoaded}
               onSetTags={setTags}
             />
           ) : (

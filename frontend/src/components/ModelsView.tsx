@@ -288,7 +288,8 @@ function ModelCard({
   loading,
   blocked,
   suggestions,
-  onPick,
+  onLoad,
+  onChat,
   onSetTags,
 }: {
   model: LibModel;
@@ -296,7 +297,8 @@ function ModelCard({
   loading: boolean;
   blocked: boolean;
   suggestions: string[];
-  onPick: (name: string) => void;
+  onLoad: (name: string) => void;
+  onChat: () => void;
   onSetTags: (name: string, tags: string[]) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -306,12 +308,19 @@ function ModelCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-xl border p-3 transition-colors",
+        "relative flex flex-col rounded-xl border p-3 transition-colors",
+        loading && "border-primary/50 ring-2 ring-primary/30",
         active
           ? "border-primary/60 bg-primary/5"
           : "border-border hover:border-primary/40 hover:bg-accent/40",
       )}
     >
+      {loading && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl bg-background/75 backdrop-blur-[1px]">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="text-xs font-medium text-foreground">Loading model…</span>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
@@ -352,32 +361,37 @@ function ModelCard({
         >
           <Info className="h-3.5 w-3.5" /> Details
         </button>
-        <button
-          type="button"
-          onClick={() => onPick(model.name)}
-          disabled={actDisabled}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
-            active
-              ? "bg-primary/15 text-primary hover:bg-primary/25"
-              : "bg-primary text-primary-foreground hover:bg-primary/90",
-            actDisabled && "cursor-not-allowed opacity-60",
-          )}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> loading…
-            </>
-          ) : active ? (
-            <>
-              <MessageSquare className="h-3.5 w-3.5" /> Chat
-            </>
-          ) : (
-            <>
-              <Play className="h-3.5 w-3.5" /> Load
-            </>
-          )}
-        </button>
+        {active ? (
+          // Already loaded: go start a fresh chat with it (never auto-switched on load).
+          <button
+            type="button"
+            onClick={onChat}
+            className="inline-flex items-center gap-1 rounded-lg bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25"
+          >
+            <MessageSquare className="h-3.5 w-3.5" /> Chat
+          </button>
+        ) : (
+          // Loading stays on this view; the card flips to "Chat" when it's ready.
+          <button
+            type="button"
+            onClick={() => onLoad(model.name)}
+            disabled={actDisabled}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+              actDisabled && "cursor-not-allowed opacity-60",
+            )}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> loading…
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5" /> Load
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <ModelDetailsDialog model={model} open={detailsOpen} onOpenChange={setDetailsOpen} />
@@ -395,14 +409,16 @@ export function ModelsView({
   loaded,
   status,
   loadingName,
-  onPick,
+  onLoad,
+  onChat,
   onSetTags,
 }: {
   library: LibModel[];
   loaded: boolean;
   status: Status | null;
   loadingName: string | null;
-  onPick: (name: string) => void;
+  onLoad: (name: string) => void;
+  onChat: () => void;
   onSetTags: (name: string, tags: string[]) => void;
 }) {
   const locked = status?.locked ?? false;
@@ -518,7 +534,8 @@ export function ModelsView({
                       loading={loadingName === m.name}
                       blocked={locked || (busy && loadingName !== m.name)}
                       suggestions={allTags}
-                      onPick={onPick}
+                      onLoad={onLoad}
+                      onChat={onChat}
                       onSetTags={onSetTags}
                     />
                   ))}
