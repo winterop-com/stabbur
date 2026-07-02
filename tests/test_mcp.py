@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from kodo import agent, tools
 from kodo.mcp.datetime_server import mcp
@@ -121,3 +122,72 @@ async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.Monk
     assert out == stopped
     assert tokens == [stopped]  # streamed to the client
     assert messages[-1] == {"role": "assistant", "content": stopped}  # recorded in history
+
+
+# --- datetime/timezone/calendar tool behavior ------------------------------
+
+
+async def _call(name: str, **kw: Any) -> Any:
+    async with Client(mcp) as client:
+        return (await client.call_tool(name, kw)).data
+
+
+async def test_convert_time_is_dst_correct_for_named_zones() -> None:
+    # Oslo is CET (+01) in January, CEST (+02) in July — the offset must follow the
+    # *date*, not the current system offset.
+    assert await _call("convert_time", when="2026-01-01T12:00", from_timezone="Europe/Oslo", to_timezone="UTC") == (
+        "2026-01-01T11:00:00+00:00"
+    )
+    assert await _call("convert_time", when="2026-07-01T12:00", from_timezone="Europe/Oslo", to_timezone="UTC") == (
+        "2026-07-01T10:00:00+00:00"
+    )
+
+
+async def test_convert_time_rejects_nonexistent_dst_gap() -> None:
+    # 2026-03-29 02:30 does not exist in Europe/Oslo (clocks jump 02:00 -> 03:00).
+    with pytest.raises(ToolError):
+        await _call("convert_time", when="2026-03-29T02:30", from_timezone="Europe/Oslo", to_timezone="UTC")
+
+
+async def test_invalid_timezone_errors() -> None:
+    with pytest.raises(ToolError):
+        await _call("current_datetime", timezone="Mars/Olympus_Mons")
+
+
+async def test_add_to_date_clamps_and_keeps_shape() -> None:
+    assert await _call("add_to_date", date="2026-01-31", months=1) == "2026-02-28"  # clamp to Feb
+    assert await _call("add_to_date", date="2026-07-01", days=1) == "2026-07-02"  # date stays a date
+    # A datetime input keeps its time AND offset (no silent truncation to a date).
+    assert await _call("add_to_date", date="2026-07-01T00:00:00+02:00", days=1) == "2026-07-02T00:00:00+02:00"
+
+
+async def test_days_between_is_strict_dates() -> None:
+    assert await _call("days_between", start="2026-01-01", end="2026-12-31") == 364
+    with pytest.raises(ToolError):  # a datetime is rejected, not silently truncated
+        await _call("days_between", start="2026-07-01T23:59:59", end="2026-07-02T00:00:00")
+
+
+async def test_list_timezones_and_leap_year() -> None:
+    assert await _call("list_timezones", contains="oslo") == ["Europe/Oslo"]
+    assert await _call("is_leap_year", year=2028) is True
+    assert await _call("is_leap_year", year=2027) is False
+
+
+async def test_what_time_is_it_in_new_york() -> None:
+    # "what time is it in new york" — current time carries NY's offset (EST -05 / EDT -04).
+    ny = await _call("current_datetime", timezone="America/New_York")
+    assert ny.endswith("-04:00") or ny.endswith("-05:00")
+
+
+async def test_what_day_is_it() -> None:
+    # "what day is it" — a valid weekday, and today() gives date + weekday.
+    assert (await _call("day_of_week")) in _WEEKDAYS
+    weekday = (await _call("today", timezone="America/New_York")).split()[1].strip("()")
+    assert weekday in _WEEKDAYS
+
+
+async def test_time_in_multiple_zones() -> None:
+    out = await _call("time_in", timezones=["UTC", "Asia/Tokyo"])
+    assert set(out) == {"UTC", "Asia/Tokyo"}
+    assert out["UTC"].endswith("+00:00")
+    assert out["Asia/Tokyo"].endswith("+09:00")  # Tokyo has no DST, always +09:00
