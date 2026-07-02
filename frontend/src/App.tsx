@@ -65,6 +65,7 @@ export function App() {
   // Server state.
   const [status, setStatus] = useState<Status | null>(null);
   const [library, setLibrary] = useState<LibModel[]>([]);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("kodo.tts_voice") || "");
@@ -159,7 +160,8 @@ export function App() {
           // Clear a prior library-fetch error on recovery (but not model-load errors).
           setError((e) => (e && e.startsWith("Library: ") ? null : e));
         })
-        .catch((e) => setError(`Library: ${e}`));
+        .catch((e) => setError(`Library: ${e}`))
+        .finally(() => setLibraryLoaded(true)); // distinguish "still loading" from "empty"
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
       getVoices().then(setVoices).catch(() => {}); // voices are optional (no TTS engine)
       getDoctor().then(setHealth).catch(() => {});
@@ -744,6 +746,7 @@ export function App() {
           {view === "models" ? (
             <ModelsView
               library={library}
+              loaded={libraryLoaded}
               status={status}
               loadingName={loadingName}
               onPick={pickAndChat}

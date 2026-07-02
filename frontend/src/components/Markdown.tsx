@@ -2,6 +2,8 @@ import { memo, useMemo, type ReactNode } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { common } from "lowlight";
 
 import { CodeBlock } from "@/components/CodeBlock";
@@ -9,7 +11,12 @@ import { MermaidDiagram } from "@/components/MermaidDiagram";
 
 // Limit highlight.js to the ~37 common grammars (keeps the bundle lean vs the
 // full ~190-language set rehype-highlight would otherwise pull in).
-const rehypePlugins: Options["rehypePlugins"] = [[rehypeHighlight, { languages: common }]];
+const highlight: NonNullable<Options["rehypePlugins"]>[number] = [rehypeHighlight, { languages: common }];
+const rehypePlugins: Options["rehypePlugins"] = [highlight];
+// HTML mode (opt-in, model cards only): parse the embedded raw HTML, then sanitize
+// it (strips scripts/handlers/inline styles, keeps tables/links/formatting). Never
+// used for chat, where the content is untrusted model output.
+const rehypePluginsHtml: Options["rehypePlugins"] = [rehypeRaw, rehypeSanitize, highlight];
 
 /** Concatenate all text within a React node (unwraps rehype-highlight spans). */
 function nodeText(node: ReactNode): string {
@@ -46,7 +53,15 @@ const baseComponents: Components = {
  * ```mermaid fences render as diagrams; all other fences use the copy-enabled
  * code block. `streaming` defers mermaid rendering until the source is complete.
  */
-export const Markdown = memo(function Markdown({ content, streaming }: { content: string; streaming?: boolean }) {
+export const Markdown = memo(function Markdown({
+  content,
+  streaming,
+  allowHtml,
+}: {
+  content: string;
+  streaming?: boolean;
+  allowHtml?: boolean;
+}) {
   const components = useMemo<Components>(
     () => ({
       ...baseComponents,
@@ -62,7 +77,11 @@ export const Markdown = memo(function Markdown({ content, streaming }: { content
 
   return (
     <div className="prose-chat text-[0.95rem] text-foreground">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={allowHtml ? rehypePluginsHtml : rehypePlugins}
+        components={components}
+      >
         {content}
       </ReactMarkdown>
     </div>

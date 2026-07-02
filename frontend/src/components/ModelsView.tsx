@@ -1,7 +1,15 @@
-import { useMemo, useState } from "react";
-import { AudioLines, Check, Eye, Loader2, Plus, Tag, Wrench, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AudioLines, Eye, Info, Loader2, MessageSquare, Play, Plus, Tag, Wrench, X } from "lucide-react";
 
-import type { LibModel, Status } from "@/api";
+import { getModelInfo, type LibModel, type ModelInfo, type Status } from "@/api";
+import { Markdown } from "@/components/Markdown";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -125,11 +133,73 @@ function TagRow({
   );
 }
 
+/** Full model details (facts + rendered model card), fetched lazily on open. */
+function ModelDetailsDialog({
+  model,
+  open,
+  onOpenChange,
+}: {
+  model: LibModel;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [info, setInfo] = useState<ModelInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setInfo(null);
+    setLoading(true);
+    getModelInfo(model.name)
+      .then(setInfo)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open, model.name]);
+
+  const ctx = ctxLabel(model.context_length);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="break-all pr-6 text-sm">{model.name}</DialogTitle>
+          <DialogDescription>
+            {model.model_format.toUpperCase()} · {model.size_human}
+            {ctx && ` · ${ctx} context`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-muted-foreground">
+          {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
+          {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
+          {model.audio && <CapChip icon={AudioLines} label="audio" className="text-emerald-600 dark:text-emerald-400" />}
+          {model.tags.map((t) => (
+            <span key={t} className="rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[10px]">
+              {t}
+            </span>
+          ))}
+        </div>
+        {info?.path && <div className="break-all text-[11px] text-muted-foreground">{info.path}</div>}
+
+        <div className="max-h-[70vh] min-h-[40vh] overflow-y-auto rounded-lg border border-border bg-muted/20 p-4 text-sm">
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading model card…
+            </div>
+          ) : info?.card ? (
+            <Markdown content={info.card} allowHtml />
+          ) : (
+            <span className="text-muted-foreground">No model card available.</span>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ModelCard({
   model,
   active,
   loading,
-  disabled,
+  blocked,
   suggestions,
   onPick,
   onSetTags,
@@ -137,64 +207,88 @@ function ModelCard({
   model: LibModel;
   active: boolean;
   loading: boolean;
-  disabled: boolean;
+  blocked: boolean;
   suggestions: string[];
   onPick: (name: string) => void;
   onSetTags: (name: string, tags: string[]) => void;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const ctx = ctxLabel(model.context_length);
   const pub = publisher(model.name);
+  const actDisabled = loading || (!active && blocked);
   return (
     <div
       className={cn(
-        "relative flex flex-col rounded-xl border p-3 transition-colors",
-        active ? "border-primary/60 bg-primary/5" : "border-border hover:border-primary/40",
+        "flex flex-col rounded-xl border p-3 transition-colors",
+        active
+          ? "border-primary/60 bg-primary/5"
+          : "border-border hover:border-primary/40 hover:bg-accent/40",
       )}
     >
-      <button
-        type="button"
-        onClick={() => onPick(model.name)}
-        disabled={disabled}
-        title={disabled ? model.name : `Load ${model.name}`}
-        className={cn("-m-1 rounded-lg p-1 text-left", disabled ? "cursor-not-allowed opacity-70" : "hover:bg-accent/40")}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className={cn(
-              "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-              FORMAT_ACCENT[model.model_format] ?? FALLBACK_ACCENT,
-            )}
-          >
-            {model.model_format}
-          </span>
-          <span className="text-xs text-muted-foreground">{model.size_human}</span>
-        </div>
-
-        <div className="mt-2 break-words text-sm font-medium leading-snug">{shortName(model.name)}</div>
-        {pub && <div className="truncate text-[11px] text-muted-foreground">{pub}</div>}
-
-        <div className="mt-2 flex items-center gap-2.5 text-[11px] text-muted-foreground">
-          {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
-          {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
-          {model.audio && (
-            <CapChip icon={AudioLines} label="audio" className="text-emerald-600 dark:text-emerald-400" />
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={cn(
+            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+            FORMAT_ACCENT[model.model_format] ?? FALLBACK_ACCENT,
           )}
-          {ctx && <span className="ml-auto">{ctx} ctx</span>}
-        </div>
-      </button>
+        >
+          {model.model_format}
+        </span>
+        <span className="text-xs text-muted-foreground">{model.size_human}</span>
+      </div>
+
+      <div className="mt-2 break-words text-sm font-medium leading-snug" title={model.name}>
+        {shortName(model.name)}
+      </div>
+      {pub && <div className="truncate text-[11px] text-muted-foreground">{pub}</div>}
+
+      <div className="mt-2 flex items-center gap-2.5 text-[11px] text-muted-foreground">
+        {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
+        {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
+        {model.audio && <CapChip icon={AudioLines} label="audio" className="text-emerald-600 dark:text-emerald-400" />}
+        {ctx && <span className="ml-auto">{ctx} ctx</span>}
+      </div>
 
       <TagRow tags={model.tags} suggestions={suggestions} onChange={(t) => onSetTags(model.name, t)} />
 
-      {/* Status corner: loaded badge or a loading spinner. */}
-      {loading ? (
-        <span className="absolute right-2 top-2 text-amber-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        </span>
-      ) : active ? (
-        <span className="absolute right-2 top-7 inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-          <Check className="h-3 w-3" /> loaded
-        </span>
-      ) : null}
+      {/* Explicit actions: details (any model) + load/chat (deliberate, never on card click). */}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen(true)}
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          <Info className="h-3.5 w-3.5" /> Details
+        </button>
+        <button
+          type="button"
+          onClick={() => onPick(model.name)}
+          disabled={actDisabled}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
+            active
+              ? "bg-primary/15 text-primary hover:bg-primary/25"
+              : "bg-primary text-primary-foreground hover:bg-primary/90",
+            actDisabled && "cursor-not-allowed opacity-60",
+          )}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> loading…
+            </>
+          ) : active ? (
+            <>
+              <MessageSquare className="h-3.5 w-3.5" /> Chat
+            </>
+          ) : (
+            <>
+              <Play className="h-3.5 w-3.5" /> Load
+            </>
+          )}
+        </button>
+      </div>
+
+      <ModelDetailsDialog model={model} open={detailsOpen} onOpenChange={setDetailsOpen} />
     </div>
   );
 }
@@ -206,12 +300,14 @@ function ModelCard({
  */
 export function ModelsView({
   library,
+  loaded,
   status,
   loadingName,
   onPick,
   onSetTags,
 }: {
   library: LibModel[];
+  loaded: boolean;
   status: Status | null;
   loadingName: string | null;
   onPick: (name: string) => void;
@@ -221,11 +317,15 @@ export function ModelsView({
   const busy = loadingName != null || status?.state === "loading";
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
 
+  // Normalize once so a model with no `tags` field (e.g. an older server that
+  // predates tags) can't crash the grid.
+  const models = useMemo(() => library.map((m) => ({ ...m, tags: m.tags ?? [] })), [library]);
+
   const allTags = useMemo(() => {
     const s = new Set<string>();
-    for (const m of library) for (const t of m.tags) s.add(t);
+    for (const m of models) for (const t of m.tags) s.add(t);
     return [...s].sort();
-  }, [library]);
+  }, [models]);
 
   const toggleFilter = (t: string) =>
     setActiveTags((prev) => {
@@ -236,8 +336,8 @@ export function ModelsView({
     });
 
   const filtered = useMemo(
-    () => (activeTags.size === 0 ? library : library.filter((m) => [...activeTags].every((t) => m.tags.includes(t)))),
-    [library, activeTags],
+    () => (activeTags.size === 0 ? models : models.filter((m) => [...activeTags].every((t) => m.tags.includes(t)))),
+    [models, activeTags],
   );
 
   const totalHuman = useMemo(() => {
@@ -258,10 +358,10 @@ export function ModelsView({
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
         <div className="mb-3 flex items-baseline gap-2">
           <h1 className="text-lg font-semibold tracking-tight">Models</h1>
-          {library.length > 0 && (
+          {models.length > 0 && (
             <span className="text-sm text-muted-foreground">
               {filtered.length}
-              {filtered.length !== library.length && ` / ${library.length}`} · {totalHuman}
+              {filtered.length !== models.length && ` / ${models.length}`} · {totalHuman}
             </span>
           )}
         </div>
@@ -300,7 +400,11 @@ export function ModelsView({
           </div>
         )}
 
-        {library.length === 0 ? (
+        {!loaded && models.length === 0 ? (
+          <div className="flex items-center gap-2 px-1 py-10 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading models…
+          </div>
+        ) : models.length === 0 ? (
           <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
             No models in the library yet. Pull one with <code className="font-mono">kodo pull</code>.
           </div>
@@ -321,7 +425,7 @@ export function ModelsView({
                       model={m}
                       active={status?.model === m.name}
                       loading={loadingName === m.name}
-                      disabled={locked || (busy && loadingName !== m.name)}
+                      blocked={locked || (busy && loadingName !== m.name)}
                       suggestions={allTags}
                       onPick={onPick}
                       onSetTags={onSetTags}
