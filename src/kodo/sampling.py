@@ -16,6 +16,13 @@ from pydantic import BaseModel
 
 from kodo.library import LibraryModel
 
+# A mild repetition penalty applied when a model ships no recommendation of its own
+# (the common GGUF-quant case): llama.cpp/mlx default to 1.0 (no penalty), which lets
+# some models — especially small roleplay/uncensored ones — degenerate into an
+# endless repeat loop. 1.1 is a light, widely-used default that curbs that without
+# noticeably changing well-behaved output. An explicit model/request value wins.
+DEFAULT_REPEAT_PENALTY = 1.1
+
 
 class ModelSampling(BaseModel):
     """Recommended sampling parameters for a model (all optional)."""
@@ -37,18 +44,19 @@ def _num(value: object) -> float | None:
 def recommended(model: LibraryModel) -> ModelSampling:
     """Read a model's recommended sampling from ``generation_config.json``.
 
-    Returns an all-None :class:`ModelSampling` when the file is absent or
-    unreadable (the common GGUF case) — callers then leave sampling to the
+    When the file is absent or unreadable (the common GGUF-quant case), only the
+    mild anti-loop ``repeat_penalty`` default is set; everything else is left to the
     runtime's own defaults.
     """
+    fallback = ModelSampling(repeat_penalty=DEFAULT_REPEAT_PENALTY)
     model_dir = model.load_target if model.load_target.is_dir() else model.load_target.parent
     config_path = model_dir / "generation_config.json"
     try:
         data = json.loads(config_path.read_text())
     except (OSError, json.JSONDecodeError):
-        return ModelSampling()
+        return fallback
     if not isinstance(data, dict):
-        return ModelSampling()
+        return fallback
 
     temp = _num(data.get("temperature"))
     top_p = _num(data.get("top_p"))
@@ -63,5 +71,6 @@ def recommended(model: LibraryModel) -> ModelSampling:
         top_p=top_p if top_p and top_p < 1.0 else None,
         top_k=int(top_k_raw) if top_k_raw and top_k_raw > 0 else None,
         min_p=min_p if min_p else None,
-        repeat_penalty=repeat if repeat and repeat != 1.0 else None,
+        # Respect an explicit model value; otherwise apply a mild anti-loop default.
+        repeat_penalty=repeat if repeat and repeat != 1.0 else DEFAULT_REPEAT_PENALTY,
     )
