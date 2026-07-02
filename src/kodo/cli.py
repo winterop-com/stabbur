@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from kodo import capabilities, config, doctor, project, runtime
@@ -95,7 +96,7 @@ def _fmt_ctx(n: int | None) -> str:
 
 
 def _print_model_card(model: library_ops.LibraryModel, local_root: Path) -> None:
-    """Print one model as a full-detail 'card' (name header + key/value fields)."""
+    """Print one model as a full-detail 'card' — a bordered panel of key/value fields."""
     try:
         caps = capabilities.capabilities(model)
     except Exception:  # noqa: BLE001 - detection is best-effort; never break the listing
@@ -108,19 +109,28 @@ def _print_model_card(model: library_ops.LibraryModel, local_root: Path) -> None
     if model.mmproj:
         loads += f" [dim](+ mmproj {model.mmproj.name})[/]"
 
-    console.print(
-        f"[bold white]{model.name}[/]  [dim]·[/]  {_fmt_cell(model.model_format)}"
-        f"  [dim]·[/]  {model.size_human}  [dim]· {model.file_count} files[/]",
-        highlight=False,
-    )
-    console.print(f"    [dim]capabilities[/]  {_caps_label(caps)}", highlight=False)
-    console.print(f"    [dim]context     [/]  {ctx_str}", highlight=False)
-    console.print(f"    [dim]location    [/]  {location}", highlight=False)
-    console.print(f"    [dim]loads       [/]  {loads}", highlight=False)
-    console.print(f"    [dim]path        [/]  [dim]{model.path}[/]", highlight=False)
+    body = Table.grid(padding=(0, 2))
+    body.add_column(style="dim", justify="right")
+    body.add_column(overflow="fold")
+    body.add_row("format", f"{_fmt_cell(model.model_format)}  [dim]· {model.size_human} · {model.file_count} files[/]")
+    body.add_row("capabilities", _caps_label(caps))
+    body.add_row("context", ctx_str)
+    body.add_row("location", location)
+    body.add_row("loads", loads)
+    body.add_row("path", f"[dim]{model.path}[/]")
     if model.is_ollama:
-        console.print("    [yellow]runs via Ollama[/] [dim](not llama.cpp)[/]", highlight=False)
-    console.print()
+        body.add_row("runtime", "[yellow]Ollama[/] [dim](not llama.cpp)[/]")
+
+    console.print(
+        Panel(
+            body,
+            title=f"[bold white]{model.name}[/]",
+            title_align="left",
+            border_style=_FORMAT_STYLE[model.model_format],
+            box=box.ROUNDED,
+            padding=(0, 1),
+        )
+    )
 
 
 def _project_toml(model: str, library_root: Path) -> str:
