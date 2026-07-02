@@ -92,8 +92,8 @@ async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyP
     # REPL keeps prior answers in context on the next turn.
     async def fake_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any]]:
-        return "final answer", []
+    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+        return "final answer", [], None
 
     monkeypatch.setattr(agent, "_stream_turn", fake_stream)
     messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
@@ -109,8 +109,8 @@ async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.Monk
     # still shows it) and recorded in history.
     async def looping_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any]]:
-        return "", [{"id": "1", "name": "x__y", "args": "{}"}]
+    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+        return "", [{"id": "1", "name": "x__y", "args": "{}"}], None
 
     monkeypatch.setattr(agent, "_stream_turn", looping_stream)
     tokens: list[str] = []

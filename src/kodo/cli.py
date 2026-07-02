@@ -1068,6 +1068,24 @@ def _chat_with_tools(
         turn_separated = False
         err.print(text, end="", style="grey42")
 
+    # Live context usage for the status line: the model's trained window (max) and
+    # the server-reported token total after the last turn (None until the first reply).
+    try:
+        ctx_max = capabilities.capabilities(model).context_length
+    except Exception:  # noqa: BLE001 - detection is best-effort; the bar just omits ctx
+        ctx_max = None
+    ctx_used: int | None = None
+
+    def on_usage(usage: dict[str, object]) -> None:
+        nonlocal ctx_used
+        total = usage.get("total_tokens")
+        if isinstance(total, int):
+            ctx_used = total
+            return
+        prompt_toks, completion_toks = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        if isinstance(prompt_toks, int) and isinstance(completion_toks, int):
+            ctx_used = prompt_toks + completion_toks
+
     def seed() -> list[dict[str, object]]:
         return [{"role": "system", "content": system_prompt}] if system_prompt else []
 
@@ -1095,7 +1113,6 @@ def _chat_with_tools(
                     model_format=model.model_format.value,
                     tools=toolset.names,
                     server=base,
-                    esc_cancel=True,
                 )
                 try:
                     import readline  # noqa: PLC0415 - up-arrow recall + line editing for input()
@@ -1107,6 +1124,14 @@ def _chat_with_tools(
                 pending_images = images  # attached with --image; consumed by the first turn
                 pending_audios = audios  # attached with --audio; consumed by the first turn
                 while True:
+                    chatui.status_line(
+                        console,
+                        model=model.name,
+                        model_format=model.model_format.value,
+                        ctx_used=ctx_used,
+                        ctx_max=ctx_max,
+                        tools=len(toolset.names),
+                    )
                     try:
                         user = input(chatui.USER_PROMPT).strip()
                     except (EOFError, KeyboardInterrupt):
@@ -1150,6 +1175,7 @@ def _chat_with_tools(
                             on_event,
                             None if render else on_token,
                             on_reasoning=on_reasoning,
+                            on_usage=on_usage,
                         )
                     )
                     _first_output()

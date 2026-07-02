@@ -15,6 +15,9 @@ from kodo.tools import MCPToolset
 # Callbacks: on_event(kind, detail) for tool activity; on_token(text) for streamed reply.
 ToolEvent = Callable[[str, str], None]
 TokenSink = Callable[[str], None]
+# on_usage(usage) receives the server's token accounting for a turn (OpenAI `usage`:
+# prompt_tokens / completion_tokens / total_tokens) so a REPL can show context used.
+UsageSink = Callable[[dict[str, Any]], None]
 
 
 def _audio_part(data_url: str) -> dict[str, Any]:
@@ -59,10 +62,11 @@ async def _stream_turn(
     body: dict[str, Any],
     on_token: TokenSink | None,
     on_reasoning: TokenSink | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
-    """Stream one completion; return (content, tool_calls). Emits content + reasoning live."""
+) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
+    """Stream one completion; return (content, tool_calls, usage). Emits content + reasoning live."""
     content = ""
     calls: dict[int, dict[str, str]] = {}
+    usage: dict[str, Any] | None = None
     async with http.stream("POST", f"{base_url}/v1/chat/completions", json=body) as resp:
         resp.raise_for_status()
         async for line in resp.aiter_lines():
@@ -71,7 +75,14 @@ async def _stream_turn(
             payload = line[len("data:") :].strip()
             if payload == "[DONE]":
                 break
-            delta = json.loads(payload)["choices"][0]["delta"]
+            chunk = json.loads(payload)
+            # With include_usage the final chunk carries `usage` and an empty
+            # `choices` list; capture it and skip the (missing) delta.
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+            if not chunk.get("choices"):
+                continue
+            delta = chunk["choices"][0]["delta"]
             if delta.get("content"):
                 content += delta["content"]
                 if on_token:
@@ -90,7 +101,7 @@ async def _stream_turn(
                 if fn.get("arguments"):
                     slot["args"] += fn["arguments"]
     ordered = [calls[i] for i in sorted(calls)]
-    return content, ordered
+    return content, ordered, usage
 
 
 async def run(
@@ -108,19 +119,25 @@ async def run(
     repeat_penalty: float | None = None,
     model: str | None = None,
     max_rounds: int = 8,
+    on_usage: UsageSink | None = None,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
     ``messages`` is mutated in place (assistant/tool turns) so a REPL keeps the
     conversation. ``on_event`` reports tool activity; ``on_token`` receives the
     final reply's tokens; ``on_reasoning`` receives a reasoning model's thinking
-    tokens (separate channel). ``model`` is sent as the OpenAI ``model`` field —
-    required by mlx-vlm (which 422s without it), ignored by llama-server/mlx-lm.
-    Bounded by ``max_rounds``.
+    tokens (separate channel); ``on_usage`` receives the server's token accounting
+    (prompt/completion/total) after each round. ``model`` is sent as the OpenAI
+    ``model`` field — required by mlx-vlm (which 422s without it), ignored by
+    llama-server/mlx-lm. Bounded by ``max_rounds``.
     """
     async with httpx.AsyncClient(timeout=600) as http:
         for _ in range(max_rounds):
             body: dict[str, Any] = {"messages": messages, "stream": True}
+            # Ask for a final usage chunk (prompt/completion tokens) so callers can
+            # report real context consumption; runtimes that ignore it just omit it.
+            if on_usage is not None:
+                body["stream_options"] = {"include_usage": True}
             if model is not None:
                 body["model"] = model
             # Omit tools entirely when there are none, so a no-tool chat is plain
@@ -142,7 +159,9 @@ async def run(
                 body["min_p"] = min_p
             if repeat_penalty is not None:
                 body["repeat_penalty"] = repeat_penalty
-            content, calls = await _stream_turn(http, base_url, body, on_token, on_reasoning)
+            content, calls, usage = await _stream_turn(http, base_url, body, on_token, on_reasoning)
+            if usage and on_usage:
+                on_usage(usage)
             if not calls:
                 messages.append({"role": "assistant", "content": content})
                 return content
