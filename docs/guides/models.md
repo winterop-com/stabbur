@@ -78,11 +78,11 @@ Treat the icons as a hint, not a guarantee.
 
 Where a model lives dominates load time:
 
-- **`local_root`** (`~/.kodo/library`, on the internal SSD): ~2 s for a 6–7 GB GGUF.
+- **A fast library** (internal SSD, or a fast external like a Samsung T9): ~2 s for a 6–7 GB GGUF.
 - **`library_root`** (an external USB drive): tens of seconds to minutes — a 5 GB
   model took ~57 s, a 16 GB model minutes. This is drive I/O, not kodo.
 
-**Keep the models you use often on `local_root`** (`kodo library pull --local`) for fast
+**Keep the models you use often in a fast library** (e.g. a project-local `models/`) for fast
 loads and offline use; the big drive is the backup/archive tier. MLX models also
 carry a one-time server-startup cost on first load.
 

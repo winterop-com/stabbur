@@ -1,22 +1,23 @@
 # CLI reference
 
 The CLI is the **`kodo`** command. Everything centers on your **library** — the
-models on your drive, at the `library_root` set in `kodo.toml`. Run any command
+models in your libraries (a project's, or the default `KODO_LIBRARY_ROOT`). Run any command
 with `--help` for full options.
 
 **Global flag:** `kodo --debug <command>` turns on verbose diagnostics — it prints
 the exact model-runtime command and streams the runtime's logs live (instead of
-discarding them), which is the first thing to reach for when `kodo chat`/`run`
+discarding them), which is the first thing to reach for when `kodo chat`
 reports a model that "exited before becoming ready". (Also settable with
 `KODO_DEBUG=1`.)
 
 ## `kodo project init`
 
 Scaffold **`kodo.toml`** here — kodo's primary config (no `.env` needed) — and
-ensure its model is in the library. The generated file captures the library
-location (`library_root`) plus the assistant (`[project]` model + `[[mcp]]`
-tools). Idempotent — only pulls the model if it's missing. With no `--model` it
-offers a small curated set and pulls the choice into the always-local library.
+ensure its model is in the library. The generated file is portable — it lists the
+`libraries` this project uses (a project-local `models/` plus `@shared`, the
+machine default) plus the assistant (`[project]` model + `[[mcp]]` tools).
+Idempotent — only pulls the model if it's missing. With no `--model` it
+offers a small curated set and pulls the choice into the project-local library.
 
 ```bash
 kodo project init                                  # pick a curated starter model
@@ -54,7 +55,7 @@ kodo library search qwen3 -n 30      # more results
 ## `kodo library ls`
 
 List the models in **your library** — what you've pulled, ready to run — grouped
-by format with sizes. Reads `library_root` (from `kodo.toml`).
+by format with sizes across the libraries in scope.
 
 ```bash
 kodo library ls
@@ -64,7 +65,7 @@ kodo library ls -d     # detailed cards (caps, context, location, path, tags)
 ## `kodo library rm <name>`
 
 Remove a model from the library — **deletes its files from disk**. Resolves like
-`kodo run` (use `--format` to disambiguate a model kept in more than one format);
+`kodo chat` (use `--format` to disambiguate a model kept in more than one format);
 all copies of the model are removed (e.g. one on the local disk and one on the
 drive). Ollama models keep any blobs still shared with other installed models.
 Prompts for confirmation unless `--yes`.

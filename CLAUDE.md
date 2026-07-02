@@ -45,6 +45,30 @@ src/kodo/
 └── sources/     # base.py + huggingface.py / ollama.py / lmstudio.py
 ```
 
+## Libraries & projects (the model)
+
+Two distinct, composable concepts (see `kodo.library.roots`):
+
+- **A Library is a self-contained, portable store**: model files **plus their own
+  metadata** (tags in `<root>/.kodo/tags.json`) — so the whole thing travels (move
+  the drive to another machine and the tags come along). Nothing about a library
+  is "local" or "external"; it's just a *location*. The **default library** is
+  `KODO_LIBRARY_ROOT` (per-machine config).
+- **A Project (`./kodo.toml`) composes libraries + defines an assistant.** It lists
+  `libraries = [...]` in priority order — paths relative to the project (e.g.
+  `"models"`, a project-local store) plus the `@shared` token for the machine
+  default — so a project can keep hot models next to it *and* use the big archive.
+  Outside a project, just the default library is used. `[project]` (model name +
+  system prompt) and `[[mcp]]` define the assistant. A project references library
+  models **by name**, never by path — so it's portable/committable.
+
+`library.scan()` reads across the resolved libraries, first match wins, and each
+model records its `library_root` so tags read/write against the right library.
+`kodo project init` scaffolds `kodo.toml` + a `models/` project-local library;
+`kodo library pull` targets the project-local library by default (`--shared` for
+the shared one). There is **no** global `~/.kodo/library` — that was removed;
+`~/.kodo` is only a machine cache now (e.g. Kokoro TTS assets).
+
 ## Library organization
 
 LM Studio / HF land in a **format-centric** layout; Ollama keeps its native

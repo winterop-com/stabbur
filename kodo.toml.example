@@ -1,24 +1,16 @@
-# kodo config — the primary config file (no .env needed).
+# kodo project — this directory's assistant + the libraries it uses.
 #
-# Copy to `kodo.toml` (or run `kodo init`). One file holds two things:
-#   1. Library/runtime config as top-level keys (WHERE models live, ports, ...).
-#   2. The project's ASSISTANT: [project] (model + system prompt) and [[mcp]]
-#      tool servers, read by `kodo chat` / `kodo serve` in this directory.
+# Copy to `kodo.toml` (or run `kodo project init`). Portable: no machine-specific
+# paths. WHERE the shared library lives is machine config (KODO_LIBRARY_ROOT), so
+# this file can be committed and shared.
 #
 # Precedence (high to low): CLI flags, KODO_* env vars, kodo.toml, .env.
-# So kodo.toml is authoritative; a KODO_* env var is the per-machine escape
-# hatch (e.g. a different drive mount path on Linux).
-#
-# Note: `kodo ls` reads `library_root` (below) to find the library on disk.
 
-# --- Library / runtime (top-level keys map to Settings fields) ---
-
-# Where the model library lives (often the external drive). Use an absolute path.
-library_root = "/Volumes/LLM/Library"
-
-# Always-local root, never on an external drive (default: ~/.kodo/library).
-# `kodo pull --local` targets it so a small model works when the drive is out.
-# local_root = "/Users/you/.kodo/library"
+# --- Libraries this project reads, in priority order (first match wins) ---
+#   "models"   — a project-local store (scaffolded by `kodo project init`)
+#   "@shared"  — the machine's default library (KODO_LIBRARY_ROOT)
+# Omit `libraries` entirely to use just the default library.
+libraries = ["models", "@shared"]
 
 # Serve settings (used by `kodo serve`).
 # host = "127.0.0.1"
@@ -28,8 +20,8 @@ library_root = "/Volumes/LLM/Library"
 # --- The assistant this project defines ---
 
 [project]
-# A model already in your library (full name or bare repo/tag). Pull it with
-# `kodo pull huggingface <model>`, or `kodo init` pulls it for you.
+# A model in one of the libraries above (full name or bare repo/tag). Pull it with
+# `kodo library pull huggingface <model>`, or `kodo project init` pulls it for you.
 model = "gemma-4-12B-it-QAT-GGUF"
 
 # Prepended to every conversation. Leave "" for none.

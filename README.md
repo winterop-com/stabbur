@@ -93,8 +93,7 @@ don't need it).
 
 | Key (`kodo.toml`) / env var                 | Default                  |
 | ------------------------------------------- | ------------------------ |
-| `library_root` / `KODO_LIBRARY_ROOT`          | `data`                   |
-| `local_root` / `KODO_LOCAL_ROOT`            | `~/.kodo/library`        |
+| `library_root` / `KODO_LIBRARY_ROOT`          | `data` (the default library) |
 | `ollama_models_dir` / `KODO_OLLAMA_MODELS_DIR` | `~/.ollama/models`    |
 | `lmstudio_models_dir` / `KODO_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models` |
 | `hf_token` / `KODO_HF_TOKEN`                | (uses HF login if unset) |

@@ -1,7 +1,13 @@
 # The library
 
-The library is the on-drive home for your models, at the `library_root` set in
-your `kodo.toml`. List it with:
+A **library** is a self-contained, portable store for your models — the model
+files **plus their own metadata** (tags, cards) under `<root>/.kodo/`. Because the
+metadata lives *inside* the library, the whole thing travels: move the drive to
+another machine and your tags come with it.
+
+The **default library** is `KODO_LIBRARY_ROOT` (set per machine, e.g. an external
+drive). A [project](../guides/projects.md) can compose more libraries in front of
+it. List what's in scope with:
 
 ```bash
 kodo library ls
@@ -35,25 +41,28 @@ several quants, a balanced one (`Q4_K_M` first) is picked automatically. macOS
 Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a
 `model-card.md` (the upstream README for HF/LM Studio; a generated Modelfile-style
 card from the manifest layers for Ollama) — so every model carries its run
-instructions.
+instructions. **Tags** live in one `<root>/.kodo/tags.json` per library.
 
-## Local + drive (external drives get unplugged)
+## Composing libraries in a project
 
-The library spans **two roots**: the main `library_root` (typically the external
-drive) **plus** an always-local root (`local_root`, default `~/.kodo/library`).
-Keep a small model local so kodo still works when the drive is disconnected:
+A project (`kodo.toml`) can use more than one library, in priority order — its own
+**project-local** library plus the shared/default one — so you can keep a few hot
+models next to a project while still using the big archive:
 
-```bash
-kodo library pull huggingface unsloth/SmolLM2-135M-Instruct-GGUF --local
+```toml
+libraries = ["models", "@shared"]   # project-local first, then the machine default
 ```
 
-`kodo library ls` merges both (drive wins on name clashes) and, when the drive isn't
-mounted, shows your local models with a "drive offline" note instead of failing.
+`@shared` is the token for the machine's default library (`KODO_LIBRARY_ROOT`), so
+the file stays portable. `kodo project init` scaffolds a `models/` directory and
+this list; reads span all listed libraries (first match wins), while `kodo library
+pull` targets the first (project-local) one by default (`--shared` for the shared
+one). See [Projects](projects.md).
 
 ## Storage on an external drive
 
-The library is designed to live on a large external/cloud drive; moving it is a
-one-line change to `library_root` in `kodo.toml`.
+A library is portable — point `KODO_LIBRARY_ROOT` at wherever it lives on each
+machine; the models and their tags come along.
 
 - **exFAT** is a good choice for a drive shared between macOS and Linux (the only
   filesystem both read/write natively). No journaling — **eject cleanly**; no

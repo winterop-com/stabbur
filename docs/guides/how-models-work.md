@@ -166,5 +166,5 @@ Detection is heuristic, so it isn't perfect — see
   weight.
 
 kodo's intended library policy is **GGUF + MLX ready-to-run, safetensors on demand**
-(per model, not "keep everything"). Keep the models you use often on `local_root`
+(per model, not "keep everything"). Keep the models you use often in a fast library
 (internal SSD) for fast loads; the big external drive is the archive tier.

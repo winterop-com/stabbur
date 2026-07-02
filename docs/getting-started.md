@@ -26,7 +26,7 @@ Install the ones you need:
 
 llama.cpp is the one to install first. The MLX and TTS extras are optional and
 gated — add them only if you want MLX models or multi-voice speech. On first use
-Kokoro downloads its model (~310 MB) into the always-local library.
+Kokoro downloads its model (~310 MB) into a machine cache (~/.kodo/kokoro).
 
 ### 3. Web UI (optional)
 
