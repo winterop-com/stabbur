@@ -37,11 +37,21 @@ architecture, and conventions; this file holds what's next.
   - **Alternatives (later):** Kokoro (ONNX; needs onnxruntime + kokoro-onnx — more
     voices/quality) and Orpheus-3B (Llama GGUF + a SNAC decoder — larger, more
     expressive). OuteTTS-via-llama-tts is the lowest-friction start.
-- **Chat session export — Markdown + PDF.** Export a conversation from the web
-  UI (and a `kodo` CLI command) to a shareable file. Markdown first (messages,
-  roles, code fences, tool activity, model + params header) — straightforward
-  from the client-side conversation state. PDF second (print-to-PDF of a styled
-  Markdown render, or a headless renderer) if it can be done without a heavy dep.
+- **Chat session export — Markdown + PDF.** [web UI done] Top-bar download menu
+  exports the open conversation to **Markdown** (source-form: roles, code fences,
+  reasoning, tool activity, model + params header) or **PDF** (a styled,
+  self-contained HTML document opened in a print window for "Save as PDF" — no
+  heavy dep; `renderToStaticMarkup` is lazy-loaded). Both are pure client-side
+  from conversation state. *Still open:* a `kodo` CLI export — conversations are
+  browser-only today, so this needs the REPL to persist transcripts first (e.g. a
+  `/export` slash command or `kodo chat --save`).
+- **Mermaid diagram rendering in Markdown.** Models readily emit ```` ```mermaid ````
+  fenced blocks (flowcharts, sequence diagrams, mind maps); today they render as
+  plain code. Detect the `mermaid` language in the Markdown renderer and render
+  the diagram (mermaid.js) instead of the code, with a toggle/fallback to the raw
+  source and a copy button. Keep it lazy-loaded (mermaid is heavy) so it only
+  loads when a diagram is present, and make it theme-aware (light/dark). Carry the
+  rendered SVG into PDF export; keep the fenced source in Markdown export.
 - **Projects (assistant definitions)** — two units: the *global* **library**
   (models on the drive) vs a *local* **project** (`./kodo.toml`: a library
   model + MCP servers + system prompt + serve settings). Projects make assistants

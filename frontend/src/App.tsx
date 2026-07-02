@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, PanelLeft, PanelRight, PanelRightClose, SquarePen, Sun, Moon } from "lucide-react";
+import { ArrowDown, Download, PanelLeft, PanelRight, PanelRightClose, SquarePen, Sun, Moon } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -22,6 +22,12 @@ import {
   type TtsModel,
 } from "@/api";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
@@ -39,6 +45,7 @@ import {
   type Settings,
 } from "@/lib/store";
 import type { Attachment, ChatMessage, Conversation, ToolMarker } from "@/lib/types";
+import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
 import { useTheme } from "@/lib/useTheme";
 
 /** Parse the active conversation id from the URL hash (#/c/<id>), or null. */
@@ -613,6 +620,28 @@ export function App() {
               )}
             </div>
             <div className="flex items-center gap-0.5">
+              {activeConv && messages.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Export conversation"
+                      title="Export conversation"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => exportConversationMarkdown(activeConv, status?.model ?? null)}>
+                      Markdown (.md)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void exportConversationPdf(activeConv, status?.model ?? null)}>
+                      PDF / Print
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <HealthMenu health={health} />
               <Tooltip>
                 <TooltipTrigger asChild>
