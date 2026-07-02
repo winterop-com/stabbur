@@ -1,4 +1,4 @@
-.PHONY: help install install-mlx lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
+.PHONY: help install install-mlx install-tts lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
 
 # ==============================================================================
 # Venv
@@ -18,6 +18,7 @@ help:
 	@echo "Targets:"
 	@echo "  install     Install dependencies"
 	@echo "  install-mlx Install deps + MLX runtimes (Apple Silicon only)"
+	@echo "  install-tts Install deps + Kokoro TTS (multi-voice; macOS + Linux)"
 	@echo "  lint        Format + autofix, then type-check (mutates files)"
 	@echo "  check       CI gate: verify formatting/lint/types/tests (no changes)"
 	@echo "  test        Run tests"
