@@ -35,6 +35,43 @@ per-model matrix). Ordered roughly by impact:
 
 ## Open / next ideas
 
+- **More MCP servers — the default "normal toolset".** The assistant should ship a
+  small, dependable set of built-in tools beyond `datetime`. Each is its own workspace
+  member following the `kodo-mcp-datetime` template (src layout, `__init__`+`__main__`+
+  `app.py`), advertises itself via the `mcp_servers` plugin hook (so `kodo mcp list` /
+  `--mcp <name>` / tool pickers pick it up with no hardcoding), and gets a matching
+  `tools-<name>` benchmark suite (like `tools-datetime`) so its tool-calling is measured.
+
+  Proposed set, roughly in priority order:
+
+  1. **`kodo-mcp-fetch`** — fetch a URL and return readable text/markdown (grounding /
+     "read this page"). httpx + a readability/markdownify step. **Security:** SSRF guard
+     (block private/loopback/link-local IPs and non-http(s) schemes), size + redirect
+     caps, timeout. Optional allowlist via config.
+  2. **`kodo-mcp-search`** — web search returning titled snippets + URLs. Pairs with
+     fetch (search → fetch the winner). Pluggable backend (DuckDuckGo HTML with no key,
+     or Brave/Exa via a `KODO_SEARCH_*` key in pydantic-settings). Degrade with a clear
+     hint when unconfigured, like the mlx/tts extras.
+  3. **`kodo-mcp-exec`** — run a Python (later shell) snippet and return stdout: a
+     calculator / scratchpad. **Reuse the benchmark's Docker sandbox** — extract
+     `kodo_mcp_benchmark.core.run_code` into a shared `kodo-mcp-sandbox` lib both depend
+     on (no network, capped mem/cpu/pids, timeout). Gated on Docker like the benchmark.
+  4. **`kodo-mcp-files`** — list/read/search files under one configured workspace root,
+     read-only by default. **Security:** contain every path with `safe_join` (the guard
+     already in `sources/base.py`); never escape the root; opt-in writes behind a flag.
+  5. **`kodo-mcp-memory`** — a tiny persistent notes / key-value store the assistant can
+     read and write, saved *in the library* (travels with the drive, per the no-`~/.kodo`
+     rule), so it has durable scratch memory across sessions.
+  6. **`kodo-mcp-weather-yr`** — weather via yr.no (met.no). Good "real API" exemplar and
+     already named as a wanted server.
+
+  Cross-cutting: keep each server dependency-light and stdio-only; config via
+  `pydantic-settings` (`KODO_*`); pure servers stay plain packages (advertise-only
+  plugin, no `PluginContext`); anything that executes or fetches gets a sandbox/allowlist
+  before it ships. A project's `kodo.toml` can then compose which servers its assistant
+  turns on by default (vs. every server always-on), and the web UI tool picker lists them
+  from the `mcp_servers` advertisements.
+
 - **Terminal chat is a Textual TUI — DONE.** `kodo chat` (interactive) now runs a
   full-screen Textual app (`src/kodo/chat_tui.py`): scrolling markdown transcript,
   multi-line input (Enter sends; Shift+Return / Ctrl-J / trailing backslash =
