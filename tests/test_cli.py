@@ -206,13 +206,13 @@ def test_split_input_images_detects_dropped_paths(tmp_path: Path) -> None:
     # out and attach it, leaving the remaining words as the message.
     img = tmp_path / "pic.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n")
-    text, images, _ = cli._split_input_media(f"what is this {img}")
+    text, images, _, _ = cli._split_input_media(f"what is this {img}")
     assert text == "what is this"
     assert len(images) == 1 and images[0].startswith("data:image/png;base64,")
 
 
 def test_split_input_images_leaves_plain_text(tmp_path: Path) -> None:
-    text, images, _ = cli._split_input_media("just a normal message, no path")
+    text, images, _, _ = cli._split_input_media("just a normal message, no path")
     assert text == "just a normal message, no path"
     assert images == []
 
@@ -222,6 +222,25 @@ def test_split_input_images_handles_escaped_spaces(tmp_path: Path) -> None:
     img = tmp_path / "my pic.jpg"
     img.write_bytes(b"\xff\xd8\xff")
     escaped = str(img).replace(" ", "\\ ")
-    text, images, _ = cli._split_input_media(f"describe {escaped}")
+    text, images, _, _ = cli._split_input_media(f"describe {escaped}")
     assert text == "describe"
     assert len(images) == 1 and images[0].startswith("data:image/jpeg;base64,")
+
+
+def test_split_input_detects_dropped_text_files(tmp_path: Path) -> None:
+    # A dragged text/code file is read as (name, contents) for prompt inlining.
+    doc = tmp_path / "notes.py"
+    doc.write_text("print('hi')\n")
+    text, images, audios, files = cli._split_input_media(f"explain {doc}")
+    assert text == "explain"
+    assert images == [] and audios == []
+    assert files == [("notes.py", "print('hi')\n")]
+
+
+def test_inline_files_prepends_fenced_blocks() -> None:
+    inlined = cli._inline_files("summarize", [("a.txt", "hello"), ("b.md", "# world")])
+    assert "Attached file: a.txt\n```\nhello\n```" in inlined
+    assert "Attached file: b.md\n```\n# world\n```" in inlined
+    assert inlined.endswith("summarize")
+    # No text: just the blocks.
+    assert cli._inline_files("", [("a.txt", "hi")]) == "Attached file: a.txt\n```\nhi\n```"

@@ -20,7 +20,8 @@ architecture, and conventions; this file holds what's next.
   (matched by MIME or extension) with any model — their contents inline into the
   prompt as fenced blocks (a plain string, not multimodal parts), so even a
   non-multimodal model reads them; the message shows a filename chip, not the raw
-  text. *Still open:* a `kodo chat --file` flag for CLI parity.
+  text. **CLI parity done:** drag a text/code file into the `kodo chat` REPL and
+  its path is detected + inlined (same as image/audio drag-drop) — no flag needed.
 - **Text-to-speech (TTS) — SPIKE DONE; recommend OuteTTS via `llama-tts`.**
   Finding: llama.cpp ships **`llama-tts`** (already on this machine via brew), and
   it generates speech end-to-end from the existing runtime family — no new engine.

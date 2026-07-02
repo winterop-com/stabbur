@@ -598,6 +598,79 @@ def _finish_speak(wav: Path, output: Path | None, play: bool) -> None:
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 _AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac"}
+# Text/doc files dragged into the REPL are inlined into the prompt (work with any
+# model, unlike image/audio). Matched by extension (their MIME is often empty).
+_TEXT_EXTS = {
+    ".txt",
+    ".text",
+    ".md",
+    ".markdown",
+    ".rst",
+    ".json",
+    ".jsonl",
+    ".ndjson",
+    ".csv",
+    ".tsv",
+    ".log",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".env",
+    ".xml",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".py",
+    ".pyi",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".go",
+    ".rs",
+    ".rb",
+    ".java",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".c",
+    ".h",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".hpp",
+    ".cs",
+    ".php",
+    ".swift",
+    ".sql",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".r",
+    ".lua",
+    ".pl",
+    ".pm",
+    ".dart",
+    ".ex",
+    ".exs",
+    ".clj",
+    ".hs",
+    ".ml",
+    ".vue",
+    ".svelte",
+    ".tex",
+    ".proto",
+    ".graphql",
+    ".gql",
+}
 
 
 def _media_data_url(path: Path, default_mime: str) -> str:
@@ -609,12 +682,21 @@ def _media_data_url(path: Path, default_mime: str) -> str:
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
 
 
-def _split_input_media(text: str) -> tuple[str, list[str], list[str]]:
-    """Pull image/audio file paths out of a REPL line (from a terminal drag-drop).
+def _inline_files(text: str, files: list[tuple[str, str]]) -> str:
+    """Prepend attached text/doc files to a message as fenced blocks (context)."""
+    if not files:
+        return text
+    blocks = "\n\n".join(f"Attached file: {name}\n```\n{content}\n```" for name, content in files)
+    return f"{blocks}\n\n{text}" if text else blocks
+
+
+def _split_input_media(text: str) -> tuple[str, list[str], list[str], list[tuple[str, str]]]:
+    """Pull dragged file paths out of a REPL line (from a terminal drag-drop).
 
     Dragging a file into the terminal inserts its (possibly shell-escaped or
     quoted) path as text. Detect tokens that resolve to an existing image/audio
-    file, attach them as data URLs, and return the remaining words as the message.
+    file (attached as data URLs) or text/doc file (read as ``(name, contents)``
+    for inlining), and return the remaining words as the message.
     """
     import shlex  # noqa: PLC0415
 
@@ -625,6 +707,7 @@ def _split_input_media(text: str) -> tuple[str, list[str], list[str]]:
     words: list[str] = []
     images: list[str] = []
     audios: list[str] = []
+    files: list[tuple[str, str]] = []
     for tok in tokens:
         p = Path(tok).expanduser()
         ext = p.suffix.lower()
@@ -632,9 +715,11 @@ def _split_input_media(text: str) -> tuple[str, list[str], list[str]]:
             images.append(_media_data_url(p, "image/png"))
         elif ext in _AUDIO_EXTS and p.is_file():
             audios.append(_media_data_url(p, "audio/wav"))
+        elif ext in _TEXT_EXTS and p.is_file():
+            files.append((p.name, p.read_text(encoding="utf-8", errors="replace")))
         else:
             words.append(tok)
-    return " ".join(words), images, audios
+    return " ".join(words), images, audios, files
 
 
 def _load_media(
@@ -899,20 +984,25 @@ def _chat_with_tools(
                         if user in ("/exit", "/quit", "exit", "quit"):
                             break
                         continue
-                    # Detect image/audio paths dragged into the terminal (inserted as text).
-                    user, dropped_imgs, dropped_auds = _split_input_media(user)
+                    # Detect file paths dragged into the terminal (inserted as text):
+                    # image/audio attach as media; text/doc files inline into the prompt.
+                    user, dropped_imgs, dropped_auds, dropped_files = _split_input_media(user)
                     turn_images = (pending_images or []) + dropped_imgs
                     turn_audios = (pending_audios or []) + dropped_auds
                     pending_images = None
                     pending_audios = None
-                    dropped = len(dropped_imgs) + len(dropped_auds)
+                    dropped = len(dropped_imgs) + len(dropped_auds) + len(dropped_files)
                     if dropped:
                         err.print(f"[grey62](attached {dropped} file{'s' if dropped > 1 else ''})[/]")
-                    if not user and not turn_images and not turn_audios:
+                    if not user and not turn_images and not turn_audios and not dropped_files:
                         continue
+                    content_text = _inline_files(user, dropped_files)
                     mark = len(history)  # roll-back point if the turn is canceled
                     history.append(
-                        {"role": "user", "content": agent.user_content(user, turn_images or None, turn_audios or None)}
+                        {
+                            "role": "user",
+                            "content": agent.user_content(content_text, turn_images or None, turn_audios or None),
+                        }
                     )
                     turn_labeled = render  # render mode labels+renders at the end, not inline
                     _think()

@@ -133,8 +133,10 @@ kodo chat <name> -p "transcribe" --audio clip.wav         # audio model
 ```
 
 `--image`/`-i` and `--audio`/`-a` are repeatable. In the REPL you can also just
-**drag a file into the terminal** — the inserted path is detected and attached.
-Sent as OpenAI multimodal content; kodo warns if the model lacks that modality.
+**drag a file into the terminal** — the inserted path is detected and attached:
+image/audio go as OpenAI multimodal content (kodo warns if the model lacks that
+modality), while **text/code files** (`.md`, `.py`, `.json`, …) are inlined into
+the prompt as fenced blocks, so you can drop a file into *any* model as context.
 
 Non-chat models (embeddings, vision encoders) are refused with a clear message —
 kodo runs generative LLMs only.
