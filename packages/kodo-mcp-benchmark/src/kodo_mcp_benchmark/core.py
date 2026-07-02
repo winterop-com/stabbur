@@ -145,7 +145,7 @@ class CaseResult(BaseModel):
 
 
 class ProblemResult(BaseModel):
-    """A problem's verdict: passed only if every case passed."""
+    """A problem's verdict: passed only if every case passed, with timing split out."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -154,7 +154,14 @@ class ProblemResult(BaseModel):
     type: str = "code"
     passed: bool
     cases: list[CaseResult]
-    duration_s: float
+    gen_s: float = 0.0  # model response time (waiting on the model)
+    exec_s: float = 0.0  # sandbox execution / verification time
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def duration_s(self) -> float:
+        """Total wall-clock for this problem (generation + execution)."""
+        return self.gen_s + self.exec_s
 
 
 class SuiteReport(BaseModel):
@@ -319,7 +326,7 @@ def evaluate(problem: Problem, code: str, **limits: str) -> ProblemResult:
         type="code",
         passed=bool(cases) and all(c.passed for c in cases),
         cases=cases,
-        duration_s=monotonic() - start,
+        exec_s=monotonic() - start,  # gen_s is filled in by the driver (it times the model)
     )
 
 
@@ -331,13 +338,11 @@ def _args_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     return all(actual.get(key) == value for key, value in expected.items())
 
 
-def score_tool(
-    problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer: str, duration_s: float
-) -> ProblemResult:
+def score_tool(problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer: str, gen_s: float) -> ProblemResult:
     """Score a ``tool`` problem: the expected tool called with expected args AND a matching answer.
 
-    ``calls`` is the trace of (tool_name, args) the model made during the agent loop. Both the
-    tool check and the answer check must pass (strictest scoring).
+    ``calls`` is the trace of (tool_name, args) the model made during the agent loop; ``gen_s``
+    is that loop's wall-clock. Both the tool check and the answer check must pass (strictest).
     """
     tool_ok = any(name == problem.expect_tool and _args_match(problem.expect_args, args) for name, args in calls)
     want = problem.expect_answer_contains
@@ -363,7 +368,7 @@ def score_tool(
         type="tool",
         passed=tool_ok and answer_ok,
         cases=cases,
-        duration_s=duration_s,
+        gen_s=gen_s,  # the agent loop interleaves generation and tool exec; count it all as gen
     )
 
 
@@ -371,13 +376,15 @@ def score_tool(
 
 
 class ProblemOutcome(BaseModel):
-    """One problem's pass/fail in a saved run (kept light for the leaderboard)."""
+    """One problem's pass/fail and timing in a saved run (kept light for the leaderboard)."""
 
     model_config = ConfigDict(frozen=True)
 
     id: str
     difficulty: str
     passed: bool
+    gen_s: float = 0.0
+    exec_s: float = 0.0
 
 
 class RunRecord(BaseModel):
@@ -390,7 +397,14 @@ class RunRecord(BaseModel):
     type: str
     model: str
     timestamp: str = ""
+    load_s: float = 0.0  # time to load/serve the model before the first prompt
     outcomes: list[ProblemOutcome]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def gen_s(self) -> float:
+        """Total model response time across the run's problems."""
+        return sum(o.gen_s for o in self.outcomes)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -411,15 +425,21 @@ class RunRecord(BaseModel):
         return self.passed / self.total if self.total else 0.0
 
 
-def make_record(suite: Suite, model: str, results: list[ProblemResult], timestamp: str = "") -> RunRecord:
-    """Build a persistable :class:`RunRecord` from a suite run's results."""
+def make_record(
+    suite: Suite, model: str, results: list[ProblemResult], load_s: float = 0.0, timestamp: str = ""
+) -> RunRecord:
+    """Build a persistable :class:`RunRecord` from a suite run's results and its load time."""
     return RunRecord(
         suite=suite.name,
         language=suite.language,
         type=suite.type,
         model=model,
         timestamp=timestamp,
-        outcomes=[ProblemOutcome(id=r.problem_id, difficulty=r.difficulty, passed=r.passed) for r in results],
+        load_s=load_s,
+        outcomes=[
+            ProblemOutcome(id=r.problem_id, difficulty=r.difficulty, passed=r.passed, gen_s=r.gen_s, exec_s=r.exec_s)
+            for r in results
+        ],
     )
 
 
@@ -479,4 +499,17 @@ def render_leaderboard(records: list[RunRecord]) -> str:
         passed, total = totals(model)
         overall = f"**{round(passed / total * 100) if total else 0}%** ({passed}/{total})"
         rows.append(f"| {rank} | `{model}` | " + " | ".join(cells) + f" | {overall} |")
+    return "\n".join(rows) + "\n\n" + _render_performance(ranked, by_model)
+
+
+def _render_performance(ranked: list[str], by_model: dict[str, dict[str, RunRecord]]) -> str:
+    """A second table: average model load time and total response (generation) time."""
+    rows = ["## Performance", "", "| Model | Avg load | Avg response / problem |", "|---|---|---|"]
+    for model in ranked:
+        runs = list(by_model[model].values())
+        loads = [r.load_s for r in runs if r.load_s]
+        avg_load = f"{sum(loads) / len(loads):.1f}s" if loads else "—"
+        problems = sum(r.total for r in runs)
+        avg_gen = f"{sum(r.gen_s for r in runs) / problems:.1f}s" if problems else "—"
+        rows.append(f"| `{model}` | {avg_load} | {avg_gen} |")
     return "\n".join(rows) + "\n"

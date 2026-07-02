@@ -54,26 +54,30 @@ def _run_problem(
         calls, answer = context.run_agent(base, model, problem.prompt, problem.servers)
         return core.score_tool(problem, calls, answer, monotonic() - start)
     system = _SYSTEM.format(language=problem.language)
+    start = monotonic()
     answer = context.complete(base, model, problem.prompt, system=system, max_tokens=max_tokens)
-    return core.evaluate(problem, core.extract_code(answer, problem.language))
+    gen_s = monotonic() - start  # time waiting on the model; exec time is set by evaluate()
+    return core.evaluate(problem, core.extract_code(answer, problem.language)).model_copy(update={"gen_s": gen_s})
 
 
 def _run_suite_for_model(
     context: PluginContext, model: LibraryModel, suite: core.Suite, problems: list[core.Problem], max_tokens: int | None
-) -> list[core.ProblemResult]:
-    """Serve ``model`` once and score every problem, printing per-problem progress."""
+) -> tuple[list[core.ProblemResult], float]:
+    """Serve ``model`` once and score every problem; return the results and the load time."""
     console = context.console
     results: list[core.ProblemResult] = []
-    with context.serve(model) as base:
+    start = monotonic()
+    with context.serve(model) as base:  # __enter__ blocks until the runtime is ready
+        load_s = monotonic() - start
+        console.print(f"  [dim]loaded in {load_s:.1f}s[/]")
         for problem in problems:
             result = _run_problem(context, model, base, problem, max_tokens)
             mark = "[green]PASS[/]" if result.passed else "[red]FAIL[/]"
             cases = f"{sum(c.passed for c in result.cases)}/{len(result.cases)}"
-            console.print(
-                f"  {mark}  [dim]{problem.difficulty:12}[/] {problem.id}  [dim]{cases} · {result.duration_s:.1f}s[/]"
-            )
+            timing = f"gen {result.gen_s:.1f}s" + (f" · exec {result.exec_s:.1f}s" if result.exec_s else "")
+            console.print(f"  {mark}  [dim]{problem.difficulty:12}[/] {problem.id}  [dim]{cases} · {timing}[/]")
             results.append(result)
-    return results
+    return results, load_s
 
 
 def _build_app(context: PluginContext) -> typer.Typer:
@@ -126,7 +130,7 @@ def _build_app(context: PluginContext) -> typer.Typer:
                 continue
             console.print(f"\n[bold]{loaded.name}[/] · {mdl.name} · {len(problems)} problems")
             try:
-                results = _run_suite_for_model(context, mdl, loaded, problems, max_tokens)
+                results, load_s = _run_suite_for_model(context, mdl, loaded, problems, max_tokens)
             except Exception as exc:  # noqa: BLE001 - in a sweep one bad model must not stop the rest
                 console.print(f"  [red]skipped {mdl.name}[/]: {exc}")
                 if not all_models:
@@ -136,8 +140,8 @@ def _build_app(context: PluginContext) -> typer.Typer:
             console.print(f"[bold]Score: {report.passed}/{report.total}[/] ([bold]{round(report.score * 100)}%[/])")
             if save:
                 stamp = datetime.now().isoformat(timespec="seconds")  # noqa: DTZ005 - local wall clock is fine here
-                path = core.save_run(core.make_record(loaded, mdl.name, results, stamp), results_dir)
-                console.print(f"[dim]saved {path}[/]")
+                record = core.make_record(loaded, mdl.name, results, load_s, stamp)
+                console.print(f"[dim]saved {core.save_run(record, results_dir)}[/]")
 
     @bench.command("leaderboard")
     def leaderboard(

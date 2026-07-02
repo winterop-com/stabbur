@@ -73,16 +73,21 @@ def test_score_tool_requires_correct_call_and_answer() -> None:
 def test_results_roundtrip_and_leaderboard(tmp_path: Path) -> None:
     suite = core.load_suite("python")
     results = [
-        core.ProblemResult(problem_id="a", difficulty="basics", type="code", passed=True, cases=[], duration_s=0.1),
-        core.ProblemResult(problem_id="b", difficulty="advanced", type="code", passed=False, cases=[], duration_s=0.1),
+        core.ProblemResult(
+            problem_id="a", difficulty="basics", type="code", passed=True, cases=[], gen_s=0.5, exec_s=0.2
+        ),
+        core.ProblemResult(problem_id="b", difficulty="advanced", type="code", passed=False, cases=[], gen_s=0.3),
     ]
-    record = core.make_record(suite, "pub/Model-X", results, timestamp="2026-07-02T10:00:00")
+    assert results[0].duration_s == pytest.approx(0.7)  # gen + exec
+    record = core.make_record(suite, "pub/Model-X", results, load_s=3.0, timestamp="2026-07-02T10:00:00")
     path = core.save_run(record, tmp_path)
     assert path.exists()
     loaded = core.load_results(tmp_path)
     assert len(loaded) == 1 and loaded[0].passed == 1 and loaded[0].total == 2
+    assert loaded[0].load_s == 3.0 and loaded[0].gen_s == pytest.approx(0.8)  # timing survives the roundtrip
     table = core.render_leaderboard(loaded)
     assert "pub/Model-X" in table and "python" in table and "50%" in table
+    assert "Performance" in table and "3.0s" in table  # load time in the perf table
     assert core.render_leaderboard([]).startswith("_No benchmark results")
 
 
