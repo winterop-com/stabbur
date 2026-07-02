@@ -332,7 +332,10 @@ async def load(name: str, manager: ManagerDep, settings: ConfDep, n_ctx: int | N
     if reason is not None:
         raise HTTPException(status_code=422, detail=reason)
     try:
-        manager.load(matches[0], n_ctx)
+        # load() spawns the runtime but first stops any current one (a terminate
+        # that can wait up to 10s) — run it off the event loop so status polling and
+        # other requests don't stall during a slow model swap.
+        await asyncio.to_thread(manager.load, matches[0], n_ctx)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return await _status(manager, settings)
@@ -444,7 +447,7 @@ async def unload(manager: ManagerDep, settings: ConfDep) -> ServerStatus:
     """
     if settings.serve_model is not None:
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
-    manager.stop()
+    await asyncio.to_thread(manager.stop)  # terminate can wait up to 10s — keep it off-loop
     return await _status(manager, settings)
 
 
