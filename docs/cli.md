@@ -30,11 +30,15 @@ so `kodo serve --ui` boots straight into that model, no manual picking.
 
 ## `kodo project show`
 
-Show the active project (`kodo.toml`): its bound model (and whether it's in the
-library), system prompt, and MCP tool servers.
+Show the active project (`kodo.toml`) in full: the bound model's detail card
+(format, size, capabilities, context, tags, path), the system prompt, and the
+**actual tools** — it connects to the project's MCP servers and lists the tools
+they expose (with descriptions), not just the server names. `--card` also renders
+the bound model's model card (README).
 
 ```bash
 kodo project show
+kodo project show --card    # also print the model card (README)
 ```
 
 ## `kodo library search <query>`

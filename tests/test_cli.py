@@ -65,6 +65,38 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         assert "already exists" in again.output
 
 
+def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `project show` must surface the bound model, the system prompt, and the *actual*
+    # tools (from connecting to the MCP servers) — not just server names.
+    from kodo import project as project_mod
+
+    proj = project_mod.Project(
+        model="unsloth/X-GGUF",
+        system_prompt="Be concise.",
+        mcp=[project_mod.ProjectMcp(name="datetime", command="kodo-mcp-datetime")],
+    )
+    monkeypatch.setattr(project_mod, "load", lambda *a, **k: proj)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
+    # Stub the (network/subprocess) MCP connect so the test stays hermetic.
+    monkeypatch.setattr(
+        cli, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None)
+    )
+    result = runner.invoke(cli.app, ["project", "show"])
+    assert result.exit_code == 0, result.output
+    assert "unsloth/X-GGUF" in result.output
+    assert "Be concise." in result.output
+    assert "today" in result.output  # the real tool name, not just "datetime"
+
+
+def test_project_show_without_manifest_hints_init(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import project as project_mod
+
+    monkeypatch.setattr(project_mod, "load", lambda *a, **k: None)
+    result = runner.invoke(cli.app, ["project", "show"])
+    assert result.exit_code == 1
+    assert "kodo project init" in result.output
+
+
 def _pull_result(name: str) -> PullResult:
     return PullResult(
         source=ModelSource.lmstudio, name=name, destination=Path("/tmp") / name, size_bytes=10, file_count=1

@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import attach, capabilities, config, doctor, project, runtime, tags
+from kodo import attach, capabilities, cards, config, doctor, project, runtime, tags
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
@@ -541,32 +541,99 @@ def init(
     console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 
 
+def _connect_project_tools(mcp: list[project.ProjectMcp]) -> tuple[dict[str, list[tuple[str, str]]], str | None]:
+    """Spawn the project's MCP servers and return their real tools, grouped by server.
+
+    Returns ``({server: [(tool, description), ...]}, error)``; ``error`` is a message
+    if connecting failed (e.g. an MCP command not installed), else ``None``.
+    """
+    import asyncio  # noqa: PLC0415
+    import shlex  # noqa: PLC0415
+
+    from kodo import tools as mcp_tools  # noqa: PLC0415
+
+    servers = [(m.name, shlex.split(m.command)) for m in mcp]
+
+    async def _collect() -> list[tuple[str, str]]:
+        async with mcp_tools.connect(servers) as toolset:
+            return [(s["function"]["name"], s["function"].get("description", "") or "") for s in toolset.schemas]
+
+    try:
+        pairs = asyncio.run(_collect())
+    except Exception as exc:  # noqa: BLE001 - a missing/failing MCP server shouldn't crash `show`
+        return {}, str(exc)
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for name, desc in pairs:
+        server, _, tool = name.partition("__")  # tools are namespaced <server>__<tool>
+        grouped.setdefault(server, []).append((tool or name, desc))
+    return grouped, None
+
+
 @project_app.command("show")
-def project_() -> None:  # project_ to avoid shadowing the imported project module
-    """Show the active project (kodo.toml): its model, system prompt, and tools.
+def project_(
+    card: Annotated[
+        bool, typer.Option("--card", "-c", help="Also render the bound model's model card (README).")
+    ] = False,
+) -> None:  # project_ to avoid shadowing the imported project module
+    """Show the active project (kodo.toml): model + card, system prompt, and live tools.
 
     A project is a reproducible assistant — `kodo chat` and `kodo serve --ui` here
-    default to this model, system prompt, and MCP tool servers.
+    default to this model, system prompt, and MCP tool servers. This connects to
+    those servers to list the tools they actually expose (``--card`` also prints
+    the bound model's model card).
     """
     proj = project.load()
     if proj is None:
         console.print("[yellow]No kodo.toml here.[/] Run [bold]kodo project init[/] to scaffold a project.")
         raise typer.Exit(1)
 
-    console.print("\n[bold]Project[/] [dim](kodo.toml)[/]")
+    console.print("\n[bold]Project[/] [dim](kodo.toml)[/]\n")
+
+    # Model — full detail card if it's in the library, else just the (missing) name.
+    model = None
     if proj.model:
-        present = bool(library_ops.find(proj.model))
-        mark = "[green]in library[/]" if present else "[yellow]not in library — run kodo project init[/]"
-        console.print(f"  Model:  {proj.model}  {mark}")
+        matches = library_ops.find(proj.model)
+        if matches:
+            model = matches[0]
+            settings = get_settings()
+            _print_model_card(model, settings.local_root, tags.tags_for(settings.local_root, model.name))
+        else:
+            console.print(f"[bold]Model[/]  {proj.model}  [yellow]not in library — run kodo project init[/]\n")
     else:
-        console.print("  Model:  [dim]none set[/]")
+        console.print("[bold]Model[/]  [dim]none set[/]\n")
+
+    # System prompt — full, so the user sees exactly what the assistant is framed with.
     sp = proj.system_prompt.strip()
-    console.print(f"  Prompt: {(sp[:77] + '…') if len(sp) > 78 else (sp or '[dim]none[/]')}")
-    if proj.mcp:
-        names = ", ".join(m.name or m.command.split()[0] for m in proj.mcp)
-        console.print(f"  Tools:  [bold]{len(proj.mcp)}[/] MCP server(s) — [dim]{names}[/]")
+    console.print("[bold]System prompt[/]")
+    console.print(Panel(sp, border_style="grey37", padding=(0, 1)) if sp else "  [dim]none[/]")
+
+    # Tools — connect to the MCP servers and list the tools they actually expose.
+    console.print("\n[bold]Tools[/]")
+    if not proj.mcp:
+        console.print("  [dim]none[/]")
     else:
-        console.print("  Tools:  [dim]none[/]")
+        console.print(f"  [dim]connecting to {len(proj.mcp)} MCP server(s) …[/]")
+        grouped, error = _connect_project_tools(proj.mcp)
+        if error:
+            console.print(f"  [red]could not connect:[/] [dim]{error}[/]")
+        for m in proj.mcp:
+            server = m.name or m.command.split()[0]
+            tools_here = grouped.get(server, [])
+            console.print(f"  [cyan]{server}[/] [dim]({m.command})[/] — [bold]{len(tools_here)}[/] tool(s)")
+            for tool, desc in tools_here:
+                summary = desc.splitlines()[0][:80] if desc else ""
+                console.print(f"    [white]{tool}[/]{f'  [dim]{summary}[/]' if summary else ''}")
+
+    # Model card (README) — opt-in, since it can be long.
+    if card and model is not None:
+        card_path = cards.find_card(model.path)
+        console.print("\n[bold]Model card[/]")
+        if card_path and card_path.is_file():
+            from rich.markdown import Markdown  # noqa: PLC0415
+
+            console.print(Markdown(card_path.read_text(errors="replace")[:20_000]))
+        else:
+            console.print("  [dim]no model card found[/]")
 
 
 @library_app.command()
