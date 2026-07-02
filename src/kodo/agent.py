@@ -172,4 +172,11 @@ async def run(
                     on_event("result", result)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
 
-    return "[agent stopped: too many tool rounds]"
+    # Ran out of tool rounds: surface a terminal message the same way a normal
+    # reply is delivered — stream it (so streaming clients, incl. the web UI whose
+    # /api/chat discards the return value, actually see it) and record it in history.
+    stopped = "[agent stopped: too many tool rounds]"
+    if on_token:
+        on_token(stopped)
+    messages.append({"role": "assistant", "content": stopped})
+    return stopped
