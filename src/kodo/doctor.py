@@ -95,20 +95,15 @@ def check_runtimes() -> list[Check]:
 def check_library(settings: Settings) -> list[Check]:
     """Check the library roots and what's in them."""
     checks: list[Check] = []
-    drive_up = settings.library_root.is_dir()
+    lib_roots = library_ops.roots(settings)
+    missing = [r for r in lib_roots if not r.is_dir()]
+    detail = "\n".join(f"{r}" + ("" if r.is_dir() else " (not mounted)") for r in lib_roots)
     checks.append(
         Check(
-            name="Library root",
-            status=CheckStatus.ok if drive_up else CheckStatus.warn,
-            detail=str(settings.library_root) + ("" if drive_up else " (not mounted)"),
-            hint=None if drive_up else "The drive is offline; locally-kept models still work.",
-        )
-    )
-    checks.append(
-        Check(
-            name="Local root",
-            status=CheckStatus.ok,
-            detail=str(settings.local_root) + ("" if settings.local_root.is_dir() else " (empty)"),
+            name="Libraries",
+            status=CheckStatus.ok if not missing else CheckStatus.warn,
+            detail=detail,
+            hint=None if not missing else "A library isn't mounted; models in the others still work.",
         )
     )
 

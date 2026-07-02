@@ -105,14 +105,13 @@ class Settings(BaseSettings):
     # a busy machine. A crashed runtime still fails fast (its process exits).
     runtime_load_timeout: int = 600
 
-    # The main library root — point this at the (big) external drive. The library
-    # spans this PLUS the always-local ``local_root`` below, so a small model
-    # kept locally still works when the external drive is unplugged.
+    # The default library — a self-contained, portable model store (models + their
+    # own metadata under ``.kodo/``). Point ``KODO_LIBRARY_ROOT`` at it per machine
+    # (e.g. an external drive). A project (``kodo.toml``) can compose additional
+    # libraries in front of this one (``libraries = [".kodo/library", "@shared"]``),
+    # where ``@shared`` resolves to this default; outside a project this is the only
+    # library. See :func:`kodo.library.roots`.
     library_root: Path = Path("data")
-
-    # Always-local library root (never on an external drive). Keep a small model
-    # here for offline / drive-disconnected use; `pull --local` targets it.
-    local_root: Path = Path.home() / ".kodo" / "library"
 
     # Source stores to scan and back up from.
     ollama_models_dir: Path = Path.home() / ".ollama" / "models"

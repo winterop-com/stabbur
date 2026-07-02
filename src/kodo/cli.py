@@ -106,7 +106,7 @@ def _fmt_ctx(n: int | None) -> str:
     return f"{round(n / 1024)}K" if n >= 1024 else str(n)
 
 
-def _print_model_card(model: library_ops.LibraryModel, local_root: Path, model_tags: list[str]) -> None:
+def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) -> None:
     """Print one model as a full-detail 'card' — a bordered panel of key/value fields."""
     try:
         caps = capabilities.capabilities(model)
@@ -114,8 +114,6 @@ def _print_model_card(model: library_ops.LibraryModel, local_root: Path, model_t
         caps = None
     ctx = caps.context_length if caps else None
     ctx_str = _fmt_ctx(ctx) + (f" [dim]({ctx:,} tokens)[/]" if ctx else "")
-    on_local = str(model.path).startswith(str(local_root))
-    location = "[green]local[/] [dim](internal disk)[/]" if on_local else "[yellow]drive[/] [dim](external)[/]"
     loads = f"[dim]{model.load_target.name}[/]"
     if model.mmproj:
         loads += f" [dim](+ mmproj {model.mmproj.name})[/]"
@@ -126,7 +124,7 @@ def _print_model_card(model: library_ops.LibraryModel, local_root: Path, model_t
     body.add_row("format", f"{_fmt_cell(model.model_format)}  [dim]· {model.size_human} · {model.file_count} files[/]")
     body.add_row("capabilities", _caps_label(caps))
     body.add_row("context", ctx_str)
-    body.add_row("location", location)
+    body.add_row("library", f"[dim]{model.library_root}[/]")
     body.add_row("loads", loads)
     body.add_row("path", f"[dim]{model.path}[/]")
     if model_tags:
@@ -146,25 +144,26 @@ def _print_model_card(model: library_ops.LibraryModel, local_root: Path, model_t
     )
 
 
-def _project_toml(model: str, library_root: Path) -> str:
-    """Render a kodo.toml: library config + the assistant bound to ``model``.
+#: The project-local library directory that `kodo project init` scaffolds.
+_LOCAL_LIBRARY = ".kodo/library"
 
-    This is kodo's primary config file — no ``.env`` needed. Top-level keys
-    configure the library/runtime; ``[project]`` and ``[[mcp]]`` define the
-    assistant. Any value can be overridden per machine with a ``KODO_*`` env var.
+
+def _project_toml(model: str) -> str:
+    """Render a kodo.toml: the libraries this project uses + its assistant.
+
+    Portable and git-committable — no machine-specific paths. ``libraries`` lists a
+    project-local store (created alongside this file) plus ``@shared``, the token
+    for the machine's default library (``KODO_LIBRARY_ROOT``). ``[project]`` /
+    ``[[mcp]]`` define the assistant. Override anything per machine with ``KODO_*``.
     """
-    local_root = get_settings().local_root
     return (
-        "# kodo config — library location + this project's assistant, in one file.\n"
-        "# kodo's primary config (no .env needed). Override any value per machine\n"
-        "# with a KODO_* env var (e.g. KODO_LIBRARY_ROOT).\n\n"
-        "# The library spans TWO roots, merged into one view (a local copy wins a tie):\n"
-        "#   library_root — the main archive, usually an external drive (set below).\n"
-        "#   local_root   — always on the internal disk; keeps small models fast and\n"
-        "#                  available when the drive is unplugged. `kodo library pull --local`\n"
-        "#                  targets it; plain `kodo library pull` targets library_root.\n"
-        f'library_root = "{library_root}"\n'
-        f'# local_root = "{local_root}"   # default shown; uncomment to change\n\n'
+        "# kodo project — this directory's assistant + the libraries it uses.\n"
+        "# Portable: no machine-specific paths. The machine's default (shared)\n"
+        "# library is set per machine via KODO_LIBRARY_ROOT.\n\n"
+        "# Libraries this project reads, in priority order (first match wins):\n"
+        f'#   "{_LOCAL_LIBRARY}" — a project-local store (scaffolded next to this file)\n'
+        '#   "@shared"          — the machine default library (KODO_LIBRARY_ROOT)\n'
+        f'libraries = ["{_LOCAL_LIBRARY}", "@shared"]\n\n'
         "# The assistant this project defines.\n"
         "[project]\n"
         f'model = "{model}"\n'
@@ -232,34 +231,32 @@ def list_models(
 ) -> None:
     """List the models in your library — what you've pulled, ready to run.
 
-    The library spans your drive (``KODO_LIBRARY_ROOT``) plus an always-local
-    root, so models kept locally still work when the drive is unplugged. To
-    browse models in your app caches that you *could* pull, use ``kodo library sources``.
-    Pass ``--details`` (``-d``) for a stacked card per model with its full detail.
+    Scans the libraries in scope (a project's ``libraries`` in ``kodo.toml``, else
+    the default ``KODO_LIBRARY_ROOT``). To browse models in your app caches that you
+    *could* pull, use ``kodo library sources``. Pass ``--details`` (``-d``) for a
+    stacked card per model with its full detail.
     """
     settings = get_settings()
     models = [m for m in library_ops.scan() if m.generative]
-    drive_off = not settings.library_root.is_dir()
+    lib_roots = library_ops.roots(settings)
+    missing = [r for r in lib_roots if not r.is_dir()]
     if not models:
         console.print("Your library is empty.")
-        if drive_off:
-            console.print(f"[yellow]Drive offline:[/] [dim]{settings.library_root}[/] is not mounted.")
-        console.print(
-            "[dim]Pull one with[/] kodo library pull [dim](or[/] --local[dim]) · browse with[/] kodo library sources"
-        )
+        if missing:
+            console.print(f"[yellow]Library not mounted:[/] [dim]{', '.join(str(r) for r in missing)}[/]")
+        console.print("[dim]Pull one with[/] kodo library pull [dim]· browse with[/] kodo library sources")
         return
 
     total = _human_size(sum(m.size_bytes for m in models))
     console.print(f"\n[bold]{len(models)} models · {total}[/] in your library\n")
-    if drive_off:
-        console.print(
-            f"[yellow]Note: drive offline[/] ([dim]{settings.library_root}[/]) — showing local models only.\n"
-        )
+    if missing:
+        console.print(f"[yellow]Note:[/] not mounted: [dim]{', '.join(str(r) for r in missing)}[/]\n")
     if details:  # full-detail cards, one per model, stacked and grouped by format
-        tag_map = tags.load(settings.local_root)
+        tag_maps: dict[Path, dict[str, list[str]]] = {}  # cache tags.json per library
         for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
             for m in sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name):
-                _print_model_card(m, settings.local_root, tag_map.get(m.name, []))
+                tag_maps.setdefault(m.library_root, tags.load(m.library_root))
+                _print_model_card(m, tag_maps[m.library_root].get(m.name, []))
         return
     for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
         rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
@@ -331,17 +328,17 @@ def tag_model(
 
     Tags are *your* labels, separate from the auto-detected vision/audio/tools
     capabilities. With no ``--add``/``--remove``/``--clear`` the current tags are
-    just listed. They're stored on the always-local root, so they survive the
-    drive being offline, and show up as filter chips in the web Models view.
+    just listed. They're stored inside the model's own library, so they travel with
+    it, and show up as filter chips in the web Models view.
     """
-    settings = get_settings()
     model = _resolve_library_model(name, model_format)
+    root = model.library_root
     if clear:
-        result = tags.set_tags(settings.local_root, model.name, [])
+        result = tags.set_tags(root, model.name, [])
     elif add or remove:
-        result = tags.edit_tags(settings.local_root, model.name, add, remove)
+        result = tags.edit_tags(root, model.name, add, remove)
     else:
-        result = tags.tags_for(settings.local_root, model.name)
+        result = tags.tags_for(root, model.name)
     label = "  ".join(f"[cyan]{t}[/]" for t in result) if result else "[dim](none)[/]"
     console.print(f"[white]{model.name}[/]\n  [dim]tags[/]  {label}")
 
@@ -400,9 +397,9 @@ def pull(
         bool,
         typer.Option("--move", help="Delete the local source after a verified copy (frees local disk)."),
     ] = False,
-    local: Annotated[
+    shared: Annotated[
         bool,
-        typer.Option("--local", help="Pull into the always-local root (works when the drive is unplugged)."),
+        typer.Option("--shared", help="Pull into the shared/default library instead of the project-local one."),
     ] = False,
     include: Annotated[
         list[str] | None,
@@ -419,12 +416,16 @@ def pull(
         ),
     ] = None,
 ) -> None:
-    """Pull (or move) a model into the library (the drive, or --local).
+    """Pull (or move) a model into a library.
 
-    Give a model name for one model, or --all to import everything from this
-    source's local store (skipping models already in the library).
+    Targets the project-local library when you're in a project, else the default
+    library; ``--shared`` forces the shared/default library. Give a model name for
+    one model, or --all to import everything from this source's local store
+    (skipping models already in the library).
     """
-    root = get_settings().local_root if local else None
+    # Default target: the first library in scope (project-local if any, else the
+    # default). --shared forces the machine's default (shared) library.
+    root = get_settings().library_root if shared else library_ops.roots()[0]
     if all_ == (name is not None):
         console.print("[red]Provide either a model name or --all, not both.[/]")
         raise typer.Exit(2)
@@ -435,7 +436,7 @@ def pull(
 
     assert name is not None  # narrowed by the guard above
     verb = "Moving" if move else "Pulling"
-    typer.echo(f"{verb} {source.value}:{name}{' (local)' if local else ''} ...")
+    typer.echo(f"{verb} {source.value}:{name} -> {root} ...")
     try:
         result = catalog_ops.pull(source, name, library_root=root, move=move, include=include, vocoder=vocoder)
     except Exception as exc:  # noqa: BLE001 - a pull can fail many ways (disk, network, HF Hub); surface it cleanly
@@ -504,11 +505,11 @@ def init(
     model: Annotated[str | None, typer.Option("--model", help="Model to bind (skips the curated picker).")] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing kodo.toml.")] = False,
 ) -> None:
-    """Scaffold a project here (kodo.toml) and ensure its model is in the library.
+    """Scaffold a project here: a kodo.toml + a project-local library directory.
 
     Idempotent: only pulls the model if it's missing. When no --model is given,
-    offers a small curated set and pulls the chosen one into the always-local
-    library so it works even without the drive.
+    offers a small curated set and pulls the chosen one into the project-local
+    library. The project uses that local library plus the machine's shared one.
     """
     proj = Path("kodo.toml")
     if proj.exists() and not force:
@@ -526,18 +527,21 @@ def init(
             console.print(f"[red]Not a valid choice: {choice!r}[/]")
             raise typer.Exit(1) from None
 
+    local_lib = Path(_LOCAL_LIBRARY)
+    local_lib.mkdir(parents=True, exist_ok=True)  # the project-local library
+
     if library_ops.find(model):
         console.print(f"[green]✓[/] {model} is already in your library")
     else:
-        console.print(f"Pulling [bold]{model}[/] into your local library …")
+        console.print(f"Pulling [bold]{model}[/] into the project-local library …")
         try:
-            catalog_ops.pull(ModelSource.huggingface, model, library_root=get_settings().local_root)
+            catalog_ops.pull(ModelSource.huggingface, model, library_root=local_lib)
         except Exception as exc:  # noqa: BLE001 - surface pull/network failures
             console.print(f"[red]Pull failed:[/] {exc}")
             raise typer.Exit(1) from exc
 
-    proj.write_text(_project_toml(model, get_settings().library_root))
-    console.print(f"\n[green]Created kodo.toml[/] (model: {model})")
+    proj.write_text(_project_toml(model))
+    console.print(f"\n[green]Created kodo.toml[/] + [green]{local_lib}/[/] (model: {model})")
     console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 
 
@@ -595,8 +599,7 @@ def project_(
         matches = library_ops.find(proj.model)
         if matches:
             model = matches[0]
-            settings = get_settings()
-            _print_model_card(model, settings.local_root, tags.tags_for(settings.local_root, model.name))
+            _print_model_card(model, tags.tags_for(model.library_root, model.name))
         else:
             console.print(f"[bold]Model[/]  {proj.model}  [yellow]not in library — run kodo project init[/]\n")
     else:

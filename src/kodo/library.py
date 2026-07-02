@@ -15,14 +15,18 @@ from pathlib import Path
 
 from pydantic import BaseModel, computed_field
 
-from kodo import arch
-from kodo.config import get_settings
+from kodo import arch, project
+from kodo.config import Settings, get_settings
 from kodo.models import ModelFormat, _human_size
 from kodo.sources import ollama
 from kodo.sources.base import dir_stats
 
 # Top-level directories whose name is a layout prefix, stripped from model names.
 _PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "tts", "other"}
+
+# In a project's ``libraries`` list, this token means "the machine's default
+# (shared) library" — so a committed kodo.toml stays portable (no hard-coded path).
+SHARED_TOKEN = "@shared"
 
 # Preferred GGUF quant when a repo ships several, most-preferred first.
 _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
@@ -44,6 +48,9 @@ class LibraryModel(BaseModel):
 
     load_target: Path
     """What the runtime loads: the main GGUF file, or the MLX model directory."""
+
+    library_root: Path = Path(".")
+    """The library this model was resolved from (owns its tags/metadata)."""
 
     mmproj: Path | None = None
     """Multimodal projector to load alongside, if any."""
@@ -238,32 +245,51 @@ def _scan_root(base: Path) -> list[LibraryModel]:
     """Scan a single library root (no-op if it doesn't exist / drive unplugged)."""
     if not base.is_dir():
         return []
-    return _scan_dirs(base) + _scan_ollama(base)
+    models = _scan_dirs(base) + _scan_ollama(base)
+    for m in models:  # record which library each model came from (owns its tags)
+        m.library_root = base
+    return models
+
+
+def roots(settings: Settings | None = None) -> list[Path]:
+    """The library roots to use, in priority order (first match wins).
+
+    A project (``kodo.toml``) may list ``libraries`` — paths relative to the project
+    dir, plus the ``@shared`` token for the machine's default library — which lets a
+    project keep its own models *and* use the shared archive. Outside a project (no
+    ``libraries``), the single default library (``library_root``) is used. Deduped by
+    resolved path, so listing ``@shared`` and the default path doesn't double-scan.
+    """
+    settings = settings or get_settings()
+    proj = project.load()
+    entries = proj.libraries if proj and proj.libraries else [SHARED_TOKEN]
+    out: list[Path] = []
+    seen: set[Path] = set()
+    for entry in entries:
+        base = settings.library_root if entry == SHARED_TOKEN else (Path.cwd() / entry).expanduser()
+        resolved = base.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            out.append(resolved)
+    return out
 
 
 def scan(root: Path | None = None) -> list[LibraryModel]:
-    """Return every runnable model in the library.
+    """Return every runnable model across the resolved libraries (see :func:`roots`).
 
-    With no ``root``, the library spans the always-local ``local_root`` **plus**
-    the main ``library_root`` (often an external drive) — so locally-kept models
-    still appear when the drive is unplugged. Deduped by (name, format) so format
-    variants coexist. The **local copy wins a tie** (it's scanned first): when a
-    model exists in both roots, loads come from the faster local disk, and the
-    drive copy is the backup. A single ``root`` is honored as-is (used by tests).
+    Scanned in priority order and deduped by (name, format): a project-local copy
+    wins over the shared one on a tie (so loads come from the closer library), while
+    a GGUF in one library and an MLX build in another both survive (distinct
+    artifacts). A single ``root`` is honored as-is (used by tests).
     """
-    if root is not None:
-        return _scan_root(root)
-
-    settings = get_settings()
+    bases = [root] if root is not None else roots()
     models: list[LibraryModel] = []
     seen: set[tuple[str, ModelFormat]] = set()
-    # local_root first so a local copy wins over the drive on a (name, format) tie.
-    for base in (settings.local_root, settings.library_root):
+    for base in bases:
         for m in _scan_root(base):
-            # Key on (name, format): the same model in the same format on both
-            # roots is one entry (local wins), but a GGUF on one and an MLX copy
-            # on the other are distinct runnable artifacts and must both survive
-            # so ``find(..., model_format=...)`` can disambiguate them.
+            # Key on (name, format): the same model+format in two libraries is one
+            # entry (first/closer wins), but a GGUF vs an MLX copy are distinct
+            # runnable artifacts and must both survive for --format to disambiguate.
             key = (m.name, m.model_format)
             if key not in seen:
                 seen.add(key)
@@ -277,16 +303,15 @@ def tts_models(root: Path | None = None) -> list[LibraryModel]:
 
 
 def find_copies(query: str, model_format: ModelFormat | None = None) -> list[LibraryModel]:
-    """Every *physical* copy of a model matching ``query``, across both roots.
+    """Every *physical* copy of a model matching ``query``, across all libraries.
 
-    Unlike :func:`find` (which dedupes to one entry per model, local winning), this
-    returns each copy on disk — so a model kept on both ``local_root`` and
-    ``library_root`` yields two entries. Used by removal, which must delete them all.
+    Unlike :func:`find` (which dedupes to one entry per model), this returns each
+    copy on disk — so a model kept in two libraries yields two entries. Used by
+    removal, which must delete them all.
     """
     q = query.lower()
-    settings = get_settings()
     copies: list[LibraryModel] = []
-    for base in (settings.local_root, settings.library_root):
+    for base in roots():
         for m in _scan_root(base):
             if q in (m.name.lower(), m.name.rsplit("/", 1)[-1].lower()) and (
                 model_format is None or m.model_format is model_format

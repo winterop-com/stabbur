@@ -2,9 +2,9 @@
 
 Tags are *user* metadata (e.g. ``tested``, ``favorite``, ``coding``, ``broken``) —
 distinct from the auto-detected ``vision``/``audio``/``tools`` capabilities. They
-live in one JSON file on the always-local root (``<local_root>/.kodo/tags.json``,
-a ``{model_name: [tags]}`` map) so they survive the drive being offline and are
-easy to list/filter across the whole library.
+live *inside the library itself* (``<library_root>/.kodo/tags.json``, a
+``{model_name: [tags]}`` map), so they travel with the library — move the drive to
+another machine and the tags come along. Each library owns its own tags.
 """
 
 import json
@@ -23,14 +23,14 @@ def normalize(tag: str) -> str:
     return slug[:_MAX_LEN]
 
 
-def _path(local_root: Path) -> Path:
-    return local_root / ".kodo" / _FILENAME
+def _path(library_root: Path) -> Path:
+    return library_root / ".kodo" / _FILENAME
 
 
-def load(local_root: Path) -> dict[str, list[str]]:
+def load(library_root: Path) -> dict[str, list[str]]:
     """Read the whole ``{model_name: [tags]}`` map (empty if none/unreadable)."""
     try:
-        data = json.loads(_path(local_root).read_text(encoding="utf-8"))
+        data = json.loads(_path(library_root).read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
     if not isinstance(data, dict):
@@ -44,9 +44,9 @@ def load(local_root: Path) -> dict[str, list[str]]:
     return out
 
 
-def save(local_root: Path, mapping: dict[str, list[str]]) -> None:
+def save(library_root: Path, mapping: dict[str, list[str]]) -> None:
     """Persist the map (dropping models with no tags), atomically."""
-    path = _path(local_root)
+    path = _path(library_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     clean = {name: sorted(set(tags)) for name, tags in mapping.items() if tags}
     tmp = path.with_suffix(".json.tmp")
@@ -54,26 +54,26 @@ def save(local_root: Path, mapping: dict[str, list[str]]) -> None:
     tmp.replace(path)
 
 
-def tags_for(local_root: Path, name: str) -> list[str]:
+def tags_for(library_root: Path, name: str) -> list[str]:
     """The tags on one model (empty list if none)."""
-    return load(local_root).get(name, [])
+    return load(library_root).get(name, [])
 
 
-def set_tags(local_root: Path, name: str, tags: list[str]) -> list[str]:
+def set_tags(library_root: Path, name: str, tags: list[str]) -> list[str]:
     """Replace a model's tags with ``tags`` (normalized, deduped). Returns them."""
-    mapping = load(local_root)
+    mapping = load(library_root)
     norm = sorted({normalize(t) for t in tags if normalize(t)})
     if norm:
         mapping[name] = norm
     else:
         mapping.pop(name, None)
-    save(local_root, mapping)
+    save(library_root, mapping)
     return norm
 
 
-def edit_tags(local_root: Path, name: str, add: list[str], remove: list[str]) -> list[str]:
+def edit_tags(library_root: Path, name: str, add: list[str], remove: list[str]) -> list[str]:
     """Add and/or remove tags on a model. Returns the resulting tag list."""
-    current = set(tags_for(local_root, name))
+    current = set(tags_for(library_root, name))
     current |= {normalize(t) for t in add if normalize(t)}
     current -= {normalize(t) for t in remove if normalize(t)}
-    return set_tags(local_root, name, sorted(current))
+    return set_tags(library_root, name, sorted(current))

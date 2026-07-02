@@ -426,36 +426,35 @@ def test_build_command_refuses_safetensors(tmp_path: Path) -> None:
         runtime.build_command(model, "127.0.0.1", 8080)
 
 
-def test_scan_keeps_cross_root_format_variants(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Same repo, different formats across roots: a GGUF on the drive and an MLX
-    # copy locally must both survive dedup so --format can disambiguate them.
+def test_scan_keeps_cross_library_format_variants(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same repo, different formats across two libraries: a GGUF in one and an MLX
+    # copy in the other must both survive dedup so --format can disambiguate them.
     drive, local = tmp_path / "drive", tmp_path / "local"
     (drive / "gguf" / "pub" / "Foo").mkdir(parents=True)
     (drive / "gguf" / "pub" / "Foo" / "m.gguf").write_bytes(b"g" * 100)
     (local / "mlx" / "pub" / "Foo").mkdir(parents=True)
     (local / "mlx" / "pub" / "Foo" / "weights.safetensors").write_bytes(b"m" * 100)
 
-    settings = Settings(library_root=drive, local_root=local)
-    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    monkeypatch.setattr(library, "roots", lambda *a, **k: [local, drive])
     formats = {m.model_format for m in library.find("Foo")}
     assert formats == {ModelFormat.gguf, ModelFormat.mlx}
     assert len(library.find("Foo", model_format=ModelFormat.mlx)) == 1
 
 
-def test_scan_local_wins_on_tie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Same repo + same format in both roots → one entry, the LOCAL copy (loads
-    # come from the faster local disk; the drive copy is the backup).
+def test_scan_first_library_wins_on_tie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same repo + same format in two libraries → one entry, from the FIRST (higher
+    # priority) library; each model records the library it came from.
     drive, local = tmp_path / "drive", tmp_path / "local"
     (drive / "gguf" / "pub" / "Bar").mkdir(parents=True)
     (drive / "gguf" / "pub" / "Bar" / "m.gguf").write_bytes(b"g" * 100)
     (local / "gguf" / "pub" / "Bar").mkdir(parents=True)
     (local / "gguf" / "pub" / "Bar" / "m.gguf").write_bytes(b"g" * 100)
 
-    settings = Settings(library_root=drive, local_root=local)
-    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    monkeypatch.setattr(library, "roots", lambda *a, **k: [local, drive])  # local first = wins
     found = library.find("Bar")
     assert len(found) == 1
     assert found[0].load_target == local / "gguf" / "pub" / "Bar" / "m.gguf"
+    assert found[0].library_root == local  # tags/metadata resolve against this library
 
 
 def test_library_finds_huggingface_and_ignores_appledouble(tmp_path: Path) -> None:
@@ -490,17 +489,34 @@ def test_library_finds_ollama_native(tmp_path: Path) -> None:
     assert models[0].load_target.name == "sha256-model"
 
 
-def test_scan_spans_drive_and_local_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    drive, local = tmp_path / "drive", tmp_path / "local"
-    for root_dir, nm in ((drive, "Drive-GGUF"), (local, "Local-GGUF")):
+def test_scan_spans_multiple_libraries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared, local = tmp_path / "shared", tmp_path / "local"
+    for root_dir, nm in ((shared, "Shared-GGUF"), (local, "Local-GGUF")):
         d = root_dir / "gguf" / "pub" / nm
         d.mkdir(parents=True)
         (d / "m.gguf").write_bytes(b"x" * 100)
 
-    settings = Settings(library_root=drive, local_root=local)
+    monkeypatch.setattr(library, "roots", lambda *a, **k: [local, shared])
+    names = {m.name for m in library.scan()}  # no explicit root → spans all libraries
+    assert names == {"pub/Shared-GGUF", "pub/Local-GGUF"}
+
+
+def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A project's `libraries` list resolves relative paths against the cwd and the
+    # `@shared` token to the machine default (library_root); no project → just the default.
+    from kodo import project
+
+    shared = tmp_path / "shared"
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(library_root=shared)
     monkeypatch.setattr(library, "get_settings", lambda: settings)
-    names = {m.name for m in library.scan()}  # no explicit root → spans both
-    assert names == {"pub/Drive-GGUF", "pub/Local-GGUF"}
+
+    monkeypatch.setattr(project, "load", lambda *a, **k: None)  # no project
+    assert library.roots(settings) == [shared.resolve()]
+
+    proj = project.Project(libraries=[".kodo/library", "@shared"])
+    monkeypatch.setattr(project, "load", lambda *a, **k: proj)
+    assert library.roots(settings) == [(tmp_path / ".kodo/library").resolve(), shared.resolve()]
 
 
 def test_safe_join_allows_normal_names(tmp_path: Path) -> None:

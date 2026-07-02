@@ -23,6 +23,11 @@ class Project(BaseModel):
     model: str | None = None
     system_prompt: str = ""
     mcp: list[ProjectMcp] = []
+    # Libraries this project uses, in priority order (read: first match wins).
+    # Entries are paths relative to the project dir (e.g. ``.kodo/library``), or the
+    # token ``@shared`` for the machine's default library (``library_root``). Empty
+    # → just the default library. See :func:`kodo.library.roots`.
+    libraries: list[str] = []
 
 
 def load(path: Path = Path("kodo.toml")) -> Project | None:
@@ -31,8 +36,10 @@ def load(path: Path = Path("kodo.toml")) -> Project | None:
         return None
     data = tomllib.loads(path.read_text())
     project = data.get("project", {})
+    libraries = data.get("libraries", [])
     return Project(
         model=project.get("model"),
         system_prompt=project.get("system_prompt", ""),
         mcp=[ProjectMcp(**entry) for entry in data.get("mcp", [])],
+        libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
     )

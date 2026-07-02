@@ -58,7 +58,8 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         assert manifest.exists()
         text = manifest.read_text()
         assert 'model = "unsloth/X-GGUF"' in text
-        assert "library_root =" in text  # library config lives in kodo.toml, not .env
+        assert 'libraries = [".kodo/library", "@shared"]' in text  # project-local + shared
+        assert Path(".kodo/library").is_dir()  # the project-local library was scaffolded
 
         again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"])
         assert again.exit_code == 1  # refuses to clobber an existing project

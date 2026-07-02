@@ -156,12 +156,15 @@ def library(settings: ConfDep) -> list[LibraryModelInfo]:
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     """
-    tag_map = tags_ops.load(settings.local_root)
+    tag_maps: dict[str, dict[str, list[str]]] = {}  # cache tags.json per library root
     out: list[LibraryModelInfo] = []
     for m in library_ops.scan():
         if not m.generative or m.is_ollama:
             continue
         caps = capabilities.capabilities(m)
+        key = str(m.library_root)
+        if key not in tag_maps:
+            tag_maps[key] = tags_ops.load(m.library_root)
         out.append(
             LibraryModelInfo(
                 name=m.name,
@@ -172,7 +175,7 @@ def library(settings: ConfDep) -> list[LibraryModelInfo]:
                 audio=caps.audio,
                 tools=caps.tools,
                 context_length=caps.context_length,
-                tags=tag_map.get(m.name, []),
+                tags=tag_maps[key].get(m.name, []),  # tags come from the model's own library
             )
         )
     return out
@@ -187,8 +190,13 @@ class TagUpdate(BaseModel):
 
 @router.post("/api/tags")
 def set_model_tags(body: TagUpdate, settings: ConfDep) -> TagUpdate:
-    """Replace ``model``'s tags with ``tags`` (normalized + deduped). Returns them."""
-    saved = tags_ops.set_tags(settings.local_root, body.model, body.tags)
+    """Replace ``model``'s tags with ``tags`` (normalized + deduped). Returns them.
+
+    Tags are written into the library the model lives in, so they travel with it.
+    """
+    matches = library_ops.find(body.model)
+    root = matches[0].library_root if matches else settings.library_root
+    saved = tags_ops.set_tags(root, body.model, body.tags)
     return TagUpdate(model=body.model, tags=saved)
 
 

@@ -13,7 +13,7 @@ def _settings(tmp_path: Path, *, drive: bool = True) -> Settings:
     root = tmp_path / "library" if drive else tmp_path / "missing"
     if drive:
         root.mkdir(parents=True, exist_ok=True)
-    return Settings(library_root=root, local_root=tmp_path / "local")
+    return Settings(library_root=root)
 
 
 def test_report_status_rolls_up_worst() -> None:
@@ -54,7 +54,7 @@ def test_runtime_check_present_reports_path(monkeypatch: pytest.MonkeyPatch) -> 
 def test_check_library_offline_drive_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library, "scan", lambda: [])
     checks = doctor.check_library(_settings(tmp_path, drive=False))
-    root = next(c for c in checks if c.name == "Library root")
+    root = next(c for c in checks if c.name == "Libraries")
     models = next(c for c in checks if c.name == "Runnable models")
     assert root.status is doctor.CheckStatus.warn  # not mounted
     assert models.status is doctor.CheckStatus.warn  # empty

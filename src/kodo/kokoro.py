@@ -4,8 +4,8 @@ Kokoro is a small (82M) open-weights TTS with **54 built-in named voices** acros
 9 languages, run through onnxruntime — one backend for macOS + Linux, no GPU and
 no reference audio. It's an optional extra (``uv sync --extra tts``); kodo imports
 it lazily so the rest of the app works without it. The model + combined voices
-file are fetched on first use into the always-local library (``local_root``),
-mirroring how ``llama-tts`` auto-fetches OuteTTS.
+file are fetched on first use into a machine-level cache (``~/.kodo/kokoro``) — a
+runtime asset, not a library model — mirroring how ``llama-tts`` auto-fetches OuteTTS.
 
 This is the multi-voice engine that complements :mod:`kodo.tts` (single-voice
 OuteTTS via ``llama-tts``).
@@ -18,8 +18,6 @@ from typing import Any
 
 import httpx
 from pydantic import BaseModel
-
-from kodo.config import get_settings
 
 # Pinned kokoro-onnx "model-files" release: the fp32 model + combined voices .npz.
 # fp32 is used over int8 because on CPU it is both faster and higher quality here
@@ -137,8 +135,8 @@ def voices() -> list[KokoroVoice]:
 
 
 def _assets_dir() -> Path:
-    """Where the Kokoro model + voices live (always-local, survives drive unplug)."""
-    return get_settings().local_root / "tts" / "kokoro"
+    """Where the Kokoro model + voices live — a machine cache, not a library model."""
+    return Path.home() / ".kodo" / "kokoro"
 
 
 def assets_present() -> bool:
