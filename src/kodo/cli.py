@@ -94,6 +94,35 @@ def _fmt_ctx(n: int | None) -> str:
     return f"{round(n / 1024)}K" if n >= 1024 else str(n)
 
 
+def _print_model_card(model: library_ops.LibraryModel, local_root: Path) -> None:
+    """Print one model as a full-detail 'card' (name header + key/value fields)."""
+    try:
+        caps = capabilities.capabilities(model)
+    except Exception:  # noqa: BLE001 - detection is best-effort; never break the listing
+        caps = None
+    ctx = caps.context_length if caps else None
+    ctx_str = _fmt_ctx(ctx) + (f" [dim]({ctx:,} tokens)[/]" if ctx else "")
+    on_local = str(model.path).startswith(str(local_root))
+    location = "[green]local[/] [dim](internal disk)[/]" if on_local else "[yellow]drive[/] [dim](external)[/]"
+    loads = f"[dim]{model.load_target.name}[/]"
+    if model.mmproj:
+        loads += f" [dim](+ mmproj {model.mmproj.name})[/]"
+
+    console.print(
+        f"[bold white]{model.name}[/]  [dim]·[/]  {_fmt_cell(model.model_format)}"
+        f"  [dim]·[/]  {model.size_human}  [dim]· {model.file_count} files[/]",
+        highlight=False,
+    )
+    console.print(f"    [dim]capabilities[/]  {_caps_label(caps)}", highlight=False)
+    console.print(f"    [dim]context     [/]  {ctx_str}", highlight=False)
+    console.print(f"    [dim]location    [/]  {location}", highlight=False)
+    console.print(f"    [dim]loads       [/]  {loads}", highlight=False)
+    console.print(f"    [dim]path        [/]  [dim]{model.path}[/]", highlight=False)
+    if model.is_ollama:
+        console.print("    [yellow]runs via Ollama[/] [dim](not llama.cpp)[/]", highlight=False)
+    console.print()
+
+
 def _project_toml(model: str, library_root: Path) -> str:
     """Render a kodo.toml: library config + the assistant bound to ``model``.
 
@@ -175,7 +204,7 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
 def list_models(
     details: Annotated[
         bool,
-        typer.Option("--details", "-d", help="Add columns: file count and where each model lives (local/drive)."),
+        typer.Option("--details", "-d", help="Full-detail card per model: caps, context, location, path, files."),
     ] = False,
 ) -> None:
     """List the models in your library — what you've pulled, ready to run.
@@ -183,7 +212,7 @@ def list_models(
     The library spans your drive (``KODO_LIBRARY_ROOT``) plus an always-local
     root, so models kept locally still work when the drive is unplugged. To
     browse models in your app caches that you *could* pull, use ``kodo sources``.
-    Pass ``--details`` (``-d``) to also show each model's file count and location.
+    Pass ``--details`` (``-d``) for a stacked card per model with its full detail.
     """
     settings = get_settings()
     models = [m for m in library_ops.scan() if m.generative]
@@ -201,6 +230,11 @@ def list_models(
         console.print(
             f"[yellow]Note: drive offline[/] ([dim]{settings.library_root}[/]) — showing local models only.\n"
         )
+    if details:  # full-detail cards, one per model, stacked and grouped by format
+        for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
+            for m in sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name):
+                _print_model_card(m, settings.local_root)
+        return
     for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
         rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
         subtotal = _human_size(sum(m.size_bytes for m in rows))
@@ -209,20 +243,13 @@ def list_models(
         table.add_column("SIZE", justify="right")
         table.add_column("CAPS")
         table.add_column("CTX", justify="right")
-        if details:  # extra columns before NAME: file count and where it lives
-            table.add_column("FILES", justify="right")
-            table.add_column("WHERE")
         table.add_column("NAME", style="white")
         for m in rows:
             try:
                 caps = capabilities.capabilities(m)
             except Exception:  # noqa: BLE001 - detection is best-effort; never break the listing
                 caps = None
-            cells = [m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None)]
-            if details:
-                on_local = str(m.path).startswith(str(settings.local_root))
-                cells += [str(m.file_count), "[green]local[/]" if on_local else "[yellow]drive[/]"]
-            table.add_row(*cells, m.name)
+            table.add_row(m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None), m.name)
         console.print(table)
 
 
