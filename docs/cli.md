@@ -10,7 +10,7 @@ discarding them), which is the first thing to reach for when `kodo chat`/`run`
 reports a model that "exited before becoming ready". (Also settable with
 `KODO_DEBUG=1`.)
 
-## `kodo init`
+## `kodo project init`
 
 Scaffold **`kodo.toml`** here — kodo's primary config (no `.env` needed) — and
 ensure its model is in the library. The generated file captures the library
@@ -19,45 +19,45 @@ tools). Idempotent — only pulls the model if it's missing. With no `--model` i
 offers a small curated set and pulls the choice into the always-local library.
 
 ```bash
-kodo init                                  # pick a curated starter model
-kodo init --model unsloth/Qwen3.5-4B-GGUF  # bind a specific model
-kodo init --force                          # overwrite an existing kodo.toml
+kodo project init                                  # pick a curated starter model
+kodo project init --model unsloth/Qwen3.5-4B-GGUF  # bind a specific model
+kodo project init --force                          # overwrite an existing kodo.toml
 ```
 
 A project is a **reproducible assistant**: in a project directory both `kodo chat`
 and `kodo serve --ui` default to its model, system prompt, and MCP tool servers —
 so `kodo serve --ui` boots straight into that model, no manual picking.
 
-## `kodo project`
+## `kodo project show`
 
 Show the active project (`kodo.toml`): its bound model (and whether it's in the
 library), system prompt, and MCP tool servers.
 
 ```bash
-kodo project
+kodo project show
 ```
 
-## `kodo search <query>`
+## `kodo library search <query>`
 
 Search the Hugging Face Hub for new models to pull (most-downloaded first).
 
 ```bash
-kodo search qwen3            # text search
-kodo search qwen3 --gguf     # only GGUF (llama.cpp-ready) repos
-kodo search qwen3 -n 30      # more results
+kodo library search qwen3            # text search
+kodo library search qwen3 --gguf     # only GGUF (llama.cpp-ready) repos
+kodo library search qwen3 -n 30      # more results
 ```
 
-## `kodo list` (alias `kodo ls`)
+## `kodo library ls`
 
 List the models in **your library** — what you've pulled, ready to run — grouped
 by format with sizes. Reads `library_root` (from `kodo.toml`).
 
 ```bash
-kodo list
-kodo ls        # same thing
+kodo library ls
+kodo library ls -d     # detailed cards (caps, context, location, path, tags)
 ```
 
-## `kodo rm <name>`
+## `kodo library rm <name>`
 
 Remove a model from the library — **deletes its files from disk**. Resolves like
 `kodo run` (use `--format` to disambiguate a model kept in more than one format);
@@ -66,12 +66,12 @@ drive). Ollama models keep any blobs still shared with other installed models.
 Prompts for confirmation unless `--yes`.
 
 ```bash
-kodo rm Voxtral-Mini-3B-2507-GGUF          # confirm, then delete
-kodo rm gemma-4-E4B-it-MLX-4bit --yes      # skip the prompt
-kodo rm Qwen3.6-27B --format mlx           # disambiguate when kept in two formats
+kodo library rm Voxtral-Mini-3B-2507-GGUF          # confirm, then delete
+kodo library rm gemma-4-E4B-it-MLX-4bit --yes      # skip the prompt
+kodo library rm Qwen3.6-27B --format mlx           # disambiguate when kept in two formats
 ```
 
-## `kodo sources`
+## `kodo library sources`
 
 Browse models sitting in your **app caches** (Hugging Face cache, Ollama, LM
 Studio) that you could pull into the library. The IN LIBRARY column marks what
@@ -79,23 +79,23 @@ you already have. Non-chat (embedding/vision) and partial entries are hidden
 unless `--all`.
 
 ```bash
-kodo sources
-kodo sources -s ollama       # --source: limit to one source
-kodo sources --all           # include embedding/vision/partial entries
+kodo library sources
+kodo library sources -s ollama       # --source: limit to one source
+kodo library sources --all           # include embedding/vision/partial entries
 ```
 
-## `kodo pull <source> <name>`
+## `kodo library pull <source> <name>`
 
 Copy a model from a source cache into the library.
 
 ```bash
-kodo pull lmstudio <name>
-kodo pull ollama gemma4:31b --move    # delete the local source after a verified copy
-kodo pull ollama --all                # import every model from the local store
-kodo pull lmstudio --all --move       # import all, freeing local disk as it goes
+kodo library pull lmstudio <name>
+kodo library pull ollama gemma4:31b --move    # delete the local source after a verified copy
+kodo library pull ollama --all                # import every model from the local store
+kodo library pull lmstudio --all --move       # import all, freeing local disk as it goes
 # Hugging Face:
-kodo pull huggingface lmstudio-community/gemma-4-12B-it-QAT-GGUF --include '*Q4_K_M*'
-kodo pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' \
+kodo library pull huggingface lmstudio-community/gemma-4-12B-it-QAT-GGUF --include '*Q4_K_M*'
+kodo library pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' \
          --vocoder ggml-org/WavTokenizer          # a TTS model + its vocoder
 ```
 
@@ -108,36 +108,24 @@ kodo pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' \
 - `--include <glob>` — Hugging Face only; fetch only matching files (repeatable),
   e.g. one GGUF quant from a multi-quant repo. Model cards and configs come along.
 - `--vocoder <repo>` — Hugging Face only; co-locate a vocoder (e.g. WavTokenizer)
-  with the model so it's recognized as a **text-to-speech** model (see `kodo speak`).
-
-## `kodo run <name>`
-
-Expose a library model's raw runtime server (foreground; OpenAI `/v1`).
-
-```bash
-kodo run <name>
-kodo run <name> --host 0.0.0.0 --port 9000
-kodo run <name> --format gguf         # disambiguate across formats
-```
+  with the model so it's recognized as a **text-to-speech** model (see `kodo audio speak`).
 
 ## `kodo chat <name>`
 
-Chat with a library model — interactive by default, one-shot with `-p`.
+Chat with a library model — a full-screen Textual TUI by default, one-shot with `-p`.
 
 ```bash
-kodo chat <name>                      # interactive streaming REPL
+kodo chat <name>                      # interactive full-screen TUI
 kodo chat <name> -p "prompt"          # one-shot, prints just the answer (pipeable)
 kodo chat <name> -p "prompt" -n 256   # --max-tokens
-kodo chat <name> --render             # render each reply as Markdown (code highlighting)
 kodo chat <name> --system "..."       # session system prompt (overrides kodo.toml)
 kodo chat <name> --mcp <cmd>          # attach an MCP tool server (repeatable)
 ```
 
-By default replies **stream** token-by-token as plain text (fast, pipe-safe).
-`--render` instead buffers each reply and prints it as **formatted Markdown** —
-headers, lists, and syntax-highlighted fenced code — when it's done (so you lose
-the live token stream). It's ignored under `-p` so scripted output stays plain.
-Up-arrow recalls previous prompts.
+Interactive chat opens a scrolling TUI: markdown replies, collapsible reasoning,
+live tool activity, and a context footer. Enter sends; Shift+Return / Ctrl-J / a
+trailing backslash insert a newline; type a new message while one streams to
+**queue** it; Esc stops. `-p` stays a plain scripted one-shot (streamed stdout).
 
 **Multimodal input** — for vision/audio models, attach files:
 
@@ -155,27 +143,27 @@ the prompt as fenced blocks, so you can drop a file into *any* model as context.
 Non-chat models (embeddings, vision encoders) are refused with a clear message —
 kodo runs generative LLMs only.
 
-## `kodo voices`
+## `kodo audio voices`
 
 List the built-in **Kokoro** voices (54 across 9 languages) with their id,
 language, and gender. Requires the optional TTS extra (`make install-tts`).
 
 ```bash
-kodo voices                            # id · name · language · gender
+kodo audio voices                            # id · name · language · gender
 ```
 
-## `kodo speak <text...>`
+## `kodo audio speak <text...>`
 
 Text-to-speech. `--voice`/`-v` picks a **Kokoro** voice (multi-voice engine; run
-`kodo voices` to list them, model downloaded on first use). Otherwise it uses
+`kodo audio voices` to list them, model downloaded on first use). Otherwise it uses
 `llama-tts`/OuteTTS — the default, or `--model` for a library TTS model (see
-`kodo pull --vocoder`). Markdown/code in the text is reduced to prose first.
+`kodo library pull --vocoder`). Markdown/code in the text is reduced to prose first.
 
 ```bash
-kodo speak hello there                 # default voice, play aloud (macOS)
-kodo speak -v af_heart "hello there"   # a specific Kokoro voice
-kodo speak "some text" -o out.wav      # write a WAV instead of playing
-kodo speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
+kodo audio speak hello there                 # default voice, play aloud (macOS)
+kodo audio speak -v af_heart "hello there"   # a specific Kokoro voice
+kodo audio speak "some text" -o out.wav      # write a WAV instead of playing
+kodo audio speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
 ```
 
 ## `kodo doctor`

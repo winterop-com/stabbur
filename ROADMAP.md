@@ -46,14 +46,14 @@ per-model matrix). Ordered roughly by impact:
   canonical rich UI.
 
 - **Models view + user tags — DONE.** A **Models** entry in the web sidebar opens
-  a full-panel card grid (grouped by format, like `kodo ls`): each card shows
+  a full-panel card grid (grouped by format, like `kodo library ls`): each card shows
   format, size, capabilities, context, and its user tags; clicking loads the model
   and drops into chat. Tags are **user metadata** (distinct from the auto-detected
   `vision`/`audio`/`tools` caps), stored in one library-level index on the
   always-local root (`<local_root>/.kodo/tags.json`) so they survive the drive
-  being offline. Editable inline on each card and via the CLI (`kodo tag <model>
-  --add tested --remove broken`, `kodo tag <model>` to list, `--clear`); shown in
-  `kodo ls -d` and as **filter chips** atop the Models grid (AND filter). Served on
+  being offline. Editable inline on each card and via the CLI (`kodo library tag <model>
+  --add tested --remove broken`, `kodo library tag <model>` to list, `--clear`); shown in
+  `kodo library ls -d` and as **filter chips** atop the Models grid (AND filter). Served on
   each `/api/library` model + `POST /api/tags` to set. Chip **color is derived** from
   the tag name (stable hash into a fixed palette) — so every `tested` is the same
   color everywhere, zero storage. *Still open:* a curated default tag set / seeding
@@ -69,7 +69,7 @@ per-model matrix). Ordered roughly by impact:
   **non-breaking**: the `tags: string[]` wire type and assignments are untouched; a
   new registry endpoint (`GET /api/tags/registry`) feeds the UI, which prefers a
   registry color when present and falls back to the derived one. Pairs with a small
-  color-picker / tag-manager UI and, on the CLI, `kodo tag --color`. Do this only
+  color-picker / tag-manager UI and, on the CLI, `kodo library tag --color`. Do this only
   once there's a second registry field to justify it (YAGNI) — derived color covers
   the common case today.
 
@@ -100,7 +100,7 @@ per-model matrix). Ordered roughly by impact:
     a **one-shot CLI** (writes a WAV), not an OpenAI server — so the plumbing is a
     subprocess wrapper (text → WAV bytes), not a `/v1` proxy.
   - **Proposed first cut:** a `kodo.tts` wrapper around `llama-tts`; a
-    `kodo speak "text" [-o out.wav]` CLI (plays via `afplay` on macOS); a
+    `kodo audio speak "text" [-o out.wav]` CLI (plays via `afplay` on macOS); a
     `POST /api/speak` endpoint returning WAV; and a **speaker/play icon on
     assistant replies** in the web UI (the "listen" affordance). Start with
     `--tts-oute-default` (auto-managed models) so no library changes are needed;
@@ -108,7 +108,7 @@ per-model matrix). Ordered roughly by impact:
   - **Alternatives (later):** Kokoro (ONNX; needs onnxruntime + kokoro-onnx — more
     voices/quality) and Orpheus-3B (Llama GGUF + a SNAC decoder — larger, more
     expressive). OuteTTS-via-llama-tts is the lowest-friction start.
-  - **Done so far:** `kodo.tts` wrapper + `kodo speak` + `POST /api/speak` + the
+  - **Done so far:** `kodo.tts` wrapper + `kodo audio speak` + `POST /api/speak` + the
     Listen button, over `llama-tts`/OuteTTS. Replies are now cleaned to prose
     before synthesis (`tts.speech_text` strips Markdown/code/URLs) so the model
     speaks words, not syntax.
@@ -117,7 +117,7 @@ per-model matrix). Ordered roughly by impact:
     espeak-ng bundled via `espeakng-loader`, no system dep). `kodo.kokoro`
     auto-fetches the fp32 model (~310 MB, faster + better than int8 on CPU) into
     the always-local library, exposes the **54 built-in voices** (`GET /api/voices`,
-    `kodo voices`), and routes `POST /api/speak` / `kodo speak -v <voice>` to it.
+    `kodo audio voices`), and routes `POST /api/speak` / `kodo audio speak -v <voice>` to it.
     The web settings "Voice" control is now a real picker grouped by language;
     OuteTTS/`llama-tts` stays as a fallback engine. The original evaluation
     (Kokoro vs Qwen3-TTS vs Dia-1.6B) that led here:

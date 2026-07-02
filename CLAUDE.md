@@ -39,7 +39,7 @@ src/kodo/
 ├── library.py   # scans the on-drive library (gguf/ mlx/ ...)
 ├── runtime.py   # serves a model (llama.cpp / mlx_lm)
 ├── cards.py     # model-card + metadata sidecar helpers
-├── cli.py       # Typer app: list / pull / library / run / serve
+├── cli.py       # Typer app: chat / serve / doctor + library|audio|project groups
 ├── app.py       # FastAPI factory
 ├── routers/     # health.py, catalog.py
 └── sources/     # base.py + huggingface.py / ollama.py / lmstudio.py

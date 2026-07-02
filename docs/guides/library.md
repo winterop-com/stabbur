@@ -4,7 +4,7 @@ The library is the on-drive home for your models, at the `library_root` set in
 your `kodo.toml`. List it with:
 
 ```bash
-kodo ls
+kodo library ls
 ```
 
 ## Layout
@@ -44,10 +44,10 @@ drive) **plus** an always-local root (`local_root`, default `~/.kodo/library`).
 Keep a small model local so kodo still works when the drive is disconnected:
 
 ```bash
-kodo pull huggingface unsloth/SmolLM2-135M-Instruct-GGUF --local
+kodo library pull huggingface unsloth/SmolLM2-135M-Instruct-GGUF --local
 ```
 
-`kodo list` merges both (drive wins on name clashes) and, when the drive isn't
+`kodo library ls` merges both (drive wins on name clashes) and, when the drive isn't
 mounted, shows your local models with a "drive offline" note instead of failing.
 
 ## Storage on an external drive

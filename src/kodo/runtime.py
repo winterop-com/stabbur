@@ -3,12 +3,11 @@
 * **GGUF** → llama.cpp ``llama-server`` (cross-platform).
 * **MLX**  → ``mlx_lm.server`` (Apple Silicon).
 
-``run`` execs the server in the foreground (raw runtime on a fixed port).
-``generate`` / the chat REPL start the server, talk to its ``/v1``, and shut it
-down — a clean kodo REPL that works identically for GGUF and MLX.
+``_serve`` starts the server, yields its base URL, and shuts it down after;
+``generate`` / the chat TUI talk to its ``/v1`` — a clean flow that works
+identically for GGUF and MLX.
 """
 
-import os
 import shutil
 import socket
 import subprocess
@@ -97,22 +96,6 @@ def runnable_error(model: LibraryModel) -> str | None:
             "pull a GGUF or MLX build to run it"
         )
     return None
-
-
-def _exec(cmd: list[str]) -> None:
-    """Replace the current process with ``cmd`` (binary must exist).
-
-    Raises:
-        RuntimeError: If the binary is not on PATH.
-    """
-    if shutil.which(cmd[0]) is None:
-        raise RuntimeError(f"{cmd[0]!r} not found on PATH. {_INSTALL_HINTS.get(cmd[0], '')}".strip())
-    os.execvp(cmd[0], cmd)
-
-
-def run(model: LibraryModel, host: str, port: int) -> None:
-    """Exec the runtime server for ``model`` in the foreground (replaces process)."""
-    _exec(build_command(model, host, port))
 
 
 def _early_exit_error(cmd: list[str], code: int | None, log_dir: Path | None, port: int) -> RuntimeError:

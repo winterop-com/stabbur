@@ -8,24 +8,21 @@ any OpenAI client attaches the same way.
 | GGUF   | llama.cpp `llama-server` | cross-platform |
 | MLX    | `mlx_lm.server`          | Apple Silicon only |
 
-`chat` talks to that server's `/v1` behind a clean kodo REPL; `run` exposes the
-raw runtime directly. For the browser UI, use `kodo serve --ui`.
+`kodo chat` talks to that server's `/v1` behind a full-screen TUI; `kodo serve`
+runs the web server and proxies `/v1` for the browser UI (and external clients).
+kodo spawns and manages the runtime for you either way.
 
-## Serve a model
+## Serve a model (OpenAI `/v1`)
 
 ```bash
-kodo run <name>                       # default 127.0.0.1:8080
-kodo run <name> --host 0.0.0.0 --port 9000
+kodo serve --ui                       # browse + chat in the browser (loads models on demand)
+kodo serve --model <name>             # lock the server to one model; stable /v1 endpoint
+kodo serve --model <name> --port 9000 # pin the port
 ```
 
-`run` resolves the model in the library, starts the right runtime (foreground),
-and prints its OpenAI endpoint — handy for pointing an external client at one
-model. For chatting use `kodo chat`; for the browser UI use `kodo serve --ui`.
-
-```
-Serving gguf lmstudio-community/gemma-4-12B-it-QAT-GGUF
-  OpenAI API:  http://127.0.0.1:8080/v1
-```
+`serve --model` boots straight into one model and exposes a stable
+OpenAI-compatible `/v1` (the Chrome-extension backend); `serve --ui` lets you
+switch models from the browser. Point any OpenAI client at the printed URL.
 
 ## Chat
 
@@ -45,4 +42,4 @@ kodo chat gemma-4-12B-it-QAT-GGUF -p "Say hi" 2>/dev/null | tee out.txt
 
 Use the full `<publisher>/<repo>` name or just the final part; add `--format` to
 disambiguate if the same model exists in multiple formats. If a name isn't in the
-library but is in a source store, the error tells you the `kodo pull` to run.
+library but is in a source store, the error tells you the `kodo library pull` to run.

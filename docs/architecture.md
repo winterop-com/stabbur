@@ -24,7 +24,7 @@ src/kodo/
 ## Two views of "models"
 
 - **Sources** (`catalog` + `sources/`) — what's in the local HF cache, Ollama,
-  and LM Studio stores; the candidates for `kodo pull`.
+  and LM Studio stores; the candidates for `kodo library pull`.
 - **Library** (`library`) — what's on the drive under `library_root`; the
   runnable set. `LibraryModel` carries `load_target` (the exact file/dir to hand
   the runtime) and `mmproj` (multimodal projector, if any).

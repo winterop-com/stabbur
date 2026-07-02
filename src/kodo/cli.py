@@ -31,6 +31,18 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Command groups. `library` owns the on-disk model store (list/pull/remove/tag/
+# browse); `audio` owns text-to-speech; `project` owns the ./kodo.toml assistant
+# (init/show). Primary verbs (chat, serve, doctor) stay top-level.
+library_app = typer.Typer(
+    help="Manage your local model library (list, pull, remove, tag, browse).", no_args_is_help=True
+)
+audio_app = typer.Typer(help="Text-to-speech: list voices and synthesize speech.", no_args_is_help=True)
+project_app = typer.Typer(help="The project's assistant (./kodo.toml): scaffold and inspect it.", no_args_is_help=True)
+app.add_typer(library_app, name="library")
+app.add_typer(audio_app, name="audio")
+app.add_typer(project_app, name="project")
+
 
 @app.callback()
 def _main(
@@ -60,7 +72,7 @@ FormatOption = Annotated[
 ]
 
 
-# Curated starter models for `kodo init` (verified GGUF repos; small but capable
+# Curated starter models for `kodo project init` (verified GGUF repos; small but capable
 # — sub-1B toy models are too weak to be useful defaults, so the floor is ~3B).
 _CURATED: list[CuratedModel] = [
     CuratedModel(id="unsloth/Llama-3.2-3B-Instruct-GGUF", note="light + broadly capable (~2 GB)"),
@@ -149,8 +161,8 @@ def _project_toml(model: str, library_root: Path) -> str:
         "# The library spans TWO roots, merged into one view (a local copy wins a tie):\n"
         "#   library_root — the main archive, usually an external drive (set below).\n"
         "#   local_root   — always on the internal disk; keeps small models fast and\n"
-        "#                  available when the drive is unplugged. `kodo pull --local`\n"
-        "#                  targets it; plain `kodo pull` targets library_root.\n"
+        "#                  available when the drive is unplugged. `kodo library pull --local`\n"
+        "#                  targets it; plain `kodo library pull` targets library_root.\n"
         f'library_root = "{library_root}"\n'
         f'# local_root = "{local_root}"   # default shown; uncomment to change\n\n'
         "# The assistant this project defines.\n"
@@ -211,7 +223,7 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
         console.print("\n[green]All good.[/]")
 
 
-@app.command("list")
+@library_app.command("ls")
 def list_models(
     details: Annotated[
         bool,
@@ -222,7 +234,7 @@ def list_models(
 
     The library spans your drive (``KODO_LIBRARY_ROOT``) plus an always-local
     root, so models kept locally still work when the drive is unplugged. To
-    browse models in your app caches that you *could* pull, use ``kodo sources``.
+    browse models in your app caches that you *could* pull, use ``kodo library sources``.
     Pass ``--details`` (``-d``) for a stacked card per model with its full detail.
     """
     settings = get_settings()
@@ -232,7 +244,9 @@ def list_models(
         console.print("Your library is empty.")
         if drive_off:
             console.print(f"[yellow]Drive offline:[/] [dim]{settings.library_root}[/] is not mounted.")
-        console.print("[dim]Pull one with[/] kodo pull [dim](or[/] --local[dim]) · browse with[/] kodo sources")
+        console.print(
+            "[dim]Pull one with[/] kodo library pull [dim](or[/] --local[dim]) · browse with[/] kodo library sources"
+        )
         return
 
     total = _human_size(sum(m.size_bytes for m in models))
@@ -265,11 +279,7 @@ def list_models(
         console.print(table)
 
 
-# Hidden short alias: `kodo ls` == `kodo list`.
-app.command("ls", hidden=True)(list_models)
-
-
-@app.command("rm")
+@library_app.command("rm")
 def remove_model(
     name: Annotated[str, typer.Argument(help="Library model to remove (full name or bare repo/tag).")],
     model_format: FormatOption = None,
@@ -277,13 +287,13 @@ def remove_model(
 ) -> None:
     """Remove a model from the library — deletes its files from disk.
 
-    Resolves like ``kodo run`` (use ``--format`` to disambiguate a model kept in
+    Resolves like ``kodo chat`` (use ``--format`` to disambiguate a model kept in
     more than one format). Ollama models keep any blobs still shared with other
     installed models.
     """
     copies = library_ops.find_copies(name, model_format=model_format)
     if not copies:
-        typer.secho(f"No library model matches {name!r} (see `kodo list`).", fg=typer.colors.RED, err=True)
+        typer.secho(f"No library model matches {name!r} (see `kodo library ls`).", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
     # Ambiguity is per distinct (name, format); multiple *copies* of the same model
     # (e.g. kept on both the local disk and the drive) are all removed together.
@@ -309,7 +319,7 @@ def remove_model(
     console.print(f"[green]Removed[/] {model.name} — freed [bold]{_human_size(total_freed)}[/] ({total_files} files)")
 
 
-@app.command("tag")
+@library_app.command("tag")
 def tag_model(
     name: Annotated[str, typer.Argument(help="Library model (full name or bare repo/tag).")],
     model_format: FormatOption = None,
@@ -375,7 +385,7 @@ def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
         raise typer.Exit(1)
 
 
-@app.command()
+@library_app.command()
 def pull(
     source: Annotated[ModelSource, typer.Argument(help="Source the model belongs to.")],
     name: Annotated[
@@ -435,7 +445,7 @@ def pull(
     typer.echo(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")
 
 
-@app.command()
+@library_app.command()
 def sources(
     source: SourceOption = None,
     show_all: Annotated[bool, typer.Option("--all", "-a", help="Include embedding/vision/partial entries.")] = False,
@@ -444,7 +454,7 @@ def sources(
 
     These live in caches on this machine (e.g. ~/.cache/huggingface) — *not* your
     library. The IN LIBRARY column marks what you've already pulled; pull leftover
-    local models onto the drive with ``kodo pull --move`` to free local disk.
+    local models onto the drive with ``kodo library pull --move`` to free local disk.
     Non-chat (embedding/vision) and partial entries are hidden unless ``--all``.
     """
     entries = catalog_ops.list_models(source).entries
@@ -468,7 +478,7 @@ def sources(
         f"\n[bold]{len(shown)} models · {shown_total}[/] in local app caches "
         f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
     )
-    console.print("[dim]Caches on this machine, not your library — see[/] kodo list [dim]for your library.[/]\n")
+    console.print("[dim]Caches on this machine, not your library — see[/] kodo library ls [dim]for your library.[/]\n")
     for src in sorted({e.source for e in shown}, key=lambda s: s.value):
         rows = sorted((e for e in shown if e.source is src), key=lambda e: e.name)
         table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
@@ -489,7 +499,7 @@ def sources(
         )
 
 
-@app.command()
+@project_app.command("init")
 def init(
     model: Annotated[str | None, typer.Option("--model", help="Model to bind (skips the curated picker).")] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing kodo.toml.")] = False,
@@ -531,7 +541,7 @@ def init(
     console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 
 
-@app.command("project")
+@project_app.command("show")
 def project_() -> None:  # project_ to avoid shadowing the imported project module
     """Show the active project (kodo.toml): its model, system prompt, and tools.
 
@@ -540,13 +550,13 @@ def project_() -> None:  # project_ to avoid shadowing the imported project modu
     """
     proj = project.load()
     if proj is None:
-        console.print("[yellow]No kodo.toml here.[/] Run [bold]kodo init[/] to scaffold a project.")
+        console.print("[yellow]No kodo.toml here.[/] Run [bold]kodo project init[/] to scaffold a project.")
         raise typer.Exit(1)
 
     console.print("\n[bold]Project[/] [dim](kodo.toml)[/]")
     if proj.model:
         present = bool(library_ops.find(proj.model))
-        mark = "[green]in library[/]" if present else "[yellow]not in library — run kodo init[/]"
+        mark = "[green]in library[/]" if present else "[yellow]not in library — run kodo project init[/]"
         console.print(f"  Model:  {proj.model}  {mark}")
     else:
         console.print("  Model:  [dim]none set[/]")
@@ -559,7 +569,7 @@ def project_() -> None:  # project_ to avoid shadowing the imported project modu
         console.print("  Tools:  [dim]none[/]")
 
 
-@app.command()
+@library_app.command()
 def search(
     query: Annotated[str, typer.Argument(help="Text to search the Hugging Face Hub for.")],
     limit: Annotated[int, typer.Option("--limit", "-n", help="Max results.")] = 20,
@@ -583,7 +593,7 @@ def search(
     console.print(table)
     console.print(
         "\n[dim]~PULL = approx download for the preferred quant (not the full repo).\n"
-        "Pull one with[/] kodo pull huggingface <model>"
+        "Pull one with[/] kodo library pull huggingface <model>"
     )
 
 
@@ -605,7 +615,7 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
         elif hit:
             console.print(
                 f"[yellow]{name!r} is not in your library yet — pull it first:[/]  "
-                f"kodo pull {hit.source.value} {hit.name}"
+                f"kodo library pull {hit.source.value} {hit.name}"
             )
         else:
             console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().library_root}[/]).")
@@ -636,32 +646,7 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
     return model
 
 
-@app.command()
-def run(
-    name: Annotated[str, typer.Argument(help="Library model name (full path or bare repo name).")],
-    model_format: FormatOption = None,
-    host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(help="Bind port.")] = 8080,
-) -> None:
-    """Expose a library model's raw runtime server (foreground, OpenAI-compatible).
-
-    GGUF runs on llama.cpp's llama-server; MLX on mlx_lm.server. This is the raw
-    runtime (no kodo proxy) on a fixed port — handy for pointing an external
-    OpenAI client at one model. For chatting, use ``kodo chat``; for the browser
-    UI and model switching, ``kodo serve``.
-    """
-    model = _resolve_library_model(name, model_format)
-    console.print(f"\nServing [bold]{_fmt_cell(model.model_format)}[/] {model.name}")
-    console.print(f"  OpenAI API:  http://{host}:{port}/v1")
-    console.print("  [dim]Ctrl-C to stop[/]\n")
-    try:
-        runtime.run(model, host, port)
-    except RuntimeError as exc:
-        console.print(f"[red]{exc}[/]")
-        raise typer.Exit(1) from exc
-
-
-@app.command()
+@audio_app.command()
 def voices() -> None:
     """List the built-in Kokoro voices (needs the `tts` extra: `make install-tts`)."""
     from kodo import kokoro  # noqa: PLC0415
@@ -677,15 +662,15 @@ def voices() -> None:
     for v in kokoro.voices():
         table.add_row(v.id, v.name, v.language, v.gender)
     console.print(table)
-    console.print(f'\n[dim]{len(kokoro.voices())} voices — use with[/] kodo speak --voice <id> "…"')
+    console.print(f'\n[dim]{len(kokoro.voices())} voices — use with[/] kodo audio speak --voice <id> "…"')
 
 
-@app.command()
+@audio_app.command()
 def speak(
     words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
     voice: Annotated[
         str | None,
-        typer.Option("--voice", "-v", help="Kokoro voice id (e.g. af_heart; see `kodo voices`)."),
+        typer.Option("--voice", "-v", help="Kokoro voice id (e.g. af_heart; see `kodo audio voices`)."),
     ] = None,
     model: Annotated[
         str | None,
@@ -703,7 +688,7 @@ def speak(
     """Text-to-speech: synthesize ``text`` to a WAV.
 
     ``--voice`` picks one of Kokoro's built-in voices (multi-voice engine; run
-    ``kodo voices`` to list them, downloaded on first use). Otherwise uses
+    ``kodo audio voices`` to list them, downloaded on first use). Otherwise uses
     ``llama-tts``/OuteTTS — the default model, or ``--model`` for a library TTS
     model. With ``-o`` writes the WAV there; otherwise a temp file is played.
     """
@@ -732,7 +717,7 @@ def speak(
     if model is not None:
         matches = [m for m in library_ops.find(model) if m.tts]
         if not matches:
-            typer.secho(f"No TTS model matches {model!r} (see `kodo list`).", fg=typer.colors.RED, err=True)
+            typer.secho(f"No TTS model matches {model!r} (see `kodo library ls`).", fg=typer.colors.RED, err=True)
             raise typer.Exit(1)
         model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
     try:
@@ -955,7 +940,7 @@ def _chat_with_tools(
             asyncio.run(_run_oneshot(base))
             return
         # Interactive: hand off to the full-screen Textual chat (imported lazily so
-        # `kodo ls` and friends don't pay textual's import cost).
+        # `kodo library ls` and friends don't pay textual's import cost).
         from kodo import chat_tui  # noqa: PLC0415
 
         try:

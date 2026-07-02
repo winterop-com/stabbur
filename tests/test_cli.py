@@ -27,17 +27,12 @@ def _entry(name: str, *, generative: bool, fmt: ModelFormat) -> ModelEntry:
     )
 
 
-def test_list_shows_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_library_ls_shows_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library_ops, "scan", lambda: [_lib_model("pub/Chat-GGUF")])
-    result = runner.invoke(cli.app, ["list"])
+    result = runner.invoke(cli.app, ["library", "ls"])
     assert result.exit_code == 0, result.output
     assert "pub/Chat-GGUF" in result.output
     assert "in your library" in result.output
-
-
-def test_ls_is_an_alias_for_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(library_ops, "scan", lambda: [_lib_model("pub/Chat-GGUF")])
-    assert runner.invoke(cli.app, ["ls"]).exit_code == 0
 
 
 def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,7 +52,7 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
     # Model already in the library → init skips the pull.
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
     with runner.isolated_filesystem():
-        first = runner.invoke(cli.app, ["init", "--model", "unsloth/X-GGUF"])
+        first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"])
         assert first.exit_code == 0, first.output
         manifest = Path("kodo.toml")
         assert manifest.exists()
@@ -65,7 +60,7 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         assert 'model = "unsloth/X-GGUF"' in text
         assert "library_root =" in text  # library config lives in kodo.toml, not .env
 
-        again = runner.invoke(cli.app, ["init", "--model", "unsloth/X-GGUF"])
+        again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"])
         assert again.exit_code == 1  # refuses to clobber an existing project
         assert "already exists" in again.output
 
@@ -78,10 +73,10 @@ def _pull_result(name: str) -> PullResult:
 
 def test_pull_requires_name_or_all() -> None:
     # Neither name nor --all → usage error; both → usage error.
-    neither = runner.invoke(cli.app, ["pull", "ollama"])
+    neither = runner.invoke(cli.app, ["library", "pull", "ollama"])
     assert neither.exit_code == 2
     assert "either a model name or --all" in neither.output
-    both = runner.invoke(cli.app, ["pull", "ollama", "some:model", "--all"])
+    both = runner.invoke(cli.app, ["library", "pull", "ollama", "some:model", "--all"])
     assert both.exit_code == 2
 
 
@@ -99,7 +94,7 @@ def test_pull_all_imports_missing_and_skips_existing(monkeypatch: pytest.MonkeyP
         return _pull_result(name)
 
     monkeypatch.setattr(catalog_ops, "pull", fake_pull)
-    result = runner.invoke(cli.app, ["pull", "lmstudio", "--all"])
+    result = runner.invoke(cli.app, ["library", "pull", "lmstudio", "--all"])
     assert result.exit_code == 0, result.output
     assert pulled == ["pub/B-GGUF"]  # only the one missing from the library
     assert "1 imported" in result.output
@@ -120,7 +115,7 @@ def test_pull_all_continues_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
         return _pull_result(name)
 
     monkeypatch.setattr(catalog_ops, "pull", fake_pull)
-    result = runner.invoke(cli.app, ["pull", "lmstudio", "--all"])
+    result = runner.invoke(cli.app, ["library", "pull", "lmstudio", "--all"])
     assert result.exit_code == 1  # some failed
     assert "1 imported" in result.output
     assert "1 failed" in result.output
@@ -142,7 +137,7 @@ def test_pull_all_uses_exact_identity_not_bare_name(monkeypatch: pytest.MonkeyPa
         return _pull_result(name)
 
     monkeypatch.setattr(catalog_ops, "pull", fake_pull)
-    result = runner.invoke(cli.app, ["pull", "lmstudio", "--all"])
+    result = runner.invoke(cli.app, ["library", "pull", "lmstudio", "--all"])
     assert result.exit_code == 0, result.output
     assert pulled == ["bob/Foo"]  # distinct model, not aliased to alice/Foo
 
@@ -153,7 +148,7 @@ def test_pull_single_surfaces_copy_failure_cleanly(monkeypatch: pytest.MonkeyPat
         raise OSError("disk full")
 
     monkeypatch.setattr(catalog_ops, "pull", boom)
-    result = runner.invoke(cli.app, ["pull", "ollama", "some:model"])
+    result = runner.invoke(cli.app, ["library", "pull", "ollama", "some:model"])
     assert result.exit_code == 1
     assert isinstance(result.exception, SystemExit)  # handled via Exit(), not an uncaught OSError
     assert "disk full" in result.output
@@ -181,12 +176,12 @@ def test_sources_hides_non_chat_by_default(monkeypatch: pytest.MonkeyPatch) -> N
             ]
         ),
     )
-    default = runner.invoke(cli.app, ["sources"])
+    default = runner.invoke(cli.app, ["library", "sources"])
     assert "pub/Chat-GGUF" in default.output
     assert "all-MiniLM" not in default.output  # embedding hidden by default
     assert "hidden" in default.output
 
-    everything = runner.invoke(cli.app, ["sources", "--all"])
+    everything = runner.invoke(cli.app, ["library", "sources", "--all"])
     assert "all-MiniLM" in everything.output  # shown with --all
 
 

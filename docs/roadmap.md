@@ -46,16 +46,16 @@ Two distinct units:
 
 This makes assistants **reproducible**: the north-star DHIS2 assistant is just a
 project — `gemma-4-12B-it-QAT` + `dhis2w-mcp-bridge` + a DHIS2 prompt +
-locked-serve config. `git clone` it → `kodo init` ensures its model is in your
+locked-serve config. `git clone` it → `kodo project init` ensures its model is in your
 library → `kodo serve --ui` (or the extension) runs it.
 
 Keep the project file a **manifest, not a framework**: it references a library
-model and tools; the library + runtime do the work. In a project dir, `kodo run` /
+model and tools; the library + runtime do the work. In a project dir, `kodo chat` /
 `serve` use that project's model, MCP servers, and prompt.
 
-## Curated starter models (folded into `kodo init`)
+## Curated starter models (folded into `kodo project init`)
 
-`kodo init` scaffolds a project (above) and, as part of it, ensures the project's
+`kodo project init` scaffolds a project (above) and, as part of it, ensures the project's
 model is in the library. When you don't yet know what to pick, it offers a small
 **curated set of 2–3 models** — kept deliberately tiny, e.g. a compact GGUF for
 any machine, an MLX build for Apple Silicon, and a tool-capable model for the
@@ -64,7 +64,7 @@ one on-ramp.
 
 - The curated list lives in-repo (versioned), so "what's worth trying" travels
   with the project and stays current.
-- `kodo init` is the zero-to-chatting on-ramp: clone → `kodo init` → `kodo run`.
+- `kodo project init` is the zero-to-chatting on-ramp: clone → `kodo project init` → `kodo serve --ui`.
 - Just 2–3 entries, clearly labelled by use case and footprint, quick to pull.
 - **Idempotent by design:** `init` checks the **library** for each curated model
   and pulls only what's missing — run it any number of times, no double
@@ -73,12 +73,12 @@ one on-ramp.
   optional first-run marker belongs in the **library root**
   (`<library_root>/.kodo/`), which travels with the drive. `--force` re-offers.
 
-## Discovering models (`kodo search`)
+## Discovering models (`kodo library search`)
 
-`kodo sources` shows what's already in your local app caches; `kodo search
+`kodo library sources` shows what's already in your local app caches; `kodo library search
 <query>` will find **new** models to pull — querying the Hugging Face Hub
 (filtered to GGUF/MLX, sortable by downloads/likes/size) and surfacing results you
-can `kodo pull` directly. Closes the loop: discover → pull → run, without leaving
+can `kodo library pull` directly. Closes the loop: discover → pull → run, without leaving
 the CLI.
 
 ## One SPA, many surfaces

@@ -40,18 +40,18 @@ See [getting started](docs/getting-started.md) for details.
 ## CLI
 
 ```bash
-kodo list                     # your library (the models on your drive)
-kodo sources                  # models in app caches (HF/Ollama/LM Studio) you could pull
-kodo pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
-kodo pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
+kodo library ls                     # your library (the models on your drive)
+kodo library sources                  # models in app caches (HF/Ollama/LM Studio) you could pull
+kodo library pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
+kodo library pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
 kodo doctor                   # pre-flight: runtimes, library, project
-kodo run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, MLX→mlx_lm
+kodo serve --ui                     # browse + chat in the browser
 kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"          # one-shot, scriptable
 kodo chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
 kodo chat ultravox-v0_5-llama-3_2-1b-GGUF -p "transcribe" -a clip.wav   # audio input
-kodo voices                   # list Kokoro voices (needs `make install-tts`)
-kodo speak hello there                      # text-to-speech (default voice)
-kodo speak -v af_heart "hello there"        # a specific Kokoro voice
+kodo audio voices                   # list Kokoro voices (needs `make install-tts`)
+kodo audio speak hello there                      # text-to-speech (default voice)
+kodo audio speak -v af_heart "hello there"        # a specific Kokoro voice
 kodo serve --ui               # browser UI over your library
 ```
 
@@ -77,7 +77,7 @@ make dev                              # uvicorn with --reload
 
 ## Configuration
 
-Config lives in **`kodo.toml`** (run `kodo init`, or copy `kodo.toml.example`).
+Config lives in **`kodo.toml`** (run `kodo project init`, or copy `kodo.toml.example`).
 Top-level keys set the library/runtime; `[project]` / `[[mcp]]` define the
 assistant. To put the library on the external drive:
 

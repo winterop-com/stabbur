@@ -50,7 +50,7 @@ Optional model *sources* (not required to run kodo): **Ollama** and **LM Studio*
 ## Point at your library
 
 kodo's config lives in **`kodo.toml`** in your working directory. Run
-`kodo init` to scaffold one (see [kodo.toml.example](https://github.com/winterop-com/kodo/blob/main/kodo.toml.example)),
+`kodo project init` to scaffold one (see [kodo.toml.example](https://github.com/winterop-com/kodo/blob/main/kodo.toml.example)),
 or create it by hand. The library location is the `library_root` key — put it on
 an external/cloud drive:
 
@@ -74,11 +74,11 @@ CLI flags, `KODO_*` env vars, `kodo.toml`, `.env`. Settings are
 ## First run
 
 ```bash
-kodo list                                   # your library (empty at first)
-kodo sources                                # models in app caches you could pull
-kodo pull lmstudio lmstudio-community/...    # pull one into the library
-kodo list                                   # now it's in your library
-kodo run lmstudio-community/...              # serve it (raw OpenAI /v1; foreground)
+kodo library ls                                   # your library (empty at first)
+kodo library sources                                # models in app caches you could pull
+kodo library pull lmstudio lmstudio-community/...    # pull one into the library
+kodo library ls                                   # now it's in your library
+kodo serve --ui                             # browse + chat in the browser
 ```
 
 Then explore: [Pulling models](guides/pulling.md) ·
