@@ -158,9 +158,12 @@ const PRINT_CSS = `
   header.doc .meta span{ margin-right:1rem; white-space:nowrap; }
   header.doc pre.sys{ background:#f6f8fa; border:1px solid #e2e2e2; border-radius:6px;
         padding:.6rem .8rem; font-size:.8rem; white-space:pre-wrap; margin:.75rem 0 0; }
-  section.turn{ margin:1.25rem 0; page-break-inside:avoid; }
+  /* No blanket break-inside:avoid on a turn — a turn taller than the remaining
+     page would jump wholesale to the next page and leave a big white gap. Let
+     turns flow; only keep the role label with its content and images unsplit. */
+  section.turn{ margin:1.25rem 0; }
   .role{ font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-        color:#888; margin-bottom:.35rem; }
+        color:#888; margin-bottom:.35rem; break-after:avoid; }
   section.user .content{ background:#f3f4f6; border-radius:10px; padding:.6rem .9rem; display:inline-block; }
   .content p:first-child{ margin-top:0; } .content p:last-child{ margin-bottom:0; }
   .content pre{ background:#f6f8fa; border:1px solid #e6e6e6; border-radius:6px;
@@ -169,7 +172,7 @@ const PRINT_CSS = `
   .content :not(pre) > code{ background:#f0f1f2; border-radius:4px; padding:.1em .35em; font-size:.85em; }
   .content table{ border-collapse:collapse; } .content th,.content td{ border:1px solid #ddd; padding:.3rem .6rem; }
   .content blockquote{ border-left:3px solid #ddd; margin:.5rem 0; padding-left:.8rem; color:#555; }
-  img.att{ max-width:16rem; max-height:16rem; border-radius:8px; border:1px solid #e2e2e2; margin:.25rem .25rem 0 0; }
+  img.att{ max-width:16rem; max-height:16rem; border-radius:8px; border:1px solid #e2e2e2; margin:.25rem .25rem 0 0; break-inside:avoid; }
   .note{ color:#888; font-size:.8rem; font-style:italic; }
   .tool{ color:#555; font-size:.8rem; border-left:3px solid #cbd5e1; padding-left:.6rem; margin:.25rem 0; }
   details.think{ color:#666; font-size:.85rem; margin:.35rem 0; }
