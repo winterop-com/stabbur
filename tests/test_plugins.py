@@ -39,3 +39,20 @@ def test_cli_mounts_plugin_commands() -> None:
     result = CliRunner().invoke(app, ["benchmark", "--help"])
     assert result.exit_code == 0
     assert "run" in result.output and "list" in result.output
+
+
+def test_advertised_mcp_servers_and_resolution() -> None:
+    # Register the advertise-only plugins directly (entry-point-independent) and check
+    # the mcp_servers hook surfaces them and that names resolve to spawn commands.
+    from kodo_mcp_benchmark.plugin import PLUGIN as BENCH
+    from kodo_mcp_datetime.plugin import PLUGIN as DATETIME
+    from pluginkit import PluginManager
+
+    pm = PluginManager(plugins.PROJECT)
+    pm.add_extension_points(plugins.Specs)
+    pm.register(DATETIME, name="datetime")
+    pm.register(BENCH, name="benchmark")
+
+    servers = {s.name: s.command for s in plugins.advertised_servers(pm)}
+    assert servers["datetime"] == "kodo-mcp-datetime"
+    assert servers["benchmark"] == "kodo-mcp-benchmark"

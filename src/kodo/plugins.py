@@ -14,10 +14,12 @@ so they depend on pluginkit, never on kodo.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING, Protocol
 
 import typer
 from pluginkit import ExtensionPoint, PluginManager
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -71,6 +73,16 @@ class PluginContext(Protocol):
         ...
 
 
+class McpServer(BaseModel):
+    """An MCP tool server a plugin advertises: how to spawn it and what it offers."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str  # tool namespace / display name, e.g. "datetime"
+    command: str  # spawn command, e.g. "kodo-mcp-datetime"
+    description: str = ""
+
+
 class Specs:
     """kodo's extension points. A plugin implements matching ``@extension`` methods."""
 
@@ -79,6 +91,17 @@ class Specs:
     def commands(context: PluginContext) -> tuple[str, typer.Typer]:
         """Return ``(group_name, app)`` to mount as a top-level kodo command group."""
         raise NotImplementedError  # a spec: plugins provide the implementation
+
+    @staticmethod
+    @extension_point
+    def mcp_servers() -> list[dict[str, str]]:
+        """Advertise MCP servers this package ships — dicts of name/command/description.
+
+        Advertise-only: no command, no ``PluginContext``. Plain dicts (not ``McpServer``)
+        so a plugin needn't import kodo. Lets kodo discover/validate ``--mcp`` targets and
+        populate tool pickers instead of hardcoding them.
+        """
+        raise NotImplementedError
 
 
 def load_plugins() -> PluginManager:
@@ -92,6 +115,30 @@ def load_plugins() -> PluginManager:
     return pm
 
 
+@lru_cache(maxsize=1)
+def manager() -> PluginManager:
+    """The process-wide PluginManager (entry-point discovery runs once)."""
+    return load_plugins()
+
+
 def command_groups(pm: PluginManager, context: PluginContext) -> list[tuple[str, typer.Typer]]:
     """Every ``(name, app)`` command group contributed by the loaded plugins."""
     return list(pm.caller(Specs.commands)(context=context))
+
+
+def advertised_servers(pm: PluginManager) -> list[McpServer]:
+    """Every MCP server advertised by the loaded plugins, sorted by name."""
+    servers = [McpServer(**entry) for group in pm.caller(Specs.mcp_servers)() for entry in group]
+    return sorted(servers, key=lambda s: s.name)
+
+
+def resolve_mcp(value: str) -> tuple[str | None, str]:
+    """Resolve a ``--mcp`` value to ``(name, command)``.
+
+    An advertised server *name* (or *command*) maps to that server; anything else is used
+    verbatim as a command with no name (so raw commands still work).
+    """
+    for server in advertised_servers(manager()):
+        if value in (server.name, server.command):
+            return server.name, server.command
+    return None, value

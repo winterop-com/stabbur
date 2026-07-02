@@ -161,6 +161,17 @@ class BenchmarkPlugin:
         """Mount ``kodo benchmark`` (``list`` / ``run`` / ``leaderboard``)."""
         return "benchmark", _build_app(context)
 
+    @extension
+    def mcp_servers(self) -> list[dict[str, str]]:
+        """Advertise the benchmark MCP server (suites + sandboxed executor)."""
+        return [
+            {
+                "name": "benchmark",
+                "command": "kodo-mcp-benchmark",
+                "description": "List/run benchmark suites and execute code in a sandbox.",
+            }
+        ]
+
 
 # The object kodo loads via the ``kodo.plugins`` entry point.
 PLUGIN = BenchmarkPlugin()

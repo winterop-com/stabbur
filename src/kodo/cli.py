@@ -42,9 +42,29 @@ library_app = typer.Typer(
 )
 audio_app = typer.Typer(help="Text-to-speech: list voices and synthesize speech.", no_args_is_help=True)
 project_app = typer.Typer(help="The project's assistant (./kodo.toml): scaffold and inspect it.", no_args_is_help=True)
+mcp_app = typer.Typer(help="MCP tool servers kodo can attach (from installed plugins).", no_args_is_help=True)
 app.add_typer(library_app, name="library")
 app.add_typer(audio_app, name="audio")
 app.add_typer(project_app, name="project")
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("list")
+def mcp_list() -> None:
+    """List the MCP tool servers advertised by installed plugins."""
+    from kodo import plugins  # noqa: PLC0415
+
+    servers = plugins.advertised_servers(plugins.manager())
+    if not servers:
+        console.print("[dim]No MCP servers advertised. Install a kodo MCP plugin to add tools.[/]")
+        return
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("NAME", style="cyan")
+    table.add_column("COMMAND")
+    table.add_column("DESCRIPTION", style="dim")
+    for server in servers:
+        table.add_row(server.name, server.command, server.description)
+    console.print(table)
 
 
 @app.callback()
@@ -881,10 +901,15 @@ def chat(
         console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
-    # (name, command) per server: bare --mcp flags have no name; project [[mcp]]
-    # entries carry their manifest name (used as the tool namespace).
+    from kodo import plugins  # noqa: PLC0415
+
+    # (name, command) per server. A bare --mcp value is resolved against advertised
+    # servers (so `--mcp datetime` finds kodo-mcp-datetime), else used verbatim as a
+    # command; project [[mcp]] entries carry their own manifest name (the tool namespace).
     mcp_servers: list[tuple[str | None, str]] = (
-        [(None, c) for c in mcp] + [(m.name, m.command) for m in (proj.mcp if proj else [])] if tools else []
+        [plugins.resolve_mcp(c) for c in mcp] + [(m.name, m.command) for m in (proj.mcp if proj else [])]
+        if tools
+        else []
     )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     caps = capabilities.capabilities(model)
@@ -1174,8 +1199,7 @@ def _mount_plugins() -> None:
     """Discover ``kodo.plugins`` and mount each plugin's command group on the CLI."""
     from kodo import plugins  # noqa: PLC0415 - keep pluginkit off the hot path for `--help`
 
-    pm = plugins.load_plugins()
-    for name, sub in plugins.command_groups(pm, _HostContext()):
+    for name, sub in plugins.command_groups(plugins.manager(), _HostContext()):
         app.add_typer(sub, name=name)
 
 

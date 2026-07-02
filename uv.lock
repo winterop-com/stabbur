@@ -1265,10 +1265,14 @@ version = "0.1.0"
 source = { editable = "packages/kodo-mcp-datetime" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "pluginkit" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "fastmcp", specifier = ">=3.4.2" }]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+]
 
 [[package]]
 name = "kokoro-onnx"
