@@ -101,12 +101,18 @@ def _project_toml(model: str, library_root: Path) -> str:
     configure the library/runtime; ``[project]`` and ``[[mcp]]`` define the
     assistant. Any value can be overridden per machine with a ``KODO_*`` env var.
     """
+    local_root = get_settings().local_root
     return (
         "# kodo config — library location + this project's assistant, in one file.\n"
         "# kodo's primary config (no .env needed). Override any value per machine\n"
         "# with a KODO_* env var (e.g. KODO_LIBRARY_ROOT).\n\n"
-        "# Where the model library lives (often the external drive).\n"
-        f'library_root = "{library_root}"\n\n'
+        "# The library spans TWO roots, merged into one view (a local copy wins a tie):\n"
+        "#   library_root — the main archive, usually an external drive (set below).\n"
+        "#   local_root   — always on the internal disk; keeps small models fast and\n"
+        "#                  available when the drive is unplugged. `kodo pull --local`\n"
+        "#                  targets it; plain `kodo pull` targets library_root.\n"
+        f'library_root = "{library_root}"\n'
+        f'# local_root = "{local_root}"   # default shown; uncomment to change\n\n'
         "# The assistant this project defines.\n"
         "[project]\n"
         f'model = "{model}"\n'
@@ -167,9 +173,9 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
 
 @app.command("list")
 def list_models(
-    show_path: Annotated[
+    details: Annotated[
         bool,
-        typer.Option("--path", "-l", help="Also show where each model lives (local/drive) and its full path."),
+        typer.Option("--details", "-d", help="Add columns: file count and where each model lives (local/drive)."),
     ] = False,
 ) -> None:
     """List the models in your library — what you've pulled, ready to run.
@@ -177,7 +183,7 @@ def list_models(
     The library spans your drive (``KODO_LIBRARY_ROOT``) plus an always-local
     root, so models kept locally still work when the drive is unplugged. To
     browse models in your app caches that you *could* pull, use ``kodo sources``.
-    Pass ``--path`` (``-l``) to see where each model lives.
+    Pass ``--details`` (``-d``) to also show each model's file count and location.
     """
     settings = get_settings()
     models = [m for m in library_ops.scan() if m.generative]
@@ -203,17 +209,20 @@ def list_models(
         table.add_column("SIZE", justify="right")
         table.add_column("CAPS")
         table.add_column("CTX", justify="right")
+        if details:  # extra columns before NAME: file count and where it lives
+            table.add_column("FILES", justify="right")
+            table.add_column("WHERE")
         table.add_column("NAME", style="white")
         for m in rows:
             try:
                 caps = capabilities.capabilities(m)
             except Exception:  # noqa: BLE001 - detection is best-effort; never break the listing
                 caps = None
-            name = m.name
-            if show_path:  # location (local/drive) + full path on a dim second line
-                where = "[green]local[/]" if str(m.path).startswith(str(settings.local_root)) else "[yellow]drive[/]"
-                name = f"{m.name}\n[dim]{where} · {m.path}[/]"
-            table.add_row(m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None), name)
+            cells = [m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None)]
+            if details:
+                on_local = str(m.path).startswith(str(settings.local_root))
+                cells += [str(m.file_count), "[green]local[/]" if on_local else "[yellow]drive[/]"]
+            table.add_row(*cells, m.name)
         console.print(table)
 
 
