@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { FileText, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -31,8 +31,23 @@ export function MessageItem({
   if (message.role === "user") {
     const images = message.images ?? [];
     const audios = message.audios ?? [];
+    const files = message.files ?? [];
     return (
       <div className="group flex flex-col items-end">
+        {files.length > 0 && (
+          <div className="mb-1.5 flex max-w-[85%] flex-wrap justify-end gap-2">
+            {files.map((f, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5"
+                title={`${f.name} · ${f.text.length.toLocaleString()} chars`}
+              >
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="max-w-[12rem] truncate text-xs">{f.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {images.length > 0 && (
           <div className="mb-1.5 flex max-w-[85%] flex-wrap justify-end gap-2">
             {images.map((src, i) => (

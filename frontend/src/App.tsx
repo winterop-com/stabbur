@@ -300,7 +300,7 @@ export function App() {
       // silent fallback to the project default).
       const wire: Msg[] = priorMessages.map((m) => ({
         role: m.role,
-        content: buildContent(m.content, m.images, m.audios),
+        content: buildContent(m.content, m.images, m.audios, m.files),
       }));
 
       try {
@@ -377,8 +377,11 @@ export function App() {
   // --- send a new user turn ---
   const send = useCallback(async () => {
     const text = input.trim();
-    const images = attachments.filter((a) => a.kind === "image").map((a) => a.url);
-    const audios = attachments.filter((a) => a.kind === "audio").map((a) => a.url);
+    const images = attachments.filter((a) => a.kind === "image" && a.url).map((a) => a.url as string);
+    const audios = attachments.filter((a) => a.kind === "audio" && a.url).map((a) => a.url as string);
+    const files = attachments
+      .filter((a) => a.kind === "text")
+      .map((a) => ({ name: a.name ?? "file", text: a.text ?? "" }));
     if ((!text && attachments.length === 0) || streaming || !ready) return;
 
     let convId = activeId;
@@ -390,6 +393,7 @@ export function App() {
       content: text,
       ...(images.length ? { images } : {}),
       ...(audios.length ? { audios } : {}),
+      ...(files.length ? { files } : {}),
     };
     const assistantMsg: ChatMessage = {
       id: uid(),

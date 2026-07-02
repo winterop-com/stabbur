@@ -16,8 +16,11 @@ architecture, and conventions; this file holds what's next.
   `kodo chat --audio`, REPL drag-drop), sent as OpenAI `input_audio` parts.
   Verified with ggml-org Ultravox-1B (transcribes a clip); the gemma-4-12B GGUF
   is both vision and audio.
-- **Text / document attachments.** Inline pasted/dropped text files as context
-  (not multimodal parts — just prepended/attached text). Simpler than image/audio.
+- **Text / document attachments — DONE (web).** Drop/paste/pick text & code files
+  (matched by MIME or extension) with any model — their contents inline into the
+  prompt as fenced blocks (a plain string, not multimodal parts), so even a
+  non-multimodal model reads them; the message shows a filename chip, not the raw
+  text. *Still open:* a `kodo chat --file` flag for CLI parity.
 - **Text-to-speech (TTS) — SPIKE DONE; recommend OuteTTS via `llama-tts`.**
   Finding: llama.cpp ships **`llama-tts`** (already on this machine via brew), and
   it generates speech end-to-end from the existing runtime family — no new engine.

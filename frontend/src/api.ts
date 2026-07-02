@@ -29,10 +29,24 @@ function audioPart(dataUrl: string): ContentPart {
 }
 
 /** Build a message's content: plain string, or multimodal parts for images/audio. */
-export function buildContent(text: string, images?: string[], audios?: string[]): string | ContentPart[] {
-  if ((!images || !images.length) && (!audios || !audios.length)) return text;
+/** Prepend attached text/doc files to the prompt as fenced blocks (context any
+ *  model can read), before the user's own text. */
+function inlineFiles(text: string, files?: { name: string; text: string }[]): string {
+  if (!files?.length) return text;
+  const blocks = files.map((f) => `Attached file: ${f.name}\n\`\`\`\n${f.text}\n\`\`\``).join("\n\n");
+  return text ? `${blocks}\n\n${text}` : blocks;
+}
+
+export function buildContent(
+  text: string,
+  images?: string[],
+  audios?: string[],
+  files?: { name: string; text: string }[],
+): string | ContentPart[] {
+  const body = inlineFiles(text, files);
+  if ((!images || !images.length) && (!audios || !audios.length)) return body;
   const parts: ContentPart[] = [];
-  if (text) parts.push({ type: "text", text });
+  if (body) parts.push({ type: "text", text: body });
   for (const url of images ?? []) parts.push({ type: "image_url", image_url: { url } });
   for (const url of audios ?? []) parts.push(audioPart(url));
   return parts;

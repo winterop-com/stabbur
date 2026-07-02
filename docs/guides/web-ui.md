@@ -17,6 +17,10 @@ Tailwind chat UI with a model picker).
   via drag-drop, paste, or the picker, or **record from the mic** (auto-stops on
   silence). Images open fullscreen on click; audio plays inline. kodo nudges you
   toward an audio-specialist model when one fits better.
+- **Text / document attachments** — drop, paste, or pick **text/code files**
+  (`.md`, `.py`, `.json`, `.csv`, …) with **any** model: their contents are inlined
+  into the prompt as fenced blocks (the message shows a filename chip, not the raw
+  text), so a plain chat model can read a file as context.
 - **Listen (text-to-speech)** — a speaker button on each reply reads it aloud
   (Markdown/code is stripped first so only the prose is spoken); the settings rail
   picks the **voice**. With the optional Kokoro extra (`make install-tts`) that's a

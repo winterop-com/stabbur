@@ -7,11 +7,22 @@ export interface ToolMarker {
   detail: string;
 }
 
-/** A pending composer attachment (image or audio), as a data URL. */
-export type MediaKind = "image" | "audio";
+/** A pending composer attachment. Image/audio are data URLs sent as content
+ *  parts (need a vision/audio model); text/doc files are inlined into the prompt
+ *  (work with any model), so they carry a filename + decoded contents instead. */
+export type MediaKind = "image" | "audio" | "text";
 export interface Attachment {
-  url: string;
   kind: MediaKind;
+  url?: string; // data URL for image/audio (used as <img>/<audio> src)
+  name?: string; // filename (text/doc attachments)
+  text?: string; // decoded file contents, inlined into the message on send (text)
+}
+
+/** A text/doc file attached to a sent message: filename + contents, inlined into
+ *  the prompt as a fenced block so any model can use it as context. */
+export interface AttachedFile {
+  name: string;
+  text: string;
 }
 
 /** One message in a conversation. Assistant turns may carry tool markers. */
@@ -21,6 +32,7 @@ export interface ChatMessage {
   content: string;
   images?: string[]; // attached image data URLs (user turns, vision models)
   audios?: string[]; // attached audio data URLs (user turns, audio models)
+  files?: AttachedFile[]; // attached text/doc files (inlined into the prompt on send)
   reasoning?: string; // reasoning-model thinking (shown collapsed)
   tools?: ToolMarker[];
   error?: boolean;

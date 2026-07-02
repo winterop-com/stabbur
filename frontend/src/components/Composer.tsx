@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -13,14 +13,33 @@ export interface Accept {
   audio: boolean;
 }
 
-/** Classify a File into an accepted media kind, or null. */
+// Text/doc files we inline into the prompt (many carry an empty MIME type, so we
+// also match by extension). These work with any model, not just multimodal ones.
+const TEXT_EXT =
+  /\.(txt|text|md|markdown|rst|json|jsonl|ndjson|csv|tsv|log|ya?ml|toml|ini|cfg|conf|env|xml|html?|css|scss|py|pyi|js|jsx|mjs|cjs|ts|tsx|go|rs|rb|java|kt|kts|scala|c|h|cpp|cc|cxx|hpp|cs|php|swift|sql|sh|bash|zsh|fish|ps1|r|lua|pl|pm|dart|ex|exs|clj|hs|ml|vue|svelte|tex|dockerfile|makefile|gitignore|proto|graphql|gql)$/i;
+// File-picker accept hint: text/* plus the common code extensions above.
+const TEXT_ACCEPT =
+  "text/*,.md,.markdown,.rst,.json,.jsonl,.csv,.tsv,.log,.yaml,.yml,.toml,.ini,.cfg,.env,.xml,.html,.css,.scss,.py,.js,.jsx,.mjs,.cjs,.ts,.tsx,.go,.rs,.rb,.java,.kt,.c,.h,.cpp,.hpp,.cs,.php,.swift,.sql,.sh,.lua,.pl,.dart,.vue,.svelte,.tex";
+
+function isTextFile(file: File): boolean {
+  return (
+    file.type.startsWith("text/") ||
+    file.type === "application/json" ||
+    file.type === "application/xml" ||
+    TEXT_EXT.test(file.name)
+  );
+}
+
+/** Classify a File into an accepted kind, or null. Text is always accepted (it's
+ *  inlined into the prompt); image/audio only for capable models. */
 function kindOf(file: File, accept: Accept): MediaKind | null {
   if (file.type.startsWith("image/") && accept.image) return "image";
   if (file.type.startsWith("audio/") && accept.audio) return "audio";
+  if (isTextFile(file)) return "text";
   return null;
 }
 
-/** Read accepted image/audio Files into typed data-URL attachments. */
+/** Read Files into typed attachments: image/audio as data URLs, text as contents. */
 async function filesToAttachments(files: FileList | File[], accept: Accept): Promise<Attachment[]> {
   const wanted = [...files]
     .map((f) => ({ f, kind: kindOf(f, accept) }))
@@ -30,9 +49,14 @@ async function filesToAttachments(files: FileList | File[], accept: Accept): Pro
       ({ f, kind }) =>
         new Promise<Attachment>((resolve, reject) => {
           const r = new FileReader();
-          r.onload = () => resolve({ url: r.result as string, kind });
           r.onerror = reject;
-          r.readAsDataURL(f);
+          if (kind === "text") {
+            r.onload = () => resolve({ kind: "text", name: f.name, text: r.result as string });
+            r.readAsText(f);
+          } else {
+            r.onload = () => resolve({ kind, url: r.result as string });
+            r.readAsDataURL(f);
+          }
         }),
     ),
   );
@@ -97,8 +121,10 @@ export function Composer({
   }, [autoFocus]);
 
   const canSend = ready && !streaming && (value.trim().length > 0 || attachments.length > 0);
-  const canAttach = accept.image || accept.audio;
-  const acceptAttr = [accept.image && "image/*", accept.audio && "audio/*"].filter(Boolean).join(",");
+  // Text/doc files attach to any model (inlined into the prompt), so the picker is
+  // always available; image/audio are added to the accept hint only for capable models.
+  const canAttach = true;
+  const acceptAttr = [accept.image && "image/*", accept.audio && "audio/*", TEXT_ACCEPT].filter(Boolean).join(",");
 
   const addFiles = async (files: FileList | File[]) => {
     const items = await filesToAttachments(files, accept);
@@ -152,25 +178,46 @@ export function Composer({
         void addFiles(e.dataTransfer.files);
       }}
     >
-      {/* Attachment previews: images as thumbnails, audio as a small player */}
+      {/* Attachment previews: images as thumbnails, audio as a player, text as a chip */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pt-3">
-          {attachments.map((att, i) =>
-            att.kind === "image" ? (
-              <div key={i} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border">
-                <img src={att.url} alt={`attachment ${i + 1}`} className="h-full w-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => onRemove(i)}
-                  className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="Remove attachment"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : (
-              <div key={i} className="group relative flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
-                <audio src={att.url} controls className="h-8 max-w-[12rem]" />
+          {attachments.map((att, i) => {
+            if (att.kind === "image") {
+              return (
+                <div key={i} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border">
+                  <img src={att.url} alt={`attachment ${i + 1}`} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => onRemove(i)}
+                    className="absolute right-0.5 top-0.5 rounded-full bg-background/80 p-0.5 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="Remove attachment"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            }
+            if (att.kind === "audio") {
+              return (
+                <div key={i} className="group relative flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
+                  <audio src={att.url} controls className="h-8 max-w-[12rem]" />
+                  <button
+                    type="button"
+                    onClick={() => onRemove(i)}
+                    className="rounded-full bg-background/80 p-0.5 text-muted-foreground hover:text-foreground"
+                    aria-label="Remove attachment"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="max-w-[12rem] truncate text-xs" title={att.name}>
+                  {att.name}
+                </span>
                 <button
                   type="button"
                   onClick={() => onRemove(i)}
@@ -180,8 +227,8 @@ export function Composer({
                   <X className="h-3 w-3" />
                 </button>
               </div>
-            ),
-          )}
+            );
+          })}
         </div>
       )}
 
@@ -234,7 +281,7 @@ export function Composer({
                 size="icon-sm"
                 onClick={() => fileRef.current?.click()}
                 aria-label="Attach file"
-                title={`Attach ${accept.image && accept.audio ? "image or audio" : accept.audio ? "audio" : "image"} (drag or paste too)`}
+                title={`Attach a file${accept.image ? ", image" : ""}${accept.audio ? ", audio" : ""} — document, drag, or paste`}
               >
                 <Paperclip className="h-4 w-4" />
               </Button>
