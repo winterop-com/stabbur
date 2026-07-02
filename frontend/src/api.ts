@@ -199,9 +199,11 @@ export async function unloadModel(): Promise<Status> {
 }
 
 export async function loadModel(name: string, nCtx?: number | null): Promise<Status> {
-  // /api/load/{name:path} accepts slashes; don't encode them away.
+  // /api/load/{name:path} accepts slashes, so keep them — but encode each segment
+  // so reserved characters (?, #, %, spaces) in a name can't break the URL.
+  const path = name.split("/").map(encodeURIComponent).join("/");
   const query = nCtx != null ? `?n_ctx=${nCtx}` : "";
-  const res = await fetch(`/api/load/${name}${query}`, { method: "POST" });
+  const res = await fetch(`/api/load/${path}${query}`, { method: "POST" });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
