@@ -45,16 +45,18 @@ per-model matrix). Ordered roughly by impact:
   later (e.g. a `kodo tui` library browser) if we want them; the browser stays the
   canonical rich UI.
 
-- **Model tags (user-defined labels + filtering).** Let the user tag library
-  models (e.g. `tested`, `favorite`, `coding`, `roleplay`, `fast`, `broken`) so
-  it's easy to see which ones have been tried and to organize a growing library.
-  Tags are **user metadata** (distinct from the auto-detected `vision`/`audio`/
-  `tools` capabilities), stored in the model's `.kodo/metadata.json` sidecar (or a
-  small library-level index), editable via CLI (`kodo tag <model> +tested -broken`)
-  and the web UI. Surface them as **filter chips** in the picker alongside the
-  existing capability chips, and a column in `kodo list`. A curated default set
-  plus free-form tags. Pairs well with `docs/guides/models.md` (the tested/limits
-  status could seed initial tags).
+- **Models view + user tags — DONE.** A **Models** entry in the web sidebar opens
+  a full-panel card grid (grouped by format, like `kodo ls`): each card shows
+  format, size, capabilities, context, and its user tags; clicking loads the model
+  and drops into chat. Tags are **user metadata** (distinct from the auto-detected
+  `vision`/`audio`/`tools` caps), stored in one library-level index on the
+  always-local root (`<local_root>/.kodo/tags.json`) so they survive the drive
+  being offline. Editable inline on each card and via the CLI (`kodo tag <model>
+  --add tested --remove broken`, `kodo tag <model>` to list, `--clear`); shown in
+  `kodo ls -d` and as **filter chips** atop the Models grid (AND filter). Served on
+  each `/api/library` model + `POST /api/tags` to set. *Still open:* a curated
+  default tag set / seeding from `docs/guides/models.md`, and tag filter chips in
+  the in-composer model picker (only the Models view filters today).
 
 - **Image attachments — DONE (web + CLI).** Drag/paste/pick images into the
   composer (gated on the model's detected `vision` capability), rendered as

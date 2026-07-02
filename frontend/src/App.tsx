@@ -12,6 +12,7 @@ import {
   getTools,
   getVoices,
   loadModel,
+  setModelTags,
   streamChat,
   unloadModel,
   type DoctorReport,
@@ -33,6 +34,7 @@ import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
+import { ModelsView } from "@/components/ModelsView";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { ToolsControl } from "@/components/ToolsControl";
@@ -53,6 +55,9 @@ function conversationIdFromHash(): string | null {
   const m = window.location.hash.match(/^#\/c\/(.+)$/);
   return m ? decodeURIComponent(m[1]) : null;
 }
+
+/** Which primary surface to show: the chat, or the model library grid. */
+type View = "chat" | "models";
 
 export function App() {
   const { theme, toggle } = useTheme();
@@ -81,6 +86,7 @@ export function App() {
   const [draftSettings, setDraftSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [view, setView] = useState<View>(() => (window.location.hash === "#/models" ? "models" : "chat"));
 
   // --- resizable layout: imperative handles to collapse/expand the rails. ---
   const leftPanel = useRef<ImperativePanelHandle>(null);
@@ -117,16 +123,23 @@ export function App() {
   // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
   // so a reload / bookmark / back-button lands on the same chat. ---
   useEffect(() => {
-    const target = activeId ? `#/c/${activeId}` : "";
+    const target = view === "models" ? "#/models" : activeId ? `#/c/${activeId}` : "";
     if (window.location.hash !== target) {
       if (target) window.location.hash = target;
       else history.replaceState(null, "", window.location.pathname + window.location.search);
     }
-  }, [activeId]);
+  }, [view, activeId]);
   useEffect(() => {
     const onHash = () => {
+      if (window.location.hash === "#/models") {
+        setView("models");
+        return;
+      }
       const id = conversationIdFromHash();
-      if (id) setActiveId(id);
+      if (id) {
+        setActiveId(id);
+        setView("chat");
+      }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -287,6 +300,37 @@ export function App() {
     (id: string, title: string) => upsertConv(id, (c) => ({ ...c, title })),
     [upsertConv],
   );
+
+  // --- primary view navigation (chat vs the model library grid) ---
+  const showModels = useCallback(() => setView("models"), []);
+  const selectConversation = useCallback((id: string) => {
+    setActiveId(id);
+    setView("chat");
+  }, []);
+  const startNewChat = useCallback(() => {
+    newConversation();
+    setView("chat");
+  }, [newConversation]);
+  // Load a model from the Models grid, then drop into chat (skip a reload if it's
+  // already the loaded one).
+  const pickAndChat = useCallback(
+    (name: string) => {
+      setView("chat");
+      if (status?.model !== name) pick(name);
+    },
+    [status?.model, pick],
+  );
+  // Edit a model's user tags: optimistic local update, then persist (server
+  // normalizes/dedupes, so reconcile with what it returns).
+  const setTags = useCallback(async (name: string, tags: string[]) => {
+    setLibrary((lib) => lib.map((m) => (m.name === name ? { ...m, tags } : m)));
+    try {
+      const res = await setModelTags(name, tags);
+      setLibrary((lib) => lib.map((m) => (m.name === name ? { ...m, tags: res.tags } : m)));
+    } catch {
+      getLibrary().then(setLibrary).catch(() => {}); // reconcile on failure
+    }
+  }, []);
 
   // --- core: run a chat completion into an assistant turn ---
   const runCompletion = useCallback(
@@ -595,8 +639,10 @@ export function App() {
           <Sidebar
             conversations={conversations}
             activeId={activeId}
-            onNew={newConversation}
-            onSelect={setActiveId}
+            view={view}
+            onNew={startNewChat}
+            onSelect={selectConversation}
+            onShowModels={showModels}
             onRename={renameConversation}
             onDelete={deleteConversation}
             onCollapse={toggleSidebar}
@@ -637,7 +683,7 @@ export function App() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        onClick={() => newConversation()}
+                        onClick={startNewChat}
                         aria-label="New chat"
                       >
                         <SquarePen className="h-4 w-4" />
@@ -695,6 +741,16 @@ export function App() {
             </div>
           </header>
 
+          {view === "models" ? (
+            <ModelsView
+              library={library}
+              status={status}
+              loadingName={loadingName}
+              onPick={pickAndChat}
+              onSetTags={setTags}
+            />
+          ) : (
+          <>
           {(error || status?.error) && (
             <div className="mx-auto mt-1 w-full max-w-4xl px-4">
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -783,6 +839,8 @@ export function App() {
                 </div>
               </div>
             </>
+          )}
+          </>
           )}
         </main>
         </Panel>

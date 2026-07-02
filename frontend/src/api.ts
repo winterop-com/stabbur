@@ -71,6 +71,7 @@ export interface LibModel {
   audio: boolean;
   tools: boolean;
   context_length: number | null;
+  tags: string[];
 }
 
 /** Model-recommended sampling defaults (from generation_config.json). */
@@ -143,6 +144,14 @@ async function json<T>(res: Response): Promise<T> {
 
 export const getStatus = () => fetch("/api/status").then(json<Status>);
 export const getLibrary = () => fetch("/api/library").then(json<LibModel[]>);
+
+/** Replace a model's user tags (full list). Returns the normalized saved tags. */
+export const setModelTags = (model: string, tags: string[]) =>
+  fetch("/api/tags", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, tags }),
+  }).then(json<{ model: string; tags: string[] }>);
 
 /** List the MCP tools attached to the server (empty if none configured). */
 export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);

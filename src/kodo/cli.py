@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import attach, capabilities, config, doctor, project, runtime
+from kodo import attach, capabilities, config, doctor, project, runtime, tags
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
@@ -94,7 +94,7 @@ def _fmt_ctx(n: int | None) -> str:
     return f"{round(n / 1024)}K" if n >= 1024 else str(n)
 
 
-def _print_model_card(model: library_ops.LibraryModel, local_root: Path) -> None:
+def _print_model_card(model: library_ops.LibraryModel, local_root: Path, model_tags: list[str]) -> None:
     """Print one model as a full-detail 'card' — a bordered panel of key/value fields."""
     try:
         caps = capabilities.capabilities(model)
@@ -117,6 +117,8 @@ def _print_model_card(model: library_ops.LibraryModel, local_root: Path) -> None
     body.add_row("location", location)
     body.add_row("loads", loads)
     body.add_row("path", f"[dim]{model.path}[/]")
+    if model_tags:
+        body.add_row("tags", "  ".join(f"[cyan]{t}[/]" for t in model_tags))
     if model.is_ollama:
         body.add_row("runtime", "[yellow]Ollama[/] [dim](not llama.cpp)[/]")
 
@@ -240,9 +242,10 @@ def list_models(
             f"[yellow]Note: drive offline[/] ([dim]{settings.library_root}[/]) — showing local models only.\n"
         )
     if details:  # full-detail cards, one per model, stacked and grouped by format
+        tag_map = tags.load(settings.local_root)
         for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
             for m in sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name):
-                _print_model_card(m, settings.local_root)
+                _print_model_card(m, settings.local_root, tag_map.get(m.name, []))
         return
     for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
         rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
@@ -304,6 +307,33 @@ def remove_model(
         total_files += count
         total_freed += freed
     console.print(f"[green]Removed[/] {model.name} — freed [bold]{_human_size(total_freed)}[/] ({total_files} files)")
+
+
+@app.command("tag")
+def tag_model(
+    name: Annotated[str, typer.Argument(help="Library model (full name or bare repo/tag).")],
+    model_format: FormatOption = None,
+    add: Annotated[list[str], typer.Option("--add", "-a", help="Tag(s) to add (repeatable).")] = [],
+    remove: Annotated[list[str], typer.Option("--remove", "-r", help="Tag(s) to remove (repeatable).")] = [],
+    clear: Annotated[bool, typer.Option("--clear", help="Remove all tags from the model.")] = False,
+) -> None:
+    """Add, remove, or list a model's user tags (tested, favorite, coding, ...).
+
+    Tags are *your* labels, separate from the auto-detected vision/audio/tools
+    capabilities. With no ``--add``/``--remove``/``--clear`` the current tags are
+    just listed. They're stored on the always-local root, so they survive the
+    drive being offline, and show up as filter chips in the web Models view.
+    """
+    settings = get_settings()
+    model = _resolve_library_model(name, model_format)
+    if clear:
+        result = tags.set_tags(settings.local_root, model.name, [])
+    elif add or remove:
+        result = tags.edit_tags(settings.local_root, model.name, add, remove)
+    else:
+        result = tags.tags_for(settings.local_root, model.name)
+    label = "  ".join(f"[cyan]{t}[/]" for t in result) if result else "[dim](none)[/]"
+    console.print(f"[white]{model.name}[/]\n  [dim]tags[/]  {label}")
 
 
 def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:

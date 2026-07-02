@@ -13,6 +13,7 @@ from starlette.background import BackgroundTask
 
 from kodo import agent, capabilities, cards, doctor, kokoro, runtime, sampling, tts
 from kodo import library as library_ops
+from kodo import tags as tags_ops
 from kodo.config import Settings
 from kodo.sampling import ModelSampling
 from kodo.server import ServerManager
@@ -47,6 +48,7 @@ class LibraryModelInfo(BaseModel):
     audio: bool = False
     tools: bool = False
     context_length: int | None = None
+    tags: list[str] = []
 
 
 def get_manager(request: Request) -> ServerManager:
@@ -106,11 +108,12 @@ async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> Se
 
 
 @router.get("/api/library")
-def library() -> list[LibraryModelInfo]:
+def library(settings: ConfDep) -> list[LibraryModelInfo]:
     """List runnable (generative) library models for the UI's picker.
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     """
+    tag_map = tags_ops.load(settings.local_root)
     out: list[LibraryModelInfo] = []
     for m in library_ops.scan():
         if not m.generative or m.is_ollama:
@@ -126,9 +129,24 @@ def library() -> list[LibraryModelInfo]:
                 audio=caps.audio,
                 tools=caps.tools,
                 context_length=caps.context_length,
+                tags=tag_map.get(m.name, []),
             )
         )
     return out
+
+
+class TagUpdate(BaseModel):
+    """Set a model's tags (the full replacement list)."""
+
+    model: str
+    tags: list[str]
+
+
+@router.post("/api/tags")
+def set_model_tags(body: TagUpdate, settings: ConfDep) -> TagUpdate:
+    """Replace ``model``'s tags with ``tags`` (normalized + deduped). Returns them."""
+    saved = tags_ops.set_tags(settings.local_root, body.model, body.tags)
+    return TagUpdate(model=body.model, tags=saved)
 
 
 class ModelCardInfo(BaseModel):

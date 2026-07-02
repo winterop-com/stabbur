@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, PanelLeftClose, PencilLine, Search, SquarePen, Trash2, X } from "lucide-react";
+import { Boxes, Check, PanelLeftClose, PencilLine, Search, SquarePen, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,16 +19,20 @@ import { cn } from "@/lib/utils";
 export function Sidebar({
   conversations,
   activeId,
+  view,
   onNew,
   onSelect,
+  onShowModels,
   onRename,
   onDelete,
   onCollapse,
 }: {
   conversations: Conversation[];
   activeId: string | null;
+  view: "chat" | "models";
   onNew: () => void;
   onSelect: (id: string) => void;
+  onShowModels: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onCollapse: () => void;
@@ -92,6 +96,20 @@ export function Sidebar({
         </div>
       </div>
 
+      <div className="px-2 pb-1">
+        <button
+          type="button"
+          onClick={onShowModels}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
+            view === "models" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+          )}
+        >
+          <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
+          Models
+        </button>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Recents
@@ -102,7 +120,7 @@ export function Sidebar({
           </div>
         )}
         {filtered.map((c) => {
-          const active = c.id === activeId;
+          const active = view === "chat" && c.id === activeId;
           const editing = c.id === editingId;
           return (
             <div
