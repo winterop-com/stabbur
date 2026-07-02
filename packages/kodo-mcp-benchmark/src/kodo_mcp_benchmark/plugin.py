@@ -125,7 +125,13 @@ def _build_app(context: PluginContext) -> typer.Typer:
                 console.print(f"[dim]skip {mdl.name} (already saved)[/]")
                 continue
             console.print(f"\n[bold]{loaded.name}[/] · {mdl.name} · {len(problems)} problems")
-            results = _run_suite_for_model(context, mdl, loaded, problems, max_tokens)
+            try:
+                results = _run_suite_for_model(context, mdl, loaded, problems, max_tokens)
+            except Exception as exc:  # noqa: BLE001 - in a sweep one bad model must not stop the rest
+                console.print(f"  [red]skipped {mdl.name}[/]: {exc}")
+                if not all_models:
+                    raise
+                continue
             report = core.SuiteReport(suite=loaded.name, model=mdl.name, results=results)
             console.print(f"[bold]Score: {report.passed}/{report.total}[/] ([bold]{round(report.score * 100)}%[/])")
             if save:
