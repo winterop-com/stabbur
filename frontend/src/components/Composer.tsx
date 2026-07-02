@@ -39,13 +39,28 @@ function kindOf(file: File, accept: Accept): MediaKind | null {
   return null;
 }
 
-/** Read Files into typed attachments: image/audio as data URLs, text as contents. */
-async function filesToAttachments(files: FileList | File[], accept: Accept): Promise<Attachment[]> {
-  const wanted = [...files]
-    .map((f) => ({ f, kind: kindOf(f, accept) }))
-    .filter((x): x is { f: File; kind: MediaKind } => x.kind !== null);
+/** Split files into accepted (with kind) and media rejected because the loaded
+ *  model lacks that modality (so we can tell the user instead of dropping silently). */
+function classifyFiles(
+  files: File[],
+  accept: Accept,
+): { accepted: { f: File; kind: MediaKind }[]; rejected: Set<"image" | "audio"> } {
+  const accepted: { f: File; kind: MediaKind }[] = [];
+  const rejected = new Set<"image" | "audio">();
+  for (const f of files) {
+    const kind = kindOf(f, accept);
+    if (kind) accepted.push({ f, kind });
+    else if (f.type.startsWith("image/")) rejected.add("image");
+    else if (f.type.startsWith("audio/")) rejected.add("audio");
+    // other non-text, non-media files are ignored (nothing sensible to do with them)
+  }
+  return { accepted, rejected };
+}
+
+/** Read pre-classified files into typed attachments (image/audio → data URL, text → contents). */
+async function readAttachments(accepted: { f: File; kind: MediaKind }[]): Promise<Attachment[]> {
   return Promise.all(
-    wanted.map(
+    accepted.map(
       ({ f, kind }) =>
         new Promise<Attachment>((resolve, reject) => {
           const r = new FileReader();
@@ -103,6 +118,15 @@ export function Composer({
   const [dragOver, setDragOver] = useState(false);
   const recRef = useRef<Recording | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
+  // A transient note shown when a dropped/pasted file can't be used (e.g. audio on
+  // a text model), so incompatible files aren't silently discarded.
+  const [hint, setHint] = useState<string | null>(null);
+  const hintTimer = useRef<number | null>(null);
+  const showHint = (msg: string) => {
+    setHint(msg);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = window.setTimeout(() => setHint(null), 4000);
+  };
 
   // Auto-grow the textarea to fit content (capped by max-height via CSS). When
   // empty we leave the natural rows={1} height (height:auto) rather than trust
@@ -128,8 +152,12 @@ export function Composer({
   const acceptAttr = [accept.image && "image/*", accept.audio && "audio/*", TEXT_ACCEPT].filter(Boolean).join(",");
 
   const addFiles = async (files: FileList | File[]) => {
-    const items = await filesToAttachments(files, accept);
-    if (items.length) onAdd(items);
+    const { accepted, rejected } = classifyFiles([...files], accept);
+    if (rejected.size) {
+      const need = rejected.has("image") && rejected.has("audio") ? "vision/audio" : rejected.has("image") ? "vision" : "audio";
+      showHint(`The loaded model can't read ${[...rejected].join(" or ")} — switch to a ${need}-capable model.`);
+    }
+    if (accepted.length) onAdd(await readAttachments(accepted));
   };
 
   // Finalize a recording (from a manual stop or auto silence): encode + attach.
@@ -330,6 +358,7 @@ export function Composer({
           </Button>
         )}
       </div>
+      {hint && <div className="-mt-1 px-4 pb-2 text-[11px] text-muted-foreground">{hint}</div>}
     </div>
   );
 }
