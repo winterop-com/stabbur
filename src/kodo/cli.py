@@ -166,12 +166,18 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
 
 
 @app.command("list")
-def list_models() -> None:
+def list_models(
+    show_path: Annotated[
+        bool,
+        typer.Option("--path", "-l", help="Also show where each model lives (local/drive) and its full path."),
+    ] = False,
+) -> None:
     """List the models in your library — what you've pulled, ready to run.
 
     The library spans your drive (``KODO_LIBRARY_ROOT``) plus an always-local
     root, so models kept locally still work when the drive is unplugged. To
     browse models in your app caches that you *could* pull, use ``kodo sources``.
+    Pass ``--path`` (``-l``) to see where each model lives.
     """
     settings = get_settings()
     models = [m for m in library_ops.scan() if m.generative]
@@ -203,7 +209,11 @@ def list_models() -> None:
                 caps = capabilities.capabilities(m)
             except Exception:  # noqa: BLE001 - detection is best-effort; never break the listing
                 caps = None
-            table.add_row(m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None), m.name)
+            name = m.name
+            if show_path:  # location (local/drive) + full path on a dim second line
+                where = "[green]local[/]" if str(m.path).startswith(str(settings.local_root)) else "[yellow]drive[/]"
+                name = f"{m.name}\n[dim]{where} · {m.path}[/]"
+            table.add_row(m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None), name)
         console.print(table)
 
 
