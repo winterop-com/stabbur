@@ -45,13 +45,12 @@ architecture, and conventions; this file holds what's next.
   from conversation state. *Still open:* a `kodo` CLI export — conversations are
   browser-only today, so this needs the REPL to persist transcripts first (e.g. a
   `/export` slash command or `kodo chat --save`).
-- **Mermaid diagram rendering in Markdown.** Models readily emit ```` ```mermaid ````
-  fenced blocks (flowcharts, sequence diagrams, mind maps); today they render as
-  plain code. Detect the `mermaid` language in the Markdown renderer and render
-  the diagram (mermaid.js) instead of the code, with a toggle/fallback to the raw
-  source and a copy button. Keep it lazy-loaded (mermaid is heavy) so it only
-  loads when a diagram is present, and make it theme-aware (light/dark). Carry the
-  rendered SVG into PDF export; keep the fenced source in Markdown export.
+- **Mermaid diagram rendering in Markdown.** [done] ```` ```mermaid ```` fences
+  render as diagrams (mermaid.js, lazy-loaded into its own chunk so it only loads
+  when a diagram appears), theme-aware (re-renders on light/dark toggle), with a
+  source/diagram toggle + copy and a graceful fallback to the source on invalid
+  syntax. PDF export renders diagrams to inline SVG; Markdown export keeps the
+  fenced source.
 - **Projects (assistant definitions)** — two units: the *global* **library**
   (models on the drive) vs a *local* **project** (`./kodo.toml`: a library
   model + MCP servers + system prompt + serve settings). Projects make assistants

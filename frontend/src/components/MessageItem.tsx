@@ -97,7 +97,7 @@ export function MessageItem({
         {message.error ? (
           <p className="text-sm">{message.content}</p>
         ) : message.content ? (
-          <Markdown content={message.content} />
+          <Markdown content={message.content} streaming={streaming} />
         ) : showCursor ? (
           <span className="inline-block h-4 w-2 animate-pulse rounded-sm bg-muted-foreground align-middle" />
         ) : (

@@ -19,10 +19,14 @@ Tailwind chat UI with a model picker).
   toward an audio-specialist model when one fits better.
 - **Listen (text-to-speech)** — a speaker button on each reply reads it aloud; the
   settings rail picks the **voice** (a library TTS model).
+- **Mermaid diagrams** — ```` ```mermaid ```` fenced blocks render as live
+  diagrams (theme-aware, lazy-loaded), with a source/diagram toggle and copy;
+  invalid syntax falls back to the source.
 - **Export** — a download menu in the top bar exports the open conversation as
   **Markdown** (source-form: roles, code fences, reasoning, tool activity, and a
   model + params header) or **PDF** (a styled, self-contained document opened in a
-  print window for "Save as PDF"). Both run client-side from conversation state.
+  print window for "Save as PDF"; mermaid diagrams are rendered to inline SVG).
+  Both run client-side from conversation state.
 - **Settings rail** — system prompt (authoritative; blank = none), sampling
   (with model-recommended defaults shown), and **context length** (presets +
   custom; reloads the model). Settings are **per conversation**, so each chat

@@ -17,6 +17,7 @@ import { common } from "lowlight";
 // The github (light) highlight theme, inlined as a string for the print window.
 import hljsCss from "highlight.js/styles/github.css?inline";
 
+import { renderMermaid } from "@/lib/mermaid";
 import type { Settings } from "@/lib/store";
 import type { ChatMessage, Conversation } from "@/lib/types";
 
@@ -130,14 +131,38 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Render one message's Markdown to a static HTML string (highlighted code). */
+/**
+ * Render one message's Markdown to a static HTML string (highlighted code, and
+ * ```mermaid fences rendered to inline SVG). Mermaid blocks are pulled out to
+ * placeholders, the Markdown is rendered, then each placeholder is replaced with
+ * its rendered (light-themed) diagram — falling back to the source on error.
+ */
 async function markdownToHtml(content: string): Promise<string> {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  return renderToStaticMarkup(
+  const diagrams: string[] = [];
+  const token = (i: number) => `kodomermaidplaceholder${i}kodo`;
+  const src = content.replace(/```mermaid[^\n]*\n([\s\S]*?)```/g, (_m, code: string) => {
+    const i = diagrams.length;
+    diagrams.push(code);
+    return `\n\n${token(i)}\n\n`;
+  });
+
+  let html = renderToStaticMarkup(
     <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[[rehypeHighlight, { languages: common }]]}>
-      {content}
+      {src}
     </ReactMarkdown>,
   );
+
+  for (let i = 0; i < diagrams.length; i++) {
+    let block: string;
+    try {
+      block = `<div class="mermaid">${await renderMermaid(diagrams[i], false)}</div>`; // PDF is light-themed
+    } catch {
+      block = `<pre><code>${escapeHtml(diagrams[i])}</code></pre>`;
+    }
+    html = html.replace(`<p>${token(i)}</p>`, block).replace(token(i), block);
+  }
+  return html;
 }
 
 // Print-document stylesheet: a clean, light, paper-friendly layout independent
@@ -152,6 +177,8 @@ const PRINT_CSS = `
         color:#1a1a1a; padding:16mm 18mm; }
   /* Drop empty code boxes left by unterminated fences in model output. */
   .content pre:empty, .content pre:has(> code:empty){ display:none; }
+  .content .mermaid{ text-align:center; margin:.75rem 0; break-inside:avoid; }
+  .content .mermaid svg{ max-width:100%; height:auto; }
   header.doc{ border-bottom:1px solid #e2e2e2; padding-bottom:1rem; margin-bottom:1.5rem; }
   header.doc h1{ font-size:1.5rem; margin:0 0 .5rem; }
   header.doc .meta{ color:#666; font-size:.8rem; }
