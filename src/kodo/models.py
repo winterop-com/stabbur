@@ -109,6 +109,7 @@ class HubModel(BaseModel):
     id: str
     downloads: int = 0
     likes: int = 0
+    size_bytes: int = 0  # approx bytes kodo would pull (preferred quant); 0 = unknown
 
 
 class CuratedModel(BaseModel):

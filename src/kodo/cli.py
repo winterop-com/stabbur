@@ -463,11 +463,16 @@ def search(
     table = Table(box=box.SIMPLE_HEAD, pad_edge=False)
     table.add_column("DOWNLOADS", justify="right")
     table.add_column("LIKES", justify="right")
+    table.add_column("~PULL", justify="right")  # est. download (preferred quant, not the whole repo)
     table.add_column("MODEL", style="white")
     for r in results:
-        table.add_row(f"{r.downloads:,}", f"{r.likes:,}", r.id)
+        size = _human_size(r.size_bytes) if r.size_bytes else "[dim]?[/]"
+        table.add_row(f"{r.downloads:,}", f"{r.likes:,}", size, r.id)
     console.print(table)
-    console.print("\n[dim]Pull one with[/] kodo pull huggingface <model>")
+    console.print(
+        "\n[dim]~PULL = approx download for the preferred quant (not the full repo).\n"
+        "Pull one with[/] kodo pull huggingface <model>"
+    )
 
 
 def _not_chat_msg(name: str, model_format: ModelFormat) -> str:

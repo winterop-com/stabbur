@@ -5,6 +5,7 @@ Backing up uses :func:`huggingface_hub.snapshot_download`, which is resumable,
 parallel, and checksum-verified, writing directly into the backup root.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -14,14 +15,43 @@ from kodo import arch, cards
 from kodo.models import HubModel, ModelEntry, ModelFormat, ModelSource, PullResult
 from kodo.sources.base import dir_stats
 
+# Preferred GGUF quant when a repo ships several (mirrors the library's pick), used
+# to estimate what a pull would actually download rather than the whole repo.
+_QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
 
-def search(query: str, limit: int = 20, gguf: bool = False) -> list[HubModel]:
+
+def _pull_size(repo: str) -> int:
+    """Approximate bytes ``kodo pull`` would download for ``repo``.
+
+    A GGUF repo often ships many quant variants (the *whole* repo can be hundreds
+    of GB), but a pull grabs one quant — so estimate the **preferred quant + any
+    mmproj**. Non-GGUF repos (safetensors/MLX) report their full size. 0 on error.
+    """
+    try:
+        info = HfApi().model_info(repo, files_metadata=True)
+    except Exception:  # noqa: BLE001 - network/API errors → unknown size
+        return 0
+    files = [(s.rfilename, s.size or 0) for s in (info.siblings or [])]
+    ggufs = [(n, sz) for n, sz in files if n.lower().endswith(".gguf")]
+    if not ggufs:
+        return sum(sz for _, sz in files)  # safetensors / MLX repo → full size
+    mmproj = sum(sz for n, sz in ggufs if "mmproj" in n.lower())
+    weights = [(n, sz) for n, sz in ggufs if "mmproj" not in n.lower()]
+    for quant in _QUANT_PREFERENCE:
+        match = [sz for n, sz in weights if quant.lower() in n.lower()]
+        if match:  # a quant may be split across shards → sum them
+            return sum(match) + mmproj
+    return min((sz for _, sz in weights), default=0) + mmproj
+
+
+def search(query: str, limit: int = 20, gguf: bool = False, sizes: bool = True) -> list[HubModel]:
     """Search the Hugging Face Hub for models to pull, by downloads.
 
     Args:
         query: Free-text search (name/description).
         limit: Max results.
         gguf: If true, restrict to GGUF repos (llama.cpp-ready).
+        sizes: If true, also fetch each result's approximate pull size (concurrently).
 
     Returns:
         Matching models, most-downloaded first. Empty on any error (e.g. offline).
@@ -35,7 +65,13 @@ def search(query: str, limit: int = 20, gguf: bool = False) -> list[HubModel]:
         )
     except Exception:  # noqa: BLE001 - network/API errors → no results
         return []
-    return [HubModel(id=i.id, downloads=i.downloads or 0, likes=i.likes or 0) for i in infos]
+    results = [HubModel(id=i.id, downloads=i.downloads or 0, likes=i.likes or 0) for i in infos]
+    if sizes and results:
+        # Size needs a per-repo file listing; fetch them concurrently to stay snappy.
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for model, size in zip(results, pool.map(_pull_size, [m.id for m in results])):
+                model.size_bytes = size
+    return results
 
 
 def _classify(repo: Any) -> ModelFormat:
