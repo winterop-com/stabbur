@@ -8,6 +8,7 @@ underlying ``llama-server`` / ``mlx_lm.server`` process is swapped underneath.
 import shutil
 import subprocess
 import tempfile
+import threading
 from enum import StrEnum
 from pathlib import Path
 from typing import IO
@@ -42,6 +43,13 @@ class ServerManager:
         self._log_dir: Path | None = None
         self._log_fh: IO[bytes] | None = None
         self._last_error: str | None = None
+        # Serializes the process-mutating lifecycle ops (load/stop) at the thread
+        # level. The route-layer asyncio lock can be released early if a request is
+        # cancelled while its worker thread is still inside load()/stop(); this lock
+        # guarantees the mutations themselves never overlap. Reentrant so load()
+        # (holding it) can call stop(). Not taken by status reads, so the event loop
+        # never blocks on it.
+        self._lifecycle = threading.RLock()
 
     @property
     def base_url(self) -> str:
@@ -124,33 +132,35 @@ class ServerManager:
         Raises:
             RuntimeError: If the runtime binary is not installed.
         """
-        if self._model is not None and self._model.name == model.name and self._n_ctx == n_ctx and self._alive():
-            return
-        self.stop()
+        with self._lifecycle:
+            if self._model is not None and self._model.name == model.name and self._n_ctx == n_ctx and self._alive():
+                return
+            self.stop()
 
-        cmd = runtime.build_command(model, self._host, self._port, n_ctx)
-        if shutil.which(cmd[0]) is None:
-            hint = runtime._INSTALL_HINTS.get(cmd[0], "")
-            raise RuntimeError(f"{cmd[0]!r} not found on PATH. {hint}".strip())
-        self._last_error = None
-        self._log_dir = Path(tempfile.mkdtemp(prefix="kodo-runtime-"))
-        self._log_fh = (self._log_dir / "runtime.log").open("wb")
-        self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=self._log_fh)
-        self._model = model
-        self._n_ctx = n_ctx
+            cmd = runtime.build_command(model, self._host, self._port, n_ctx)
+            if shutil.which(cmd[0]) is None:
+                hint = runtime._INSTALL_HINTS.get(cmd[0], "")
+                raise RuntimeError(f"{cmd[0]!r} not found on PATH. {hint}".strip())
+            self._last_error = None
+            self._log_dir = Path(tempfile.mkdtemp(prefix="kodo-runtime-"))
+            self._log_fh = (self._log_dir / "runtime.log").open("wb")
+            self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=self._log_fh)
+            self._model = model
+            self._n_ctx = n_ctx
 
     def stop(self) -> None:
         """Terminate the runtime process if running (no zombies)."""
-        # Clear the loaded-model fields first so a concurrent status read sees
-        # "stopped" and doesn't try to reap the process we're already stopping.
-        self._model = None
-        self._n_ctx = None
-        if self._alive():
-            assert self._proc is not None
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait()
-        self._reset_proc()
+        with self._lifecycle:
+            # Clear the loaded-model fields first so a concurrent status read sees
+            # "stopped" and doesn't try to reap the process we're already stopping.
+            self._model = None
+            self._n_ctx = None
+            if self._alive():
+                assert self._proc is not None
+                self._proc.terminate()
+                try:
+                    self._proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+                    self._proc.wait()
+            self._reset_proc()

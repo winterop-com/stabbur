@@ -343,8 +343,10 @@ async def load(
     try:
         # load() spawns the runtime but first stops any current one (a terminate
         # that can wait up to 10s) — run it off the event loop so status polling and
-        # other requests don't stall during a slow model swap. The lock serializes
-        # concurrent load/unload so their process-state mutations can't interleave.
+        # other requests don't stall during a slow model swap. The asyncio lock
+        # serializes the normal path (and avoids flooding the threadpool with queued
+        # loads); ServerManager's own thread lock is the actual guarantee if a
+        # request is cancelled while its worker thread is still inside load().
         async with lock:
             await asyncio.to_thread(manager.load, matches[0], n_ctx)
     except (RuntimeError, ValueError) as exc:
