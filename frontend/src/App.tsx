@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, PanelLeft, PanelRight, PanelRightClose, SquarePen, Sun, Moon } from "lucide-react";
+import { ArrowDown, Download, PanelLeft, PanelRight, SquarePen, Sun, Moon } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -680,20 +680,18 @@ export function App() {
                 </TooltipTrigger>
                 <TooltipContent>{theme === "dark" ? "Light mode" : "Dark mode"}</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={toggleSettings}
-                    aria-label={settingsOpen ? "Close settings panel" : "Open settings panel"}
-                    aria-pressed={settingsOpen}
-                  >
-                    {settingsOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{settingsOpen ? "Close settings" : "Open settings"}</TooltipContent>
-              </Tooltip>
+              {/* Open-only: when the panel is open, its own header button collapses
+                  it (mirrors the sidebar), so there's a single affordance at a time. */}
+              {!settingsOpen && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" onClick={toggleSettings} aria-label="Open settings panel">
+                      <PanelRight className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open settings</TooltipContent>
+                </Tooltip>
+              )}
             </div>
           </header>
 
