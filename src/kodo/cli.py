@@ -379,6 +379,34 @@ def init(
     console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
 
 
+@app.command("project")
+def project_() -> None:  # project_ to avoid shadowing the imported project module
+    """Show the active project (kodo.toml): its model, system prompt, and tools.
+
+    A project is a reproducible assistant — `kodo chat` and `kodo serve --ui` here
+    default to this model, system prompt, and MCP tool servers.
+    """
+    proj = project.load()
+    if proj is None:
+        console.print("[yellow]No kodo.toml here.[/] Run [bold]kodo init[/] to scaffold a project.")
+        raise typer.Exit(1)
+
+    console.print("\n[bold]Project[/] [dim](kodo.toml)[/]")
+    if proj.model:
+        present = bool(library_ops.find(proj.model))
+        mark = "[green]in library[/]" if present else "[yellow]not in library — run kodo init[/]"
+        console.print(f"  Model:  {proj.model}  {mark}")
+    else:
+        console.print("  Model:  [dim]none set[/]")
+    sp = proj.system_prompt.strip()
+    console.print(f"  Prompt: {(sp[:77] + '…') if len(sp) > 78 else (sp or '[dim]none[/]')}")
+    if proj.mcp:
+        names = ", ".join(m.name or m.command.split()[0] for m in proj.mcp)
+        console.print(f"  Tools:  [bold]{len(proj.mcp)}[/] MCP server(s) — [dim]{names}[/]")
+    else:
+        console.print("  Tools:  [dim]none[/]")
+
+
 @app.command()
 def search(
     query: Annotated[str, typer.Argument(help="Text to search the Hugging Face Hub for.")],

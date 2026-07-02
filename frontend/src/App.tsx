@@ -230,6 +230,21 @@ export function App() {
     [status?.model, pick],
   );
 
+  // Project auto-load: in a project dir (kodo.toml [project].model), boot straight
+  // into the bound model on first open — the manifest is a reproducible assistant
+  // (model + system prompt + tools). Fires once, only if nothing's loaded and the
+  // model is actually in the library; the user can still switch afterwards.
+  const autoLoadedRef = useRef(false);
+  useEffect(() => {
+    if (autoLoadedRef.current || !status || status.model || status.locked || loadingName) return;
+    const wanted = status.project_model;
+    if (!wanted) return;
+    const inLibrary = library.some((m) => m.name === wanted || m.name.split("/").pop() === wanted);
+    if (!inLibrary) return;
+    autoLoadedRef.current = true;
+    pick(wanted);
+  }, [status, library, loadingName, pick]);
+
   // --- conversation helpers ---
   const upsertConv = useCallback((id: string, fn: (c: Conversation) => Conversation) => {
     setConversations((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));

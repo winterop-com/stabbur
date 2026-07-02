@@ -33,6 +33,7 @@ class ServerStatus(BaseModel):
     n_ctx: int | None = None  # context window the current model was loaded with (None = runtime default)
     error: str | None = None  # why the runtime died (stderr tail), if it exited unexpectedly
     default_system_prompt: str = ""  # the project (kodo.toml) system prompt, so the UI can prefill/show it
+    project_model: str | None = None  # the project's bound model, so the UI auto-loads it on open
 
 
 class LibraryModelInfo(BaseModel):
@@ -71,7 +72,9 @@ HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
 ConfDep = Annotated[Settings, Depends(get_conf)]
 
 
-async def _status(manager: ServerManager, settings: Settings, system_prompt: str = "") -> ServerStatus:
+async def _status(
+    manager: ServerManager, settings: Settings, system_prompt: str = "", project_model: str | None = None
+) -> ServerStatus:
     current = manager.current
     return ServerStatus(
         state=(await manager.state()).value,
@@ -80,13 +83,19 @@ async def _status(manager: ServerManager, settings: Settings, system_prompt: str
         n_ctx=manager.n_ctx,
         error=manager.last_error if current is None else None,
         default_system_prompt=system_prompt,
+        project_model=project_model,
     )
 
 
 @router.get("/api/status")
 async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> ServerStatus:
     """Report the loaded model and runtime state."""
-    return await _status(manager, settings, getattr(request.app.state, "system_prompt", "") or "")
+    return await _status(
+        manager,
+        settings,
+        getattr(request.app.state, "system_prompt", "") or "",
+        getattr(request.app.state, "project_model", None),
+    )
 
 
 @router.get("/api/library")

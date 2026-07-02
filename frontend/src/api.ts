@@ -45,6 +45,7 @@ export interface Status {
   n_ctx: number | null;
   error: string | null;
   default_system_prompt: string;
+  project_model: string | null; // the project's bound model (kodo.toml), to auto-load on open
 }
 
 export interface LibModel {

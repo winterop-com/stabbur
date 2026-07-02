@@ -24,6 +24,19 @@ kodo init --model unsloth/Qwen3.5-4B-GGUF  # bind a specific model
 kodo init --force                          # overwrite an existing kodo.toml
 ```
 
+A project is a **reproducible assistant**: in a project directory both `kodo chat`
+and `kodo serve --ui` default to its model, system prompt, and MCP tool servers —
+so `kodo serve --ui` boots straight into that model, no manual picking.
+
+## `kodo project`
+
+Show the active project (`kodo.toml`): its bound model (and whether it's in the
+library), system prompt, and MCP tool servers.
+
+```bash
+kodo project
+```
+
 ## `kodo search <query>`
 
 Search the Hugging Face Hub for new models to pull (most-downloaded first).

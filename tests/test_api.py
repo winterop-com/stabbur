@@ -40,6 +40,15 @@ async def test_status_reports_stopped_when_no_model(client: AsyncClient) -> None
     assert body["locked"] is False
 
 
+async def test_status_exposes_project_model(app: FastAPI, client: AsyncClient) -> None:
+    # /api/status surfaces the project's bound model (kodo.toml [project].model),
+    # which the web UI auto-loads on open. The lifespan (which sets this from
+    # project.load()) doesn't run under ASGITransport, so set app.state directly.
+    app.state.project_model = "acme/widget-3b"
+    body = (await client.get("/api/status")).json()
+    assert body["project_model"] == "acme/widget-3b"
+
+
 async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:
     response = await client.post("/v1/chat/completions", json={"messages": []})
     assert response.status_code == 409

@@ -39,6 +39,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncExitStack() as mcp_stack:
         proj = project.load()
         app.state.system_prompt = proj.system_prompt if proj else ""
+        # The project's bound model, surfaced in /api/status so the UI auto-loads
+        # it on open (a project is a reproducible assistant: model + prompt + tools).
+        app.state.project_model = proj.model if proj else None
         commands = [shlex.split(m.command) for m in proj.mcp] if proj else []
         if commands:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(commands))
@@ -72,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # lifespan from kodo.toml (None / "" otherwise).
     app.state.toolset = None
     app.state.system_prompt = ""
+    app.state.project_model = None
 
     if settings.cors_origins:
         app.add_middleware(
