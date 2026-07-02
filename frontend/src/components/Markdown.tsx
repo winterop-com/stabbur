@@ -1,5 +1,5 @@
 import { memo } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { common } from "lowlight";
@@ -8,7 +8,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 
 // Limit highlight.js to the ~37 common grammars (keeps the bundle lean vs the
 // full ~190-language set rehype-highlight would otherwise pull in).
-const rehypePlugins = [[rehypeHighlight, { languages: common }]] as const;
+const rehypePlugins: Options["rehypePlugins"] = [[rehypeHighlight, { languages: common }]];
 
 const components: Components = {
   // <pre> wraps fenced code; render it with our copy-enabled CodeBlock.

@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment, MediaKind } from "@/lib/types";
@@ -75,7 +75,7 @@ export function Composer({
   onRemove: (index: number) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const fileInputId = useId();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const recRef = useRef<Recording | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
@@ -215,11 +215,11 @@ export function Composer({
         <div className="flex min-w-0 items-center gap-1">
           {canAttach && (
             <>
-              {/* A <label> tied to the input opens the file dialog natively — more
-                  robust than a JS .click() on a hidden input. The input is
-                  visually hidden but stays in the layout tree (sr-only). */}
+              {/* Hidden file input opened by the paperclip button below. Kept in the
+                  layout tree (sr-only, not display:none) so .click() reliably opens
+                  the native picker. */}
               <input
-                id={fileInputId}
+                ref={fileRef}
                 type="file"
                 accept={acceptAttr}
                 multiple
@@ -229,14 +229,15 @@ export function Composer({
                   e.target.value = ""; // allow re-picking the same file
                 }}
               />
-              <label
-                htmlFor={fileInputId}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => fileRef.current?.click()}
                 aria-label="Attach file"
                 title={`Attach ${accept.image && accept.audio ? "image or audio" : accept.audio ? "audio" : "image"} (drag or paste too)`}
-                className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "cursor-pointer")}
               >
                 <Paperclip className="h-4 w-4" />
-              </label>
+              </Button>
             </>
           )}
           {accept.audio && (

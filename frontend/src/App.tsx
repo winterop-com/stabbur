@@ -601,7 +601,7 @@ export function App() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        onClick={newConversation}
+                        onClick={() => newConversation()}
                         aria-label="New chat"
                       >
                         <SquarePen className="h-4 w-4" />
