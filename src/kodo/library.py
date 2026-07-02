@@ -243,11 +243,12 @@ def _scan_root(base: Path) -> list[LibraryModel]:
 def scan(root: Path | None = None) -> list[LibraryModel]:
     """Return every runnable model in the library.
 
-    With no ``root``, the library spans the main ``library_root`` (often an
-    external drive) **plus** the always-local ``local_root`` — so locally-kept
-    models still appear when the drive is unplugged. Deduped by (name, format)
-    so format variants coexist (drive wins on a tie). A single ``root`` is
-    honored as-is (used by tests).
+    With no ``root``, the library spans the always-local ``local_root`` **plus**
+    the main ``library_root`` (often an external drive) — so locally-kept models
+    still appear when the drive is unplugged. Deduped by (name, format) so format
+    variants coexist. The **local copy wins a tie** (it's scanned first): when a
+    model exists in both roots, loads come from the faster local disk, and the
+    drive copy is the backup. A single ``root`` is honored as-is (used by tests).
     """
     if root is not None:
         return _scan_root(root)
@@ -255,11 +256,12 @@ def scan(root: Path | None = None) -> list[LibraryModel]:
     settings = get_settings()
     models: list[LibraryModel] = []
     seen: set[tuple[str, ModelFormat]] = set()
-    for base in (settings.library_root, settings.local_root):
+    # local_root first so a local copy wins over the drive on a (name, format) tie.
+    for base in (settings.local_root, settings.library_root):
         for m in _scan_root(base):
             # Key on (name, format): the same model in the same format on both
-            # roots is one entry (drive wins), but a GGUF on the drive and an MLX
-            # copy locally are distinct runnable artifacts and must both survive
+            # roots is one entry (local wins), but a GGUF on one and an MLX copy
+            # on the other are distinct runnable artifacts and must both survive
             # so ``find(..., model_format=...)`` can disambiguate them.
             key = (m.name, m.model_format)
             if key not in seen:

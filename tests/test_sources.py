@@ -442,6 +442,22 @@ def test_scan_keeps_cross_root_format_variants(tmp_path: Path, monkeypatch: pyte
     assert len(library.find("Foo", model_format=ModelFormat.mlx)) == 1
 
 
+def test_scan_local_wins_on_tie(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same repo + same format in both roots → one entry, the LOCAL copy (loads
+    # come from the faster local disk; the drive copy is the backup).
+    drive, local = tmp_path / "drive", tmp_path / "local"
+    (drive / "gguf" / "pub" / "Bar").mkdir(parents=True)
+    (drive / "gguf" / "pub" / "Bar" / "m.gguf").write_bytes(b"g" * 100)
+    (local / "gguf" / "pub" / "Bar").mkdir(parents=True)
+    (local / "gguf" / "pub" / "Bar" / "m.gguf").write_bytes(b"g" * 100)
+
+    settings = Settings(library_root=drive, local_root=local)
+    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    found = library.find("Bar")
+    assert len(found) == 1
+    assert found[0].load_target == local / "gguf" / "pub" / "Bar" / "m.gguf"
+
+
 def test_library_finds_huggingface_and_ignores_appledouble(tmp_path: Path) -> None:
     hf = tmp_path / "huggingface" / "unsloth" / "X-GGUF"
     hf.mkdir(parents=True)
