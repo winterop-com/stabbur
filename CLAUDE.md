@@ -66,8 +66,9 @@ Two distinct, composable concepts (see `kodo.library.roots`):
 model records its `library_root` so tags read/write against the right library.
 `kodo project init` scaffolds `kodo.toml` + a `models/` project-local library;
 `kodo library pull` targets the project-local library by default (`--shared` for
-the shared one). There is **no** global `~/.kodo/library` — that was removed;
-`~/.kodo` is only a machine cache now (e.g. Kokoro TTS assets).
+the shared one). There is **no** global `~/.kodo/library` and nothing lives under
+`~/.kodo` — everything, including runtime assets like the Kokoro TTS model
+(`<library_root>/tts/kokoro`), lives in a library so it travels with the drive.
 
 ## Library organization
 
