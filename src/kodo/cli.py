@@ -1128,6 +1128,47 @@ class _HostContext:
     ) -> str:
         return runtime.complete(base, model, prompt, system, max_tokens)
 
+    def run_agent(
+        self, base: str, model: library_ops.LibraryModel, prompt: str, servers: list[str]
+    ) -> tuple[list[tuple[str, dict[str, object]]], str]:
+        import asyncio  # noqa: PLC0415
+        import shlex  # noqa: PLC0415
+
+        from kodo import agent, sampling  # noqa: PLC0415
+        from kodo import tools as mcp_tools  # noqa: PLC0415
+
+        rec = sampling.recommended(model)
+        commands: list[tuple[str | None, list[str]]] = [(None, shlex.split(s)) for s in servers]
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        async def _go() -> str:
+            async with mcp_tools.connect(commands) as toolset:
+                # Record each (tool, args) by wrapping the toolset's call — keeps the real
+                # toolset (and its type) for agent.run; args here are already parsed dicts.
+                original = toolset.call
+
+                async def _recording_call(name: str, args: dict[str, object]) -> str:
+                    calls.append((name, args))
+                    return await original(name, args)
+
+                toolset.call = _recording_call  # type: ignore[assignment]
+                return await agent.run(
+                    base,
+                    [{"role": "user", "content": prompt}],
+                    toolset,
+                    temperature=rec.temperature,
+                    top_p=rec.top_p,
+                    top_k=rec.top_k,
+                    min_p=rec.min_p,
+                    repeat_penalty=rec.repeat_penalty,
+                )
+
+        answer = asyncio.run(_go())
+        return calls, answer
+
+    def list_models(self) -> list[library_ops.LibraryModel]:
+        return [m for m in library_ops.scan() if m.generative]
+
 
 def _mount_plugins() -> None:
     """Discover ``kodo.plugins`` and mount each plugin's command group on the CLI."""

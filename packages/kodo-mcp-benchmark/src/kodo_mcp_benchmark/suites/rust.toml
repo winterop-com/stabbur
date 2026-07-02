@@ -1,0 +1,87 @@
+name = "rust"
+description = "Rust programs that read stdin and write stdout, across difficulty tiers."
+language = "rust"
+# Rust compiles before running, so allow a little more wall-clock per problem.
+
+[[problems]]
+id = "sum-two"
+difficulty = "basics"
+timeout_s = 20.0
+prompt = "Read two integers on a single line separated by a space, and print their sum."
+[[problems.tests]]
+stdin = "2 3\n"
+expected_stdout = "5"
+[[problems.tests]]
+stdin = "10 -4\n"
+expected_stdout = "6"
+[[problems.tests]]
+stdin = "0 0\n"
+expected_stdout = "0"
+
+[[problems]]
+id = "reverse-string"
+difficulty = "basics"
+timeout_s = 20.0
+prompt = "Read a single line of text and print it reversed."
+[[problems.tests]]
+stdin = "hello\n"
+expected_stdout = "olleh"
+[[problems.tests]]
+stdin = "racecar\n"
+expected_stdout = "racecar"
+
+[[problems]]
+id = "count-words"
+difficulty = "basics"
+timeout_s = 20.0
+prompt = "Read a line of text and print the number of whitespace-separated words on it."
+[[problems.tests]]
+stdin = "the quick brown fox\n"
+expected_stdout = "4"
+[[problems.tests]]
+stdin = "hello\n"
+expected_stdout = "1"
+
+[[problems]]
+id = "fizzbuzz"
+difficulty = "intermediate"
+timeout_s = 20.0
+prompt = """Read an integer n and print the numbers from 1 to n, one per line. For multiples \
+of 3 print "Fizz" instead of the number, for multiples of 5 print "Buzz", and for multiples \
+of both 3 and 5 print "FizzBuzz"."""
+[[problems.tests]]
+stdin = "5\n"
+expected_stdout = "1\n2\nFizz\n4\nBuzz"
+[[problems.tests]]
+stdin = "15\n"
+expected_stdout = "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz"
+
+[[problems]]
+id = "reverse-words"
+difficulty = "intermediate"
+timeout_s = 20.0
+prompt = "Read a line of text and print its whitespace-separated words in reverse order, single-spaced."
+[[problems.tests]]
+stdin = "the quick brown fox\n"
+expected_stdout = "fox brown quick the"
+[[problems.tests]]
+stdin = "hello world\n"
+expected_stdout = "world hello"
+
+[[problems]]
+id = "count-primes"
+difficulty = "advanced"
+timeout_s = 20.0
+prompt = "Read an integer n and print how many prime numbers are less than or equal to n."
+[[problems.tests]]
+stdin = "10\n"
+expected_stdout = "4"
+[[problems.tests]]
+stdin = "2\n"
+expected_stdout = "1"
+[[problems.tests]]
+stdin = "1\n"
+expected_stdout = "0"
+[[problems.tests]]
+stdin = "30\n"
+expected_stdout = "10"

@@ -1,0 +1,42 @@
+name = "tools-datetime"
+description = "Tool-use benchmark: answer date/time questions by calling the kodo-mcp-datetime server."
+type = "tool"
+language = "tools"
+# Each problem attaches the datetime MCP server and passes only if the model calls the
+# expected tool with the expected arguments AND its answer contains the expected value.
+
+[[problems]]
+id = "day-of-week"
+difficulty = "basics"
+prompt = "What day of the week is 2026-07-04? Use the available tools."
+servers = ["kodo-mcp-datetime"]
+expect_tool = "datetime__day_of_week"
+expect_args = { date = "2026-07-04" }
+expect_answer_contains = "Saturday"
+
+[[problems]]
+id = "days-between"
+difficulty = "basics"
+prompt = "How many days are there from 2026-01-01 to 2026-12-31? Use the available tools."
+servers = ["kodo-mcp-datetime"]
+expect_tool = "datetime__days_between"
+expect_args = { start = "2026-01-01", end = "2026-12-31" }
+expect_answer_contains = "364"
+
+[[problems]]
+id = "convert-timezone"
+difficulty = "intermediate"
+prompt = "What is 2026-01-01 12:00 in Europe/Oslo, expressed in UTC? Use the available tools."
+servers = ["kodo-mcp-datetime"]
+expect_tool = "datetime__convert_time"
+expect_args = { when = "2026-01-01T12:00", from_timezone = "Europe/Oslo", to_timezone = "UTC" }
+expect_answer_contains = "11:00"
+
+[[problems]]
+id = "week-number"
+difficulty = "advanced"
+prompt = "What ISO week number does 2026-07-01 fall in? Use the available tools."
+servers = ["kodo-mcp-datetime"]
+expect_tool = "datetime__week_number"
+expect_args = { date = "2026-07-01" }
+expect_answer_contains = "27"

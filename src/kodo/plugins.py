@@ -56,6 +56,20 @@ class PluginContext(Protocol):
         """Run one completion against an already-served ``base`` and return the reply text."""
         ...
 
+    def run_agent(
+        self, base: str, model: LibraryModel, prompt: str, servers: list[str]
+    ) -> tuple[list[tuple[str, dict[str, object]]], str]:
+        """Run the agent loop against ``base`` with ``servers`` (MCP commands) attached.
+
+        Returns the trace of ``(tool_name, args)`` the model called and its final answer —
+        the inputs a ``tool`` benchmark scores against.
+        """
+        ...
+
+    def list_models(self) -> list[LibraryModel]:
+        """Every generative library model (for an all-models benchmark sweep)."""
+        ...
+
 
 class Specs:
     """kodo's extension points. A plugin implements matching ``@extension`` methods."""

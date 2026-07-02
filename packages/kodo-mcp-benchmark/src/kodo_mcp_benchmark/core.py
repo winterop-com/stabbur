@@ -19,8 +19,12 @@ import uuid
 from importlib import resources
 from pathlib import Path
 from time import monotonic
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+Difficulty = Literal["basics", "intermediate", "advanced"]
+ProblemType = Literal["code", "tool"]
 
 
 class _Runtime(BaseModel):
@@ -61,36 +65,59 @@ class TestCase(BaseModel):
 
 
 class Problem(BaseModel):
-    """A single coding task: a prompt, its language, and the hidden test cases."""
+    """A benchmark task, either a ``code`` or a ``tool`` problem.
+
+    A ``code`` problem is scored by running a program against its test cases; a ``tool``
+    problem by whether the model calls the expected MCP tool and answers correctly.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     id: str
     prompt: str
-    language: str
+    type: ProblemType = "code"
+    difficulty: Difficulty = "basics"
+    language: str = ""
     timeout_s: float = 10.0
-    tests: list[TestCase]
+    # code problems: hidden stdin/stdout checks.
+    tests: list[TestCase] = Field(default_factory=list)
+    # tool problems: attach these MCP servers, expect this namespaced tool called with
+    # (a superset of) these args, and the final answer to contain this text.
+    servers: list[str] = Field(default_factory=list)
+    expect_tool: str = ""
+    expect_args: dict[str, Any] = Field(default_factory=dict)
+    expect_answer_contains: str = ""
+
+    @model_validator(mode="after")
+    def _check_shape(self) -> Problem:
+        """Require the fields each problem type actually needs."""
+        if self.type == "code" and not self.tests:
+            raise ValueError(f"code problem {self.id!r} needs at least one test case")
+        if self.type == "tool" and not self.expect_tool:
+            raise ValueError(f"tool problem {self.id!r} needs an expect_tool")
+        return self
 
 
 class Suite(BaseModel):
-    """A named set of problems (all one language)."""
+    """A named set of problems (one language, one type)."""
 
     model_config = ConfigDict(frozen=True)
 
     name: str
     description: str = ""
+    type: ProblemType = "code"
     language: str
     problems: list[Problem]
 
     @model_validator(mode="before")
     @classmethod
-    def _propagate_language(cls, data: object) -> object:
-        """Fill each problem's language from the suite's, so the TOML sets it once."""
+    def _propagate(cls, data: object) -> object:
+        """Fill each problem's type/language from the suite's, so the TOML sets them once."""
         if isinstance(data, dict):
-            language = data.get("language")
             for problem in data.get("problems", []):
                 if isinstance(problem, dict):
-                    problem.setdefault("language", language)
+                    problem.setdefault("language", data.get("language"))
+                    problem.setdefault("type", data.get("type", "code"))
         return data
 
 
@@ -123,6 +150,8 @@ class ProblemResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     problem_id: str
+    difficulty: str = "basics"
+    type: str = "code"
     passed: bool
     cases: list[CaseResult]
     duration_s: float
@@ -169,7 +198,7 @@ def available_suites() -> list[str]:
 
 
 def load_suite(name: str) -> Suite:
-    """Load a suite by bundled name (e.g. ``python-basics``) or path to a ``.toml`` file."""
+    """Load a suite by bundled name (e.g. ``python``) or path to a ``.toml`` file."""
     path = Path(name)
     if path.suffix == ".toml" and path.is_file():
         return Suite(**tomllib.loads(path.read_text()))
@@ -286,7 +315,168 @@ def evaluate(problem: Problem, code: str, **limits: str) -> ProblemResult:
         cases.append(CaseResult(passed=ok, expected=tc.expected_stdout, actual=res.stdout, error=error))
     return ProblemResult(
         problem_id=problem.id,
+        difficulty=problem.difficulty,
+        type="code",
         passed=bool(cases) and all(c.passed for c in cases),
         cases=cases,
         duration_s=monotonic() - start,
     )
+
+
+# --- tool scoring ----------------------------------------------------------
+
+
+def _args_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
+    """Whether ``actual`` tool args include every expected key with an equal value (superset)."""
+    return all(actual.get(key) == value for key, value in expected.items())
+
+
+def score_tool(
+    problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer: str, duration_s: float
+) -> ProblemResult:
+    """Score a ``tool`` problem: the expected tool called with expected args AND a matching answer.
+
+    ``calls`` is the trace of (tool_name, args) the model made during the agent loop. Both the
+    tool check and the answer check must pass (strictest scoring).
+    """
+    tool_ok = any(name == problem.expect_tool and _args_match(problem.expect_args, args) for name, args in calls)
+    want = problem.expect_answer_contains
+    answer_ok = want.lower() in answer.lower() if want else True
+    made = ", ".join(f"{n}({a})" for n, a in calls) or "(no tool calls)"
+    cases = [
+        CaseResult(
+            passed=tool_ok,
+            expected=f"{problem.expect_tool}({problem.expect_args})",
+            actual=made,
+            error="" if tool_ok else "expected tool/args not called",
+        ),
+        CaseResult(
+            passed=answer_ok,
+            expected=want,
+            actual=answer[:500],
+            error="" if answer_ok else "answer missing expected text",
+        ),
+    ]
+    return ProblemResult(
+        problem_id=problem.id,
+        difficulty=problem.difficulty,
+        type="tool",
+        passed=tool_ok and answer_ok,
+        cases=cases,
+        duration_s=duration_s,
+    )
+
+
+# --- results & leaderboard -------------------------------------------------
+
+
+class ProblemOutcome(BaseModel):
+    """One problem's pass/fail in a saved run (kept light for the leaderboard)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    difficulty: str
+    passed: bool
+
+
+class RunRecord(BaseModel):
+    """A saved benchmark run — one ``(suite, model)`` result, persisted as JSON."""
+
+    model_config = ConfigDict(frozen=True)
+
+    suite: str
+    language: str
+    type: str
+    model: str
+    timestamp: str = ""
+    outcomes: list[ProblemOutcome]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def total(self) -> int:
+        """Problems attempted."""
+        return len(self.outcomes)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def passed(self) -> int:
+        """Problems passed."""
+        return sum(o.passed for o in self.outcomes)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def score(self) -> float:
+        """Fraction passed in [0, 1]."""
+        return self.passed / self.total if self.total else 0.0
+
+
+def make_record(suite: Suite, model: str, results: list[ProblemResult], timestamp: str = "") -> RunRecord:
+    """Build a persistable :class:`RunRecord` from a suite run's results."""
+    return RunRecord(
+        suite=suite.name,
+        language=suite.language,
+        type=suite.type,
+        model=model,
+        timestamp=timestamp,
+        outcomes=[ProblemOutcome(id=r.problem_id, difficulty=r.difficulty, passed=r.passed) for r in results],
+    )
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+
+
+def result_path(results_dir: Path | str, suite: str, model: str) -> Path:
+    """The JSON path a ``(suite, model)`` run saves to (one file per pair)."""
+    return Path(results_dir) / f"{_slug(suite)}__{_slug(model)}.json"
+
+
+def save_run(record: RunRecord, results_dir: Path | str) -> Path:
+    """Write ``record`` to ``<results_dir>/<suite>__<model>.json`` (one file per suite×model)."""
+    path = result_path(results_dir, record.suite, record.model)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(record.model_dump_json(indent=2) + "\n")
+    return path
+
+
+def load_results(results_dir: Path | str) -> list[RunRecord]:
+    """Load every saved :class:`RunRecord` from a results directory (skipping unreadable ones)."""
+    directory = Path(results_dir)
+    if not directory.is_dir():
+        return []
+    records: list[RunRecord] = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            records.append(RunRecord.model_validate_json(path.read_text()))
+        except (OSError, ValueError):
+            continue
+    return records
+
+
+def render_leaderboard(records: list[RunRecord]) -> str:
+    """Render saved results as a Markdown leaderboard: models × suites, ranked by overall score."""
+    if not records:
+        return "_No benchmark results yet. Run `kodo benchmark run <suite> --model <name> --save`._\n"
+    suites = sorted({r.suite for r in records})
+    by_model: dict[str, dict[str, RunRecord]] = {}
+    for record in records:
+        by_model.setdefault(record.model, {})[record.suite] = record
+
+    def totals(model: str) -> tuple[int, int]:
+        runs = by_model[model].values()
+        return sum(r.passed for r in runs), sum(r.total for r in runs)
+
+    ranked = sorted(by_model, key=lambda m: totals(m)[0] / t if (t := totals(m)[1]) else 0.0, reverse=True)
+    header = "| Rank | Model | " + " | ".join(suites) + " | Overall |"
+    separator = "|" + "---|" * (len(suites) + 3)
+    rows = [header, separator]
+    for rank, model in enumerate(ranked, 1):
+        cells = []
+        for suite in suites:
+            run = by_model[model].get(suite)
+            cells.append(f"{round(run.score * 100)}% ({run.passed}/{run.total})" if run else "—")
+        passed, total = totals(model)
+        overall = f"**{round(passed / total * 100) if total else 0}%** ({passed}/{total})"
+        rows.append(f"| {rank} | `{model}` | " + " | ".join(cells) + f" | {overall} |")
+    return "\n".join(rows) + "\n"
