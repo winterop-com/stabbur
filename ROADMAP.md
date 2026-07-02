@@ -37,6 +37,34 @@ architecture, and conventions; this file holds what's next.
   - **Alternatives (later):** Kokoro (ONNX; needs onnxruntime + kokoro-onnx — more
     voices/quality) and Orpheus-3B (Llama GGUF + a SNAC decoder — larger, more
     expressive). OuteTTS-via-llama-tts is the lowest-friction start.
+  - **Done so far:** `kodo.tts` wrapper + `kodo speak` + `POST /api/speak` + the
+    Listen button, over `llama-tts`/OuteTTS. Replies are now cleaned to prose
+    before synthesis (`tts.speech_text` strips Markdown/code/URLs) so the model
+    speaks words, not syntax.
+  - **Real multi-voice — adopt Kokoro-82M (recommended).** The OuteTTS/`llama-tts`
+    path has **one** default voice; more voices there would need `--tts-speaker-file`
+    JSON profiles we don't have and can't easily generate. Investigation across
+    Kokoro, Qwen3-TTS, and Dia-1.6B picked **Kokoro-82M** as the fit:
+    - **Fully local**, Apache-2.0, tiny (quantized ONNX ~80 MB + a ~27 MB voices
+      file). **54 built-in named voices, no reference audio needed** — a real
+      "pick a voice" list (e.g. `af_heart`, `am_michael`, `bf_emma`, `jf_alpha`,
+      `zf_xiaobei`; prefix = language+gender), across 9 languages (en-US/en-GB,
+      ja, zh, es, fr, hi, it, pt-BR). **CPU-friendly (~2x realtime), one
+      onnxruntime backend on both Apple Silicon and Linux** — no per-platform fork.
+    - **Plan:** a platform-gated `--extra tts` (`kokoro-onnx` + `onnxruntime` +
+      `soundfile`; `espeak-ng` as a system dep with a PATH hint, mirroring our
+      "missing runtime → hint, not hang" pattern). Pull the two ONNX assets into
+      the library (HF-sourced, fits the existing pull model). Add a second TTS
+      engine alongside `llama-tts`: expose the fixed voice list (`GET` voices →
+      `{id, name, language, gender}`), turn the settings "Voice" select into a
+      real voice picker, and pass `voice_id` through `/api/speak` to
+      `Kokoro(...).create(text, voice=voice_id)`. Keep OuteTTS as a fallback.
+    - **Rejected/deferred:** **Qwen3-TTS** (viable but heavier — PyTorch/GPU or an
+      MLX split, only 9 preset voices; keep as a fallback if we later want voice
+      cloning / voice design / Korean-German-Russian). **Dia-1.6B** rejected for a
+      voice picker (GPU-only ~10 GB, English-only, no named voices — needs an audio
+      prompt for cloning + `[S1]`/`[S2]` dialogue tags). **Supertonic** — watch
+      (CPU-speed alternative; Kokoro still wins on CPU quality).
 - **Chat session export — Markdown + PDF.** [web UI done] Top-bar download menu
   exports the open conversation to **Markdown** (source-form: roles, code fences,
   reasoning, tool activity, model + params header) or **PDF** (a styled,
