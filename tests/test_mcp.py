@@ -191,3 +191,38 @@ async def test_time_in_multiple_zones() -> None:
     assert set(out) == {"UTC", "Asia/Tokyo"}
     assert out["UTC"].endswith("+00:00")
     assert out["Asia/Tokyo"].endswith("+09:00")  # Tokyo has no DST, always +09:00
+
+
+async def test_list_timezones_unfiltered_includes_common_zones() -> None:
+    # An unfiltered listing must include UTC and New York (a naive top-100 slice omits both).
+    zones = await _call("list_timezones")
+    assert "UTC" in zones and "America/New_York" in zones
+
+
+async def test_year_zero_is_rejected() -> None:
+    for name, kw in (("is_leap_year", {"year": 0}), ("month_calendar", {"year": 0, "month": 1})):
+        with pytest.raises(ToolError):
+            await _call(name, **kw)
+
+
+async def test_parse_date_rejects_compact_and_week_forms() -> None:
+    # date.fromisoformat accepts these, but the docs promise YYYY-MM-DD only.
+    for bad in ("20260701", "2026-W27-3"):
+        with pytest.raises(ToolError):
+            await _call("day_of_week", date=bad)
+
+
+async def test_convert_time_rejects_bare_date() -> None:
+    with pytest.raises(ToolError):
+        await _call("convert_time", when="2026-01-01", from_timezone="Europe/Oslo", to_timezone="UTC")
+
+
+async def test_convert_time_validates_from_timezone_even_with_explicit_offset() -> None:
+    # A required param must not be silently ignored when ``when`` already carries an offset.
+    with pytest.raises(ToolError):
+        await _call("convert_time", when="2026-01-01T12:00+02:00", from_timezone="Bad/Zone", to_timezone="UTC")
+
+
+async def test_add_to_date_out_of_range_is_a_clean_error() -> None:
+    with pytest.raises(ToolError):  # underflow past year 1, surfaced as a ToolError not a raw traceback
+        await _call("add_to_date", date="2026-07-01", years=-3000)

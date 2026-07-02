@@ -11,7 +11,8 @@ kodo.mcp.datetime_server``). Point kodo at it with ``kodo chat --mcp``.
 
 import asyncio
 import calendar
-from datetime import date, datetime, timedelta, timezone
+import re
+from datetime import MAXYEAR, MINYEAR, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from fastmcp import FastMCP
@@ -19,6 +20,32 @@ from fastmcp import FastMCP
 mcp: FastMCP = FastMCP("kodo-datetime")
 
 _BAD_TZ = "unknown timezone {name!r} — use an IANA name like 'Europe/Oslo', 'UTC', or 'local'"
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")  # strict YYYY-MM-DD (no compact/week forms)
+
+# A short, geographically spread set returned by an unfiltered ``list_timezones`` — the
+# full IANA set is ~600 zones, so an unfiltered slice would omit UTC and most cities.
+_COMMON_ZONES = [
+    "UTC",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Sao_Paulo",
+    "Europe/London",
+    "Europe/Oslo",
+    "Europe/Paris",
+    "Europe/Berlin",
+    "Europe/Moscow",
+    "Africa/Cairo",
+    "Africa/Johannesburg",
+    "Asia/Dubai",
+    "Asia/Kolkata",
+    "Asia/Shanghai",
+    "Asia/Tokyo",
+    "Asia/Singapore",
+    "Australia/Sydney",
+    "Pacific/Auckland",
+]
 
 
 # --- helpers ---------------------------------------------------------------
@@ -49,11 +76,20 @@ def _parse_dt(value: str) -> datetime:
 
 
 def _parse_date(value: str) -> date:
-    """Parse a strict ISO date (``YYYY-MM-DD``); reject datetimes (no silent truncation)."""
+    """Parse a strict ISO date (``YYYY-MM-DD``); reject datetimes and compact/week forms."""
+    bad = f"invalid ISO date {value!r} (expected 'YYYY-MM-DD', a date with no time)"
+    if not _ISO_DATE.fullmatch(value):  # date.fromisoformat also accepts 20260701 / 2026-W27-3
+        raise ValueError(bad)
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError(f"invalid ISO date {value!r} (expected 'YYYY-MM-DD', a date with no time)") from exc
+        raise ValueError(bad) from exc
+
+
+def _check_year(year: int) -> None:
+    """Reject years outside the civil-date range dates and calendars support."""
+    if not MINYEAR <= year <= MAXYEAR:
+        raise ValueError(f"year must be {MINYEAR}-{MAXYEAR}, got {year}")
 
 
 def _is_date_only(value: str) -> bool:
@@ -132,24 +168,34 @@ def timezone_offset(timezone: str) -> str:
 def convert_time(when: str, from_timezone: str, to_timezone: str) -> str:
     """Convert an ISO datetime from one timezone to another (returns ISO 8601).
 
-    A bare wall-clock ``when`` (no offset) is interpreted in ``from_timezone`` with
-    that date's correct DST offset; an explicit offset in ``when`` is respected.
-    A nonexistent wall-clock time (spring-forward gap) is rejected; an ambiguous
+    ``when`` must include a time (``2026-07-01T14:30``); a bare date is rejected. A
+    wall-clock with no offset is interpreted in ``from_timezone`` at that date's correct
+    DST offset; an explicit offset in ``when`` is respected but ``from_timezone`` is still
+    validated. A nonexistent wall-clock time (spring-forward gap) is rejected; an ambiguous
     fall-back time uses the earlier (pre-transition) occurrence.
     """
+    if _is_date_only(when):
+        raise ValueError(
+            f"convert_time needs a datetime with a time, got a bare date {when!r} (e.g. '2026-07-01T14:30')"
+        )
+    from_tz = _tz(from_timezone)  # validated even when ``when`` carries an explicit offset
+    to_tz = _tz(to_timezone)
     dt = _parse_dt(when)
     if dt.tzinfo is None:
-        dt = _localize(dt, _tz(from_timezone))
-    return dt.astimezone(_tz(to_timezone)).isoformat(timespec="seconds")
+        dt = _localize(dt, from_tz)
+    return dt.astimezone(to_tz).isoformat(timespec="seconds")
 
 
 @mcp.tool
 def list_timezones(contains: str = "") -> list[str]:
-    """IANA timezone names, optionally filtered to those containing ``contains``.
+    """IANA timezone names filtered by ``contains``; a common set when unfiltered.
 
-    Case-insensitive substring match (e.g. ``Europe``, ``oslo``). Sorted; capped at
-    100 results so the list stays usable.
+    With no filter, returns a short spread of common zones (the full set is ~600, so an
+    unfiltered slice would omit UTC and most cities). With a filter, a case-insensitive
+    substring match (e.g. ``Europe``, ``oslo``), sorted and capped at 100 results.
     """
+    if not contains:
+        return _COMMON_ZONES
     q = contains.lower()
     return sorted(z for z in available_timezones() if q in z.lower())[:100]
 
@@ -171,7 +217,10 @@ def add_to_date(date: str, days: int = 0, weeks: int = 0, months: int = 0, years
     Month/year math clamps the day (Jan 31 + 1 month → Feb 28/29). A datetime input
     keeps its time and offset; a date input returns a date.
     """
-    dt = _add_months(_parse_dt(date), months + years * 12) + timedelta(days=days, weeks=weeks)
+    try:
+        dt = _add_months(_parse_dt(date), months + years * 12) + timedelta(days=days, weeks=weeks)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(f"result is out of the supported date range ({exc})") from exc
     return dt.date().isoformat() if _is_date_only(date) else dt.isoformat(timespec="seconds")
 
 
@@ -185,12 +234,14 @@ def week_number(date: str = "") -> str:
 @mcp.tool
 def is_leap_year(year: int) -> bool:
     """Whether ``year`` is a leap year."""
+    _check_year(year)
     return calendar.isleap(year)
 
 
 @mcp.tool
 def month_calendar(year: int, month: int) -> str:
     """A text calendar for a month (weeks start Monday), e.g. for July 2026."""
+    _check_year(year)
     if not 1 <= month <= 12:
         raise ValueError(f"month must be 1-12, got {month}")
     return calendar.TextCalendar(firstweekday=0).formatmonth(year, month).rstrip()
