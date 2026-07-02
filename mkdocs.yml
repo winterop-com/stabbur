@@ -41,6 +41,7 @@ nav:
       - Running & chatting: guides/running.md
       - Web UI (serve --ui): guides/web-ui.md
       - Using models directly: guides/direct-usage.md
+      - Models & compatibility: guides/models.md
   - Architecture: architecture.md
   - Roadmap: roadmap.md
   - CLI reference: cli.md

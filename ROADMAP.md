@@ -4,6 +4,35 @@ Forward-looking plans and ideas. Kept out of `CLAUDE.md` so it doesn't load
 into every session's context. `CLAUDE.md` holds the durable project rules,
 architecture, and conventions; this file holds what's next.
 
+## QA findings (2026-07-02 full run-through)
+
+From a playwright pass over the whole library (see `docs/guides/models.md` for the
+per-model matrix). Ordered roughly by impact:
+
+- **Audio-specialist models don't process audio.** gemma-4-12B transcribes audio
+  fine, but Ultravox 500s (`image input is not supported`) and Voxtral silently
+  ignores the audio. Likely a `llama-server` mmproj-routing issue for their
+  audio-only projectors — needs a runtime/projector investigation. High.
+- **Attachments are silently dropped if added before the model's capabilities
+  load.** `kindOf` gates image/audio on `accept.*`, which is false until the
+  library/status loads, so an early-attached file vanishes with no feedback (looks
+  like "no audio provided"). Fix: don't reject unknown media while capabilities are
+  still loading, or surface a "not accepted" hint instead of dropping silently. Med.
+- **Capability-detection inconsistencies** (`kodo.capabilities`): same model shows
+  different caps across formats (Ornith GGUF no-vision vs MLX vision; Qwen3.6 GGUF
+  tools vs MLX no-tools), and audio specialists (Ultravox/Voxtral) are marked
+  tools-capable (false positive → they refuse, citing missing tools). Med.
+- **Broken MLX vision checkpoints surface a cryptic error.** gemma-4-E4B-MLX and
+  Ornith-MLX fail to load (mlx-vlm weight mismatch) — good that it fails fast and
+  surfaces via `status.error`, but the message is a raw tensor-key dump; map known
+  mismatches to a friendly "this MLX build isn't supported; use the GGUF." Low.
+- **No favicon** — `/favicon.ico` 404s on every load (2 console errors). Serve one
+  (even inline) to quiet it. Cosmetic.
+- Confirmed-good this run: model picker + filters, model switching, MLX text +
+  tools, GGUF vision + audio (gemma), reasoning display, TTS/Listen (Kokoro),
+  project system-prompt default, cross-site guard. Load speed is drive-bound
+  (local ~2 s vs drive tens-of-seconds-to-minutes) — keep hot models on `local_root`.
+
 ## Open / next ideas
 
 - **Image attachments — DONE (web + CLI).** Drag/paste/pick images into the
