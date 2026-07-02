@@ -10,6 +10,7 @@ This is distinct from :mod:`kodo.catalog`, which lists the local *source*
 stores that models are pulled *from*.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -87,13 +88,29 @@ def _clean_name(rel: Path) -> str:
     return "/".join(parts)
 
 
+def _is_mlx_quantized(model_dir: Path) -> bool:
+    """Whether ``config.json`` carries MLX's affine-quantization marker.
+
+    MLX-quantized repos record ``quantization.mode == "affine"`` (with group_size/bits),
+    which HF safetensors quants (gptq/awq/bnb, under ``quantization_config``) don't. This
+    identifies MLX weights even outside an ``mlx/`` bucket (e.g. an ``lmstudio-community``
+    MLX repo), where the path gives no hint.
+    """
+    try:
+        quant = json.loads((model_dir / "config.json").read_text()).get("quantization")
+    except (OSError, ValueError):
+        return False
+    return isinstance(quant, dict) and quant.get("mode") == "affine"
+
+
 def _classify_dir(model_dir: Path) -> ModelFormat:
     """Classify a directory by the weight files it contains."""
     if _weights(model_dir, ".gguf"):
         return ModelFormat.gguf
     if _weights(model_dir, ".safetensors"):
-        parent = model_dir.parts
-        return ModelFormat.mlx if "mlx" in parent or "mlx-community" in parent else ModelFormat.safetensors
+        parts = model_dir.parts
+        is_mlx = "mlx" in parts or "mlx-community" in parts or _is_mlx_quantized(model_dir)
+        return ModelFormat.mlx if is_mlx else ModelFormat.safetensors
     return ModelFormat.unknown
 
 

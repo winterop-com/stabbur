@@ -290,6 +290,24 @@ def _make_library(root: Path) -> None:
     (mlx / "config.json").write_text("{}")
 
 
+def test_mlx_detected_by_config_marker_outside_mlx_bucket(tmp_path: Path) -> None:
+    # An MLX repo whose path gives no hint (e.g. lmstudio-community/, not mlx/) is still
+    # classified as MLX via config.json's affine-quant marker, not misfiled as safetensors.
+    model_dir = tmp_path / "lmstudio-community" / "Qwen-MLX-4bit"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.safetensors").write_bytes(b"z" * 2048)
+    (model_dir / "config.json").write_text('{"quantization": {"group_size": 64, "bits": 4, "mode": "affine"}}')
+
+    assert library._classify_dir(model_dir) is ModelFormat.mlx
+
+    # A plain safetensors repo (HF-style quant, no affine marker) stays safetensors.
+    plain = tmp_path / "some-publisher" / "Model-fp16"
+    plain.mkdir(parents=True)
+    (plain / "model.safetensors").write_bytes(b"z" * 2048)
+    (plain / "config.json").write_text('{"quantization_config": {"quant_method": "gptq"}}')
+    assert library._classify_dir(plain) is ModelFormat.safetensors
+
+
 def test_library_scan_and_find(tmp_path: Path) -> None:
     _make_library(tmp_path)
 
