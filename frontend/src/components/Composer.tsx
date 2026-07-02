@@ -121,9 +121,10 @@ export function Composer({
   }, [autoFocus]);
 
   const canSend = ready && !streaming && (value.trim().length > 0 || attachments.length > 0);
-  // Text/doc files attach to any model (inlined into the prompt), so the picker is
-  // always available; image/audio are added to the accept hint only for capable models.
-  const canAttach = true;
+  // Attaching needs a loaded model (you can't send otherwise). Any ready model
+  // takes text/doc files (inlined into the prompt); image/audio are added to the
+  // accept hint only for capable models.
+  const canAttach = ready;
   const acceptAttr = [accept.image && "image/*", accept.audio && "audio/*", TEXT_ACCEPT].filter(Boolean).join(",");
 
   const addFiles = async (files: FileList | File[]) => {
