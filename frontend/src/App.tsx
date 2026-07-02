@@ -59,6 +59,22 @@ function conversationIdFromHash(): string | null {
 /** Which primary surface to show: the chat, or the model library grid. */
 type View = "chat" | "models";
 
+/** Map a raw runtime error / log tail to a friendly one-liner for known failures. */
+function friendlyRuntimeError(raw: string): string | null {
+  const low = raw.toLowerCase();
+  // mlx-vlm / mlx_lm weight-or-architecture mismatch: a broken or unsupported MLX
+  // conversion whose tensors don't line up with the model class (a raw key dump).
+  if (
+    /received parameters not in|missing parameter|shape mismatch|size mismatch|does not match|weight.*mismatch/.test(
+      low,
+    ) ||
+    (low.includes("mlx") && low.includes("parameter"))
+  ) {
+    return "This MLX build couldn't be loaded — a weights/architecture mismatch (often a broken or unsupported MLX conversion). Try the model's GGUF build instead.";
+  }
+  return null;
+}
+
 export function App() {
   const { theme, toggle } = useTheme();
 
@@ -574,8 +590,10 @@ export function App() {
   const addAttachments = useCallback((items: Attachment[]) => setAttachments((a) => [...a, ...items]), []);
   const removeAttachment = useCallback((i: number) => setAttachments((a) => a.filter((_, idx) => idx !== i)), []);
   const accept = useMemo(
-    () => ({ image: ready && visionModel, audio: ready && audioModel }),
-    [ready, visionModel, audioModel],
+    // `known` is true once the loaded model is resolved in the library (so its caps
+    // are known); until then media is accepted optimistically, not dropped.
+    () => ({ image: ready && visionModel, audio: ready && audioModel, known: ready && !!loadedModel }),
+    [ready, visionModel, audioModel, loadedModel],
   );
 
   // Controls docked in the composer: model picker + tools (the natural spot).
@@ -762,7 +780,9 @@ export function App() {
                 {error && <div>{error}</div>}
                 {status?.error && (
                   <details className={error ? "mt-1" : undefined}>
-                    <summary className="cursor-pointer">The model runtime stopped unexpectedly.</summary>
+                    <summary className="cursor-pointer">
+                      {friendlyRuntimeError(status.error) ?? "The model runtime stopped unexpectedly."}
+                    </summary>
                     <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] opacity-80">
                       {status.error}
                     </pre>

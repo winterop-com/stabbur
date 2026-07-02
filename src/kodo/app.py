@@ -8,7 +8,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
 from kodo import config, project, runtime
@@ -147,6 +147,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # API path operations are matched first; fallback="index.html" supports the
     # SPA's client-side routing.
     if settings.serve_ui and settings.frontend_dir.is_dir():
+        # Browsers probe /favicon.ico regardless of the declared <link> icon; serve
+        # the SVG for it so it doesn't 404 (the SPA fallback would hand back HTML).
+        favicon = settings.frontend_dir / "favicon.svg"
+        if favicon.is_file():
+
+            @app.get("/favicon.ico", include_in_schema=False)
+            async def _favicon() -> FileResponse:
+                return FileResponse(favicon, media_type="image/svg+xml")
+
         app.frontend("/", directory=str(settings.frontend_dir), fallback="index.html")
 
     return app

@@ -7,10 +7,13 @@ import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment, MediaKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** Which attachment kinds the loaded model accepts. */
+/** Which attachment kinds the loaded model accepts. `known` is false while the
+ *  model's capabilities are still resolving — attachments are then accepted
+ *  optimistically rather than dropped as "unsupported". */
 export interface Accept {
   image: boolean;
   audio: boolean;
+  known: boolean;
 }
 
 // Text/doc files we inline into the prompt (many carry an empty MIME type, so we
@@ -33,8 +36,10 @@ function isTextFile(file: File): boolean {
 /** Classify a File into an accepted kind, or null. Text is always accepted (it's
  *  inlined into the prompt); image/audio only for capable models. */
 function kindOf(file: File, accept: Accept): MediaKind | null {
-  if (file.type.startsWith("image/") && accept.image) return "image";
-  if (file.type.startsWith("audio/") && accept.audio) return "audio";
+  // While caps are unknown (library/status still loading), accept media
+  // optimistically instead of dropping it — a genuine mismatch surfaces at send.
+  if (file.type.startsWith("image/") && (accept.image || !accept.known)) return "image";
+  if (file.type.startsWith("audio/") && (accept.audio || !accept.known)) return "audio";
   if (isTextFile(file)) return "text";
   return null;
 }

@@ -150,6 +150,34 @@ def _read_json(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _dir_chat_template(model_dir: Path, tok: dict[str, Any]) -> str | None:
+    """The model's chat template, from tokenizer_config or a sidecar file.
+
+    Newer MLX / HF layouts keep the template in a standalone ``chat_template.jinja``
+    (or ``chat_template.json``) rather than inline in ``tokenizer_config.json`` — so
+    reading only the latter misses tool markers on those models (a false negative).
+    """
+    template = tok.get("chat_template")
+    if isinstance(template, str) and template:
+        return template
+    if template:  # non-str (e.g. a list of named templates) → serialize for marker search
+        return json.dumps(template)
+    for fname in ("chat_template.jinja", "chat_template.json"):
+        path = model_dir / fname
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        if fname.endswith(".json"):
+            data = _read_json(path)
+            inner = data.get("chat_template")
+            return inner if isinstance(inner, str) else text
+        return text
+    return None
+
+
 def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
     """Read capabilities from an MLX / safetensors model directory's sidecars."""
     config = _read_json(model.load_target / "config.json")
@@ -162,8 +190,7 @@ def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
         or any(k in name_low for k in ("-vl", "vision", "llava"))
     )
     audio = "audio_config" in config or "audio_token_id" in config
-    template = tok.get("chat_template")
-    template_str = template if isinstance(template, str) else json.dumps(template) if template else None
+    template_str = _dir_chat_template(model.load_target, tok)
     # Multimodal configs nest the language settings under ``text_config``.
     tc = config.get("text_config")
     text_config: dict[str, Any] = tc if isinstance(tc, dict) else {}
