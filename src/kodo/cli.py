@@ -802,6 +802,12 @@ def _chat_with_tools(
     # label has been printed yet.
     turn_status: Progress | None = None
     turn_labeled = True
+    # Reasoning (thinking) streams dim to stderr with no trailing newline; the
+    # answer streams to stdout with no leading newline. Without a separator the
+    # answer glues onto the last thinking line ("…structure.```json"). Track when
+    # thinking happened so the first answer token starts on a fresh line.
+    turn_reasoned = False
+    turn_separated = True
 
     def _first_output() -> None:
         nonlocal turn_status, turn_labeled
@@ -813,22 +819,36 @@ def _chat_with_tools(
             turn_labeled = True
 
     def _think() -> None:
-        nonlocal turn_status
+        nonlocal turn_status, turn_reasoned, turn_separated
+        turn_reasoned = False
+        turn_separated = True
         turn_status = chatui.thinking(err)
         turn_status.start()
 
+    def _separate() -> None:
+        # Break the reasoning block off the answer with a newline, once per turn.
+        nonlocal turn_separated
+        if turn_reasoned and not turn_separated:
+            err.print()
+            turn_separated = True
+
     def on_event(kind: str, detail: str) -> None:
         _first_output()
+        _separate()  # break a preceding thinking block off the tool line
         icon = "[cyan]⚙[/]" if kind == "call" else "[grey62]↳[/]"
         err.print(f"  {icon} [grey62]{detail[:200]}[/]")
 
     def on_token(text: str) -> None:
         _first_output()
+        _separate()
         print(text, end="", flush=True)  # noqa: T201
 
     def on_reasoning(text: str) -> None:
         # Reasoning models' thinking → dim on stderr (keeps -p stdout the answer only).
+        nonlocal turn_reasoned, turn_separated
         _first_output()
+        turn_reasoned = True
+        turn_separated = False
         err.print(text, end="", style="grey42")
 
     def seed() -> list[dict[str, object]]:
@@ -918,6 +938,7 @@ def _chat_with_tools(
                     if not (reply or "").strip():
                         err.print("[grey62](no response)[/]")
                     elif render:
+                        _separate()  # render mode streams no tokens; break off any thinking
                         chatui.render_reply(console, reply or "")
                     else:
                         print("\n")  # noqa: T201
