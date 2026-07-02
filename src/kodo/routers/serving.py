@@ -359,8 +359,10 @@ async def speak(req: SpeakRequest) -> Response:
     """
     if not tts.available():
         raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
-    if not req.text.strip():
-        raise HTTPException(status_code=422, detail="text is empty")
+    # Strip Markdown/code to prose so the model speaks words, not syntax.
+    text = tts.speech_text(req.text)
+    if not text:
+        raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
     model_path = vocoder_path = None
     if req.model:
         matches = [m for m in library_ops.find(req.model) if m.tts]
@@ -368,7 +370,7 @@ async def speak(req: SpeakRequest) -> Response:
             raise HTTPException(status_code=404, detail=f"No TTS model matches {req.model!r}")
         model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
     try:
-        wav_path = await asyncio.to_thread(tts.synthesize, req.text, None, model_path, vocoder_path)
+        wav_path = await asyncio.to_thread(tts.synthesize, text, None, model_path, vocoder_path)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     data = wav_path.read_bytes()

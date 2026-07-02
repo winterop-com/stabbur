@@ -500,7 +500,7 @@ def speak(
     """
     from kodo import tts  # noqa: PLC0415
 
-    text = " ".join(words)  # accept an unquoted multi-word phrase
+    text = tts.speech_text(" ".join(words))  # accept an unquoted phrase; strip any Markdown
     model_path: Path | None = None
     vocoder_path: Path | None = None
     if model is not None:
