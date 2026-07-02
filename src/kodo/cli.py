@@ -145,7 +145,7 @@ def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) ->
 
 
 #: The project-local library directory that `kodo project init` scaffolds.
-_LOCAL_LIBRARY = ".kodo/library"
+_LOCAL_LIBRARY = "models"
 
 
 def _project_toml(model: str) -> str:
@@ -161,8 +161,8 @@ def _project_toml(model: str) -> str:
         "# Portable: no machine-specific paths. The machine's default (shared)\n"
         "# library is set per machine via KODO_LIBRARY_ROOT.\n\n"
         "# Libraries this project reads, in priority order (first match wins):\n"
-        f'#   "{_LOCAL_LIBRARY}" — a project-local store (scaffolded next to this file)\n'
-        '#   "@shared"          — the machine default library (KODO_LIBRARY_ROOT)\n'
+        f'#   "{_LOCAL_LIBRARY}"   — a project-local store (scaffolded next to this file)\n'
+        '#   "@shared"  — the machine default library (KODO_LIBRARY_ROOT)\n'
         f'libraries = ["{_LOCAL_LIBRARY}", "@shared"]\n\n'
         "# The assistant this project defines.\n"
         "[project]\n"
