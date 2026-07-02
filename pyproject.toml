@@ -26,6 +26,17 @@ mlx = [
     "mlx-vlm>=0.6.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
+# Local multi-voice text-to-speech via Kokoro-82M (ONNX). Optional, but unlike
+# `mlx` NOT platform-gated: onnxruntime ships wheels for both macOS (Apple
+# Silicon) and Linux, so one backend covers both. Gives 54 built-in named voices
+# with no reference audio. Needs the `espeak-ng` system binary for phonemization
+# (`brew install espeak-ng` / `apt install espeak-ng`); kodo hints if it's
+# missing rather than hanging. Install with `uv sync --extra tts`.
+tts = [
+    "kokoro-onnx>=0.4.9",
+    "soundfile>=0.13.1",
+]
+
 [project.scripts]
 kodo = "kodo.cli:app"
 kodo-mcp-datetime = "kodo.mcp.datetime_server:main"
@@ -96,6 +107,12 @@ mypy_path = ["src"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# Optional `tts` extra: untyped (soundfile/espeakng_loader) or absent when the
+# extra isn't synced. Treat as Any so `make check` passes with or without it.
+module = ["soundfile.*", "espeakng_loader.*", "kokoro_onnx.*"]
+ignore_missing_imports = true
 
 [tool.pyright]
 include = ["src", "tests"]

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PanelRightClose } from "lucide-react";
 
-import { getModelInfo, type LibModel, type ModelInfo, type Status, type TtsModel } from "@/api";
+import { getModelInfo, type LibModel, type ModelInfo, type Status, type Voice } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,7 +85,7 @@ export function SettingsPanel({
   onCollapse,
   onReloadContext,
   busy,
-  ttsModels,
+  voices,
   ttsVoice,
   onChooseVoice,
 }: {
@@ -96,7 +96,7 @@ export function SettingsPanel({
   onCollapse: () => void;
   onReloadContext: (nCtx: number | null) => void;
   busy: boolean;
-  ttsModels: TtsModel[];
+  voices: Voice[];
   ttsVoice: string;
   onChooseVoice: (name: string) => void;
 }) {
@@ -349,24 +349,47 @@ export function SettingsPanel({
           })()}
         </Section>
 
-        {/* Voice — which TTS model the Listen button uses (output speech). */}
+        {/* Voice — which voice the Listen button uses (output speech). Kokoro
+            contributes many named voices (grouped by language); OuteTTS is the
+            fallback engine. */}
         <Section title="Voice (text-to-speech)">
           <select
             value={ttsVoice}
             onChange={(e) => onChooseVoice(e.target.value)}
             className="h-8 w-full rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <option value="">Default (OuteTTS)</option>
-            {ttsModels.map((m) => (
-              <option key={m.name} value={m.name}>
-                {m.name.split("/").pop()}
-                {m.languages.length > 1 ? ` · ${m.languages.length} langs` : ""}
-              </option>
+            <option value="">Default</option>
+            {Object.entries(
+              voices
+                .filter((v) => v.engine === "kokoro")
+                .reduce<Record<string, Voice[]>>((acc, v) => {
+                  (acc[v.language] ??= []).push(v);
+                  return acc;
+                }, {}),
+            ).map(([language, vs]) => (
+              <optgroup key={language} label={language}>
+                {vs.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label} · {v.gender === "female" ? "F" : "M"}
+                  </option>
+                ))}
+              </optgroup>
             ))}
+            {voices.some((v) => v.engine === "oute") && (
+              <optgroup label="OuteTTS (llama-tts)">
+                {voices
+                  .filter((v) => v.engine === "oute")
+                  .map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.label}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
           </select>
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Used by the Listen button on replies. Pull more with{" "}
-            <code className="text-[10px]">kodo pull … --vocoder …</code>.
+            Used by the Listen button on replies. Many voices via{" "}
+            <code className="text-[10px]">make install-tts</code> (Kokoro).
           </p>
         </Section>
 

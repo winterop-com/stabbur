@@ -17,8 +17,11 @@ Tailwind chat UI with a model picker).
   via drag-drop, paste, or the picker, or **record from the mic** (auto-stops on
   silence). Images open fullscreen on click; audio plays inline. kodo nudges you
   toward an audio-specialist model when one fits better.
-- **Listen (text-to-speech)** — a speaker button on each reply reads it aloud; the
-  settings rail picks the **voice** (a library TTS model).
+- **Listen (text-to-speech)** — a speaker button on each reply reads it aloud
+  (Markdown/code is stripped first so only the prose is spoken); the settings rail
+  picks the **voice**. With the optional Kokoro extra (`make install-tts`) that's a
+  picker of **54 built-in voices** across 9 languages (grouped by language); otherwise
+  it falls back to `llama-tts`/OuteTTS.
 - **Mermaid diagrams** — ```` ```mermaid ```` fenced blocks render as live
   diagrams (theme-aware, lazy-loaded), with a source/diagram toggle and copy;
   invalid syntax falls back to the source.
@@ -75,7 +78,7 @@ The app keeps one stable origin while swapping the underlying runtime:
 | `POST /api/chat` | server-side agent loop (tools + multimodal) → typed SSE |
 | `GET /api/tools` | attached MCP tools (namespaced `<server>__<tool>`) |
 | `GET /api/doctor` | system-health report (mirrors `kodo doctor`) |
-| `GET /api/tts`, `POST /api/speak` | list TTS models; synthesize text → WAV |
+| `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV |
 | `POST /v1/{path}` | stream-proxied to the loaded runtime's `/v1` |
 | `GET /health`, `GET /docs` | health check, OpenAPI docs |
 

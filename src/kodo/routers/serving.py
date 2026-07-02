@@ -11,7 +11,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from kodo import agent, capabilities, cards, doctor, runtime, sampling, tts
+from kodo import agent, capabilities, cards, doctor, kokoro, runtime, sampling, tts
 from kodo import library as library_ops
 from kodo.config import Settings
 from kodo.sampling import ModelSampling
@@ -343,34 +343,82 @@ def tts_models() -> list[TTSModelInfo]:
     return [TTSModelInfo(name=m.name, languages=m.languages, size_human=m.size_human) for m in library_ops.tts_models()]
 
 
+class VoiceInfo(BaseModel):
+    """A selectable voice for the Listen picker, spanning both TTS engines."""
+
+    id: str
+    """Voice id: ``kokoro:<name>``, ``oute`` (default), or ``oute:<model>``."""
+    label: str
+    engine: str  # "kokoro" | "oute"
+    language: str = ""
+    gender: str = ""
+
+
+@router.get("/api/voices")
+def voices() -> list[VoiceInfo]:
+    """Every available voice: Kokoro's built-in voices plus OuteTTS (llama-tts).
+
+    Kokoro (the ``tts`` extra) contributes 54 named voices; OuteTTS contributes a
+    default plus any library TTS models. Empty if neither engine is installed.
+    """
+    out: list[VoiceInfo] = []
+    if kokoro.available():
+        out += [
+            VoiceInfo(id=f"kokoro:{v.id}", label=v.name, engine="kokoro", language=v.language, gender=v.gender)
+            for v in kokoro.voices()
+        ]
+    if tts.available():
+        out.append(VoiceInfo(id="oute", label="OuteTTS (default)", engine="oute"))
+        out += [
+            VoiceInfo(id=f"oute:{m.name}", label=m.name.split("/")[-1], engine="oute", language=", ".join(m.languages))
+            for m in library_ops.tts_models()
+        ]
+    return out
+
+
 class SpeakRequest(BaseModel):
-    """Text to synthesize into speech, optionally with a chosen library model."""
+    """Text to synthesize into speech, with an optional voice id."""
 
     text: str
-    model: str | None = None  # a library TTS model name; None → default OuteTTS
+    voice: str | None = None  # "kokoro:<name>" | "oute" | "oute:<model>"; None → default
+    model: str | None = None  # deprecated: a library OuteTTS model name (→ oute:<model>)
+
+
+def _default_voice() -> str:
+    """The voice to use when a request specifies none (Kokoro if installed)."""
+    return "kokoro:af_heart" if kokoro.available() else "oute"
 
 
 @router.post("/api/speak")
 async def speak(req: SpeakRequest) -> Response:
-    """Text-to-speech: synthesize ``text`` to a WAV (llama-tts / OuteTTS).
+    """Text-to-speech: synthesize ``text`` to a WAV via the chosen voice's engine.
 
-    Runs the (blocking) synthesis in a worker thread so the event loop stays free;
-    returns ``audio/wav`` bytes the browser can play. 503 if TTS isn't installed.
+    Markdown is reduced to prose first (so syntax/code aren't read aloud). Kokoro
+    voices route to the ONNX engine (``tts`` extra); ``oute``/``oute:<model>``
+    route to ``llama-tts``. Blocking synthesis runs in a worker thread; returns
+    ``audio/wav`` bytes. 503 if the chosen engine isn't installed.
     """
-    if not tts.available():
-        raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
-    # Strip Markdown/code to prose so the model speaks words, not syntax.
     text = tts.speech_text(req.text)
     if not text:
         raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
-    model_path = vocoder_path = None
-    if req.model:
-        matches = [m for m in library_ops.find(req.model) if m.tts]
-        if not matches:
-            raise HTTPException(status_code=404, detail=f"No TTS model matches {req.model!r}")
-        model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
+
+    voice = req.voice or (f"oute:{req.model}" if req.model else _default_voice())
     try:
-        wav_path = await asyncio.to_thread(tts.synthesize, text, None, model_path, vocoder_path)
+        if voice.startswith("kokoro:"):
+            if not kokoro.available():
+                raise HTTPException(status_code=503, detail="Kokoro TTS is not installed (make install-tts)")
+            wav_path = await asyncio.to_thread(kokoro.synthesize, text, voice.split(":", 1)[1], None)
+        else:
+            if not tts.available():
+                raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
+            model_path = vocoder_path = None
+            if voice.startswith("oute:"):
+                name = voice.split(":", 1)[1]
+                matches = [m for m in library_ops.find(name) if m.tts]
+                if not matches:
+                    raise HTTPException(status_code=404, detail=f"No TTS model matches {name!r}")
+                model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
+            wav_path = await asyncio.to_thread(tts.synthesize, text, None, model_path, vocoder_path)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     data = wav_path.read_bytes()

@@ -41,10 +41,15 @@ architecture, and conventions; this file holds what's next.
     Listen button, over `llama-tts`/OuteTTS. Replies are now cleaned to prose
     before synthesis (`tts.speech_text` strips Markdown/code/URLs) so the model
     speaks words, not syntax.
-  - **Real multi-voice — adopt Kokoro-82M (recommended).** The OuteTTS/`llama-tts`
-    path has **one** default voice; more voices there would need `--tts-speaker-file`
-    JSON profiles we don't have and can't easily generate. Investigation across
-    Kokoro, Qwen3-TTS, and Dia-1.6B picked **Kokoro-82M** as the fit:
+  - **Real multi-voice — Kokoro-82M. [done]** Added as an optional, cross-platform
+    engine (`make install-tts` → `kokoro-onnx` + `onnxruntime` + `soundfile`;
+    espeak-ng bundled via `espeakng-loader`, no system dep). `kodo.kokoro`
+    auto-fetches the fp32 model (~310 MB, faster + better than int8 on CPU) into
+    the always-local library, exposes the **54 built-in voices** (`GET /api/voices`,
+    `kodo voices`), and routes `POST /api/speak` / `kodo speak -v <voice>` to it.
+    The web settings "Voice" control is now a real picker grouped by language;
+    OuteTTS/`llama-tts` stays as a fallback engine. The original evaluation
+    (Kokoro vs Qwen3-TTS vs Dia-1.6B) that led here:
     - **Fully local**, Apache-2.0, tiny (quantized ONNX ~80 MB + a ~27 MB voices
       file). **54 built-in named voices, no reference audio needed** — a real
       "pick a voice" list (e.g. `af_heart`, `am_michael`, `bf_emma`, `jf_alpha`,
@@ -65,6 +70,16 @@ architecture, and conventions; this file holds what's next.
       voice picker (GPU-only ~10 GB, English-only, no named voices — needs an audio
       prompt for cloning + `[S1]`/`[S2]` dialogue tags). **Supertonic** — watch
       (CPU-speed alternative; Kokoro still wins on CPU quality).
+  - **Expressive / emotion-controllable voices (future).** Kokoro (and OuteTTS)
+    give natural prosody but **no emotion knob** — each voice has a fixed style;
+    you can't ask for "angry" or "happy". Real emotion control needs a heavier
+    class of model: **instruction-prompted** (CosyVoice 2, Parler-TTS, Qwen3-TTS
+    VoiceDesign — "say this sadly"), **tag-based** (Orpheus-3B with `<laugh>` /
+    `<sigh>`; Dia non-verbals + emotional dialogue), or **intensity-controlled**
+    (Chatterbox's exaggeration param). All are PyTorch, mostly GPU-leaning, and
+    less cross-platform than Kokoro — so this is a deliberate later add-on for
+    when expressiveness matters more than the lightweight local footprint, not a
+    replacement for the Kokoro baseline.
 - **Chat session export — Markdown + PDF.** [web UI done] Top-bar download menu
   exports the open conversation to **Markdown** (source-form: roles, code fences,
   reasoning, tool activity, model + params header) or **PDF** (a styled,

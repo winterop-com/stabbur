@@ -36,6 +36,10 @@ install-mlx:
 	@echo ">>> Installing dependencies + MLX runtimes (Apple Silicon only)"
 	@$(UV) sync --extra mlx
 
+install-tts:
+	@echo ">>> Installing dependencies + Kokoro TTS (multi-voice; macOS + Linux)"
+	@$(UV) sync --extra tts
+
 lint:
 	@echo ">>> Running linter"
 	@$(UV) run ruff format .

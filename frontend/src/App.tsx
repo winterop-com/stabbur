@@ -10,7 +10,7 @@ import {
   getLibrary,
   getStatus,
   getTools,
-  getTts,
+  getVoices,
   loadModel,
   streamChat,
   unloadModel,
@@ -19,7 +19,7 @@ import {
   type Msg,
   type Status,
   type ToolInfo,
-  type TtsModel,
+  type Voice,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,7 +61,7 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [library, setLibrary] = useState<LibModel[]>([]);
   const [tools, setTools] = useState<ToolInfo[]>([]);
-  const [ttsModels, setTtsModels] = useState<TtsModel[]>([]);
+  const [voices, setVoices] = useState<Voice[]>([]);
   const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("kodo.tts_voice") || "");
   const [health, setHealth] = useState<DoctorReport | null>(null);
   const [loadingName, setLoadingName] = useState<string | null>(null);
@@ -148,7 +148,7 @@ export function App() {
         })
         .catch((e) => setError(`Library: ${e}`));
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
-      getTts().then(setTtsModels).catch(() => {}); // TTS models are optional
+      getVoices().then(setVoices).catch(() => {}); // voices are optional (no TTS engine)
       getDoctor().then(setHealth).catch(() => {});
     };
     refreshSlow();
@@ -801,7 +801,7 @@ export function App() {
               onCollapse={toggleSettings}
               onReloadContext={reloadWithContext}
               busy={loadingName != null}
-              ttsModels={ttsModels}
+              voices={voices}
               ttsVoice={ttsVoice}
               onChooseVoice={chooseVoice}
             />

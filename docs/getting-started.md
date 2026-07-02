@@ -2,6 +2,10 @@
 
 ## Install
 
+### 1. kodo itself
+
+Requires **Python 3.13** and [uv](https://docs.astral.sh/uv/).
+
 ```bash
 uv sync
 ```
@@ -9,12 +13,39 @@ uv sync
 This installs the **`kodo`** command (with a hidden `ls` alias for `list`). Run
 it via `uv run kodo …`, or activate the venv and call `kodo` directly.
 
-For running models you also need the runtimes:
+### 2. Runtimes (to actually run models)
+
+kodo spawns model runtimes as **external processes** — it doesn't bundle them.
+Install the ones you need:
+
+| Runtime | Install | Needed for |
+| --- | --- | --- |
+| **llama.cpp** | `brew install llama.cpp` (macOS); build from source on Linux | The baseline: GGUF chat (`llama-server`) and OuteTTS speech (`llama-tts`) |
+| **MLX** — optional, Apple Silicon | `make install-mlx` (= `uv sync --extra mlx`) | Running MLX models (`mlx_lm` / `mlx-vlm`) — fastest on Macs |
+| **Kokoro TTS** — optional, macOS + Linux | `make install-tts` (= `uv sync --extra tts`) | 54 built-in multi-voice text-to-speech; espeak-ng is **bundled**, no system dep |
+
+llama.cpp is the one to install first. The MLX and TTS extras are optional and
+gated — add them only if you want MLX models or multi-voice speech. On first use
+Kokoro downloads its model (~310 MB) into the always-local library.
+
+### 3. Web UI (optional)
+
+The browser UI is built from source (**Node / npm** required); it isn't committed:
 
 ```bash
-brew install llama.cpp        # GGUF: llama-server + llama-cli (macOS; build from source on Linux)
-uv tool install mlx-lm        # MLX: mlx_lm.server + mlx_lm.chat (Apple Silicon only)
+make frontend        # npm install + build -> frontend/dist
 ```
+
+Then run `kodo serve --ui`. Skip this if you only use the CLI.
+
+### Verify
+
+```bash
+kodo doctor          # checks runtimes, library, and the current project
+```
+
+Optional model *sources* (not required to run kodo): **Ollama** and **LM Studio**
+— kodo reads their local caches if present, so you can pull models from them.
 
 ## Point at your library
 

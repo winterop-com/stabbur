@@ -477,11 +477,34 @@ def run(
 
 
 @app.command()
+def voices() -> None:
+    """List the built-in Kokoro voices (needs the `tts` extra: `make install-tts`)."""
+    from kodo import kokoro  # noqa: PLC0415
+
+    if not kokoro.available():
+        typer.secho("Kokoro TTS not installed. Run `make install-tts` (uv sync --extra tts).", fg=typer.colors.YELLOW)
+        raise typer.Exit(1)
+    table = Table(title="Kokoro voices", box=None, header_style="bold")
+    table.add_column("id", style="cyan")
+    table.add_column("name")
+    table.add_column("language")
+    table.add_column("gender")
+    for v in kokoro.voices():
+        table.add_row(v.id, v.name, v.language, v.gender)
+    console.print(table)
+    console.print(f'\n[dim]{len(kokoro.voices())} voices — use with[/] kodo speak --voice <id> "…"')
+
+
+@app.command()
 def speak(
     words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
+    voice: Annotated[
+        str | None,
+        typer.Option("--voice", "-v", help="Kokoro voice id (e.g. af_heart; see `kodo voices`)."),
+    ] = None,
     model: Annotated[
         str | None,
-        typer.Option("--model", "-m", help="Library TTS model to use (default: OuteTTS, auto-downloaded)."),
+        typer.Option("--model", "-m", help="Library OuteTTS model to use (llama-tts; ignored if --voice given)."),
     ] = None,
     output: Annotated[
         Path | None,
@@ -492,13 +515,31 @@ def speak(
         typer.Option("--play/--no-play", help="Play the audio after generating (macOS afplay)."),
     ] = True,
 ) -> None:
-    """Text-to-speech: synthesize ``text`` to a WAV via llama.cpp's llama-tts.
+    """Text-to-speech: synthesize ``text`` to a WAV.
 
-    Without ``--model`` uses the default OuteTTS model + vocoder (auto-downloaded
-    on first use); ``--model`` picks a TTS model from your library. With ``-o``
-    writes the WAV to that path; otherwise a temp file is played aloud.
+    ``--voice`` picks one of Kokoro's built-in voices (multi-voice engine; run
+    ``kodo voices`` to list them, downloaded on first use). Otherwise uses
+    ``llama-tts``/OuteTTS — the default model, or ``--model`` for a library TTS
+    model. With ``-o`` writes the WAV there; otherwise a temp file is played.
     """
-    from kodo import tts  # noqa: PLC0415
+    from kodo import kokoro, tts  # noqa: PLC0415
+
+    if voice is not None:
+        if not kokoro.available():
+            typer.secho("Kokoro TTS not installed. Run `make install-tts`.", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+        text = tts.speech_text(" ".join(words))
+        try:
+            if not kokoro.assets_present():
+                with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):
+                    kokoro.ensure_assets()
+            with console.status(f"[cyan]Synthesizing speech ({voice})…", spinner="dots"):
+                wav = kokoro.synthesize(text, voice, output)
+        except RuntimeError as exc:
+            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            raise typer.Exit(1) from exc
+        _finish_speak(wav, output, play)
+        return
 
     text = tts.speech_text(" ".join(words))  # accept an unquoted phrase; strip any Markdown
     model_path: Path | None = None
@@ -515,6 +556,11 @@ def speak(
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
+    _finish_speak(wav, output, play)
+
+
+def _finish_speak(wav: Path, output: Path | None, play: bool) -> None:
+    """Report the written WAV and (optionally) play it back on macOS."""
     console.print(f"[green]Wrote[/] {wav}")
     if play and output is None and shutil.which("afplay"):
         import subprocess  # noqa: PLC0415

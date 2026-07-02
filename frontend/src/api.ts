@@ -135,22 +135,24 @@ export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);
 /** Fetch the system-health report (runtimes, library, project). */
 export const getDoctor = () => fetch("/api/doctor").then(json<DoctorReport>);
 
-/** A library text-to-speech model (for the voice picker). */
-export interface TtsModel {
-  name: string;
-  languages: string[];
-  size_human: string;
+/** A selectable Listen voice, spanning both TTS engines (Kokoro + OuteTTS). */
+export interface Voice {
+  id: string; // "kokoro:<name>" | "oute" | "oute:<model>"
+  label: string;
+  engine: string; // "kokoro" | "oute"
+  language: string;
+  gender: string;
 }
 
-/** List library TTS models (empty if none pulled). */
-export const getTts = () => fetch("/api/tts").then(json<TtsModel[]>);
+/** List every available voice (Kokoro built-ins + OuteTTS); empty if no engine. */
+export const getVoices = () => fetch("/api/voices").then(json<Voice[]>);
 
-/** Synthesize text to speech (llama-tts); returns a WAV blob to play. */
-export async function speak(text: string, model?: string | null): Promise<Blob> {
+/** Synthesize text to speech for a chosen voice id; returns a WAV blob to play. */
+export async function speak(text: string, voice?: string | null): Promise<Blob> {
   const res = await fetch("/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, ...(model ? { model } : {}) }),
+    body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);

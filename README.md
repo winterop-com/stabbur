@@ -26,8 +26,16 @@ src/kodo/
 ## Setup
 
 ```bash
-uv sync
+uv sync                       # kodo itself (needs Python 3.13 + uv)
+brew install llama.cpp        # baseline runtime: GGUF chat + OuteTTS speech (build from source on Linux)
+make install-mlx              # optional: MLX runtimes (Apple Silicon)
+make install-tts              # optional: 54-voice Kokoro TTS (macOS + Linux; espeak bundled)
+make frontend                 # optional: build the web UI (needs Node/npm)
+kodo doctor                   # verify what's installed
 ```
+
+Only `uv sync` + llama.cpp are needed to run GGUF models; the rest are optional.
+See [getting started](docs/getting-started.md) for details.
 
 ## CLI
 
@@ -41,15 +49,19 @@ kodo run gemma-4-12B-it-QAT-GGUF     # serve it (OpenAI API); GGUF→llama.cpp, 
 kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"          # one-shot, scriptable
 kodo chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
 kodo chat ultravox-v0_5-llama-3_2-1b-GGUF -p "transcribe" -a clip.wav   # audio input
-kodo speak hello there        # text-to-speech (llama-tts)
+kodo voices                   # list Kokoro voices (needs `make install-tts`)
+kodo speak hello there                      # text-to-speech (default voice)
+kodo speak -v af_heart "hello there"        # a specific Kokoro voice
 kodo serve --ui               # browser UI over your library
 ```
 
 **Multimodal & voice:** kodo detects each model's capabilities (tool calling,
 vision, audio) and runs the right runtime — GGUF via llama.cpp (`llama-server`,
-plus `--mmproj` for vision/audio and `llama-tts` for speech), MLX via
-`mlx_lm`/`mlx-vlm`. The web UI and CLI let you attach images/audio (or record
-from the mic) to multimodal models, and read replies aloud.
+plus `--mmproj` for vision/audio), MLX via `mlx_lm`/`mlx-vlm`. The web UI and CLI
+let you attach images/audio (or record from the mic) to multimodal models, and
+**read replies aloud**: pick from **54 built-in Kokoro voices** (9 languages, via
+the optional `make install-tts` extra) or `llama-tts`/OuteTTS. Replies are reduced
+to prose first, so code and Markdown syntax aren't spoken.
 
 Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
 the library, pulling, running & chatting, the web UI, and using models directly.

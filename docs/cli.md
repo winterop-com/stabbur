@@ -126,16 +126,27 @@ Sent as OpenAI multimodal content; kodo warns if the model lacks that modality.
 Non-chat models (embeddings, vision encoders) are refused with a clear message —
 kodo runs generative LLMs only.
 
-## `kodo speak <text...>`
+## `kodo voices`
 
-Text-to-speech via llama.cpp's `llama-tts`. Without `--model` uses the default
-OuteTTS model + vocoder (auto-downloaded on first use); `--model` picks a TTS
-model from your library (see `kodo pull --vocoder`).
+List the built-in **Kokoro** voices (54 across 9 languages) with their id,
+language, and gender. Requires the optional TTS extra (`make install-tts`).
 
 ```bash
-kodo speak hello there                 # synthesize + play aloud (macOS)
+kodo voices                            # id · name · language · gender
+```
+
+## `kodo speak <text...>`
+
+Text-to-speech. `--voice`/`-v` picks a **Kokoro** voice (multi-voice engine; run
+`kodo voices` to list them, model downloaded on first use). Otherwise it uses
+`llama-tts`/OuteTTS — the default, or `--model` for a library TTS model (see
+`kodo pull --vocoder`). Markdown/code in the text is reduced to prose first.
+
+```bash
+kodo speak hello there                 # default voice, play aloud (macOS)
+kodo speak -v af_heart "hello there"   # a specific Kokoro voice
 kodo speak "some text" -o out.wav      # write a WAV instead of playing
-kodo speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library TTS model
+kodo speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
 ```
 
 ## `kodo doctor`
