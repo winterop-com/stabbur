@@ -56,9 +56,10 @@ per-model matrix). Ordered roughly by impact:
   `kodo library ls -d` and as **filter chips** atop the Models grid (AND filter). Served on
   each `/api/library` model + `POST /api/tags` to set. Chip **color is derived** from
   the tag name (stable hash into a fixed palette) — so every `tested` is the same
-  color everywhere, zero storage. *Still open:* a curated default tag set / seeding
-  from `docs/guides/models.md`, and tag filter chips in the in-composer model picker
-  (only the Models view filters today).
+  color everywhere, zero storage. Tag **filter chips** appear both atop the Models
+  grid and in the in-composer model picker (AND filter, alongside the capability
+  chips). *Still open:* a curated default tag set / seeding from
+  `docs/guides/models.md`.
 
 - **Rich tags via a tag registry (future).** Keep the current design's key insight:
   assignments stay **string references** (`{model: [tag_names]}` in `tags.json`) —

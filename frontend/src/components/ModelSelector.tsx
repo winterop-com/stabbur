@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AudioLines, Check, ChevronDown, Eye, Loader2, Power, Wrench } from "lucide-react";
+import { AudioLines, Check, ChevronDown, Eye, Loader2, Power, Tag, Wrench } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { LibModel, Status } from "@/api";
+import { allTagsOf, tagColor } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 const STATE_COLOR: Record<Status["state"], string> = {
@@ -95,15 +96,30 @@ export function ModelSelector({
   const [filters, setFilters] = useState({ tools: false, vision: false, audio: false });
   const toggleFilter = (key: "tools" | "vision" | "audio") =>
     setFilters((f) => ({ ...f, [key]: !f[key] }));
+  // Tag filters (AND): a model must carry every selected tag.
+  const [tagFilters, setTagFilters] = useState<Set<string>>(new Set());
+  const toggleTag = (t: string) =>
+    setTagFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  const allTags = useMemo(() => allTagsOf(library), [library]);
 
   const grouped = useMemo(() => {
+    const active = [...tagFilters];
     const shown = library.filter(
-      (m) => (!filters.tools || m.tools) && (!filters.vision || m.vision) && (!filters.audio || m.audio),
+      (m) =>
+        (!filters.tools || m.tools) &&
+        (!filters.vision || m.vision) &&
+        (!filters.audio || m.audio) &&
+        active.every((t) => (m.tags ?? []).includes(t)),
     );
     const by: Record<string, LibModel[]> = {};
     for (const m of shown) (by[m.model_format] ??= []).push(m);
     return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
-  }, [library, filters]);
+  }, [library, filters, tagFilters]);
 
   const locked = status?.locked ?? false;
   const busy = loadingName != null || status?.state === "loading";
@@ -164,6 +180,33 @@ export function ModelSelector({
                 {label}
               </button>
             ))}
+          </div>
+        )}
+        {/* Tag filter chips (only when the library has tags) */}
+        {allTags.length > 0 && (
+          <div className="mb-1 flex flex-wrap items-center gap-1 border-b border-border px-2 pb-2">
+            <span className="mr-1 flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <Tag className="h-3 w-3" />
+              Tags
+            </span>
+            {allTags.map((t) => {
+              const on = tagFilters.has(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggleTag(t)}
+                  aria-pressed={on}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[11px] transition-all",
+                    tagColor(t),
+                    on ? "font-medium ring-1 ring-inset ring-current" : "opacity-70 hover:opacity-100",
+                  )}
+                >
+                  {t}
+                </button>
+              );
+            })}
           </div>
         )}
         {library.length === 0 && (
