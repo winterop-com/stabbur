@@ -1,39 +1,17 @@
-# kodo project — this directory's assistant + the libraries it uses.
-#
-# Copy to `kodo.toml` (or run `kodo project init`). Portable: no machine-specific
-# paths. WHERE the shared library lives is machine config (KODO_LIBRARY_ROOT), so
-# this file can be committed and shared.
-#
-# Precedence (high to low): CLI flags, KODO_* env vars, kodo.toml, .env.
+# A kodo project: which libraries it uses + its assistant. Portable (no machine
+# paths). Copy to kodo.toml, or run `kodo project init`.
 
-# --- Libraries this project reads, in priority order (first match wins) ---
-#   "models"   — a project-local store (scaffolded by `kodo project init`)
-#   "@shared"  — the machine's default library (KODO_LIBRARY_ROOT)
-# Omit `libraries` entirely to use just the default library.
+# Libraries to read, priority order. "@shared" = the machine default
+# (KODO_LIBRARY_ROOT). Omit to use just the default.
 libraries = ["models", "@shared"]
 
-# Serve settings (used by `kodo serve`).
-# host = "127.0.0.1"
-# port = 8000
-# serve_ui = true
-
-# --- The assistant this project defines ---
-
 [project]
-# A model in one of the libraries above (full name or bare repo/tag). Pull it with
-# `kodo library pull huggingface <model>`, or `kodo project init` pulls it for you.
-model = "gemma-4-12B-it-QAT-GGUF"
+model = "gemma-4-12B-it-QAT-GGUF"   # a model in one of the libraries above
+system_prompt = ""                  # prepended to every chat; "" = none
 
-# Prepended to every conversation. Leave "" for none.
-system_prompt = ""
-
-# Tools via MCP: one [[mcp]] block per server kodo spawns (over stdio) and
-# exposes to the model. `command` is required; `name` is an optional label.
-
-# [[mcp]]
-# name = "datetime"
-# command = "kodo-mcp-datetime"
-
+# MCP tool servers (repeatable). `command` required, `name` optional.
 # [[mcp]]
 # name = "dhis2"
 # command = "dhis2w-mcp-bridge"
+
+# Serve/runtime overrides also go here (host, port, serve_ui, ...).
