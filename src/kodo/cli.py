@@ -184,6 +184,46 @@ def list_models() -> None:
 app.command("ls", hidden=True)(list_models)
 
 
+@app.command("rm")
+def remove_model(
+    name: Annotated[str, typer.Argument(help="Library model to remove (full name or bare repo/tag).")],
+    model_format: FormatOption = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
+) -> None:
+    """Remove a model from the library — deletes its files from disk.
+
+    Resolves like ``kodo run`` (use ``--format`` to disambiguate a model kept in
+    more than one format). Ollama models keep any blobs still shared with other
+    installed models.
+    """
+    copies = library_ops.find_copies(name, model_format=model_format)
+    if not copies:
+        typer.secho(f"No library model matches {name!r} (see `kodo list`).", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    # Ambiguity is per distinct (name, format); multiple *copies* of the same model
+    # (e.g. kept on both the local disk and the drive) are all removed together.
+    distinct = {(m.name, m.model_format) for m in copies}
+    if len(distinct) > 1:
+        fmts = ", ".join(sorted({m.model_format.value for m in copies}))
+        typer.secho(f"{name!r} is ambiguous across formats ({fmts}) — pass --format.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    model = copies[0]
+    plural = f" ({len(copies)} copies)" if len(copies) > 1 else ""
+    console.print(f"\n[bold]Remove[/] {model.name}  [dim]({model.model_format.value} · {model.size_human}){plural}[/]")
+    for m in copies:
+        console.print(f"  [dim]{m.path}[/]")
+    if not yes and not typer.confirm("Delete these files?", default=False):
+        console.print("[dim]Aborted.[/]")
+        raise typer.Exit(0)
+    total_files, total_freed = 0, 0
+    for m in copies:
+        count, freed = library_ops.remove(m)
+        total_files += count
+        total_freed += freed
+    console.print(f"[green]Removed[/] {model.name} — freed [bold]{_human_size(total_freed)}[/] ({total_files} files)")
+
+
 def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
     """Import every model from ``source``'s local store into the library.
 

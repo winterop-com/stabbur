@@ -57,6 +57,20 @@ kodo list
 kodo ls        # same thing
 ```
 
+## `kodo rm <name>`
+
+Remove a model from the library — **deletes its files from disk**. Resolves like
+`kodo run` (use `--format` to disambiguate a model kept in more than one format);
+all copies of the model are removed (e.g. one on the local disk and one on the
+drive). Ollama models keep any blobs still shared with other installed models.
+Prompts for confirmation unless `--yes`.
+
+```bash
+kodo rm Voxtral-Mini-3B-2507-GGUF          # confirm, then delete
+kodo rm gemma-4-E4B-it-MLX-4bit --yes      # skip the prompt
+kodo rm Qwen3.6-27B --format mlx           # disambiguate when kept in two formats
+```
+
 ## `kodo sources`
 
 Browse models sitting in your **app caches** (Hugging Face cache, Ollama, LM

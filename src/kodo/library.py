@@ -10,6 +10,7 @@ This is distinct from :mod:`kodo.catalog`, which lists the local *source*
 stores that models are pulled *from*.
 """
 
+import shutil
 from pathlib import Path
 
 from pydantic import BaseModel, computed_field
@@ -273,6 +274,46 @@ def scan(root: Path | None = None) -> list[LibraryModel]:
 def tts_models(root: Path | None = None) -> list[LibraryModel]:
     """Every text-to-speech model in the library (model + paired vocoder)."""
     return [m for m in scan(root) if m.tts]
+
+
+def find_copies(query: str, model_format: ModelFormat | None = None) -> list[LibraryModel]:
+    """Every *physical* copy of a model matching ``query``, across both roots.
+
+    Unlike :func:`find` (which dedupes to one entry per model, local winning), this
+    returns each copy on disk — so a model kept on both ``local_root`` and
+    ``library_root`` yields two entries. Used by removal, which must delete them all.
+    """
+    q = query.lower()
+    settings = get_settings()
+    copies: list[LibraryModel] = []
+    for base in (settings.local_root, settings.library_root):
+        for m in _scan_root(base):
+            if q in (m.name.lower(), m.name.rsplit("/", 1)[-1].lower()) and (
+                model_format is None or m.model_format is model_format
+            ):
+                copies.append(m)
+    return copies
+
+
+def remove(model: LibraryModel) -> tuple[int, int]:
+    """Delete a library model's files from disk. Returns ``(files_removed, bytes_freed)``.
+
+    Directory-based models (gguf/mlx/…) are removed by deleting their directory.
+    Ollama models delegate to :func:`kodo.sources.ollama.remove`, which preserves
+    blobs still shared with other installed Ollama models.
+    """
+    freed, count = model.size_bytes, model.file_count
+    if model.is_ollama:
+        # The Ollama store root is the manifest's ancestor before ``manifests/``;
+        # ollama.remove handles shared-blob safety (it may keep shared layers, so
+        # ``freed`` is the model's own weight size — a close upper bound).
+        parts = model.path.parts
+        models_dir = Path(*parts[: parts.index("manifests")])
+        ollama.remove(model.name, models_dir)
+        return count, freed
+
+    shutil.rmtree(model.path, ignore_errors=True)
+    return count, freed
 
 
 def find(query: str, root: Path | None = None, model_format: ModelFormat | None = None) -> list[LibraryModel]:
