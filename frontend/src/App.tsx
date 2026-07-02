@@ -376,7 +376,12 @@ export function App() {
       ...(images.length ? { images } : {}),
       ...(audios.length ? { audios } : {}),
     };
-    const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
+    const assistantMsg: ChatMessage = {
+      id: uid(),
+      role: "assistant",
+      content: "",
+      ...(status?.model ? { model: status.model } : {}),
+    };
 
     // Snapshot prior messages (before this turn) for the wire payload.
     const prior = (conversations.find((c) => c.id === convId)?.messages ?? []).concat(userMsg);
@@ -391,7 +396,7 @@ export function App() {
     setAttachments([]);
 
     await runCompletion(convId, prior, assistantMsg.id);
-  }, [input, attachments, streaming, ready, activeId, conversations, newConversation, upsertConv, runCompletion]);
+  }, [input, attachments, streaming, ready, status?.model, activeId, conversations, newConversation, upsertConv, runCompletion]);
 
   // --- regenerate: drop last assistant turn, re-run the last user turn ---
   const regenerate = useCallback(async () => {
@@ -409,14 +414,19 @@ export function App() {
     const prior = msgs.slice(0, lastAssistant).filter((m) => m.role !== "assistant" || m.content);
     // Everything up to (not including) the old assistant turn, plus a fresh one.
     const kept = msgs.slice(0, lastAssistant);
-    const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "" };
+    const assistantMsg: ChatMessage = {
+      id: uid(),
+      role: "assistant",
+      content: "",
+      ...(status?.model ? { model: status.model } : {}),
+    };
     upsertConv(activeConv.id, (c) => ({
       ...c,
       updatedAt: Date.now(),
       messages: [...kept, assistantMsg],
     }));
     await runCompletion(activeConv.id, kept.length ? kept : prior, assistantMsg.id);
-  }, [streaming, ready, activeConv, upsertConv, runCompletion]);
+  }, [streaming, ready, status?.model, activeConv, upsertConv, runCompletion]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 

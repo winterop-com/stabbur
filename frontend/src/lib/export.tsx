@@ -46,6 +46,16 @@ function roleLabel(role: ChatMessage["role"]): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
+/**
+ * The model(s) that produced this conversation, from the per-message stamps —
+ * distinct, in order of first use, joined for the header. Falls back to the
+ * currently-loaded model for conversations saved before stamping existed.
+ */
+function conversationModel(conv: Conversation, fallback: string | null): string | null {
+  const used = [...new Set(conv.messages.filter((m) => m.role === "assistant" && m.model).map((m) => m.model))];
+  return used.length ? used.join(", ") : fallback;
+}
+
 /** Non-default sampling settings, as short "key value" fragments (empty if none). */
 function samplingSummary(s: Settings): string[] {
   const out: string[] = [];
@@ -77,8 +87,9 @@ function downloadFile(filename: string, data: BlobPart, mime: string): void {
 export function conversationToMarkdown(conv: Conversation, model: string | null): string {
   const out: string[] = [`# ${conv.title || "Conversation"}`, ""];
 
+  const modelLabel = conversationModel(conv, model);
   const meta: string[] = [];
-  if (model) meta.push(`- **Model:** ${model}`);
+  if (modelLabel) meta.push(`- **Model:** ${modelLabel}`);
   meta.push(`- **Exported:** ${isoDate(Date.now())}`);
   meta.push(`- **Messages:** ${conv.messages.filter((m) => m.role !== "system").length}`);
   const sampling = samplingSummary(conv.settings);
@@ -234,8 +245,9 @@ export async function exportConversationPdf(conv: Conversation, model: string | 
     );
   }
 
+  const modelLabel = conversationModel(conv, model);
   const metaBits: string[] = [];
-  if (model) metaBits.push(`<span><strong>Model:</strong> ${escapeHtml(model)}</span>`);
+  if (modelLabel) metaBits.push(`<span><strong>Model:</strong> ${escapeHtml(modelLabel)}</span>`);
   metaBits.push(`<span><strong>Exported:</strong> ${isoDate(Date.now())}</span>`);
   const sys = conv.settings.systemPrompt.trim();
   const sysBlock = sys ? `<pre class="sys">${escapeHtml(sys)}</pre>` : "";

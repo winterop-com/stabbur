@@ -24,6 +24,7 @@ export interface ChatMessage {
   reasoning?: string; // reasoning-model thinking (shown collapsed)
   tools?: ToolMarker[];
   error?: boolean;
+  model?: string; // the model that produced this turn (assistant turns), for export fidelity
 }
 
 /** A persisted conversation. Settings are per-conversation, not global, so each
