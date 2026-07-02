@@ -37,8 +37,11 @@ def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
     if not (path.startswith("/api") or path.startswith("/v1")):
         return False
     origin = request.headers.get("origin")
-    if origin and ("*" in allowed_origins or origin in allowed_origins):
-        return False  # explicitly trusted cross-origin caller
+    # Only a *specific* allow-listed origin bypasses the guard. A bare "*" enables
+    # CORS (so responses are readable cross-origin) but must NOT exempt mutating
+    # calls — otherwise a wildcard config silently re-opens the tool-execution hole.
+    if origin and origin in allowed_origins:
+        return False
     site = request.headers.get("sec-fetch-site")
     if site is None:
         return False  # non-browser client (no Sec-Fetch metadata)

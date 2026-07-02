@@ -79,6 +79,19 @@ async def test_allowlisted_origin_not_blocked() -> None:
         assert r.status_code != 403
 
 
+async def test_wildcard_cors_does_not_bypass_cross_site_guard() -> None:
+    # cors_origins=["*"] enables CORS reads but must NOT exempt mutating calls from
+    # the cross-site guard, or a wildcard config re-opens the tool-execution hole.
+    app = create_app(Settings(serve_model=None, cors_origins=["*"]))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        r = await inner.post(
+            "/api/load/ghost",
+            headers={"sec-fetch-site": "cross-site", "origin": "https://evil.example"},
+        )
+        assert r.status_code == 403
+
+
 async def test_proxy_requires_a_loaded_model(client: AsyncClient) -> None:
     response = await client.post("/v1/chat/completions", json={"messages": []})
     assert response.status_code == 409
