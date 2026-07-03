@@ -15,11 +15,13 @@ src/kodo/
 ├── config.py          # Pydantic settings (KODO_* env vars)
 ├── models.py          # Catalog / entry / result models
 ├── catalog.py         # Aggregates listing + pull across sources
-├── library.py         # Scans the on-drive library (gguf/ mlx/ ...)
-├── runtime.py         # Serves a model (llama.cpp / mlx_lm)
-├── cli.py             # Typer CLI (entry points: `kodo`, `kodo`)
+├── library.py         # Scans the on-drive library (gguf/ mlx/ voice/ ...)
+├── capabilities.py    # Detects per-model tools/vision/audio + context
+├── runtime.py         # Serves a model (llama.cpp / mlx_lm / mlx-vlm)
+├── voice/             # Voice models: registry, import, TTS/STT runtime
+├── cli.py             # Typer CLI (entry point: `kodo` → kodo.cli:main)
 ├── app.py             # FastAPI app factory
-├── routers/           # health + models (browse/pull) endpoints
+├── routers/           # health + serving (browse/load/chat/audio) endpoints
 └── sources/           # huggingface / ollama / lmstudio adapters
 ```
 
@@ -30,8 +32,21 @@ uv sync                       # kodo itself (needs Python 3.13 + uv)
 brew install llama.cpp        # baseline runtime: GGUF chat + OuteTTS speech (build from source on Linux)
 make install-mlx              # optional: MLX runtimes (Apple Silicon)
 make install-tts              # optional: 54-voice Kokoro TTS (macOS + Linux; espeak bundled)
+make install-voice            # optional: mlx-audio (Dia/Whisper/Qwen3-TTS, Apple Silicon)
 make frontend                 # optional: build the web UI (needs Node/npm)
+export KODO_LIBRARY_ROOT=/Volumes/LLM/Library    # required: where your library lives
 kodo doctor                   # verify what's installed
+```
+
+**Point kodo at a library.** kodo won't guess a location — set `KODO_LIBRARY_ROOT`
+(a per-machine shell/`.env` value; an external drive is the intended home). Without
+it, library commands fail with a clear message instead of silently using `./data`.
+
+**Install globally** (run `kodo` from any directory):
+
+```bash
+uv tool install --editable ".[mlx,voice,tts]"     # kodo on your PATH, code edits live
+# then put KODO_LIBRARY_ROOT in your shell profile (~/.zshrc) so it applies everywhere
 ```
 
 Only `uv sync` + llama.cpp are needed to run GGUF models; the rest are optional.
@@ -41,62 +56,66 @@ See [getting started](docs/getting-started.md) for details.
 
 ```bash
 kodo library ls                     # your library (the models on your drive)
-kodo library sources                  # models in app caches (HF/Ollama/LM Studio) you could pull
+kodo library sources                # models in app caches (HF/Ollama/LM Studio) you could pull
 kodo library pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
 kodo library pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
-kodo doctor                   # pre-flight: runtimes, library, project
-kodo serve --ui                     # browse + chat in the browser
-kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"          # one-shot, scriptable
+kodo doctor                         # pre-flight: runtimes, library, project
+kodo serve --ui                     # browse + chat in the browser (Chat · Voice · Library)
+kodo chat gemma-4-12B-it-QAT-GGUF -p "hi"             # one-shot, scriptable
 kodo chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
-kodo chat ultravox-v0_5-llama-3_2-1b-GGUF -p "transcribe" -a clip.wav   # audio input
-kodo audio voices                   # list Kokoro voices (needs `make install-tts`)
-kodo audio speak hello there                      # text-to-speech (default voice)
-kodo audio speak -v af_heart "hello there"        # a specific Kokoro voice
-kodo serve --ui               # browser UI over your library
+kodo voice ls                       # voice models (TTS/STT) in the library
+kodo voice import --all             # import known voice models to the library
+kodo voice speak -v af_heart "hello there"           # text-to-speech (Kokoro)
+kodo voice speak --model dia --seed 10 "hi there"    # Dia (pin a seed for a stable voice)
+kodo project init                   # scaffold a project assistant (model + tools + prompt)
 ```
 
-**Multimodal & voice:** kodo detects each model's capabilities (tool calling,
-vision, audio) and runs the right runtime — GGUF via llama.cpp (`llama-server`,
-plus `--mmproj` for vision/audio), MLX via `mlx_lm`/`mlx-vlm`. The web UI and CLI
-let you attach images/audio (or record from the mic) to multimodal models, and
-**read replies aloud**: pick from **54 built-in Kokoro voices** (9 languages, via
-the optional `make install-tts` extra) or `llama-tts`/OuteTTS. Replies are reduced
-to prose first, so code and Markdown syntax aren't spoken.
+**Two model families:** **Chat** (language models you talk to — text in/out; some
+also read images/audio or call tools) and **Voice** (TTS speaks, STT transcribes).
+kodo detects each chat model's capabilities and runs the right runtime — GGUF via
+llama.cpp (`llama-server`, `--mmproj` for vision/audio), MLX via `mlx_lm`/`mlx-vlm`.
+The web UI's **Library** lists both families; the **Voice** studio does TTS/STT
+(Kokoro, Dia with voice cloning, Whisper); in chat you can attach images/audio,
+dictate with the mic (Whisper), and **read replies aloud** (Kokoro by default). See
+the [voice guide](docs/guides/voice.md).
 
 Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
 the library, pulling, running & chatting, the web UI, and using models directly.
 
 ## API
 
-```bash
-make dev                              # uvicorn with --reload
-# GET  /health
-# GET  /models?source=ollama
-# POST /models/{source}/pull?name=...
-```
+`kodo serve` exposes an OpenAI-compatible surface plus browse/voice endpoints:
+`/api/status`, `/api/library`, `/api/voice`, `/api/chat` (tool-aware SSE),
+`/v1/*` (proxied to the loaded model), and `/v1/audio/speech` +
+`/v1/audio/transcriptions`. See the [web UI guide](docs/guides/web-ui.md) for the
+full endpoint table and the single-origin proxy design.
 
 ## Configuration
 
-Config lives in **`kodo.toml`** (run `kodo project init`, or copy `kodo.toml.example`).
-Top-level keys set the library/runtime; `[project]` / `[[mcp]]` define the
-assistant. To put the library on the external drive:
+Two separate concepts:
 
-```toml
-# kodo.toml
-library_root = "/Volumes/LLM/Library"
-```
+- **The library location** — where your models live. Set **`KODO_LIBRARY_ROOT`** (a
+  per-machine value; shell profile or `.env`). kodo **requires** it — without one,
+  library/chat/serve commands fail with a clear message rather than silently using a
+  local folder. An external drive is the intended home:
 
-Any value can be overridden per machine with a `KODO_*` env var (e.g.
-`KODO_LIBRARY_ROOT=/mnt/llm/Library` on Linux). Precedence, high to low:
-CLI flags, `KODO_*` env vars, `kodo.toml`, `.env` (an optional fallback — you
-don't need it).
+  ```bash
+  export KODO_LIBRARY_ROOT=/Volumes/LLM/Library      # /mnt/llm/Library on Linux
+  ```
 
-| Key (`kodo.toml`) / env var                 | Default                  |
-| ------------------------------------------- | ------------------------ |
-| `library_root` / `KODO_LIBRARY_ROOT`          | `data` (the default library) |
-| `ollama_models_dir` / `KODO_OLLAMA_MODELS_DIR` | `~/.ollama/models`    |
-| `lmstudio_models_dir` / `KODO_LMSTUDIO_MODELS_DIR` | `~/.lmstudio/models` |
-| `hf_token` / `KODO_HF_TOKEN`                | (uses HF login if unset) |
+- **A project** (`kodo.toml`, via `kodo project init` / `kodo project new <dir>`) — a
+  purpose-built **assistant**: `[project].model` + `system_prompt` + `[[mcp]]` tools. In
+  a project, `kodo serve` / `kodo chat` bind to that model (like `--model`, with its
+  tools + prompt); **outside** a project it's free-play (pick/switch any model). A
+  project uses the machine library by default.
+
+Precedence (high → low): CLI flags, `KODO_*` env vars, `kodo.toml`, `.env`.
+
+| Key / env var                                 | Purpose                             |
+| --------------------------------------------- | ----------------------------------- |
+| `KODO_LIBRARY_ROOT` (or `library_root`)       | the library location (**required**) |
+| `KODO_OLLAMA_MODELS_DIR`, `KODO_LMSTUDIO_MODELS_DIR` | source caches to pull from    |
+| `KODO_HF_TOKEN`                               | HF token (uses your HF login if unset) |
 
 ## Develop
 
