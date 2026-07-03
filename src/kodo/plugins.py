@@ -72,6 +72,14 @@ class PluginContext(Protocol):
         """Every generative library model (for an all-models benchmark sweep)."""
         ...
 
+    def supports_tools(self, model: LibraryModel) -> bool:
+        """Whether the model's detected capabilities include tool/function calling."""
+        ...
+
+    def model_tags(self, model: LibraryModel) -> list[str]:
+        """The library tags on a model (used to gate which models a suite runs)."""
+        ...
+
 
 class McpServer(BaseModel):
     """An MCP tool server a plugin advertises: how to spawn it and what it offers."""

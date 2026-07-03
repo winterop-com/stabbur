@@ -1253,6 +1253,15 @@ class _HostContext:
     def list_models(self) -> list[library_ops.LibraryModel]:
         return [m for m in library_ops.scan() if m.generative]
 
+    def supports_tools(self, model: library_ops.LibraryModel) -> bool:
+        try:
+            return capabilities.capabilities(model).tools
+        except Exception:  # noqa: BLE001 - detection is best-effort; assume no tools on failure
+            return False
+
+    def model_tags(self, model: library_ops.LibraryModel) -> list[str]:
+        return tags.load(model.library_root).get(model.name, [])
+
 
 def _mount_plugins() -> None:
     """Discover ``kodo.plugins`` and mount each plugin's command group on the CLI."""

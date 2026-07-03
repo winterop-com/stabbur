@@ -45,6 +45,20 @@ Regenerate with `kodo benchmark leaderboard` after `kodo benchmark run ... --sav
 """
 
 
+def _qualifies(context: PluginContext, suite: core.Suite, model: LibraryModel) -> tuple[bool, str]:
+    """Whether ``model`` should run against ``suite`` (the ``--all`` gate).
+
+    Tool suites need tool-calling — the detected capability, or a manual ``tools`` tag to
+    override a model that fakes support. Code (or any tagged) suites need the suite's
+    ``requires_tag`` (e.g. ``coding``). Returns ``(ok, reason)``; reason is set when skipped.
+    """
+    if suite.type == "tool" and not context.supports_tools(model) and "tools" not in context.model_tags(model):
+        return False, "no tool capability (tag it 'tools' to force)"
+    if suite.requires_tag and suite.requires_tag not in context.model_tags(model):
+        return False, f"not tagged '{suite.requires_tag}'"
+    return True, ""
+
+
 def _run_problem(
     context: PluginContext, model: LibraryModel, base: str, problem: core.Problem, max_tokens: int | None
 ) -> core.ProblemResult:
@@ -122,7 +136,20 @@ def _build_app(context: PluginContext) -> typer.Typer:
         if any(p.type == "code" for p in loaded.problems) and not core.docker_available():
             console.print("[red]Docker is required[/] for code problems (it sandboxes model code). Start it and retry.")
             raise typer.Exit(1)
-        models = context.list_models() if all_models else [context.resolve_model(model)]
+        if all_models:
+            models = []
+            for candidate in context.list_models():
+                ok, reason = _qualifies(context, loaded, candidate)
+                if ok:
+                    models.append(candidate)
+                else:
+                    console.print(f"[dim]skip {candidate.name}: {reason}[/]")
+        else:
+            chosen = context.resolve_model(model)
+            ok, reason = _qualifies(context, loaded, chosen)
+            if not ok:  # explicit --model runs regardless, but flag the mismatch
+                console.print(f"[yellow]note[/]: {chosen.name} {reason} — running anyway (explicit --model)")
+            models = [chosen]
         problems = loaded.problems[:limit] if limit else loaded.problems
         for mdl in models:
             if skip_done and core.result_path(results_dir, loaded.name, mdl.name).exists():

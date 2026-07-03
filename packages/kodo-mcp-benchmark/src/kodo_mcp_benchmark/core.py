@@ -107,6 +107,9 @@ class Suite(BaseModel):
     description: str = ""
     type: ProblemType = "code"
     language: str
+    # On a `kodo benchmark run --all`, only models carrying this library tag are run against
+    # this suite (empty = run all). Tool suites also require the tools capability (see run()).
+    requires_tag: str = ""
     problems: list[Problem]
 
     @model_validator(mode="before")

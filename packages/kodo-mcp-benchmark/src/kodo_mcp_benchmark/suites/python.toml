@@ -1,6 +1,7 @@
 name = "python"
 description = "Python programs that read stdin and write stdout, across difficulty tiers."
 language = "python"
+requires_tag = "coding"
 
 [[problems]]
 id = "sum-two"

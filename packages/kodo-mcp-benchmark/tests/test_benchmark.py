@@ -25,9 +25,42 @@ def test_suites_load_and_language_propagates() -> None:
     assert core.load_suite("rust").problems[0].language == "rust"
 
 
+def test_qualifies_gates_by_capability_and_tag() -> None:
+    from typing import Any, cast
+
+    from kodo_mcp_benchmark.plugin import _qualifies
+
+    from kodo.plugins import PluginContext
+
+    class _Ctx:
+        def __init__(self, tools: bool, tags: list[str]) -> None:
+            self._tools, self._tags = tools, tags
+
+        def supports_tools(self, model: Any) -> bool:
+            return self._tools
+
+        def model_tags(self, model: Any) -> list[str]:
+            return self._tags
+
+    def ctx(tools: bool, tags: list[str]) -> PluginContext:
+        return cast(PluginContext, _Ctx(tools, tags))
+
+    code = core.load_suite("python")  # requires_tag="coding"
+    tool = core.load_suite("tools-datetime")  # type == "tool"
+    m: Any = object()
+    # Code suite: needs the 'coding' tag.
+    assert _qualifies(ctx(True, ["coding"]), code, m)[0]
+    assert not _qualifies(ctx(True, []), code, m)[0]
+    # Tool suite: needs tool capability OR a 'tools' tag override.
+    assert _qualifies(ctx(True, []), tool, m)[0]
+    assert _qualifies(ctx(False, ["tools"]), tool, m)[0]
+    assert not _qualifies(ctx(False, []), tool, m)[0]
+
+
 def test_tool_suite_loads_with_expectations() -> None:
     suite = core.load_suite("tools-datetime")
     assert suite.type == "tool"
+    assert suite.requires_tag == ""  # tool suites gate by capability, not a tag
     problem = next(p for p in suite.problems if p.id == "day-of-week")
     assert problem.type == "tool"  # propagated from the suite
     assert problem.expect_tool == "datetime__day_of_week"

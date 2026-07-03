@@ -1,6 +1,7 @@
 name = "rust"
 description = "Rust programs that read stdin and write stdout, across difficulty tiers."
 language = "rust"
+requires_tag = "coding"
 # Rust compiles before running, so allow a little more wall-clock per problem.
 
 [[problems]]
