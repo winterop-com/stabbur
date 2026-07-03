@@ -43,6 +43,17 @@ tts = [
     "soundfile>=0.13.1",
 ]
 
+# Full voice runtime via mlx-audio (Apple Silicon): Dia (dialogue + cloning), Kokoro,
+# Qwen3-TTS, and Whisper STT, served through mlx-audio's OpenAI /v1/audio server which kodo
+# spawns + proxies. mlx-audio is gated (mlx, Apple-only, no Linux wheels); its per-model
+# helpers (misaki G2P for Kokoro, soundfile) are cross-platform. On Linux, the `tts` extra's
+# Kokoro-ONNX covers TTS. Install with `uv sync --extra voice` on an M-series Mac.
+voice = [
+    "mlx-audio>=0.4.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "misaki[en]>=0.9.4",  # grapheme->phoneme for Kokoro (English backend)
+    "soundfile>=0.13.1",
+]
+
 [project.scripts]
 kodo = "kodo.cli:app"
 
@@ -135,7 +146,7 @@ disallow_untyped_defs = false
 [[tool.mypy.overrides]]
 # Optional `tts` extra: untyped (soundfile/espeakng_loader) or absent when the
 # extra isn't synced. Treat as Any so `make check` passes with or without it.
-module = ["soundfile.*", "espeakng_loader.*", "kokoro_onnx.*"]
+module = ["soundfile.*", "espeakng_loader.*", "kokoro_onnx.*", "mlx_audio.*", "misaki.*"]
 ignore_missing_imports = true
 
 [tool.pyright]
