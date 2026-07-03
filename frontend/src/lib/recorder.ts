@@ -45,6 +45,9 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 export interface Recording {
   stop: () => Promise<string>;
   cancel: () => void;
+  /** The live mic stream — share it with a visualizer (e.g. BarVisualizer) instead
+   *  of opening a second getUserMedia, which on macOS can starve one of the streams. */
+  stream: MediaStream;
 }
 
 /** Options for {@link startRecording}. */
@@ -107,6 +110,7 @@ export async function startRecording(opts: RecordOptions = {}): Promise<Recordin
   };
 
   return {
+    stream,
     stop: () =>
       new Promise<string>((resolve, reject) => {
         stopVad();

@@ -11,7 +11,8 @@ import {
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AudioScrubber, RecordingWaveform } from "@/components/ui/waveform";
+import { AudioScrubber } from "@/components/ui/waveform";
+import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import { audioPeaks } from "@/lib/audio";
 import { startRecording, type Recording } from "@/lib/recorder";
 import { cn } from "@/lib/utils";
@@ -170,11 +171,13 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   // auto-stops after a short silence (or click Stop).
   const cloneRec = useRef<Recording | null>(null);
   const [cloneRecording, setCloneRecording] = useState(false);
+  const [cloneStream, setCloneStream] = useState<MediaStream | null>(null); // shared with the visualizer
   const stopCloneRecording = async () => {
     const rec = cloneRec.current;
     if (!rec) return;
     cloneRec.current = null;
     setCloneRecording(false);
+    setCloneStream(null);
     const wavUrl = await rec.stop();
     await useClip(await (await fetch(wavUrl)).blob(), "recording.wav");
   };
@@ -182,9 +185,11 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     if (cloneRecording) return void stopCloneRecording();
     try {
       cloneRec.current = await startRecording({ onSilence: () => void stopCloneRecording() });
+      setCloneStream(cloneRec.current.stream);
       setCloneRecording(true);
     } catch {
       setCloneRecording(false); // permission denied / unsupported
+      setCloneStream(null);
     }
   };
 
@@ -370,13 +375,12 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               {cloneRecording ? "Stop" : "Record"}
             </button>
             {cloneRecording && (
-              <RecordingWaveform
-                recording={cloneRecording}
-                showHandle={false}
-                height={28}
-                barWidth={2}
-                barGap={1}
-                className="min-w-32 flex-1 text-destructive"
+              <BarVisualizer
+                mediaStream={cloneStream}
+                barCount={28}
+                minHeight={6}
+                centerAlign
+                className="h-8 min-w-32 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-destructive"
               />
             )}
             {refB64 && (
@@ -496,6 +500,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
   const [transcript, setTranscript] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
   const [recording, setRecording] = useState(false);
+  const [recStream, setRecStream] = useState<MediaStream | null>(null); // shared with the visualizer
   const recRef = useRef<Recording | null>(null);
 
   const model = sttModels[0];
@@ -520,6 +525,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
     if (!rec) return;
     recRef.current = null;
     setRecording(false);
+    setRecStream(null);
     const wavUrl = await rec.stop();
     void run(await (await fetch(wavUrl)).blob(), "recording.wav");
   };
@@ -527,6 +533,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
     if (recording) return void stopRec();
     try {
       recRef.current = await startRecording({ onSilence: () => void stopRec() });
+      setRecStream(recRef.current.stream);
       setRecording(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "microphone unavailable");
@@ -577,13 +584,12 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
           {recording ? "Stop" : "Record"}
         </Button>
         {recording && (
-          <RecordingWaveform
-            recording={recording}
-            showHandle={false}
-            height={28}
-            barWidth={2}
-            barGap={1}
-            className="min-w-32 flex-1 text-sky-500"
+          <BarVisualizer
+            mediaStream={recStream}
+            barCount={28}
+            minHeight={6}
+            centerAlign
+            className="h-8 min-w-32 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-sky-500"
           />
         )}
         {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}

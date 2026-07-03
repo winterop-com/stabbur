@@ -4,7 +4,7 @@ import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, X } from "lucide-re
 import { transcribeAudio } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { LiveMicrophoneWaveform } from "@/components/ui/waveform";
+import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment, MediaKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -128,6 +128,7 @@ export function Composer({
   const [dragOver, setDragOver] = useState(false);
   const recRef = useRef<Recording | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
+  const [micStream, setMicStream] = useState<MediaStream | null>(null); // live stream, shared with the visualizer
   // A transient note shown when a dropped/pasted file can't be used (e.g. audio on
   // a text model), so incompatible files aren't silently discarded.
   const [hint, setHint] = useState<string | null>(null);
@@ -176,6 +177,7 @@ export function Composer({
     if (!rec) return;
     recRef.current = null;
     setRecState("encoding");
+    setMicStream(null);
     try {
       const url = await rec.stop();
       onAdd([{ url, kind: "audio" }]);
@@ -192,6 +194,7 @@ export function Composer({
     if (recState === "recording") return void finishRecording();
     try {
       recRef.current = await startRecording({ onSilence: () => void finishRecording() });
+      setMicStream(recRef.current.stream);
       setRecState("recording");
     } catch {
       setRecState("idle"); // permission denied / unsupported
@@ -208,6 +211,7 @@ export function Composer({
     if (!rec) return;
     dictRef.current = null;
     setDictState("transcribing");
+    setMicStream(null);
     try {
       const wavUrl = await rec.stop();
       const blob = await (await fetch(wavUrl)).blob();
@@ -225,6 +229,7 @@ export function Composer({
     if (dictState === "recording") return void finishDictation();
     try {
       dictRef.current = await startRecording({ onSilence: () => void finishDictation() });
+      setMicStream(dictRef.current.stream);
       setDictState("recording");
     } catch {
       setDictState("idle"); // permission denied / unsupported
@@ -310,7 +315,13 @@ export function Composer({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive/60" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
           </span>
-          <LiveMicrophoneWaveform active height={24} barWidth={2} barGap={1} className="flex-1" />
+          <BarVisualizer
+            mediaStream={micStream}
+            barCount={32}
+            minHeight={6}
+            centerAlign
+            className="h-6 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-destructive"
+          />
           <span className="shrink-0 text-[11px]">{dictState === "recording" ? "Dictating…" : "Recording…"}</span>
         </div>
       )}
