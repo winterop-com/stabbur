@@ -21,7 +21,7 @@ def test_suites_load_and_language_propagates() -> None:
     py = core.load_suite("python")
     assert py.language == "python" and py.type == "code"
     assert py.problems and all(p.language == "python" for p in py.problems)  # inherited from the suite
-    assert {p.difficulty for p in py.problems} == {"basics", "intermediate", "advanced"}
+    assert {p.difficulty for p in py.problems} == {"basics", "intermediate", "advanced", "expert"}
     assert core.load_suite("rust").problems[0].language == "rust"
 
 

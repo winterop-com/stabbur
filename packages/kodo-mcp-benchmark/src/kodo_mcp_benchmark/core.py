@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-Difficulty = Literal["basics", "intermediate", "advanced"]
+Difficulty = Literal["basics", "intermediate", "advanced", "expert"]
 ProblemType = Literal["code", "tool"]
 
 
