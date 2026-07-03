@@ -320,6 +320,29 @@ def test_library_scan_and_find(tmp_path: Path) -> None:
     assert library.find("missing", root=tmp_path) == []
 
 
+def test_library_scans_voice_bucket_as_one_model(tmp_path: Path) -> None:
+    _make_library(tmp_path)  # a GGUF + MLX chat LLM
+    # A voice model under voice/<publisher>/<repo>, with a nested weights dir (Kokoro's
+    # voices/) that must NOT be scanned as a separate model.
+    v = tmp_path / "voice" / "mlx-community" / "Kokoro-82M-bf16"
+    (v / "voices").mkdir(parents=True)
+    (v / "model.safetensors").write_bytes(b"k" * 2048)
+    (v / "voices" / "af.safetensors").write_bytes(b"a" * 512)
+    # An unknown (not-in-registry) voice repo defaults to tts.
+    unknown = tmp_path / "voice" / "acme" / "SomeTTS"
+    unknown.mkdir(parents=True)
+    (unknown / "model.safetensors").write_bytes(b"u" * 1024)
+
+    models = library.scan(root=tmp_path)
+    voices = [m for m in models if m.voice_kind]
+    assert len(voices) == 2  # one per repo, not split by voices/
+    kokoro = next(m for m in voices if m.name == "mlx-community/Kokoro-82M-bf16")
+    assert kokoro.voice_kind == "tts" and not kokoro.generative and kokoro.tts
+    assert next(m for m in voices if m.name == "acme/SomeTTS").voice_kind == "tts"  # default
+    # Voice models never leak into the generative (chat) list.
+    assert all(not m.voice_kind for m in models if m.generative)
+
+
 def test_runtime_build_command(tmp_path: Path) -> None:
     _make_library(tmp_path)
     gguf = library.find("Model-GGUF", root=tmp_path)[0]

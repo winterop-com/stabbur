@@ -262,18 +262,21 @@ def list_models(
     stacked card per model with its full detail.
     """
     settings = get_settings()
-    models = [m for m in library_ops.scan() if m.generative]
+    all_models = library_ops.scan()
+    models = [m for m in all_models if m.generative]  # chat LLMs
+    voices = [m for m in all_models if m.voice_kind]  # TTS/STT voice models
     lib_roots = library_ops.roots(settings)
     missing = [r for r in lib_roots if not r.is_dir()]
-    if not models:
+    if not models and not voices:
         console.print("Your library is empty.")
         if missing:
             console.print(f"[yellow]Library not mounted:[/] [dim]{', '.join(str(r) for r in missing)}[/]")
         console.print("[dim]Pull one with[/] kodo library pull [dim]· browse with[/] kodo library sources")
         return
 
-    total = _human_size(sum(m.size_bytes for m in models))
-    console.print(f"\n[bold]{len(models)} models · {total}[/] in your library\n")
+    total = _human_size(sum(m.size_bytes for m in all_models))
+    voice_note = f" · [magenta]{len(voices)} voice[/]" if voices else ""
+    console.print(f"\n[bold]{len(models)} models{voice_note} · {total}[/] in your library\n")
     if missing:
         console.print(f"[yellow]Note:[/] not mounted: [dim]{', '.join(str(r) for r in missing)}[/]\n")
     if details:  # full-detail cards, one per model, stacked and grouped by format
@@ -282,6 +285,9 @@ def list_models(
             for m in sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name):
                 tag_maps.setdefault(m.library_root, tags.load(m.library_root))
                 _print_model_card(m, tag_maps[m.library_root].get(m.name, []))
+        for m in sorted(voices, key=lambda m: (m.voice_kind, m.name)):
+            tag_maps.setdefault(m.library_root, tags.load(m.library_root))
+            _print_model_card(m, tag_maps[m.library_root].get(m.name, []))
         return
     for fmt in sorted({m.model_format for m in models}, key=lambda f: f.value):
         rows = sorted((m for m in models if m.model_format is fmt), key=lambda m: m.name)
@@ -299,6 +305,23 @@ def list_models(
                 caps = None
             table.add_row(m.size_human, _caps_label(caps), _fmt_ctx(caps.context_length if caps else None), m.name)
         console.print(table)
+
+    if voices:  # the Voice category (TTS/STT) — a peer of the format groups
+        subtotal = _human_size(sum(m.size_bytes for m in voices))
+        vt = Table(
+            box=box.SIMPLE_HEAD,
+            title=f"[magenta][bold]voice[/][/]  [dim]{len(voices)} · {subtotal}[/]",
+            title_justify="left",
+            pad_edge=False,
+        )
+        vt.add_column("SIZE", justify="right")
+        vt.add_column("KIND")
+        vt.add_column("NAME", style="white")
+        for m in sorted(voices, key=lambda m: (m.voice_kind, m.name)):
+            kind = "[cyan]tts[/]" if m.voice_kind == "tts" else "[green]stt[/]"
+            vt.add_row(m.size_human, kind, m.name)
+        console.print(vt)
+        console.print("[dim]Voice-specific ops:[/] kodo voice ls / import")
 
 
 @library_app.command("rm")

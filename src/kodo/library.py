@@ -13,6 +13,7 @@ stores that models are pulled *from*.
 import json
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, computed_field
 
@@ -22,8 +23,11 @@ from kodo.models import ModelFormat, _human_size
 from kodo.sources import ollama
 from kodo.sources.base import dir_stats
 
+if TYPE_CHECKING:
+    from kodo.voice.registry import VoiceModel
+
 # Top-level directories whose name is a layout prefix, stripped from model names.
-_PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "tts", "other"}
+_PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "tts", "voice", "other"}
 
 # In a project's ``libraries`` list, this token means "the machine's default
 # (shared) library" — so a committed kodo.toml stays portable (no hard-coded path).
@@ -58,6 +62,9 @@ class LibraryModel(BaseModel):
 
     tts: bool = False
     """True if this is a text-to-speech model (served via llama-tts, not chat)."""
+
+    voice_kind: str = ""
+    """For models in the ``voice/`` bucket: ``tts`` or ``stt`` (empty = not a voice model)."""
 
     vocoder: Path | None = None
     """The paired vocoder GGUF for a TTS model (e.g. WavTokenizer)."""
@@ -167,17 +174,62 @@ def pick_gguf(model_dir: Path) -> tuple[Path, Path | None]:
     return _pick_weight(weights), mmproj
 
 
+def _voice_spec(name: str) -> "VoiceModel | None":
+    """The registry entry for a voice model by its repo name, if known (lazy import)."""
+    from kodo.voice import registry  # noqa: PLC0415 - avoid importing voice on every library import
+
+    return registry.by_repo(name)
+
+
+def _scan_voice(base: Path) -> list[LibraryModel]:
+    """Scan the ``voice/`` bucket at the repo level (``voice/<publisher>/<repo>``).
+
+    A voice model is one repo directory, not split by its nested weight folders (Kokoro's
+    ``voices/``, Qwen3-TTS's ``speech_tokenizer/``). Each is a non-generative voice model;
+    its kind (tts/stt) comes from the registry when the repo is known, else defaults to tts.
+    """
+    voice_bucket = base / "voice"
+    if not voice_bucket.is_dir():
+        return []
+
+    def _dirs(parent: Path) -> list[Path]:
+        return sorted(p for p in parent.iterdir() if p.is_dir() and not p.name.startswith("._"))
+
+    models: list[LibraryModel] = []
+    for publisher in _dirs(voice_bucket):
+        for repo in _dirs(publisher):
+            name = f"{publisher.name}/{repo.name}"
+            spec = _voice_spec(name)
+            kind = spec.kind.value if spec else "tts"
+            size_bytes, file_count = dir_stats(repo)
+            models.append(
+                LibraryModel(
+                    name=name,
+                    model_format=_classify_dir(repo),
+                    generative=False,
+                    tts=kind == "tts",
+                    voice_kind=kind,
+                    path=repo,
+                    load_target=repo,
+                    size_bytes=size_bytes,
+                    file_count=file_count,
+                )
+            )
+    return models
+
+
 def _scan_dirs(base: Path) -> list[LibraryModel]:
-    """Scan directory-based models anywhere under ``base`` (excluding ollama/)."""
+    """Scan directory-based models anywhere under ``base`` (excluding ollama/ and voice/)."""
     ollama_dir = base / "ollama"
+    voice_dir = base / "voice"
     dirs: set[Path] = set()
     for pattern in ("*.gguf", "*.safetensors"):
         for weights in base.rglob(pattern):
             if weights.name.startswith("._"):
                 continue  # macOS AppleDouble junk on exFAT
             parent = weights.parent
-            if parent == ollama_dir or ollama_dir in parent.parents:
-                continue  # ollama blobs are scanned natively below
+            if parent in (ollama_dir, voice_dir) or ollama_dir in parent.parents or voice_dir in parent.parents:
+                continue  # ollama blobs scanned natively below; voice/ scanned by _scan_voice
             dirs.add(parent)
 
     models: list[LibraryModel] = []
@@ -262,7 +314,9 @@ def _scan_root(base: Path) -> list[LibraryModel]:
     """Scan a single library root (no-op if it doesn't exist / drive unplugged)."""
     if not base.is_dir():
         return []
-    models = _scan_dirs(base) + _scan_ollama(base)
+    # Voice first so a model present in both voice/ (new) and the legacy tts/ bucket resolves
+    # to its voice-category entry on the (name, format) dedup, not the old tts/ copy.
+    models = _scan_voice(base) + _scan_dirs(base) + _scan_ollama(base)
     for m in models:  # record which library each model came from (owns its tags)
         m.library_root = base
     return models
