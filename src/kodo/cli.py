@@ -972,7 +972,10 @@ def chat(
     proj = project.load()
     model_name = name or (proj.model if proj else None)
     if model_name is None:
-        console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
+        console.print(
+            "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
+            "or define a default model in a project ([cyan]kodo project init[/])."
+        )
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
     from kodo import plugins  # noqa: PLC0415
@@ -1271,7 +1274,10 @@ class _HostContext:
         proj = project.load()
         model_name = name or (proj.model if proj else None)
         if model_name is None:
-            console.print("[red]No model given[/] — pass one, or set [project].model in kodo.toml.")
+            console.print(
+                "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
+                "or define a default model in a project ([cyan]kodo project init[/])."
+            )
             raise typer.Exit(1)
         return _resolve_library_model(model_name, ModelFormat(model_format) if model_format else None)
 
