@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Loader2, Mic, Pause, Play, RotateCcw, Sparkles, Upload, Users, Wand2 } from "lucide-react";
+import {
+  AudioLines,
+  Dices,
+  Loader2,
+  Mic,
+  Pause,
+  Play,
+  RotateCcw,
+  Sparkles,
+  Square,
+  Upload,
+  Users,
+  Wand2,
+} from "lucide-react";
 
 import {
   getVoiceModels,
@@ -11,6 +24,7 @@ import {
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { startRecording, type Recording } from "@/lib/recorder";
 import { cn } from "@/lib/utils";
 
 /** Output formats offered in the playground (WAV always; the rest need ffmpeg). */
@@ -199,19 +213,26 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     setError(null);
   }, [model]);
 
+  // Audition voices fast: pick a fresh random seed and generate with it in one click.
+  const shuffle = () => {
+    const s = Math.floor(Math.random() * 100000);
+    setSeed(String(s));
+    void speak(s);
+  };
+
   const insertCue = (cue: string) => {
     setText((t) => (t.endsWith(" ") || t === "" ? t + cue + " " : t + " " + cue + " "));
     dialogueRef.current?.focus();
   };
 
-  const onPickClip = async (file: File) => {
-    setRefB64(await toBase64(file));
-    setRefName(file.name);
-    // Cloning needs the reference clip's transcript; auto-fill it with Whisper so you don't
-    // have to type it (editable afterwards). Leaves it blank if transcription fails.
+  // Reference clip (upload or recording): stash it as base64 and auto-fill its transcript with
+  // Whisper (editable) so you don't hand-type it like the mlx-audio CLI needs.
+  const useClip = async (blob: Blob, name: string) => {
+    setRefB64(await toBase64(blob));
+    setRefName(name);
     setRefBusy(true);
     try {
-      const t = (await transcribeAudio(file)).trim();
+      const t = (await transcribeAudio(blob, "whisper", name)).trim();
       if (t) setRefText(t);
     } catch {
       /* Whisper unavailable / failed — fall back to manual entry */
@@ -219,8 +240,31 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       setRefBusy(false);
     }
   };
+  const onPickClip = (file: File) => void useClip(file, file.name);
 
-  const speak = async () => {
+  // Record your own voice as the reference clip. Uses the shared VAD recorder, so it
+  // auto-stops after a short silence (or click Stop).
+  const cloneRec = useRef<Recording | null>(null);
+  const [cloneRecording, setCloneRecording] = useState(false);
+  const stopCloneRecording = async () => {
+    const rec = cloneRec.current;
+    if (!rec) return;
+    cloneRec.current = null;
+    setCloneRecording(false);
+    const wavUrl = await rec.stop();
+    await useClip(await (await fetch(wavUrl)).blob(), "recording.wav");
+  };
+  const toggleCloneRecording = async () => {
+    if (cloneRecording) return void stopCloneRecording();
+    try {
+      cloneRec.current = await startRecording({ onSilence: () => void stopCloneRecording() });
+      setCloneRecording(true);
+    } catch {
+      setCloneRecording(false); // permission denied / unsupported
+    }
+  };
+
+  const speak = async (seedOverride?: number) => {
     if (!model || !text.trim()) return;
     setBusy(true);
     setError(null);
@@ -233,7 +277,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         responseFormat: format,
         refAudioB64: refB64 ?? undefined,
         refText: refB64 ? refText : undefined,
-        seed: seed.trim() ? Number(seed) : undefined,
+        seed: seedOverride ?? (seed.trim() ? Number(seed) : undefined),
       });
       setAudioUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -320,16 +364,26 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         </label>
 
         {model?.seeded && (
-          <label className="text-[11px] text-muted-foreground">
-            Seed
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span>Seed</span>
             <Input
               aria-label="Seed"
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="random"
-              className="ml-2 inline-block h-8 w-24"
+              className="h-8 w-20"
             />
-          </label>
+            <button
+              type="button"
+              onClick={shuffle}
+              disabled={busy || !text.trim()}
+              aria-label="Random voice"
+              title="Random voice — shuffle the seed and generate"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent/60 disabled:opacity-50"
+            >
+              <Dices className="h-4 w-4" />
+            </button>
+          </div>
         )}
       </div>
 
@@ -369,7 +423,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           <div className="flex flex-wrap items-center gap-2">
             <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50">
               <Upload className="h-3.5 w-3.5" />
-              {refName || "Reference clip"}
+              {refName || "Upload clip"}
               <input
                 type="file"
                 accept="audio/*"
@@ -378,6 +432,18 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
                 onChange={(e) => e.target.files?.[0] && onPickClip(e.target.files[0])}
               />
             </label>
+            <button
+              type="button"
+              onClick={toggleCloneRecording}
+              aria-label={cloneRecording ? "Stop recording" : "Record reference"}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50",
+                cloneRecording && "border-destructive text-destructive",
+              )}
+            >
+              {cloneRecording ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              {cloneRecording ? "Stop" : "Record"}
+            </button>
             {refB64 && (
               <button
                 type="button"
@@ -416,7 +482,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
       <div className="mt-3 flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <Button onClick={speak} disabled={busy || unsupported || !text.trim()} className="gap-1.5">
+          <Button onClick={() => speak()} disabled={busy || unsupported || !text.trim()} className="gap-1.5">
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : audioUrl ? (
@@ -493,8 +559,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
   const [transcript, setTranscript] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
   const [recording, setRecording] = useState(false);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const recRef = useRef<Recording | null>(null);
 
   const model = sttModels[0];
 
@@ -512,23 +577,19 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
     }
   };
 
+  // Uses the shared VAD recorder, so it auto-stops after a short silence (or click Stop).
+  const stopRec = async () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;
+    setRecording(false);
+    const wavUrl = await rec.stop();
+    void run(await (await fetch(wavUrl)).blob(), "recording.wav");
+  };
   const toggleRecord = async () => {
-    if (recording) {
-      recorderRef.current?.stop();
-      return;
-    }
+    if (recording) return void stopRec();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
-      rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setRecording(false);
-        void run(new Blob(chunksRef.current, { type: "audio/webm" }), "recording.webm");
-      };
-      recorderRef.current = rec;
-      rec.start();
+      recRef.current = await startRecording({ onSilence: () => void stopRec() });
       setRecording(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "microphone unavailable");
