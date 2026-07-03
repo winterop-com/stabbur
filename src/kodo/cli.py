@@ -1137,6 +1137,7 @@ def serve(
 
 
 @voice_app.command("list")
+@voice_app.command("ls", hidden=True)  # alias, matching `kodo library ls`
 def voice_list() -> None:
     """List known voice models (TTS/STT) and where each lives — HF cache or the library."""
     from kodo import voice  # noqa: PLC0415
