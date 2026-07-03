@@ -127,14 +127,9 @@ def check_project(settings: Settings) -> list[Check]:
     """Check the current project manifest (kodo.toml), if any."""
     proj = project_ops.load()
     if proj is None:
-        return [
-            Check(
-                name="Project (kodo.toml)",
-                status=CheckStatus.ok,
-                detail="none in cwd (using defaults)",
-                hint="Scaffold one with `kodo init` to bind a model + tools.",
-            )
-        ]
+        # No project is a valid mode (free-play: all models, no auto-load), not something to
+        # report — so emit no project checks at all rather than a "none in cwd" row.
+        return []
     checks = [Check(name="Project (kodo.toml)", status=CheckStatus.ok, detail="found")]
     if proj.model:
         resolved = library_ops.find(proj.model)

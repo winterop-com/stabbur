@@ -82,8 +82,7 @@ def test_check_project_missing_model_warns(tmp_path: Path, monkeypatch: pytest.M
     assert check.hint is not None
 
 
-def test_check_project_none_is_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # No project is a valid free-play mode, so it should surface no project checks at all.
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
-    checks = doctor.check_project(_settings(tmp_path))
-    assert len(checks) == 1
-    assert checks[0].status is doctor.CheckStatus.ok
+    assert doctor.check_project(_settings(tmp_path)) == []

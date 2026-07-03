@@ -29,15 +29,17 @@ export function LoadedModelBadge({
   const name = loadingName ?? status?.model ?? null;
 
   if (!name && !loading) {
-    // Nothing loaded: a subtle affordance to go load one.
+    // No chat model in the runtime — a subtle affordance to go load one. (Voice models
+    // aren't "loaded" here; they run on demand, so this badge is only about chat.)
     return (
       <button
         type="button"
         onClick={onShowModels}
+        title="No chat model loaded. Pick one to chat — voice models run on their own, no loading needed."
         className="hidden items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground sm:inline-flex"
       >
         <Cpu className="h-3.5 w-3.5" />
-        No model loaded
+        No chat model
       </button>
     );
   }
