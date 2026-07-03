@@ -49,19 +49,21 @@ def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Model already in the library → init skips the pull.
-    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
-    with runner.isolated_filesystem():
-        first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"])
-        assert first.exit_code == 0, first.output
-        manifest = Path("kodo.toml")
-        assert manifest.exists()
-        text = manifest.read_text()
-        assert 'model = "unsloth/X-GGUF"' in text
-        assert 'libraries = ["models", "@shared"]' in text  # project-local + shared
-        assert Path("models").is_dir()  # the project-local library was scaffolded
+    import tomllib
 
-        again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"])
+    # A configured shared library holding the model → init uses it (no pull, no local store).
+    monkeypatch.setattr(library_ops, "configured", lambda *a, **k: True)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
+    monkeypatch.setattr(cli, "_pick_tools_interactive", lambda: [])
+    with runner.isolated_filesystem():
+        # input = a blank system-prompt line (accepts the default)
+        first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n")
+        assert first.exit_code == 0, first.output
+        parsed = tomllib.loads(Path("kodo.toml").read_text())
+        assert parsed["project"]["model"] == "unsloth/X-GGUF"
+        assert "libraries" not in parsed  # uses the shared library — no project-local store
+
+        again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n")
         assert again.exit_code == 1  # refuses to clobber an existing project
         assert "already exists" in again.output
 

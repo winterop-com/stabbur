@@ -55,4 +55,6 @@ def test_advertised_mcp_servers_and_resolution() -> None:
 
     servers = {s.name: s.command for s in plugins.advertised_servers(pm)}
     assert servers["datetime"] == "kodo-mcp-datetime"
-    assert servers["benchmark"] == "kodo-mcp-benchmark"
+    # benchmark is a dev/benchmarking tool (kodo benchmark + its own MCP app), not an
+    # everyday assistant tool, so it deliberately advertises no assistant MCP server.
+    assert "benchmark" not in servers
