@@ -34,7 +34,7 @@ make install-mlx              # optional: MLX runtimes (Apple Silicon)
 make install-tts              # optional: 54-voice Kokoro TTS (macOS + Linux; espeak bundled)
 make install-voice            # optional: mlx-audio (Dia/Whisper/Qwen3-TTS, Apple Silicon)
 make frontend                 # optional: build the web UI (needs Node/npm)
-export KODO_LIBRARY_ROOT=/Volumes/LLM/Library    # required: where your library lives
+export KODO_LIBRARY_ROOT=/path/to/your/library   # required: where your library lives
 kodo doctor                   # verify what's installed
 ```
 
@@ -100,7 +100,7 @@ Two separate concepts:
   local folder. An external drive is the intended home:
 
   ```bash
-  export KODO_LIBRARY_ROOT=/Volumes/LLM/Library      # /mnt/llm/Library on Linux
+  export KODO_LIBRARY_ROOT=/path/to/your/library     # e.g. a mounted external drive
   ```
 
 - **A project** (`kodo.toml`, via `kodo project init` / `kodo project new <dir>`) — a

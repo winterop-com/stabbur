@@ -56,14 +56,14 @@ an external/cloud drive:
 
 ```toml
 # kodo.toml
-library_root = "/Volumes/LLM/Library"
+library_root = "/path/to/your/library"
 
 [project]
 model = "lmstudio-community/gemma-4-12B-it-QAT-GGUF"
 ```
 
 Every value can be overridden per machine with a `KODO_*` environment variable
-(e.g. a different mount path on Linux: `KODO_LIBRARY_ROOT=/mnt/llm/Library`).
+(e.g. a different mount path on Linux: `KODO_LIBRARY_ROOT=/media/<user>/<drive>`).
 A `.env` still works as an optional low-priority fallback, but `kodo.toml` is
 the primary config — you don't need `.env`. Precedence, high to low:
 CLI flags, `KODO_*` env vars, `kodo.toml`, `.env`. Settings are

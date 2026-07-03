@@ -35,7 +35,7 @@ def _default_lmstudio_dir() -> Path:
 class Settings(BaseSettings):
     """Application settings — read from ``kodo.toml`` first, then env vars.
 
-    Top-level keys in ``kodo.toml`` (e.g. ``library_root = "/Volumes/LLM/Library"``)
+    Top-level keys in ``kodo.toml`` (e.g. ``library_root = "/path/to/your/library"``)
     map directly to these fields; the ``[project]`` / ``[[mcp]]`` tables are
     ignored here and read by :mod:`kodo.project`. A ``KODO_*`` environment
     variable (e.g. ``KODO_LIBRARY_ROOT``) overrides the file per machine.

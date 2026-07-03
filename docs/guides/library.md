@@ -67,7 +67,7 @@ machine; the models and their tags come along.
 - **exFAT** is a good choice for a drive shared between macOS and Linux (the only
   filesystem both read/write natively). No journaling — **eject cleanly**; no
   symlinks — dedup is store-once-and-copy, not by link.
-- Mount paths differ per machine (e.g. `/Volumes/LLM` on macOS vs
-  `/media/<user>/LLM` on Linux) — set `library_root` in `kodo.toml`, or override
+- Mount paths differ per machine (e.g. `/Volumes/<drive>` on macOS vs
+  `/media/<user>/<drive>` on Linux) — set `library_root` in `kodo.toml`, or override
   it per machine with `KODO_LIBRARY_ROOT`.
 - Re-downloadable weights make the lack of journaling low-stakes.

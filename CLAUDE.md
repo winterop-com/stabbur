@@ -14,10 +14,11 @@ Build and maintain a **full local library of LLM models** by downloading /
 backing up from **Hugging Face**, **Ollama**, and **LM Studio**. Browse the
 library via a Typer CLI and a small FastAPI service.
 
-Downloads currently land in the project-local `data/` directory. **Later this
-moves to a dedicated 5TB WD Passport external drive** — when that happens, only
-`KODO_LIBRARY_ROOT` changes (e.g. `/Volumes/kodo-5tb/library`); no code
-changes required. `data/` is gitignored — model weights must never be committed.
+The library location is set via `KODO_LIBRARY_ROOT` (required — kodo refuses to
+run without one rather than silently using a local folder). An external drive is
+the intended home; moving to a different machine or drive is just a change to
+`KODO_LIBRARY_ROOT`, no code changes required. Model weights must never be
+committed.
 
 ## Stack & conventions
 
@@ -95,12 +96,12 @@ Every pull writes a `.kodo/` sidecar (`metadata.json` + `model-card.md`):
 
 ## Storage location
 
-- Source code: stays on the Mac + GitHub (small, version-controlled).
-- Model library: on a 5TB **exFAT** WD Passport, mounted `/Volumes/LLM` on this
-  Mac → `KODO_LIBRARY_ROOT=/Volumes/LLM/Library` (set in gitignored `.env`).
-  exFAT chosen for Mac + Linux read/write; allocation block 256 KB (good for
-  large weights). No journaling — eject cleanly. No symlinks/hardlinks on the
-  volume, so dedup must be by "store once, copy to each runtime", not by link.
+- Source code: stays on the machine + GitHub (small, version-controlled).
+- Model library: on an external drive, set via `KODO_LIBRARY_ROOT` (in a
+  gitignored `.env`). **exFAT** is the recommended filesystem for a drive shared
+  between macOS and Linux (both read/write natively); large allocation block for
+  big weights. No journaling — eject cleanly. No symlinks/hardlinks on exFAT, so
+  dedup must be by "store once, copy to each runtime", not by link.
   On Linux the mount path differs; set `KODO_LIBRARY_ROOT` per machine.
 
 ## Formats, runtimes & the shared library (intended direction)
