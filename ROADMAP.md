@@ -4,6 +4,37 @@ Forward-looking plans and ideas. Kept out of `CLAUDE.md` so it doesn't load
 into every session's context. `CLAUDE.md` holds the durable project rules,
 architecture, and conventions; this file holds what's next.
 
+## Next up (open threads, as of 2026-07-03)
+
+Concrete, agreed next actions — pick these up first.
+
+1. **Free-play MCP tools (agreed direction, not built).** Installed MCP plugins
+   (`datetime`, `utils`) are advertised but only a *project*'s `[[mcp]]` spawns them —
+   free-play (`kodo serve` with no project) has zero tools, so a model can't even find
+   today's date. Wire the advertised servers into free-play so they show in the Tools
+   control, **`datetime` on by default** (pure/read-only), the rest available-but-off.
+   (`benchmark` no longer advertises itself as an assistant tool — it's dev-only.)
+2. **Rename `packages/kodo-mcp-benchmark` → `kodo-benchmark`.** It's a benchmarking
+   tool (the `kodo benchmark` CLI), not an assistant MCP — the `mcp-` in the name is now
+   a misnomer. Rename the dir, package (`kodo_mcp_benchmark` → `kodo_benchmark`), the
+   entry point, and the workspace member/source in `pyproject.toml`. Do this **after**
+   the repo rename to avoid churn-on-churn. Same question for `kodo-mcp-utils`/`datetime`
+   (those *are* MCP servers, so their names are fine).
+3. **DHIS2 MCP install docs.** Document installing `dhis2w-mcp` and `dhis2w-mcp-bridge`
+   as project tools (per target model — big-context vs bridge), now that there's no
+   Chrome extension yet. Started in `docs/guides/` — flesh out with the real commands.
+4. **Voice as a project option.** Voice is orthogonal to the chat model (runs on demand),
+   so it stays available in projects by default. Add optional `kodo.toml` knobs:
+   `[voice] enabled = false` (hide the Voice surface for a pure-text assistant) and
+   `[project] chat_voice = "kokoro:af_heart"` (pin the speak-replies voice).
+5. **Repo rename `local-llm` → `kodo`.** Repo files (this, README, CLAUDE.md, docs, .env)
+   travel with the rename; the `.claude` auto-memory (keyed by the old path) does not —
+   copy `~/.claude/projects/-Users-morteoh-dev-local-local-llm/` →
+   `…-local-kodo/` to keep memory + session history. `.env`'s `KODO_LIBRARY_ROOT` points
+   at the drive (path-independent), so nothing else breaks. No hard-coded repo paths in src.
+6. Smaller: rename the `ModelsView.tsx` file to `LibraryView.tsx` (it renders the Library
+   now); a drawer-style sidebar for very narrow mobile widths.
+
 ## QA findings (2026-07-02 full run-through)
 
 From a playwright pass over the whole library (see `docs/guides/models.md` for the

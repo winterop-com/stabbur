@@ -219,6 +219,38 @@ Forward-looking plans — the north-star DHIS2 assistant, the phased build order
 and open/next ideas — live in `ROADMAP.md`, not here, so they don't load into
 every session's context. Update `ROADMAP.md` when plans change.
 
+## Current state & key decisions (as of 2026-07-03)
+
+What's built + non-obvious decisions (so a fresh session has context; details in git + `ROADMAP.md`).
+
+- **Two model families, three surfaces.** Chat (language models — text in/out; some read
+  vision/audio, some call tools) and Voice (TTS speaks, STT transcribes; audio in/out, not
+  chat). Web UI surfaces: **Chat**, **Voice** (studio), **Library** (all models, both
+  families, grouped Chat/Voice). Nav is "Library" (was "Models"). Voice runs on demand,
+  never in the chat runtime — the top-bar "No chat model" badge is Chat-only.
+- **Strict library.** No silent `./data`: `library.roots()` raises `LibraryNotConfigured`
+  unless `KODO_LIBRARY_ROOT` is set (or a project lists its own `libraries`). The CLI entry
+  is `kodo.cli:main`, which prints a clean message + exits. `library.configured()` is the
+  bool check. `doctor` reports it. Set `KODO_LIBRARY_ROOT` in `.env`/shell.
+- **Projects = locked assistants.** A `kodo.toml` `[project].model` binds the server to
+  that model (flows through `KODO_SERVE_MODEL`; UI hides the picker, `status.locked`).
+  `--model` overrides; no project = free-play. `kodo project init` (here) / `kodo project
+  new <dir>` (fresh dir, cargo-style) are interactive wizards (model + tools + prompt); a
+  project uses the shared library by default (no local store unless `KODO_LIBRARY_ROOT` is
+  unset, then it scaffolds a project-local `library/`).
+- **Voice runtime** (`kodo/voice/`): in-process mlx-audio (Apple) + Kokoro-ONNX
+  (cross-platform, the lightweight chat voice). `/v1/audio/speech` + `/v1/audio/transcriptions`;
+  ffmpeg format export (`voice/audio.py`). Gotchas: **Dia seeds only apply via
+  `mx.random.seed()`** (generate_audio ignores a `seed` kwarg) — pin one or Dia varies every
+  run; a leading **`[S1]` degrades** mlx-audio Dia (plain text is more reliable; keep
+  nonverbal cues mid-line, a trailing one clips); **Qwen3-TTS is unsupported** (registry
+  `supported=False` — mlx-audio doesn't load its speech tokenizer); Dia's DAC codec loads
+  from `~/.cache/huggingface` (not drive-portable yet).
+- **Capabilities:** tool detection needs a tool-*calling* marker (`tool_call`/`function_call`/
+  `available_tools`), not a bare "tools" (which false-flagged audio specialists).
+- **MCP:** installed plugins advertise servers (`datetime`, `utils`); `benchmark` does **not**
+  (it's dev-only). Free-play doesn't spawn them yet (see ROADMAP "Next up").
+
 ## Dev workflow
 
 - `make check` is the CI gate (read-only); `make lint` mutates locally.
