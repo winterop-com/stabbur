@@ -8,30 +8,27 @@ architecture, and conventions; this file holds what's next.
 
 Concrete, agreed next actions — pick these up first.
 
-1. **Free-play MCP tools (agreed direction, not built).** Installed MCP plugins
-   (`datetime`, `utils`) are advertised but only a *project*'s `[[mcp]]` spawns them —
-   free-play (`kodo serve` with no project) has zero tools, so a model can't even find
-   today's date. Wire the advertised servers into free-play so they show in the Tools
-   control, **`datetime` on by default** (pure/read-only), the rest available-but-off.
-   (`benchmark` no longer advertises itself as an assistant tool — it's dev-only.)
-2. **Rename `packages/kodo-mcp-benchmark` → `kodo-benchmark`.** It's a benchmarking
+1. **Tools require a project — DECIDED (2026-07-03), no free-play tools.** Considered
+   wiring advertised MCP plugins into free-play; decided against — a project is what turns
+   an assistant *on* (its `[[mcp]]` tools), and free-play stays clean (no tools, no global
+   `~/.kodo`). Want `datetime`? Make a project. (`benchmark` no longer advertises itself as
+   an assistant tool — it's dev-only.)
+2. **Wire `chat_voice` to the UI.** The wizard now writes `[project] chat_voice =
+   "kokoro:af_heart"` for every project (Project.chat_voice exists), but nothing consumes it
+   yet — surface it in `/api/status` (`default_chat_voice`) and have the web UI default its
+   speak-replies (Listen) voice to it. Then add `[voice] enabled = false` to hide the Voice
+   surface for a pure-text assistant.
+3. **Rename `packages/kodo-mcp-benchmark` → `kodo-benchmark`.** It's a benchmarking
    tool (the `kodo benchmark` CLI), not an assistant MCP — the `mcp-` in the name is now
    a misnomer. Rename the dir, package (`kodo_mcp_benchmark` → `kodo_benchmark`), the
    entry point, and the workspace member/source in `pyproject.toml`. Do this **after**
    the repo rename to avoid churn-on-churn. Same question for `kodo-mcp-utils`/`datetime`
    (those *are* MCP servers, so their names are fine).
-3. **DHIS2 MCP install docs.** Document installing `dhis2w-mcp` and `dhis2w-mcp-bridge`
+4. **DHIS2 MCP install docs.** Document installing `dhis2w-mcp` and `dhis2w-mcp-bridge`
    as project tools (per target model — big-context vs bridge), now that there's no
-   Chrome extension yet. Started in `docs/guides/` — flesh out with the real commands.
-4. **Voice as a project option.** Voice is orthogonal to the chat model (runs on demand),
-   so it stays available in projects by default. Add optional `kodo.toml` knobs:
-   `[voice] enabled = false` (hide the Voice surface for a pure-text assistant) and
-   `[project] chat_voice = "kokoro:af_heart"` (pin the speak-replies voice).
-5. **Repo rename `local-llm` → `kodo`.** Repo files (this, README, CLAUDE.md, docs, .env)
-   travel with the rename; the `.claude` auto-memory (keyed by the old path) does not —
-   copy `~/.claude/projects/-Users-morteoh-dev-local-local-llm/` →
-   `…-local-kodo/` to keep memory + session history. `.env`'s `KODO_LIBRARY_ROOT` points
-   at the drive (path-independent), so nothing else breaks. No hard-coded repo paths in src.
+   Chrome extension yet. Started in `docs/guides/tools.md` — flesh out with the real commands.
+5. **Repo rename `local-llm` → `kodo` — DONE (2026-07-03).** Repo is at `.../dev/local/kodo`;
+   the `.claude` memory dir was copied to the `…-local-kodo` key; venv rebuilt.
 6. Smaller: rename the `ModelsView.tsx` file to `LibraryView.tsx` (it renders the Library
    now); a drawer-style sidebar for very narrow mobile widths.
 

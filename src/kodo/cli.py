@@ -103,6 +103,7 @@ FormatOption = Annotated[
 # Curated starter models for `kodo project init` (verified GGUF repos; small but capable
 # — sub-1B toy models are too weak to be useful defaults, so the floor is ~3B).
 _CURATED: list[CuratedModel] = [
+    CuratedModel(id="unsloth/Llama-3.2-3B-Instruct-GGUF", note="tiny + fast, kinda works — good for testing (~2 GB)"),
     CuratedModel(id="unsloth/Qwen3.5-4B-GGUF", note="compact + good at tools (~2.5 GB)"),
     CuratedModel(id="lmstudio-community/gemma-4-12B-it-QAT-GGUF", note="capable all-rounder, vision + audio (~6.7 GB)"),
     CuratedModel(id="unsloth/gpt-oss-20b-GGUF", note="strong reasoning + tools (~10.8 GB)"),
