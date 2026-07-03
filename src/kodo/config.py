@@ -78,10 +78,12 @@ class Settings(BaseSettings):
     # bookmark / Chrome-extension origin.
     port: int | None = None
 
-    # Serve the browser UI (single-page app) alongside the API. The built
-    # frontend is expected at ``frontend_dir``; if missing, the API still runs.
+    # Serve the browser UI (single-page app) alongside the API. Defaults to the
+    # ``frontend/dist`` that ships with the source tree (resolved from this file, not the
+    # CWD) so ``serve --ui`` works from any directory — e.g. a globally-installed kodo run
+    # inside a project. If it's missing (not built), the API still runs.
     serve_ui: bool = False
-    frontend_dir: Path = Path("frontend/dist")
+    frontend_dir: Path = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
     # Lock the server to a single model (no switching) — for the Chrome-extension
     # backend. Empty means free model switching.
