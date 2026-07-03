@@ -35,6 +35,7 @@ import { HealthMenu } from "@/components/HealthMenu";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ModelsView } from "@/components/ModelsView";
+import { VoiceView } from "@/components/VoiceView";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { ToolsControl } from "@/components/ToolsControl";
@@ -56,8 +57,8 @@ function conversationIdFromHash(): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-/** Which primary surface to show: the chat, or the model library grid. */
-type View = "chat" | "models";
+/** Which primary surface to show: the chat, the model library grid, or the voice studio. */
+type View = "chat" | "models" | "voice";
 
 /** Map a raw runtime error / log tail to a friendly one-liner for known failures. */
 function friendlyRuntimeError(raw: string): string | null {
@@ -103,7 +104,9 @@ export function App() {
   const [draftSettings, setDraftSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [view, setView] = useState<View>(() => (window.location.hash === "#/models" ? "models" : "chat"));
+  const [view, setView] = useState<View>(() =>
+    window.location.hash === "#/models" ? "models" : window.location.hash === "#/voice" ? "voice" : "chat",
+  );
 
   // --- resizable layout: imperative handles to collapse/expand the rails. ---
   const leftPanel = useRef<ImperativePanelHandle>(null);
@@ -140,7 +143,8 @@ export function App() {
   // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
   // so a reload / bookmark / back-button lands on the same chat. ---
   useEffect(() => {
-    const target = view === "models" ? "#/models" : activeId ? `#/c/${activeId}` : "";
+    const target =
+      view === "models" ? "#/models" : view === "voice" ? "#/voice" : activeId ? `#/c/${activeId}` : "";
     if (window.location.hash !== target) {
       if (target) window.location.hash = target;
       else history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -150,6 +154,10 @@ export function App() {
     const onHash = () => {
       if (window.location.hash === "#/models") {
         setView("models");
+        return;
+      }
+      if (window.location.hash === "#/voice") {
+        setView("voice");
         return;
       }
       const id = conversationIdFromHash();
@@ -322,8 +330,9 @@ export function App() {
     [upsertConv],
   );
 
-  // --- primary view navigation (chat vs the model library grid) ---
+  // --- primary view navigation (chat vs the model library grid vs the voice studio) ---
   const showModels = useCallback(() => setView("models"), []);
+  const showVoice = useCallback(() => setView("voice"), []);
   const selectConversation = useCallback((id: string) => {
     setActiveId(id);
     setView("chat");
@@ -667,6 +676,7 @@ export function App() {
             onNew={startNewChat}
             onSelect={selectConversation}
             onShowModels={showModels}
+            onShowVoice={showVoice}
             onRename={renameConversation}
             onDelete={deleteConversation}
             onCollapse={toggleSidebar}
@@ -775,6 +785,8 @@ export function App() {
               onChat={chatWithLoaded}
               onSetTags={setTags}
             />
+          ) : view === "voice" ? (
+            <VoiceView />
           ) : (
           <>
           {(error || status?.error) && (

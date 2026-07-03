@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Boxes, Check, PanelLeftClose, PencilLine, Search, SquarePen, Trash2, X } from "lucide-react";
+import { AudioLines, Boxes, Check, PanelLeftClose, PencilLine, Search, SquarePen, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,16 +23,18 @@ export function Sidebar({
   onNew,
   onSelect,
   onShowModels,
+  onShowVoice,
   onRename,
   onDelete,
   onCollapse,
 }: {
   conversations: Conversation[];
   activeId: string | null;
-  view: "chat" | "models";
+  view: "chat" | "models" | "voice";
   onNew: () => void;
   onSelect: (id: string) => void;
   onShowModels: () => void;
+  onShowVoice: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onCollapse: () => void;
@@ -107,6 +109,17 @@ export function Sidebar({
         >
           <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
           Models
+        </button>
+        <button
+          type="button"
+          onClick={onShowVoice}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
+            view === "voice" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+          )}
+        >
+          <AudioLines className="h-4 w-4 shrink-0 text-muted-foreground" />
+          Voice
         </button>
       </div>
 

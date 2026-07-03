@@ -189,6 +189,53 @@ def library(settings: ConfDep) -> list[LibraryModelInfo]:
     return out
 
 
+class VoiceModelInfo(BaseModel):
+    """A library voice (TTS/STT) model, enriched with registry metadata, for the Voice UI."""
+
+    name: str  # library repo/name, e.g. "mlx-community/Dia-1.6B"
+    kind: str  # "tts" | "stt"
+    backend: str  # "kokoro-onnx" | "mlx-audio" | "llama-tts"
+    display_name: str
+    description: str = ""
+    size_human: str
+    cloneable: bool = False  # accepts a reference clip to clone a voice (Dia)
+    multi_speaker: bool = False  # dialogue with [S1]/[S2] speaker tags (Dia)
+    seeded: bool = False  # a fresh random voice per run unless a seed is pinned (Dia)
+    voices: list[str] = []  # named preset voices, if statically known
+    languages: list[str] = []
+    chat_default: bool = False  # the lightweight in-chat "speak replies" voice (Kokoro)
+
+
+@router.get("/api/voice")
+def voice_models() -> list[VoiceModelInfo]:
+    """List library voice (TTS/STT) models for the Voice UI, enriched from the registry.
+
+    Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
+    """
+    out: list[VoiceModelInfo] = []
+    for m in library_ops.scan():
+        if not m.voice_kind:
+            continue
+        spec = voice_registry.by_repo(m.name)
+        out.append(
+            VoiceModelInfo(
+                name=m.name,
+                kind=m.voice_kind,
+                backend=spec.backend.value if spec else "",
+                display_name=spec.display_name if spec else m.name.split("/")[-1],
+                description=spec.description if spec else "",
+                size_human=m.size_human,
+                cloneable=spec.cloneable if spec else False,
+                multi_speaker=spec.multi_speaker if spec else False,
+                seeded=bool(spec and spec.voice_mode == voice_registry.VoiceMode.seeded),
+                voices=list(spec.voices) if spec else [],
+                languages=list(spec.languages) if spec else list(m.languages),
+                chat_default=spec.chat_default if spec else False,
+            )
+        )
+    return out
+
+
 class TagUpdate(BaseModel):
     """Set a model's tags (the full replacement list)."""
 

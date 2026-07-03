@@ -186,6 +186,70 @@ export async function speak(text: string, voice?: string | null): Promise<Blob> 
   return res.blob();
 }
 
+/** A library voice model (TTS/STT), enriched with registry metadata, for the Voice view. */
+export interface VoiceModelInfo {
+  name: string;
+  kind: "tts" | "stt";
+  backend: string; // "kokoro-onnx" | "mlx-audio" | "llama-tts"
+  display_name: string;
+  description: string;
+  size_human: string;
+  cloneable: boolean;
+  multi_speaker: boolean;
+  seeded: boolean;
+  voices: string[];
+  languages: string[];
+  chat_default: boolean;
+}
+
+/** List library voice models (TTS + STT) for the Voice section. */
+export const getVoiceModels = () => fetch("/api/voice").then(json<VoiceModelInfo[]>);
+
+/** Options for /v1/audio/speech: a model + text, an optional preset voice, or a clone clip. */
+export interface SpeechOptions {
+  model: string; // a voice id ("kokoro"/"dia"/"qwen3-tts") or a library repo
+  input: string;
+  voice?: string | null; // preset voice (Kokoro); ignored when cloning
+  responseFormat?: string; // wav | mp3 | flac | opus | ogg | aac
+  refAudioB64?: string | null; // base64 WAV to clone a voice from (Dia)
+  refText?: string | null; // exact transcript of refAudioB64
+  seed?: number | null; // pin Dia's random voice
+}
+
+/** Synthesize speech via the OpenAI /v1/audio/speech endpoint; returns an audio blob. */
+export async function synthesizeSpeech(opts: SpeechOptions): Promise<Blob> {
+  const body: Record<string, unknown> = { model: opts.model, input: opts.input };
+  if (opts.voice) body.voice = opts.voice;
+  if (opts.responseFormat) body.response_format = opts.responseFormat;
+  if (opts.refAudioB64) body.ref_audio_b64 = opts.refAudioB64;
+  if (opts.refText) body.ref_text = opts.refText;
+  if (opts.seed != null) body.seed = opts.seed;
+  const res = await fetch("/v1/audio/speech", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+  return res.blob();
+}
+
+/** Transcribe an audio file via /v1/audio/transcriptions (Whisper); returns the text. */
+export async function transcribeAudio(file: Blob, model = "whisper", filename = "audio.wav"): Promise<string> {
+  const form = new FormData();
+  form.append("file", file, filename);
+  form.append("model", model);
+  const res = await fetch("/v1/audio/transcriptions", { method: "POST", body: form });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+  const data = await json<{ text: string }>(res);
+  return data.text;
+}
+
 /** Roll up a report to its worst status (fail > warn > ok). */
 export function overallStatus(report: DoctorReport | null): CheckStatus | null {
   if (!report) return null;
