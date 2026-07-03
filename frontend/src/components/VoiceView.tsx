@@ -74,7 +74,8 @@ function defaultTextFor(m: VoiceModelInfo | undefined): string {
   switch (m ? voiceId(m) : "") {
     case "dia":
       // Dia's strength is multi-speaker dialogue — default to a two-voice [S1]/[S2] exchange.
-      return "[S1] Hey there, welcome to kodo. [S2] Everything you hear runs right here on your machine. (laughs)";
+      // Keep the nonverbal cue mid-line, not last: Dia clips a trailing cue at end-of-audio.
+      return "[S1] Hey there, welcome to kodo! (laughs) [S2] Everything you hear runs right here on your own machine.";
     case "kokoro":
       return "Hi, I'm Kokoro, a small and fast voice running fully on your machine.";
     case "qwen3-tts":
@@ -390,7 +391,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       {isDialogue && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">
-            Plain text is most reliable; add cues, or pin a seed for a repeatable voice.
+            Tip: keep cues mid-line — a trailing one (e.g. ending on "(laughs)") gets clipped.
           </span>
           {NONVERBALS.map((n) => (
             <button
