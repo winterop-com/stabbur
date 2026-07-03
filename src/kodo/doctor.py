@@ -94,6 +94,15 @@ def check_runtimes() -> list[Check]:
 
 def check_library(settings: Settings) -> list[Check]:
     """Check the library roots and what's in them."""
+    if not library_ops.configured(settings):
+        return [
+            Check(
+                name="Libraries",
+                status=CheckStatus.fail,
+                detail="not configured",
+                hint="Set KODO_LIBRARY_ROOT (e.g. /Volumes/LLM/Library), or run `kodo project init`.",
+            )
+        ]
     checks: list[Check] = []
     lib_roots = library_ops.roots(settings)
     missing = [r for r in lib_roots if not r.is_dir()]

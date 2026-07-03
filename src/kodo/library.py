@@ -33,6 +33,26 @@ _PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "tts", "voice", "other
 # (shared) library" — so a committed kodo.toml stays portable (no hard-coded path).
 SHARED_TOKEN = "@shared"
 
+
+class LibraryNotConfigured(RuntimeError):
+    """No library location is configured — kodo can't do anything useful without one.
+
+    The shared/default library must be set explicitly (``KODO_LIBRARY_ROOT``) rather than
+    silently falling back to a CWD-relative ``./data`` (which is meaningless for a globally
+    installed CLI). A project (``kodo.toml``) that lists its own ``libraries`` counts as
+    configured. Carries a ready-to-print, actionable message.
+    """
+
+    HINT = (
+        "No library configured. Point kodo at your model library — set KODO_LIBRARY_ROOT, e.g.:\n"
+        "  export KODO_LIBRARY_ROOT=/Volumes/LLM/Library\n"
+        "or run `kodo project init` to scaffold a project with its own library."
+    )
+
+    def __init__(self, message: str = HINT) -> None:
+        super().__init__(message)
+
+
 # Preferred GGUF quant when a repo ships several, most-preferred first.
 _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
 
@@ -334,6 +354,10 @@ def roots(settings: Settings | None = None) -> list[Path]:
     settings = settings or get_settings()
     proj = project.load()
     entries = proj.libraries if proj and proj.libraries else [SHARED_TOKEN]
+    # Strict: the shared/default library must be set explicitly, not the ./data fallback. A
+    # project using only its own (project-relative) libraries doesn't need it.
+    if SHARED_TOKEN in entries and "library_root" not in settings.model_fields_set:
+        raise LibraryNotConfigured
     out: list[Path] = []
     seen: set[Path] = set()
     for entry in entries:
@@ -343,6 +367,15 @@ def roots(settings: Settings | None = None) -> list[Path]:
             seen.add(resolved)
             out.append(resolved)
     return out
+
+
+def configured(settings: Settings | None = None) -> bool:
+    """Whether a usable library location is configured (see :func:`roots`)."""
+    try:
+        roots(settings)
+        return True
+    except LibraryNotConfigured:
+        return False
 
 
 def scan(root: Path | None = None) -> list[LibraryModel]:

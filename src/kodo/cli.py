@@ -580,7 +580,9 @@ def init(
     local_lib = Path(_LOCAL_LIBRARY)
     local_lib.mkdir(parents=True, exist_ok=True)  # the project-local library
 
-    if library_ops.find(model):
+    # Only look for an existing copy if a library is configured — `init` itself is how you
+    # get one, so it must work with none set (it pulls into the project-local library below).
+    if library_ops.configured() and library_ops.find(model):
         console.print(f"[green]✓[/] {model} is already in your library")
     else:
         console.print(f"Pulling [bold]{model}[/] into the project-local library …")
@@ -1171,6 +1173,8 @@ def serve(
 
     import uvicorn  # noqa: PLC0415
 
+    library_ops.roots()  # fail fast + clean if no library is configured (rather than 500ing per request)
+
     # Propagate to the (possibly reloaded) worker process via env vars — with
     # --reload, uvicorn imports the app in a fresh process where the CLI callback's
     # in-memory overrides (--runtime-port, --debug) don't exist.
@@ -1352,5 +1356,14 @@ def _mount_plugins() -> None:
 _mount_plugins()
 
 
+def main() -> None:
+    """Console entry point: run the app, turning a missing library into a clean message."""
+    try:
+        app()
+    except library_ops.LibraryNotConfigured as exc:
+        console.print(f"[red]{exc}[/]")
+        raise SystemExit(1) from exc
+
+
 if __name__ == "__main__":
-    app()
+    main()
