@@ -96,13 +96,17 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   // play/pause + scrubber + regenerate row (the native <audio> is hidden, driven here).
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
+  const [ended, setEnded] = useState(false); // finished: show the "played" waveform + a replay control
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const togglePlay = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (a.paused) void a.play();
-    else a.pause();
+    if (a.paused) {
+      // Replay from the start once it's finished (the waveform sits fully "played" at the end).
+      if (a.ended || (a.duration && a.currentTime >= a.duration)) a.currentTime = 0;
+      void a.play();
+    } else a.pause();
   };
   const fmt = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
   // Reload + play whenever a fresh clip is synthesized (a changed blob src alone won't
@@ -111,6 +115,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   useEffect(() => {
     const a = audioRef.current;
     if (a && audioUrl) {
+      setEnded(false);
       a.load();
       void a.play().catch(() => {});
     }
@@ -453,10 +458,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               type="button"
               onClick={togglePlay}
               disabled={busy}
-              aria-label={playing ? "Pause" : "Play"}
+              aria-label={ended ? "Replay" : playing ? "Pause" : "Play"}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 pl-0.5" />}
+              {ended ? (
+                <RotateCcw className="h-4 w-4" />
+              ) : playing ? (
+                <Pause className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4 pl-0.5" />
+              )}
             </button>
             <div className="relative flex-1 overflow-hidden rounded-lg">
               <AudioScrubber
@@ -466,6 +477,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
                 onSeek={(t) => {
                   const a = audioRef.current;
                   if (a) a.currentTime = t;
+                  setEnded(false); // scrubbing moves the playhead off the end
                 }}
                 height={56}
                 barWidth={2}
@@ -484,14 +496,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         ref={audioRef}
         aria-label="Synthesized audio"
         src={audioUrl ?? undefined}
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          setPlaying(true);
+          setEnded(false);
+        }}
         onPause={() => setPlaying(false)}
-        onEnded={(e) => {
-          // Rewind to the start so the player rests in a clean "ready to replay" state
-          // (full waveform, empty progress) instead of stuck at 100% looking consumed.
+        onEnded={() => {
+          // Leave the playhead at the end so the waveform shows fully "played"; the button
+          // becomes a replay control that restarts from 0 on click.
           setPlaying(false);
-          e.currentTarget.currentTime = 0;
-          setCur(0);
+          setEnded(true);
         }}
         onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
