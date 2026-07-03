@@ -68,6 +68,20 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         assert "already exists" in again.output
 
 
+def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    # Canceling the wizard mid-prompt must not leave an empty project directory behind.
+    def _abort() -> str:
+        raise typer.Abort
+
+    monkeypatch.setattr(cli, "_pick_model_interactive", _abort)
+    with runner.isolated_filesystem():
+        result = runner.invoke(cli.app, ["project", "new", "hello"])
+        assert result.exit_code != 0
+        assert not Path("hello").exists()  # nothing created on cancel
+
+
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     # `project show` must surface the bound model, the system prompt, and the *actual*
     # tools (from connecting to the MCP servers) — not just server names.

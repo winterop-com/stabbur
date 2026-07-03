@@ -619,16 +619,18 @@ def _scaffold_project(target: Path, model: str | None, force: bool) -> None:
     that and pulls a missing model into it; with none set it warns and creates a project-local
     ``library/`` to download into (so you can start from nothing).
     """
-    target.mkdir(parents=True, exist_ok=True)
     proj = target / "kodo.toml"
     if proj.exists() and not force:
         console.print(f"[red]{proj} already exists[/] — use --force to overwrite.")
         raise typer.Exit(1)
 
+    # Gather every choice first, so canceling the wizard (Ctrl-C) leaves nothing behind —
+    # the directory is created only once we're committing to writing the project below.
     model = model or _pick_model_interactive()
     mcp = _pick_tools_interactive()
     system_prompt = typer.prompt("\n3. System prompt", default="You are a concise, helpful assistant.")
 
+    target.mkdir(parents=True, exist_ok=True)
     shared = library_ops.configured()
     local = False
     if shared and library_ops.find(model):
