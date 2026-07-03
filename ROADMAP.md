@@ -35,6 +35,42 @@ per-model matrix). Ordered roughly by impact:
 
 ## Open / next ideas
 
+- **Voice as a first-class model category (TTS + STT).** Voice models do audio in/out, not
+  next-token prediction, so they're their own category — distinct from audio-*input* chat
+  LLMs (Voxtral/ultravox), which stay under the generative caps. Foundation landed:
+  `kodo/voice/` with a **declarative registry** (`registry.py`) — one `VoiceModel` entry per
+  model — and **discovery** (`catalog.py`) that finds each in the HF cache vs the library's
+  `voice/` bucket. Design decisions:
+
+  - **Voice modes** (the key axis, per how a TTS voice is chosen): `preset` (Kokoro's 54
+    named voices, OuteTTS), `clone` (voice from a reference clip), `seeded` (a *new random
+    voice each run* unless a seed is pinned — this is Dia's default; that's why "Dia sounds
+    different every time"). Dia = seeded + cloneable + multi-speaker (`[S1]/[S2]`).
+  - **Kokoro stays the in-chat voice** (`chat_default`): 82M/~340MB, runs happily *alongside*
+    a large chat LLM. We do NOT load a 6GB voice model next to a 12GB LLM just to speak a
+    reply. Heavy models (Dia, …) are for the standalone Voice section.
+  - **Extensible by one entry**: adding a voice model is a `VoiceModel` in the registry (plus
+    a runtime backend adapter only when its backend is new). Backends: `kokoro-onnx`
+    (cross-platform, built-in), `mlx-audio` (Apple Silicon — Dia/Kokoro/Qwen3-TTS/Whisper),
+    `llama-tts` (GGUF TTS + vocoder).
+
+  Remaining phases (build after the current benchmark work; runtime needs serving):
+  1. `kodo voice list` (done in module; wire the CLI) + `kodo voice import` — copy models
+     from the HF cache into `<library>/voice/<repo>` so they're portable + organized, and
+     dedup (the two 6GB Dia copies collapse to the MLX one).
+  2. Voice-category detection in the library scan (a `voice/` bucket; tts/stt sub-type).
+  3. **mlx-audio runtime** (an external process kodo spawns, like llama-server) + OpenAI
+     audio endpoints `/v1/audio/speech` (TTS) and `/v1/audio/transcriptions` (STT), so the
+     SPA and any client use one standard.
+  4. **Voice section in the web UI** (peer of Models): model cards, then a model-aware
+     playground — Kokoro voice picker, Dia dialogue editor + nonverbal palette + clone-from-
+     clip + seed control, Whisper drop/record → transcript.
+  5. **Chat voice layer** done right: composer toggles for mic input (Whisper → prompt) and
+     speak-replies (Kokoro by default), using whichever voice you set as default.
+  6. Stretch: a `voice` benchmark suite — STT word-error-rate, and a TTS round-trip
+     intelligibility check (TTS → Whisper → compare), plus RTF/latency (reuses the timing we
+     already capture).
+
 - **More MCP servers — the default "normal toolset".** The assistant should ship a
   small, dependable set of built-in tools beyond `datetime`. Each is its own workspace
   member following the `kodo-mcp-datetime` template (src layout, `__init__`+`__main__`+
