@@ -560,6 +560,36 @@ def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.Mo
     assert library.roots(settings) == [(tmp_path / ".kodo/library").resolve(), shared.resolve()]
 
 
+def test_roots_shared_token_strictness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # @shared resolves to the machine default (KODO_LIBRARY_ROOT). When that isn't set
+    # explicitly, @shared must hard-fail if it's the only source — but drop out silently
+    # if the project also ships its own local library (so a `--local` project is self-contained).
+    from kodo import project
+
+    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    # cwd is the empty tmp_path (no .env / kodo.toml) and the env var is unset, so
+    # library_root is left at its default → "not set explicitly".
+    settings = Settings()
+    assert "library_root" not in settings.model_fields_set
+    monkeypatch.setattr(library, "get_settings", lambda: settings)
+
+    # Free-play (no project → implicit [@shared]) with no root set: refuse to run.
+    monkeypatch.setattr(project, "load", lambda *a, **k: None)
+    with pytest.raises(library.LibraryNotConfigured):
+        library.roots(settings)
+
+    # A project listing only @shared is equally unusable without a root.
+    monkeypatch.setattr(project, "load", lambda *a, **k: project.Project(libraries=["@shared"]))
+    with pytest.raises(library.LibraryNotConfigured):
+        library.roots(settings)
+
+    # But a project that also ships its own store runs from it; @shared just drops out.
+    proj = project.Project(libraries=["library", "@shared"])
+    monkeypatch.setattr(project, "load", lambda *a, **k: proj)
+    assert library.roots(settings) == [(tmp_path / "library").resolve()]
+
+
 def test_safe_join_allows_normal_names(tmp_path: Path) -> None:
     assert base.safe_join(tmp_path, "pub/repo") == (tmp_path / "pub/repo").resolve()
     assert base.safe_join(tmp_path, "gguf/pub/repo") == (tmp_path / "gguf/pub/repo").resolve()

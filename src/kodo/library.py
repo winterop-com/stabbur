@@ -354,10 +354,16 @@ def roots(settings: Settings | None = None) -> list[Path]:
     settings = settings or get_settings()
     proj = project.load()
     entries = proj.libraries if proj and proj.libraries else [SHARED_TOKEN]
-    # Strict: the shared/default library must be set explicitly, not the ./data fallback. A
-    # project using only its own (project-relative) libraries doesn't need it.
+    # @shared resolves to the machine default library (KODO_LIBRARY_ROOT), which must be set
+    # explicitly — not the ./data fallback. If a project also ships its own (project-relative)
+    # libraries, a missing @shared simply drops out and the project runs from its own store
+    # (this is what makes a `--local` project self-contained). @shared only hard-fails when
+    # it's the *only* source of models — i.e. free-play, or a project listing nothing local.
     if SHARED_TOKEN in entries and "library_root" not in settings.model_fields_set:
-        raise LibraryNotConfigured
+        local_entries = [e for e in entries if e != SHARED_TOKEN]
+        if not local_entries:
+            raise LibraryNotConfigured
+        entries = local_entries
     out: list[Path] = []
     seen: set[Path] = set()
     for entry in entries:
