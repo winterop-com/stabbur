@@ -80,7 +80,9 @@ def test_dir_capabilities_nested_text_config(tmp_path: Path) -> None:
             }
         )
     )
-    (tmp_path / "tokenizer_config.json").write_text(json.dumps({"chat_template": "use {{ tools }} here"}))
+    (tmp_path / "tokenizer_config.json").write_text(
+        json.dumps({"chat_template": "{% if tool_calls %}{{ tool_call }}{% endif %}"})
+    )
     caps = capabilities.capabilities(_model(tmp_path, ModelFormat.mlx, tmp_path))
     assert caps.vision is True
     assert caps.tools is True
@@ -96,6 +98,18 @@ def test_dir_capabilities_text_only(tmp_path: Path) -> None:
     assert caps.vision is False
     assert caps.tools is False
     assert caps.context_length == 8192
+
+
+def test_tools_needs_a_calling_marker_not_bare_tools(tmp_path: Path) -> None:
+    # A template that only mentions "tools" in passing (as audio specialists do) is NOT
+    # tool-capable; a real tool-calling structure (tool_call) is.
+    def caps_for(template: str) -> bool:
+        (tmp_path / "config.json").write_text(json.dumps({"architectures": ["LlamaForCausalLM"]}))
+        (tmp_path / "tokenizer_config.json").write_text(json.dumps({"chat_template": template}))
+        return capabilities.capabilities(_model(tmp_path, ModelFormat.mlx, tmp_path)).tools
+
+    assert caps_for("you may use these tools to help the user") is False
+    assert caps_for("{% if tool_call %}...{% endif %}") is True
 
 
 def test_gguf_audio_from_mmproj_metadata(tmp_path: Path) -> None:

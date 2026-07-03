@@ -9,25 +9,26 @@ architecture, and conventions; this file holds what's next.
 From a playwright pass over the whole library (see `docs/guides/models.md` for the
 per-model matrix). Ordered roughly by impact:
 
-- **Audio-specialist models don't process audio.** gemma-4-12B transcribes audio
-  fine, but Ultravox 500s (`image input is not supported`) and Voxtral silently
-  ignores the audio. Likely a `llama-server` mmproj-routing issue for their
-  audio-only projectors — needs a runtime/projector investigation. High.
-- **Attachments are silently dropped if added before the model's capabilities
-  load.** `kindOf` gates image/audio on `accept.*`, which is false until the
-  library/status loads, so an early-attached file vanishes with no feedback (looks
-  like "no audio provided"). Fix: don't reject unknown media while capabilities are
-  still loading, or surface a "not accepted" hint instead of dropping silently. Med.
-- **Capability-detection inconsistencies** (`kodo.capabilities`): same model shows
-  different caps across formats (Ornith GGUF no-vision vs MLX vision; Qwen3.6 GGUF
-  tools vs MLX no-tools), and audio specialists (Ultravox/Voxtral) are marked
-  tools-capable (false positive → they refuse, citing missing tools). Med.
-- **Broken MLX vision checkpoints surface a cryptic error.** gemma-4-E4B-MLX and
-  Ornith-MLX fail to load (mlx-vlm weight mismatch) — good that it fails fast and
-  surfaces via `status.error`, but the message is a raw tensor-key dump; map known
-  mismatches to a friendly "this MLX build isn't supported; use the GGUF." Low.
-- **No favicon** — `/favicon.ico` 404s on every load (2 console errors). Serve one
-  (even inline) to quiet it. Cosmetic.
+- **Audio-specialist models don't process audio.** [STILL OPEN — High] gemma-4-12B
+  transcribes audio fine, but Ultravox 500s (`image input is not supported`) and Voxtral
+  silently ignores the audio. Likely a `llama-server` mmproj-routing issue for their
+  audio-only projectors — needs a runtime/projector investigation. (No audio-specialist
+  model is currently in the library to reproduce against.)
+- **Capability-detection** (`kodo.capabilities`): [partly resolved 2026-07-03] the
+  audio-specialist tools **false positive is fixed** — tool detection now requires a
+  tool-*calling* marker (`tool_call`/`function_call`/`available_tools`), not a bare mention
+  of "tools" (which Ultravox/Voxtral include in passing). The cross-format *vision* "mismatch"
+  (e.g. Qwen3.5-4B: GGUF text-only vs MLX `vision_config` present) turned out to be a **real
+  build difference**, not a detection bug — the MLX build genuinely ships a vision config, the
+  GGUF doesn't — so detection is reading accurate metadata. No change warranted there.
+
+Resolved in the 2026-07-03 pass:
+- **Attachments dropped before caps load — FIXED.** `kindOf` now accepts image/audio
+  optimistically while capabilities are still loading (`|| !accept.known`).
+- **Broken MLX vision cryptic error — FIXED.** `friendlyRuntimeError` maps the raw
+  tensor-key mismatch dump to "This MLX build couldn't be loaded … try the GGUF."
+- **Favicon — FIXED.** `<link rel=icon>` + `public/favicon.svg` + a `/favicon.ico`
+  route (browsers probe it regardless); `/favicon.ico` now 200s.
 - Confirmed-good this run: model picker + filters, model switching, MLX text +
   tools, GGUF vision + audio (gemma), reasoning display, TTS/Listen (Kokoro),
   project system-prompt default, cross-site guard. Load speed is drive-bound

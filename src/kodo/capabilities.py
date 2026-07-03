@@ -32,8 +32,13 @@ _GGUF_ARRAY = 9
 # Fixed-width scalar type → struct size in bytes.
 _GGUF_SCALAR_SIZE = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
 
-# Chat-template markers that indicate the model was trained for tool calling.
-_TOOL_MARKERS = ("tool_call", "tool_calls", "tools", "function_call", "available_tools")
+# Chat-template markers that indicate the model was trained for tool calling. Require a
+# tool-*calling* structure (``tool_call``/``function_call``/``available_tools``), not a bare
+# mention of "tools": some non-tool models (e.g. audio specialists like Ultravox/Voxtral)
+# reference "tools" in passing, which falsely marked them tools-capable — after which they'd
+# refuse a request citing missing tools. Every genuine tool model here also carries
+# ``tool_call``/``tool_calls``, so dropping the loose marker loses no real detections.
+_TOOL_MARKERS = ("tool_call", "tool_calls", "function_call", "available_tools")
 
 
 class ModelCapabilities(BaseModel):
