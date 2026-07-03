@@ -11,6 +11,8 @@ import {
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AudioScrubber, RecordingWaveform } from "@/components/ui/waveform";
+import { audioPeaks } from "@/lib/audio";
 import { startRecording, type Recording } from "@/lib/recorder";
 import { cn } from "@/lib/utils";
 
@@ -86,6 +88,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [peaks, setPeaks] = useState<number[]>([]); // waveform of the last clip (for the scrubber)
   const dialogueRef = useRef<HTMLTextAreaElement>(null);
 
   // --- unified inline player: one control that morphs Speak -> Synthesizing -> a
@@ -100,12 +103,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     if (a.paused) void a.play();
     else a.pause();
   };
-  const seek = (frac: number) => {
-    const a = audioRef.current;
-    if (a && a.duration) a.currentTime = frac * a.duration;
-  };
   const fmt = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
-  const progress = dur ? cur / dur : 0;
   // Reload + play whenever a fresh clip is synthesized (a changed blob src alone won't
   // restart an already-loaded <audio>), so re-synthesizing after a model/voice change
   // actually plays the new audio instead of the stale one.
@@ -139,6 +137,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    setPeaks([]);
     setError(null);
   }, [model]);
 
@@ -208,6 +207,8 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(blob);
       });
+      setPeaks([]); // clear the old waveform, then fill it once the clip is decoded
+      void audioPeaks(blob).then(setPeaks).catch(() => setPeaks([]));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setAudioUrl((prev) => {
@@ -368,6 +369,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               {cloneRecording ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
               {cloneRecording ? "Stop" : "Record"}
             </button>
+            {cloneRecording && (
+              <RecordingWaveform
+                recording={cloneRecording}
+                showHandle={false}
+                height={28}
+                barWidth={2}
+                barGap={1}
+                className="min-w-32 flex-1 text-destructive"
+              />
+            )}
             {refB64 && (
               <button
                 type="button"
@@ -430,7 +441,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         {audioUrl && (
           <div
             className={cn(
-              "flex items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-2 pr-4",
+              "flex items-center gap-3 rounded-2xl border border-border bg-muted/40 py-2 pl-2 pr-4",
               busy && "pointer-events-none opacity-50", // generating: don't let the old clip play
             )}
           >
@@ -443,16 +454,18 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             >
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 pl-0.5" />}
             </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.001}
-              value={progress}
-              onChange={(e) => seek(Number(e.target.value))}
-              disabled={busy}
-              aria-label="Seek"
-              className="h-1 flex-1 cursor-pointer accent-primary"
+            <AudioScrubber
+              data={peaks}
+              currentTime={cur}
+              duration={dur}
+              onSeek={(t) => {
+                const a = audioRef.current;
+                if (a) a.currentTime = t;
+              }}
+              height={64}
+              barWidth={2}
+              barGap={1}
+              className="flex-1"
             />
             <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
               {fmt(cur)} / {fmt(dur)}
@@ -563,6 +576,16 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
           <Mic className="h-3.5 w-3.5" />
           {recording ? "Stop" : "Record"}
         </Button>
+        {recording && (
+          <RecordingWaveform
+            recording={recording}
+            showHandle={false}
+            height={28}
+            barWidth={2}
+            barGap={1}
+            className="min-w-32 flex-1 text-sky-500"
+          />
+        )}
         {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
       </div>
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}

@@ -4,6 +4,7 @@ import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, X } from "lucide-re
 import { transcribeAudio } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { LiveMicrophoneWaveform } from "@/components/ui/waveform";
 import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment, MediaKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -300,6 +301,17 @@ export function Composer({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {(recState === "recording" || dictState === "recording") && (
+        <div className="flex items-center gap-2 px-4 pt-3 text-destructive">
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive/60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
+          </span>
+          <LiveMicrophoneWaveform active height={24} barWidth={2} barGap={1} className="flex-1" />
+          <span className="shrink-0 text-[11px]">{dictState === "recording" ? "Dictating…" : "Recording…"}</span>
         </div>
       )}
 
