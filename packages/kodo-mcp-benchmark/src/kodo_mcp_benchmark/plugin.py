@@ -192,16 +192,11 @@ class BenchmarkPlugin:
         """Mount ``kodo benchmark`` (``list`` / ``run`` / ``leaderboard``)."""
         return "benchmark", _build_app(context)
 
-    @extension
-    def mcp_servers(self) -> list[dict[str, str]]:
-        """Advertise the benchmark MCP server (suites + sandboxed executor)."""
-        return [
-            {
-                "name": "benchmark",
-                "command": "kodo-mcp-benchmark",
-                "description": "List/run benchmark suites and execute code in a sandbox.",
-            }
-        ]
+    # Note: benchmark deliberately does NOT advertise itself via `mcp_servers`. It's a
+    # dev/benchmarking tool (driven by `kodo benchmark` + its own MCP app), not an
+    # everyday assistant tool — so it stays out of the assistant tool picker, which lists
+    # only genuine assistant tools (datetime, utils, …). Re-add an `mcp_servers` hook if a
+    # narrow subset (e.g. the sandboxed code executor) ever becomes a real assistant tool.
 
 
 # The object kodo loads via the ``kodo.plugins`` entry point.
