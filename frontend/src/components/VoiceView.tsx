@@ -214,12 +214,8 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     setError(null);
   }, [model]);
 
-  // Audition voices fast: pick a fresh random seed and generate with it in one click.
-  const shuffle = () => {
-    const s = Math.floor(Math.random() * 100000);
-    setSeed(String(s));
-    void speak(s);
-  };
+  // Just drop a fresh random seed into the field — the user generates when ready.
+  const randomizeSeed = () => setSeed(String(Math.floor(Math.random() * 100000)));
 
   const insertCue = (cue: string) => {
     setText((t) => (t.endsWith(" ") || t === "" ? t + cue + " " : t + " " + cue + " "));
@@ -376,11 +372,10 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             />
             <button
               type="button"
-              onClick={shuffle}
-              disabled={busy || !text.trim()}
-              aria-label="Random voice"
-              title="Random voice — shuffle the seed and generate"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent/60 disabled:opacity-50"
+              onClick={randomizeSeed}
+              aria-label="Randomize seed"
+              title="Randomize the seed (then Generate to hear it)"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-accent/60"
             >
               <Dices className="h-4 w-4" />
             </button>
