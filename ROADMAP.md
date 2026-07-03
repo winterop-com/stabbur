@@ -80,6 +80,27 @@ per-model matrix). Ordered roughly by impact:
      intelligibility check (TTS → Whisper → compare), plus RTF/latency (reuses the timing we
      already capture).
 
+  **Status (2026-07-03):** phases 1–5 shipped — registry/import, unified library scan
+  (`kodo voice`), in-process mlx-audio runtime (synth/clone/transcribe), OpenAI
+  `/v1/audio/*` endpoints with **ffmpeg format export** (wav/mp3/opus/flac/ogg/aac), the
+  web **Voice studio** (Playwright-verified), and the chat dictation mic + Kokoro
+  speak-replies. See `docs/guides/voice.md`.
+
+  Voice follow-ups:
+  - **Qwen3-TTS support.** Currently flagged `supported=False` in the registry: mlx-audio's
+    high-level `load_model` doesn't wire up its separate speech tokenizer (`Qwen3TTSSpeechTokenizer`
+    lives in the repo's `speech_tokenizer/`), so `generate_audio` errors and returns nothing.
+    Enable by loading the tokenizer and `model.load_speech_tokenizer(...)` before generating.
+  - **Dia self-contained on the drive.** Dia loads its DAC codec (`mlx-community/descript-audio-codec-44khz`,
+    293MB) from `~/.cache/huggingface`, not the library — mlx-audio hardcodes the repo id.
+    For offline portability, point `HF_HUB_CACHE` at a drive dir **at process startup** (its
+    cache constants are import-time; setting it late is a no-op) and seed it once from the cache.
+  - **Richer audio UI.** [ElevenLabs UI](https://ui.elevenlabs.io/) is a shadcn/Tailwind audio
+    component registry (waveform player, orb, etc.) on the same stack — a natural polish pass
+    for the Voice studio's inline player and a chat voice-bar.
+  - **Voice cloning in the Textual TUI.** Cloning is reachable from the web UI and the CLI
+    (`kodo voice speak --model dia --ref-audio … --ref-text …`); add a TUI affordance too.
+
 - **More MCP servers — the default "normal toolset".** The assistant should ship a
   small, dependable set of built-in tools beyond `datetime`. Each is its own workspace
   member following the `kodo-mcp-datetime` template (src layout, `__init__`+`__main__`+
