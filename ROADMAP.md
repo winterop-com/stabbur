@@ -35,6 +35,15 @@ per-model matrix). Ordered roughly by impact:
 
 ## Open / next ideas
 
+- **Projects as locked, purpose-built configs.** Today a project (`kodo.toml`) auto-loads
+  its `[project].model` but still shows the full model picker and all tools — so opening a
+  repo to "just play with voice" force-loads e.g. gemma4. Direction: a project should be a
+  *specific assistant* — bind to its model (hide/lock the picker, like `serve --ui --model`),
+  its tools, and its surfaces, so it's tailored to the use case (the DHIS2 assistant, etc.).
+  Working *without* a project stays the free-play mode (all models, no auto-load) — this is
+  the current testing setup (no `kodo.toml`; library via `KODO_LIBRARY_ROOT` in `.env`).
+  Decide the UX: locked project vs. an unlocked "suggested default" a project can pick.
+
 - **Voice as a first-class model category (TTS + STT).** Voice models do audio in/out, not
   next-token prediction, so they're their own category — distinct from audio-*input* chat
   LLMs (Voxtral/ultravox), which stay under the generative caps. Foundation landed:
