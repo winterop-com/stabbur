@@ -53,6 +53,24 @@ function voiceId(m: VoiceModelInfo): string {
   return m.name; // fall back to the repo; the endpoint resolves by_repo too
 }
 
+/** A default sample line per model — it names the voice so you hear which is which, and
+ *  showcases what's distinctive (Dia's nonverbal cues). Plain text (no [S1]) for Dia,
+ *  since a leading speaker tag degrades mlx-audio's Dia. */
+function defaultTextFor(m: VoiceModelInfo | undefined): string {
+  switch (m ? voiceId(m) : "") {
+    case "dia":
+      return "Hey there, this is Dia — an expressive voice that runs on your own machine. I can even laugh. (laughs)";
+    case "kokoro":
+      return "Hi, I'm Kokoro, a small and fast voice running fully on your machine.";
+    case "qwen3-tts":
+      return "This is Qwen3 TTS, a compact multilingual voice.";
+    case "outetts":
+      return "This is OuteTTS, speaking through llama dot cpp.";
+    default:
+      return "Hello from kodo. This voice runs fully on your own machine.";
+  }
+}
+
 /** A read-only reference card for one voice model. */
 function VoiceCard({ model }: { model: VoiceModelInfo }) {
   return (
@@ -106,7 +124,7 @@ function VoiceCard({ model }: { model: VoiceModelInfo }) {
 function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; kokoroVoices: Voice[] }) {
   const [modelName, setModelName] = useState<string>(() => ttsModels[0]?.name ?? "");
   const model = useMemo(() => ttsModels.find((m) => m.name === modelName), [ttsModels, modelName]);
-  const [text, setText] = useState("Hello from kodo. This voice runs fully on your own machine.");
+  const [text, setText] = useState(() => defaultTextFor(ttsModels[0]));
   const [voice, setVoice] = useState<string>("af_heart");
   const [format, setFormat] = useState<string>("wav");
   // Dia is stochastic — a random seed sometimes drones instead of speaking. Default to a
@@ -138,6 +156,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   };
   const fmt = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
   const progress = dur ? cur / dur : 0;
+  // Reload + play whenever a fresh clip is synthesized (a changed blob src alone won't
+  // restart an already-loaded <audio>), so re-synthesizing after a model/voice change
+  // actually plays the new audio instead of the stale one.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a && audioUrl) {
+      a.load();
+      void a.play().catch(() => {});
+    }
+  }, [audioUrl]);
 
   const isKokoro = model?.backend === "kokoro-onnx" || voiceId(model ?? ({} as VoiceModelInfo)) === "kokoro";
   const isDialogue = !!model?.multi_speaker;
@@ -146,6 +174,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   useEffect(() => {
     if (!modelName && ttsModels[0]) setModelName(ttsModels[0].name);
   }, [ttsModels, modelName]);
+
+  // Swap the sample line to the selected model's default — but only while the user hasn't
+  // edited it (i.e. it still equals the previous model's default), so edits are never lost.
+  const lastDefaultRef = useRef(defaultTextFor(ttsModels[0]));
+  useEffect(() => {
+    const prevDefault = lastDefaultRef.current; // capture BEFORE updating the ref
+    const next = defaultTextFor(model);
+    lastDefaultRef.current = next;
+    setText((prev) => (prev === prevDefault ? next : prev));
+  }, [model]);
 
   const insertCue = (cue: string) => {
     setText((t) => (t.endsWith(" ") || t === "" ? t + cue + " " : t + " " + cue + " "));
@@ -333,14 +371,25 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-3">
-        {!audioUrl || busy ? (
+      <div className="mt-3 flex flex-col gap-3">
+        <div className="flex items-center gap-3">
           <Button onClick={speak} disabled={busy || !text.trim()} className="gap-1.5">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {busy ? "Synthesizing…" : "Speak"}
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : audioUrl ? (
+              <RotateCcw className="h-4 w-4" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            {busy ? "Generating…" : audioUrl ? "Generate again" : "Generate"}
           </Button>
-        ) : (
-          <div className="flex flex-1 items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-2 pr-3">
+          {error && <span className="text-xs text-destructive">{error}</span>}
+        </div>
+
+        {/* Inline player for the last clip: play/pause + scrubber + time. The Speak
+            button above re-synthesizes the current settings (model/voice/text). */}
+        {audioUrl && (
+          <div className="flex items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-2 pr-4">
             <button
               type="button"
               onClick={togglePlay}
@@ -362,25 +411,14 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
               {fmt(cur)} / {fmt(dur)}
             </span>
-            <button
-              type="button"
-              onClick={speak}
-              aria-label="Speak again"
-              title="Synthesize again"
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
           </div>
         )}
-        {error && <span className="text-xs text-destructive">{error}</span>}
       </div>
 
       <audio
         ref={audioRef}
         aria-label="Synthesized audio"
         src={audioUrl ?? undefined}
-        autoPlay
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}

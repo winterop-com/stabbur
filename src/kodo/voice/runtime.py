@@ -60,7 +60,15 @@ def synthesize(
     with tempfile.TemporaryDirectory() as tmp:
         generate_audio(text=text, model=loaded, output_path=tmp, **kwargs)
         out = sorted(Path(tmp).glob(f"out*.{audio_format}"))
-        return out[0].read_bytes() if out else b""
+        if not out:
+            # mlx-audio swallows some model errors (prints + returns nothing) rather than
+            # raising — e.g. a model whose speech tokenizer/codec didn't load. Surface it
+            # as a real failure so callers show an error instead of silent empty audio.
+            raise RuntimeError(
+                "mlx-audio produced no audio for this model — it may not be supported "
+                "(a model needing a speech tokenizer or codec that didn't load)."
+            )
+        return out[0].read_bytes()
 
 
 def transcribe(model: Path | str, audio: Path | str, *, language: str | None = None) -> str:

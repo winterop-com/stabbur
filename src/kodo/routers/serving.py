@@ -664,6 +664,8 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
             data = await asyncio.to_thread(
                 _synthesize_mlx, model.load_target, text, req.voice, ref_path, req.ref_text, params
             )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         finally:
             if ref_path is not None:
                 ref_path.unlink(missing_ok=True)
