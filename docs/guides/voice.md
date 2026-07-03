@@ -46,14 +46,16 @@ kodo voice speak "Hi" --format mp3 -o out.mp3  # export via ffmpeg
 
 ## Web UI — the Voice studio
 
-`kodo serve --ui` adds a **Voice** section (peer of Models) with:
+`kodo serve --ui` has a **Voice** studio (a peer surface to Chat), plus the voice
+models listed in the **Library** (under the *Voice* category, alongside *Chat*).
+The studio:
 
 - **Text to speech** — pick a model, type (a model-specific sample line prefills),
   choose an output format, and **Generate**. The result plays in an inline player
-  (play/pause + scrubber). For **Dia**: a nonverbal-cue palette, a **seed** field,
-  and **clone-from-clip** (upload a reference clip + its transcript).
+  (play/pause + scrubber). For **Dia**: a nonverbal-cue palette, a **seed** field
+  (with a dice to randomize it) and **clone-from-clip** — upload *or* record a
+  reference clip (auto-transcribed by Whisper, silence auto-stops the recorder).
 - **Speech to text** — upload or record audio; Whisper returns the transcript.
-- **Voice models** — reference cards for everything in the library.
 
 **In chat:** non-audio models get a **dictation mic** in the composer (Whisper →
 prompt), and each reply has a **Listen** button (Kokoro by default — the
