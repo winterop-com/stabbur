@@ -41,6 +41,7 @@ nav:
       - Running & chatting: guides/running.md
       - Web UI (serve --ui): guides/web-ui.md
       - Voice (TTS & STT): guides/voice.md
+      - Tools (MCP): guides/tools.md
       - Using models directly: guides/direct-usage.md
       - How models work (formats & modalities): guides/how-models-work.md
       - Models & compatibility: guides/models.md
