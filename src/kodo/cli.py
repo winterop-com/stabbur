@@ -1,5 +1,6 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
+import json
 import os
 import shutil
 import tempfile
@@ -175,7 +176,7 @@ def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) ->
 _LOCAL_LIBRARY = "models"
 
 
-def _project_toml(model: str) -> str:
+def _project_toml(model: str, system_prompt: str = "", mcp: list[tuple[str, str]] | None = None) -> str:
     """Render a kodo.toml: the libraries this project uses + its assistant.
 
     Portable and git-committable — no machine-specific paths. ``libraries`` lists a
@@ -183,6 +184,17 @@ def _project_toml(model: str) -> str:
     for the machine's default library (``KODO_LIBRARY_ROOT``). ``[project]`` /
     ``[[mcp]]`` define the assistant. Override anything per machine with ``KODO_*``.
     """
+    if mcp:
+        tools_block = "# Tools via MCP — the assistant's toolset.\n" + "".join(
+            f"[[mcp]]\nname = {json.dumps(name)}\ncommand = {json.dumps(command)}\n\n" for name, command in mcp
+        )
+    else:
+        tools_block = (
+            "# Tools via MCP (repeatable; add a server to give the assistant tools):\n"
+            "# [[mcp]]\n"
+            '# name = "datetime"\n'
+            '# command = "kodo-mcp-datetime"\n'
+        )
     return (
         "# kodo project — this directory's assistant + the libraries it uses.\n"
         "# Portable: no machine-specific paths. The machine's default (shared)\n"
@@ -193,12 +205,9 @@ def _project_toml(model: str) -> str:
         f'libraries = ["{_LOCAL_LIBRARY}", "@shared"]\n\n'
         "# The assistant this project defines.\n"
         "[project]\n"
-        f'model = "{model}"\n'
-        'system_prompt = ""\n\n'
-        "# Tools via MCP (repeatable; uncomment and point at an MCP server):\n"
-        "# [[mcp]]\n"
-        '# name = "dhis2"\n'
-        '# command = "dhis2w-mcp-bridge"\n'
+        f"model = {json.dumps(model)}\n"
+        f"system_prompt = {json.dumps(system_prompt)}\n\n"
+        f"{tools_block}"
     )
 
 
@@ -550,51 +559,89 @@ def sources(
         )
 
 
+def _pick_model_interactive() -> str:
+    """Pick the project's default model: a chat model already in the library, or a starter to pull."""
+    lib = [m for m in (library_ops.scan() if library_ops.configured() else []) if m.generative and not m.is_ollama]
+    console.print("\n[bold]1. Default model[/] [dim]— what this project loads[/]")
+    options: list[str] = []
+    for m in sorted(lib, key=lambda m: m.name):
+        options.append(m.name)
+        console.print(f"  {len(options)}. {m.name}  [dim]{m.model_format.value} · {m.size_human}[/]")
+    if lib:
+        console.print("  [dim]— or pull a starter —[/]")
+    for c in _CURATED:
+        options.append(c.id)
+        console.print(f"  {len(options)}. {c.id}  [dim]pull · {c.note}[/]")
+    choice = typer.prompt("Number", default="1")
+    try:
+        return options[int(choice) - 1]
+    except (ValueError, IndexError):
+        console.print(f"[red]Not a valid choice: {choice!r}[/]")
+        raise typer.Exit(1) from None
+
+
+def _pick_tools_interactive() -> list[tuple[str, str]]:
+    """Multi-select MCP servers (from installed plugins) for the project's toolset."""
+    from kodo import plugins  # noqa: PLC0415
+
+    servers = plugins.advertised_servers(plugins.manager())
+    if not servers:
+        console.print("\n[bold]2. Tools[/] [dim]— no MCP plugins installed; skipping (add later in kodo.toml)[/]")
+        return []
+    console.print("\n[bold]2. Tools[/] [dim]— MCP servers this assistant can call[/]")
+    for i, s in enumerate(servers, 1):
+        console.print(f"  {i}. {s.name}  [dim]{s.description}[/]")
+    raw = typer.prompt("Select (comma-separated numbers, 'all', or blank for none)", default="").strip().lower()
+    if not raw:
+        return []
+    if raw == "all":
+        chosen = list(servers)
+    else:
+        chosen = [servers[int(p) - 1] for p in raw.split(",") if p.strip().isdigit() and 0 < int(p) <= len(servers)]
+    return [(s.name, s.command) for s in chosen]
+
+
 @project_app.command("init")
 def init(
-    model: Annotated[str | None, typer.Option("--model", help="Model to bind (skips the curated picker).")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Model to bind (skips the model picker).")] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing kodo.toml.")] = False,
 ) -> None:
-    """Scaffold a project here: a kodo.toml + a project-local library directory.
+    """Scaffold a project here — an interactive wizard.
 
-    Idempotent: only pulls the model if it's missing. When no --model is given,
-    offers a small curated set and pulls the chosen one into the project-local
-    library. The project uses that local library plus the machine's shared one.
+    Walks you through a default model (from your library, or a starter to pull), a
+    toolset (installed MCP plugins), and a system prompt, then writes kodo.toml + a
+    project-local library. A project is a purpose-built assistant: `kodo serve`/`chat`
+    here bind to its model (like --model) with its tools + prompt. Outside a project
+    it's free-play. Idempotent: only pulls the model if it's missing.
     """
     proj = Path("kodo.toml")
     if proj.exists() and not force:
         console.print("[red]kodo.toml already exists[/] here — use --force to overwrite.")
         raise typer.Exit(1)
 
-    if model is None:
-        console.print("[bold]Pick a starter model:[/]")
-        for i, curated in enumerate(_CURATED, 1):
-            console.print(f"  {i}. {curated.id}  [dim]{curated.note}[/]")
-        choice = typer.prompt("Number", default="1")
-        try:
-            model = _CURATED[int(choice) - 1].id
-        except (ValueError, IndexError):
-            console.print(f"[red]Not a valid choice: {choice!r}[/]")
-            raise typer.Exit(1) from None
+    model = model or _pick_model_interactive()
+    mcp = _pick_tools_interactive()
+    system_prompt = typer.prompt("\n3. System prompt", default="You are a concise, helpful assistant.")
 
     local_lib = Path(_LOCAL_LIBRARY)
     local_lib.mkdir(parents=True, exist_ok=True)  # the project-local library
-
     # Only look for an existing copy if a library is configured — `init` itself is how you
     # get one, so it must work with none set (it pulls into the project-local library below).
     if library_ops.configured() and library_ops.find(model):
-        console.print(f"[green]✓[/] {model} is already in your library")
+        console.print(f"\n[green]✓[/] {model} is already in your library")
     else:
-        console.print(f"Pulling [bold]{model}[/] into the project-local library …")
+        console.print(f"\nPulling [bold]{model}[/] into the project-local library …")
         try:
             catalog_ops.pull(ModelSource.huggingface, model, library_root=local_lib)
         except Exception as exc:  # noqa: BLE001 - surface pull/network failures
             console.print(f"[red]Pull failed:[/] {exc}")
             raise typer.Exit(1) from exc
 
-    proj.write_text(_project_toml(model))
-    console.print(f"\n[green]Created kodo.toml[/] + [green]{local_lib}/[/] (model: {model})")
-    console.print(f"[dim]Next:[/] kodo serve --ui  [dim]· or[/] kodo chat {model.rsplit('/', 1)[-1]}")
+    proj.write_text(_project_toml(model, system_prompt, mcp))
+    console.print(f"\n[green]Created kodo.toml[/] + [green]{local_lib}/[/]")
+    console.print(f"  [dim]model:[/] {model}")
+    console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in mcp) if mcp else 'none'}")
+    console.print("[dim]Next:[/] kodo serve --ui")
 
 
 def _connect_project_tools(mcp: list[project.ProjectMcp]) -> tuple[dict[str, list[tuple[str, str]]], str | None]:
