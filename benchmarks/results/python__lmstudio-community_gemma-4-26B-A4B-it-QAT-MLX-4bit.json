@@ -1,0 +1,56 @@
+{
+  "suite": "python",
+  "language": "python",
+  "type": "code",
+  "model": "lmstudio-community/gemma-4-26B-A4B-it-QAT-MLX-4bit",
+  "timestamp": "2026-07-03T09:57:52",
+  "load_s": 207.1704827909998,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.995283041993389,
+      "exec_s": 0.4118837909772992
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.3069866670120973,
+      "exec_s": 0.2746302919986192
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.7407791669829749,
+      "exec_s": 0.26912279200041667
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 2.7906755000003614,
+      "exec_s": 0.2922804999980144
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 2.040603125002235,
+      "exec_s": 0.2664585000020452
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 4.715927999990527,
+      "exec_s": 0.5444188330147881
+    }
+  ],
+  "gen_s": 15.590255500981584,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

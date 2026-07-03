@@ -1,0 +1,49 @@
+{
+  "suite": "tools-utils",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/gemma-4-26B-A4B-it-QAT-MLX-4bit",
+  "timestamp": "2026-07-03T10:27:56",
+  "load_s": 201.0987832499959,
+  "outcomes": [
+    {
+      "id": "reverse",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 8.405616667005233,
+      "exec_s": 0.0
+    },
+    {
+      "id": "base64",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 8.259388249978656,
+      "exec_s": 0.0
+    },
+    {
+      "id": "gcd",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.244144124997547,
+      "exec_s": 0.0
+    },
+    {
+      "id": "to-base",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.26263829198433,
+      "exec_s": 0.0
+    },
+    {
+      "id": "sha256",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 9.251683917012997,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 42.423471250978764,
+  "total": 5,
+  "passed": 5,
+  "score": 1.0
+}

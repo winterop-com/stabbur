@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/gemma-4-26B-A4B-it-QAT-MLX-4bit",
+  "timestamp": "2026-07-03T10:16:05",
+  "load_s": 200.63632324998616,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 6.833803708024789,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.106831208016956,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 7.425845999998273,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 6.780508916999679,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 28.146989833039697,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

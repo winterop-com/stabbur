@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "lmstudio-community/gemma-4-26B-A4B-it-QAT-MLX-4bit",
+  "timestamp": "2026-07-03T10:06:36",
+  "load_s": 203.1073737499828,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.6036575000034645,
+      "exec_s": 0.8006405000051018
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.376916541979881,
+      "exec_s": 0.4801288330054376
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.0239085830107797,
+      "exec_s": 0.4907365829858463
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 3.1847313749894965,
+      "exec_s": 0.5041832080169115
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 1.8442385829985142,
+      "exec_s": 0.5423910840181634
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 4.504596791986842,
+      "exec_s": 1.0280964589910582
+    }
+  ],
+  "gen_s": 16.538049374968978,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

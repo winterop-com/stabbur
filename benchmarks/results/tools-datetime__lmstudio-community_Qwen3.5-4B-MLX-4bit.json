@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/Qwen3.5-4B-MLX-4bit",
+  "timestamp": "2026-07-03T10:12:12",
+  "load_s": 43.3257788339979,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.568396332993871,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.890475583990337,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.226025791984284,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 7.469651082996279,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 31.15454879196477,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

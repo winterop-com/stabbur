@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "mlx-community/Qwen3.6-27B-4bit",
+  "timestamp": "2026-07-03T10:10:53",
+  "load_s": 197.72157099997276,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.236109582998324,
+      "exec_s": 0.8562315840099473
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 6.722980084014125,
+      "exec_s": 0.4631375000171829
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 6.932610957999714,
+      "exec_s": 0.4929772079922259
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 12.004558916989481,
+      "exec_s": 0.5384047499974258
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 5.814214874990284,
+      "exec_s": 0.5620631669880822
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 12.344886500010034,
+      "exec_s": 1.0473550840106327
+    }
+  ],
+  "gen_s": 51.05536091700196,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

@@ -1,0 +1,49 @@
+{
+  "suite": "tools-utils",
+  "language": "tools",
+  "type": "tool",
+  "model": "mlx-community/Qwen3.6-27B-4bit",
+  "timestamp": "2026-07-03T10:36:02",
+  "load_s": 210.6658119590138,
+  "outcomes": [
+    {
+      "id": "reverse",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 53.273629999981495,
+      "exec_s": 0.0
+    },
+    {
+      "id": "base64",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 53.62188491600682,
+      "exec_s": 0.0
+    },
+    {
+      "id": "gcd",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 53.857769957976416,
+      "exec_s": 0.0
+    },
+    {
+      "id": "to-base",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 54.106273666984634,
+      "exec_s": 0.0
+    },
+    {
+      "id": "sha256",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 56.56116770900553,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 271.4207262499549,
+  "total": 5,
+  "passed": 5,
+  "score": 1.0
+}
