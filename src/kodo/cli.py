@@ -1038,6 +1038,7 @@ def _chat_with_tools(
                 top_k=rec.top_k,
                 min_p=rec.min_p,
                 repeat_penalty=rec.repeat_penalty,
+                model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
             )
             _first_output()
             print()  # noqa: T201 - newline after streamed answer
@@ -1057,6 +1058,7 @@ def _chat_with_tools(
         chat_tui.run_interactive(
             model_name=model.name,
             model_format=model.model_format.value,
+            model_target=str(model.load_target),
             base=base,
             servers=servers,
             system_prompt=system_prompt,
@@ -1186,6 +1188,7 @@ class _HostContext:
                     top_k=rec.top_k,
                     min_p=rec.min_p,
                     repeat_penalty=rec.repeat_penalty,
+                    model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
                 )
 
         answer = asyncio.run(_go())

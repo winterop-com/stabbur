@@ -102,6 +102,7 @@ class ChatApp(App[None]):
         *,
         model_name: str,
         model_format: str,
+        model_target: str,
         base: str,
         servers: list[tuple[str | None, list[str]]],
         system_prompt: str,
@@ -114,6 +115,7 @@ class ChatApp(App[None]):
         super().__init__()
         self._model_name = model_name
         self._model_format = model_format
+        self._model_target = model_target  # OpenAI ``model`` field value (mlx-vlm needs it)
         self._base = base
         self._servers = servers
         self._max_tokens = max_tokens
@@ -329,6 +331,7 @@ class ChatApp(App[None]):
                     top_k=self._sampling.top_k,
                     min_p=self._sampling.min_p,
                     repeat_penalty=self._sampling.repeat_penalty,
+                    model=self._model_target,  # required by mlx-vlm; ignored by llama-server/mlx-lm
                 )
             except asyncio.CancelledError:  # ESC: drop the partial turn, keep the session
                 finalize_reasoning()
@@ -360,6 +363,7 @@ def run_interactive(
     *,
     model_name: str,
     model_format: str,
+    model_target: str,
     base: str,
     servers: list[tuple[str | None, list[str]]],
     system_prompt: str,
@@ -373,6 +377,7 @@ def run_interactive(
     ChatApp(
         model_name=model_name,
         model_format=model_format,
+        model_target=model_target,
         base=base,
         servers=servers,
         system_prompt=system_prompt,

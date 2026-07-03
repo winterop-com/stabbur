@@ -216,7 +216,9 @@ def _chat(base: str, model: LibraryModel, messages: list[dict[str, Any]], max_to
     """POST one chat completion to an already-served ``base`` and return the reply text."""
     from kodo import sampling  # noqa: PLC0415 - avoid import cycle at module load
 
-    body: dict[str, object] = {"messages": messages}
+    # mlx-vlm requires the OpenAI ``model`` field and matches it against what it loaded
+    # (the launch path); llama-server / mlx-lm ignore it.
+    body: dict[str, object] = {"messages": messages, "model": str(model.load_target)}
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default).

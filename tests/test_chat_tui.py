@@ -13,6 +13,7 @@ def _app() -> chat_tui.ChatApp:
     return chat_tui.ChatApp(
         model_name="pub/Foo-GGUF",
         model_format="gguf",
+        model_target="/lib/gguf/pub/Foo-GGUF/model.gguf",
         base="http://127.0.0.1:9",
         servers=[],
         system_prompt="",
