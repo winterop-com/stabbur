@@ -374,15 +374,6 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               {cloneRecording ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
               {cloneRecording ? "Stop" : "Record"}
             </button>
-            {cloneRecording && (
-              <BarVisualizer
-                mediaStream={cloneStream}
-                barCount={28}
-                minHeight={6}
-                centerAlign
-                className="h-8 min-w-32 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-destructive"
-              />
-            )}
             {refB64 && (
               <button
                 type="button"
@@ -396,6 +387,15 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               </button>
             )}
           </div>
+          {cloneRecording && (
+            <BarVisualizer
+              mediaStream={cloneStream}
+              barCount={40}
+              minHeight={4}
+              centerAlign
+              className="mt-2 h-14 w-full gap-1 rounded-lg border border-border bg-background px-3 [&>div]:bg-destructive"
+            />
+          )}
           {refB64 && (
             <div className="mt-2">
               <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -445,7 +445,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         {audioUrl && (
           <div
             className={cn(
-              "flex items-center gap-3 rounded-2xl border border-border bg-muted/40 py-2 pl-2 pr-4",
+              "flex items-center gap-3 rounded-2xl border border-border bg-muted/40 p-2 pr-4",
               busy && "pointer-events-none opacity-50", // generating: don't let the old clip play
             )}
           >
@@ -454,23 +454,25 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               onClick={togglePlay}
               disabled={busy}
               aria-label={playing ? "Pause" : "Play"}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
             >
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 pl-0.5" />}
             </button>
-            <AudioScrubber
-              data={peaks}
-              currentTime={cur}
-              duration={dur}
-              onSeek={(t) => {
-                const a = audioRef.current;
-                if (a) a.currentTime = t;
-              }}
-              height={64}
-              barWidth={2}
-              barGap={1}
-              className="flex-1"
-            />
+            <div className="relative flex-1 overflow-hidden rounded-lg">
+              <AudioScrubber
+                data={peaks}
+                currentTime={cur}
+                duration={dur}
+                onSeek={(t) => {
+                  const a = audioRef.current;
+                  if (a) a.currentTime = t;
+                }}
+                height={56}
+                barWidth={2}
+                barGap={1}
+                className="w-full"
+              />
+            </div>
             <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
               {fmt(cur)} / {fmt(dur)}
             </span>
@@ -484,7 +486,13 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         src={audioUrl ?? undefined}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onEnded={(e) => {
+          // Rewind to the start so the player rests in a clean "ready to replay" state
+          // (full waveform, empty progress) instead of stuck at 100% looking consumed.
+          setPlaying(false);
+          e.currentTarget.currentTime = 0;
+          setCur(0);
+        }}
         onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
         className="hidden"
@@ -583,17 +591,17 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
           <Mic className="h-3.5 w-3.5" />
           {recording ? "Stop" : "Record"}
         </Button>
-        {recording && (
-          <BarVisualizer
-            mediaStream={recStream}
-            barCount={28}
-            minHeight={6}
-            centerAlign
-            className="h-8 min-w-32 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-sky-500"
-          />
-        )}
         {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
       </div>
+      {recording && (
+        <BarVisualizer
+          mediaStream={recStream}
+          barCount={40}
+          minHeight={4}
+          centerAlign
+          className="mt-3 h-16 w-full gap-1 rounded-lg border border-border bg-muted/30 px-3 [&>div]:bg-sky-500"
+        />
+      )}
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       <div
         aria-label="Transcript"

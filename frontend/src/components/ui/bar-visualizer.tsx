@@ -146,13 +146,15 @@ const multibandDefaults: MultiBandVolumeOptions = {
   analyserOptions: { fftSize: 2048 },
 }
 
-// Memoized normalization function to avoid recreating on each render
+// Normalize an FFT bin's dB value to 0..1. Local change: the upstream version mapped
+// [-100, -10] dB through a sqrt, which lifts the floor so every bar sits at mid-height and
+// barely reacts. A linear map over a realistic mic range (-80..-20 dB) gives real contrast —
+// quiet bands drop toward 0, loud speech pushes toward 1.
 const normalizeDb = (value: number) => {
   if (value === -Infinity) return 0
-  const minDb = -100
-  const maxDb = -10
-  const db = 1 - (Math.max(minDb, Math.min(maxDb, value)) * -1) / 100
-  return Math.sqrt(db)
+  const minDb = -80
+  const maxDb = -20
+  return (Math.max(minDb, Math.min(maxDb, value)) - minDb) / (maxDb - minDb)
 }
 
 /**
@@ -379,10 +381,14 @@ const BarVisualizerComponent = forwardRef<HTMLDivElement, BarVisualizerProps>(
     ref
   ) => {
     // Audio processing
+    // Local fix: loPass/hiPass are FFT *bin* indices (fftSize 2048 → ~23 Hz/bin). The
+    // upstream default 100–200 only covers ~2.3–4.7 kHz (sibilance), so it barely reacts to
+    // speech. Widen to bins 2–320 (~50 Hz–7.5 kHz) to include the vocal fundamentals and
+    // vowel formants where most of the energy is, so the bars actually track loudness.
     const realVolumeBands = useMultibandVolume(mediaStream, {
       bands: barCount,
-      loPass: 100,
-      hiPass: 200,
+      loPass: 2,
+      hiPass: 320,
     })
 
     // Generate fake volume data for demo mode using refs to avoid state updates

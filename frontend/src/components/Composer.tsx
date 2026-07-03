@@ -317,10 +317,10 @@ export function Composer({
           </span>
           <BarVisualizer
             mediaStream={micStream}
-            barCount={32}
-            minHeight={6}
+            barCount={40}
+            minHeight={4}
             centerAlign
-            className="h-6 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-destructive"
+            className="h-10 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-destructive"
           />
           <span className="shrink-0 text-[11px]">{dictState === "recording" ? "Dictating…" : "Recording…"}</span>
         </div>
