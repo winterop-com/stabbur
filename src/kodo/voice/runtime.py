@@ -1,80 +1,39 @@
-"""Serve voice models via mlx-audio (Apple Silicon): spawn its server, synth + transcribe.
+"""Serve voice models via mlx-audio, in-process (Apple Silicon): synth + transcribe.
 
-mlx-audio ships a FastAPI server (``mlx_audio.server``) exposing OpenAI-shaped
-``/v1/audio/*`` that loads models per request (cached). kodo spawns it like it spawns
-llama-server, then posts a library model *path* (so it loads from the drive, not a fresh
-HF download). Apple-Silicon only — it's an ``mlx`` runtime; on Linux, Kokoro-ONNX
-(:mod:`kodo.kokoro`) covers TTS. Voice cloning uses ``ref_audio`` + ``ref_text``.
+Calls mlx-audio directly rather than spawning its FastAPI server — that server drags a chain
+of VAD/realtime deps (webrtcvad, pkg_resources, …) we don't need, while ``mlx_audio.tts`` /
+``mlx_audio.stt`` work with just ``misaki[en]``. kodo's own serve layer exposes the OpenAI
+``/v1/audio/*`` routes on top of these functions. Models load off the library path (not a
+fresh HF download) and are cached. Apple-Silicon only (the ``voice``/``mlx`` extras); on
+Linux, Kokoro-ONNX (:mod:`kodo.kokoro`) covers TTS. Cloning uses ``ref_audio`` + ``ref_text``.
 """
 
 from __future__ import annotations
 
-import contextlib
-import socket
-import subprocess
-import sys
-import time
-from collections.abc import Generator
+import tempfile
+from functools import lru_cache
 from pathlib import Path
-
-import httpx
-
-_STARTUP_TIMEOUT = 120.0  # mlx-audio server import + first readiness
+from typing import Any
 
 
 def available() -> bool:
-    """Whether the mlx-audio runtime is importable (Apple-Silicon ``mlx`` extra installed)."""
+    """Whether the mlx-audio runtime is importable (Apple-Silicon ``voice`` extra installed)."""
     try:
-        import mlx_audio.server  # noqa: F401, PLC0415
+        import mlx_audio.tts.generate  # noqa: F401, PLC0415
     except ImportError:
         return False
     return True
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
+@lru_cache(maxsize=4)
+def _load(model_path: str) -> Any:
+    """Load (and cache) an mlx-audio model from a local path."""
+    from mlx_audio.tts.generate import load_model  # noqa: PLC0415
 
-
-@contextlib.contextmanager
-def serve() -> Generator[str, None, None]:
-    """Spawn ``mlx_audio.server`` on a free port and yield its base URL; stop it on exit."""
-    if not available():
-        raise RuntimeError("mlx-audio not installed — run `uv sync --extra mlx` (Apple Silicon).")
-    port = _free_port()
-    base = f"http://127.0.0.1:{port}"
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "mlx_audio.server", "--host", "127.0.0.1", "--port", str(port)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        _wait_ready(base, proc)
-        yield base
-    finally:
-        proc.terminate()
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=10)
-        if proc.poll() is None:
-            proc.kill()
-
-
-def _wait_ready(base: str, proc: subprocess.Popen[bytes]) -> None:
-    deadline = time.monotonic() + _STARTUP_TIMEOUT
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError("mlx-audio server exited during startup")
-        try:
-            if httpx.get(f"{base}/v1/models", timeout=2).status_code < 500:
-                return
-        except httpx.HTTPError:
-            time.sleep(0.5)
-    raise RuntimeError("mlx-audio server did not become ready in time")
+    return load_model(model_path)
 
 
 def synthesize(
-    base: str,
     model: Path | str,
     text: str,
     *,
@@ -89,25 +48,30 @@ def synthesize(
     Give ``voice`` for a preset model (Kokoro) or ``ref_audio`` + ``ref_text`` to clone a
     voice (Dia). ``model`` is a library path so mlx-audio loads it off the drive.
     """
-    body: dict[str, object] = {"model": str(model), "input": text, "response_format": audio_format}
+    if not available():
+        raise RuntimeError("mlx-audio not installed — run `uv sync --extra voice` (Apple Silicon).")
+    from mlx_audio.tts.generate import generate_audio  # noqa: PLC0415
+
+    loaded = _load(str(model))
+    kwargs: dict[str, Any] = {"file_prefix": "out", "audio_format": audio_format, "save": True, "verbose": False}
     if voice is not None:
-        body["voice"] = voice
+        kwargs["voice"] = voice
     if ref_audio is not None:
-        body["ref_audio"] = str(ref_audio)
-        body["ref_text"] = ref_text or ""
-    body.update(params)
-    resp = httpx.post(f"{base}/v1/audio/speech", json=body, timeout=600)
-    resp.raise_for_status()
-    return resp.content
+        kwargs["ref_audio"] = str(ref_audio)
+        kwargs["ref_text"] = ref_text or ""
+    kwargs.update(params)
+    with tempfile.TemporaryDirectory() as tmp:
+        generate_audio(text=text, model=loaded, output_path=tmp, **kwargs)
+        out = sorted(Path(tmp).glob(f"out*.{audio_format}"))
+        return out[0].read_bytes() if out else b""
 
 
-def transcribe(base: str, model: Path | str, audio: Path | str, *, language: str | None = None) -> str:
-    """Audio file -> transcript text (Whisper). ``model`` is a library path."""
-    data: dict[str, str] = {"model": str(model)}
-    if language:
-        data["language"] = language
-    with Path(audio).open("rb") as fh:
-        resp = httpx.post(f"{base}/v1/audio/transcriptions", data=data, files={"file": fh}, timeout=600)
-    resp.raise_for_status()
-    payload = resp.json()
-    return str(payload.get("text", "")) if isinstance(payload, dict) else str(payload)
+def transcribe(model: Path | str, audio: Path | str, *, language: str | None = None) -> str:
+    """Transcribe an audio file to text with a Whisper model (a library path)."""
+    if not available():
+        raise RuntimeError("mlx-audio not installed — run `uv sync --extra voice` (Apple Silicon).")
+    from mlx_audio.stt.generate import generate as stt_generate  # noqa: PLC0415
+
+    result = stt_generate(model=str(model), audio=str(audio), language=language, verbose=False)
+    text = getattr(result, "text", result)
+    return str(text).strip()
