@@ -61,7 +61,7 @@ function conversationIdFromHash(): string | null {
 }
 
 /** Which primary surface to show: the chat, the model library grid, or the voice studio. */
-type View = "chat" | "models" | "voice";
+type View = "chat" | "library" | "voice";
 
 /** Map a raw runtime error / log tail to a friendly one-liner for known failures. */
 function friendlyRuntimeError(raw: string): string | null {
@@ -109,7 +109,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [view, setView] = useState<View>(() =>
-    window.location.hash === "#/models" ? "models" : window.location.hash === "#/voice" ? "voice" : "chat",
+    window.location.hash === "#/library" ? "library" : window.location.hash === "#/voice" ? "voice" : "chat",
   );
 
   // --- resizable layout: imperative handles to collapse/expand the rails. ---
@@ -148,7 +148,7 @@ export function App() {
   // so a reload / bookmark / back-button lands on the same chat. ---
   useEffect(() => {
     const target =
-      view === "models" ? "#/models" : view === "voice" ? "#/voice" : activeId ? `#/c/${activeId}` : "";
+      view === "library" ? "#/library" : view === "voice" ? "#/voice" : activeId ? `#/c/${activeId}` : "";
     if (window.location.hash !== target) {
       if (target) window.location.hash = target;
       else history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -156,8 +156,8 @@ export function App() {
   }, [view, activeId]);
   useEffect(() => {
     const onHash = () => {
-      if (window.location.hash === "#/models") {
-        setView("models");
+      if (window.location.hash === "#/library") {
+        setView("library");
         return;
       }
       if (window.location.hash === "#/voice") {
@@ -338,7 +338,7 @@ export function App() {
   );
 
   // --- primary view navigation (chat vs the model library grid vs the voice studio) ---
-  const showModels = useCallback(() => setView("models"), []);
+  const showLibrary = useCallback(() => setView("library"), []);
   const showVoice = useCallback(() => setView("voice"), []);
   const selectConversation = useCallback((id: string) => {
     setActiveId(id);
@@ -664,7 +664,7 @@ export function App() {
             view={view}
             onExpand={openSidebar}
             onNew={startNewChat}
-            onShowModels={showModels}
+            onShowLibrary={showLibrary}
             onShowVoice={showVoice}
           />
         )}
@@ -694,7 +694,7 @@ export function App() {
             view={view}
             onNew={startNewChat}
             onSelect={selectConversation}
-            onShowModels={showModels}
+            onShowLibrary={showLibrary}
             onShowVoice={showVoice}
             onRename={renameConversation}
             onDelete={deleteConversation}
@@ -717,12 +717,16 @@ export function App() {
                 IconRail on the far left, so the top bar stays clean. */}
             <div className="flex items-center gap-1" />
             <div className="flex items-center gap-1.5">
-              <LoadedModelBadge
-                status={status}
-                loadingName={loadingName}
-                onEject={eject}
-                onShowModels={showModels}
-              />
+              {/* The chat/LLM runtime badge belongs to the Chat surface only — it's
+                  irrelevant on Library/Voice (voice models don't use the runtime). */}
+              {view === "chat" && (
+                <LoadedModelBadge
+                  status={status}
+                  loadingName={loadingName}
+                  onEject={eject}
+                  onShowLibrary={showLibrary}
+                />
+              )}
               {activeConv && messages.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -769,7 +773,7 @@ export function App() {
             </div>
           </header>
 
-          {view === "models" ? (
+          {view === "library" ? (
             <ModelsView
               library={library}
               loaded={libraryLoaded}

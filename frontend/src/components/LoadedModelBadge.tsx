@@ -18,12 +18,12 @@ export function LoadedModelBadge({
   status,
   loadingName,
   onEject,
-  onShowModels,
+  onShowLibrary,
 }: {
   status: Status | null;
   loadingName: string | null;
   onEject: () => void;
-  onShowModels: () => void;
+  onShowLibrary: () => void;
 }) {
   const loading = !!loadingName || status?.state === "loading";
   const name = loadingName ?? status?.model ?? null;
@@ -34,7 +34,7 @@ export function LoadedModelBadge({
     return (
       <button
         type="button"
-        onClick={onShowModels}
+        onClick={onShowLibrary}
         title="No chat model loaded. Pick one to chat — voice models run on their own, no loading needed."
         className="hidden items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground sm:inline-flex"
       >
@@ -58,7 +58,7 @@ export function LoadedModelBadge({
       )}
       <button
         type="button"
-        onClick={onShowModels}
+        onClick={onShowLibrary}
         title={name ?? undefined}
         className="max-w-[14rem] truncate font-medium hover:underline"
       >

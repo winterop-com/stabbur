@@ -22,7 +22,7 @@ export function Sidebar({
   view,
   onNew,
   onSelect,
-  onShowModels,
+  onShowLibrary,
   onShowVoice,
   onRename,
   onDelete,
@@ -30,10 +30,10 @@ export function Sidebar({
 }: {
   conversations: Conversation[];
   activeId: string | null;
-  view: "chat" | "models" | "voice";
+  view: "chat" | "library" | "voice";
   onNew: () => void;
   onSelect: (id: string) => void;
-  onShowModels: () => void;
+  onShowLibrary: () => void;
   onShowVoice: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -101,14 +101,14 @@ export function Sidebar({
       <div className="px-2 pb-1">
         <button
           type="button"
-          onClick={onShowModels}
+          onClick={onShowLibrary}
           className={cn(
             "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
-            view === "models" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+            view === "library" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
           )}
         >
           <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
-          Models
+          Library
         </button>
         <button
           type="button"

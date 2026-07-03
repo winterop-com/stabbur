@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AudioLines, Eye, Info, Loader2, MessageSquare, Play, Plus, Tag, Wrench, X } from "lucide-react";
 
-import { getModelInfo, type LibModel, type ModelInfo, type Status } from "@/api";
+import { getModelInfo, getVoiceModels, type LibModel, type ModelInfo, type Status, type VoiceModelInfo } from "@/api";
 import { allTagsOf, normalizeTag, tagColor } from "@/lib/tags";
 import { Markdown } from "@/components/Markdown";
+import { VoiceCard } from "@/components/VoiceCard";
 import {
   Dialog,
   DialogContent,
@@ -400,6 +401,17 @@ export function ModelsView({
 
   const allTags = useMemo(() => allTagsOf(models), [models]);
 
+  // The Library also lists voice models (TTS/STT) — a separate category from chat LLMs.
+  const [voiceModels, setVoiceModels] = useState<VoiceModelInfo[]>([]);
+  useEffect(() => {
+    getVoiceModels().then(setVoiceModels).catch(() => {});
+  }, []);
+  const voiceGroups = useMemo(() => {
+    const by: Record<string, VoiceModelInfo[]> = {};
+    for (const m of voiceModels) (by[m.kind] ??= []).push(m);
+    return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
+  }, [voiceModels]);
+
   const toggleFilter = (t: string) =>
     setActiveTags((prev) => {
       const next = new Set(prev);
@@ -430,7 +442,7 @@ export function ModelsView({
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
         <div className="mb-3 flex items-baseline gap-2">
-          <h1 className="text-lg font-semibold tracking-tight">Models</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Library</h1>
           {models.length > 0 && (
             <span className="text-sm text-muted-foreground">
               {filtered.length}
@@ -472,41 +484,95 @@ export function ModelsView({
           </div>
         )}
 
-        {!loaded && models.length === 0 ? (
+        {!loaded && models.length === 0 && voiceModels.length === 0 ? (
           <div className="flex items-center gap-2 px-1 py-10 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading models…
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading library…
           </div>
-        ) : models.length === 0 ? (
-          <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-            No models in the library yet. Pull one with <code className="font-mono">kodo pull</code>.
-          </div>
-        ) : grouped.length === 0 ? (
-          <div className="px-1 py-6 text-sm text-muted-foreground">No models match the selected tags.</div>
         ) : (
-          <div className="space-y-6">
-            {grouped.map(([fmt, models]) => (
-              <section key={fmt}>
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{fmt}</span>
-                  <span className="text-[11px] text-muted-foreground">{models.length}</span>
+          <div className="space-y-8">
+            {/* Chat models (LLMs) — loadable, taggable. */}
+            <section>
+              <div className="mb-3">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-sm font-semibold tracking-tight">Chat</h2>
+                  <span className="text-[11px] text-muted-foreground">
+                    {models.length} model{models.length === 1 ? "" : "s"}
+                    {models.length > 0 && ` · ${totalHuman}`}
+                  </span>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {models.map((m) => (
-                    <ModelCard
-                      key={m.name}
-                      model={m}
-                      active={status?.model === m.name}
-                      loading={loadingName === m.name}
-                      blocked={locked || (busy && loadingName !== m.name)}
-                      suggestions={allTags}
-                      onLoad={onLoad}
-                      onChat={onChat}
-                      onSetTags={onSetTags}
-                    />
+                <p className="text-[11px] text-muted-foreground">
+                  Language models you talk to — text in and out. Some also read images or audio, or call tools.
+                </p>
+              </div>
+              {models.length === 0 ? (
+                <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
+                  No chat models yet. Pull one with <code className="font-mono">kodo pull</code>.
+                </div>
+              ) : grouped.length === 0 ? (
+                <div className="px-1 py-4 text-sm text-muted-foreground">No chat models match the selected tags.</div>
+              ) : (
+                <div className="space-y-6">
+                  {grouped.map(([fmt, models]) => (
+                    <section key={fmt}>
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{fmt}</span>
+                        <span className="text-[11px] text-muted-foreground">{models.length}</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {models.map((m) => (
+                          <ModelCard
+                            key={m.name}
+                            model={m}
+                            active={status?.model === m.name}
+                            loading={loadingName === m.name}
+                            blocked={locked || (busy && loadingName !== m.name)}
+                            suggestions={allTags}
+                            onLoad={onLoad}
+                            onChat={onChat}
+                            onSetTags={onSetTags}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Voice models (TTS/STT) — reference cards; used from the Voice studio. */}
+            {voiceModels.length > 0 && (
+              <section>
+                <div className="mb-3">
+                  <div className="flex items-baseline gap-2">
+                    <h2 className="text-sm font-semibold tracking-tight">Voice</h2>
+                    <span className="text-[11px] text-muted-foreground">
+                      {voiceModels.length} model{voiceModels.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Audio in/out, not chat — <span className="font-medium">TTS</span> speaks text,{" "}
+                    <span className="font-medium">STT</span> transcribes speech. Use them in the Voice studio.
+                  </p>
+                </div>
+                <div className="space-y-6">
+                  {voiceGroups.map(([kind, list]) => (
+                    <section key={kind}>
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {kind}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">{list.length}</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {list.map((m) => (
+                          <VoiceCard key={m.name} model={m} />
+                        ))}
+                      </div>
+                    </section>
                   ))}
                 </div>
               </section>
-            ))}
+            )}
           </div>
         )}
         {locked && (

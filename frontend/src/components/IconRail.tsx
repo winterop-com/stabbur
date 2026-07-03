@@ -14,13 +14,13 @@ export function IconRail({
   view,
   onExpand,
   onNew,
-  onShowModels,
+  onShowLibrary,
   onShowVoice,
 }: {
-  view: "chat" | "models" | "voice";
+  view: "chat" | "library" | "voice";
   onExpand: () => void;
   onNew: () => void;
-  onShowModels: () => void;
+  onShowLibrary: () => void;
   onShowVoice: () => void;
 }) {
   const item = (
@@ -52,7 +52,7 @@ export function IconRail({
       {item("Expand sidebar", <PanelLeft className="h-4 w-4" />, onExpand)}
       <div className="my-1 h-px w-6 bg-border" />
       {item("New chat", <SquarePen className="h-4 w-4" />, onNew, view === "chat")}
-      {item("Models", <Boxes className="h-4 w-4" />, onShowModels, view === "models")}
+      {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
       {item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
     </aside>
   );

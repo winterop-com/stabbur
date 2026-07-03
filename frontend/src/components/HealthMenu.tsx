@@ -43,7 +43,7 @@ export function HealthMenu({ health }: { health: DoctorReport | null }) {
         </div>
         <ul className="max-h-[70vh] overflow-y-auto border-t border-border py-1">
           {health.checks.map((c) => (
-            <li key={c.name} className="flex items-start gap-2.5 px-3 py-2">
+            <li key={c.name} className="flex items-start gap-2.5 px-3 py-2 transition-colors hover:bg-accent/50">
               <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", DOT[c.status])} />
               <div className="min-w-0">
                 <div className="text-sm">{c.name}</div>
