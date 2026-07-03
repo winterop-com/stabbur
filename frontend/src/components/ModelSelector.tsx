@@ -122,6 +122,9 @@ export function ModelSelector({
   }, [library, filters, tagFilters]);
 
   const locked = status?.locked ?? false;
+  // Locked (a project assistant, or --model): there's nothing to select, and the top-bar
+  // badge already shows the bound model — so drop the composer's model control entirely.
+  if (locked) return null;
   const busy = loadingName != null || status?.state === "loading";
   const label = loadingName
     ? shortName(loadingName)

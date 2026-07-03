@@ -1180,8 +1180,14 @@ def serve(
     # in-memory overrides (--runtime-port, --debug) don't exist.
     if ui:
         os.environ["KODO_SERVE_UI"] = "true"
-    if model is not None:
-        os.environ["KODO_SERVE_MODEL"] = model
+    # A project is a locked, purpose-built assistant: it binds the server to its model
+    # (no picker, like --model), so `kodo serve` in a project == serve --model <project.model>.
+    # An explicit --model overrides. No project (or a project without a model) => free-play.
+    proj = project.load()
+    locked_model = model or (proj.model if proj else None)
+    locked_by_project = model is None and locked_model is not None
+    if locked_model is not None:
+        os.environ["KODO_SERVE_MODEL"] = locked_model
     if config.runtime_port_override() is not None:
         os.environ["KODO_RUNTIME_PORT"] = str(config.runtime_port_override())
     if config.debug_enabled():
@@ -1194,8 +1200,8 @@ def serve(
     bind_port = port or settings.port or runtime.find_free_port()
     base = f"http://{bind_host}:{bind_port}"
     console.print("\n[bold]kodo[/]")
-    if model is not None:
-        console.print(f"  Locked:   [bold]{model}[/]")
+    if locked_model is not None:
+        console.print(f"  Locked:   [bold]{locked_model}[/] [dim]· {'project' if locked_by_project else '--model'}[/]")
     if ui:
         if settings.frontend_dir.is_dir():
             console.print(f"  UI:       [link={base}]{base}[/]")
