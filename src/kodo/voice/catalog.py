@@ -35,18 +35,24 @@ def _cache_dir(repo: str) -> Path | None:
     return directory if directory.is_dir() else None
 
 
+def _real_files(path: Path) -> list[Path]:
+    """Real (non-symlink, non-macOS-``._``) files under ``path``."""
+    return [f for f in path.rglob("*") if f.is_file() and not f.is_symlink() and not f.name.startswith("._")]
+
+
 def _library_dir(library_root: Path | str, repo: str) -> Path | None:
+    """The library dir for ``repo`` only if it actually holds model files (not empty / ``._`` only)."""
     directory = voice_dir(library_root) / repo
-    return directory if directory.is_dir() else None
+    return directory if directory.is_dir() and _real_files(directory) else None
 
 
 def _dir_size(path: Path) -> int:
     """Real bytes under ``path``.
 
-    Skips symlinks so the HF cache's snapshots/ (symlinks into blobs/) aren't double-counted;
-    a plain library copy has no symlinks.
+    Skips symlinks so the HF cache's snapshots/ (symlinks into blobs/) aren't double-counted,
+    and macOS ``._`` AppleDouble files; a plain library copy on exFAT has neither issue.
     """
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink())
+    return sum(f.stat().st_size for f in _real_files(path))
 
 
 class VoicePresence(BaseModel):

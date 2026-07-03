@@ -39,21 +39,39 @@ def import_to_library(presence: VoicePresence, library_root: Path | str, prune_c
         return ImportResult(
             repo=presence.spec.repo, dest=dest, copied_bytes=presence.library_bytes, already_present=True
         )
-    if not presence.in_cache:
+    if not presence.in_cache or presence.cache_path is None:
         raise FileNotFoundError(f"{presence.spec.repo} is not in the HF cache ({hf_hub_cache()}); nothing to import")
+    snapshot = _cache_snapshot(presence.cache_path)
+    if snapshot is None:
+        raise FileNotFoundError(f"no snapshot found in the HF cache for {presence.spec.repo}")
 
-    from huggingface_hub import snapshot_download  # noqa: PLC0415 - heavy import, only when importing
-
-    dest.mkdir(parents=True, exist_ok=True)
-    snapshot_download(repo_id=presence.spec.repo, local_dir=str(dest), local_files_only=True)
+    # Copy the cached snapshot, resolving its symlinks-into-blobs to real files, so the
+    # library holds a self-contained portable copy (symlinks=False follows the links).
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(snapshot, dest, symlinks=False, dirs_exist_ok=True)
     copied = _dir_size(dest)
 
     pruned = False
-    # Only prune the cache once the library copy is at least as large as the cache source.
-    if prune_cache and presence.cache_path and presence.cache_bytes and copied >= presence.cache_bytes:
+    # Prune the cache only once the library copy holds essentially all the bytes (a verified
+    # copy). The 0.95 slack covers tiny cache-only metadata (refs/) the snapshot copy omits.
+    if prune_cache and presence.cache_bytes and copied >= presence.cache_bytes * 0.95:
         shutil.rmtree(presence.cache_path, ignore_errors=True)
         pruned = True
     return ImportResult(repo=presence.spec.repo, dest=dest, copied_bytes=copied, cache_pruned=pruned)
+
+
+def _cache_snapshot(cache_repo_dir: Path) -> Path | None:
+    """The current snapshot dir for a cached repo (``snapshots/<commit>``), or None."""
+    snapshots = cache_repo_dir / "snapshots"
+    if not snapshots.is_dir():
+        return None
+    ref = cache_repo_dir / "refs" / "main"
+    if ref.is_file():
+        pinned = snapshots / ref.read_text().strip()
+        if pinned.is_dir():
+            return pinned
+    dirs = [d for d in snapshots.iterdir() if d.is_dir()]
+    return max(dirs, key=lambda d: d.stat().st_mtime) if dirs else None
 
 
 def prune_cache_repo(repo: str) -> int:

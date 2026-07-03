@@ -61,26 +61,22 @@ def test_import_copies_from_cache_and_prunes(tmp_path: Path, monkeypatch: object
 
     assert isinstance(monkeypatch, pytest.MonkeyPatch)
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
-    # Fake a cached kokoro (real bytes under blobs/, like the HF cache).
-    cache = voice.hf_hub_cache() / "models--mlx-community--Kokoro-82M-bf16" / "blobs"
-    cache.mkdir(parents=True)
-    (cache / "data").write_bytes(b"x" * 4096)
+    # Mimic the HF cache layout: snapshots/<commit>/ holds the files, refs/main pins the commit.
+    repo_cache = voice.hf_hub_cache() / "models--mlx-community--Kokoro-82M-bf16"
+    (repo_cache / "snapshots" / "abc123").mkdir(parents=True)
+    (repo_cache / "snapshots" / "abc123" / "model.bin").write_bytes(b"x" * 4096)
+    (repo_cache / "refs").mkdir()
+    (repo_cache / "refs" / "main").write_text("abc123")
     lib = tmp_path / "lib"
-
-    import huggingface_hub
-
-    def fake_download(repo_id: str, local_dir: str, local_files_only: bool) -> str:
-        Path(local_dir).mkdir(parents=True, exist_ok=True)
-        (Path(local_dir) / "model.bin").write_bytes(b"x" * 4096)  # stand in for the copied snapshot
-        return local_dir
-
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
 
     from kodo.voice import importer
 
     presence = next(p for p in voice.discover(lib) if p.spec.id == "kokoro")
+    assert presence.in_cache and not presence.in_library
+
     result = importer.import_to_library(presence, lib, prune_cache=True)
     assert result.copied_bytes == 4096 and result.cache_pruned
-    assert not presence.cache_path.exists()  # cache pruned after a verified copy
-    # Re-discovering now finds it in the library, not the cache.
-    assert voice.discover(lib)[0].location == "library" or any(p.in_library for p in voice.discover(lib))
+    assert presence.cache_path is not None and not presence.cache_path.exists()  # cache pruned
+    assert (lib / "voice" / "mlx-community/Kokoro-82M-bf16" / "model.bin").read_bytes() == b"x" * 4096
+    # Re-discovering now finds it in the library.
+    assert next(p for p in voice.discover(lib) if p.spec.id == "kokoro").location == "library"
