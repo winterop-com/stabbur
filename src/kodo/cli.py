@@ -40,7 +40,7 @@ app = typer.Typer(
 library_app = typer.Typer(
     help="Manage your local model library (list, pull, remove, tag, browse).", no_args_is_help=True
 )
-audio_app = typer.Typer(help="Text-to-speech: list voices and synthesize speech.", no_args_is_help=True)
+audio_app = typer.Typer(help="Legacy alias for `kodo voice` (text-to-speech).", no_args_is_help=True)
 project_app = typer.Typer(help="The project's assistant (./kodo.toml): scaffold and inspect it.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP tool servers kodo can attach (from installed plugins).", no_args_is_help=True)
 voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
@@ -764,7 +764,8 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
     return model
 
 
-@audio_app.command()
+@voice_app.command("voices")
+@audio_app.command(hidden=True)  # `kodo audio` is the legacy alias for `kodo voice`
 def voices() -> None:
     """List the built-in Kokoro voices (needs the `tts` extra: `make install-tts`)."""
     from kodo import kokoro  # noqa: PLC0415
@@ -780,10 +781,11 @@ def voices() -> None:
     for v in kokoro.voices():
         table.add_row(v.id, v.name, v.language, v.gender)
     console.print(table)
-    console.print(f'\n[dim]{len(kokoro.voices())} voices — use with[/] kodo audio speak --voice <id> "…"')
+    console.print(f'\n[dim]{len(kokoro.voices())} voices — use with[/] kodo voice speak --voice <id> "…"')
 
 
-@audio_app.command()
+@voice_app.command("speak")
+@audio_app.command(hidden=True)  # `kodo audio` is the legacy alias for `kodo voice`
 def speak(
     words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
     voice: Annotated[
@@ -806,7 +808,7 @@ def speak(
     """Text-to-speech: synthesize ``text`` to a WAV.
 
     ``--voice`` picks one of Kokoro's built-in voices (multi-voice engine; run
-    ``kodo audio voices`` to list them, downloaded on first use). Otherwise uses
+    ``kodo voice voices`` to list them, downloaded on first use). Otherwise uses
     ``llama-tts``/OuteTTS — the default model, or ``--model`` for a library TTS
     model. With ``-o`` writes the WAV there; otherwise a temp file is played.
     """
