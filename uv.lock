@@ -18,6 +18,7 @@ members = [
     "kodo",
     "kodo-mcp-benchmark",
     "kodo-mcp-datetime",
+    "kodo-mcp-utils",
 ]
 
 [[package]]
@@ -1172,6 +1173,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "kodo-mcp-benchmark" },
     { name = "kodo-mcp-datetime" },
+    { name = "kodo-mcp-utils" },
     { name = "pluginkit" },
     { name = "pydantic-settings" },
     { name = "textual" },
@@ -1213,6 +1215,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=1.21.0" },
     { name = "kodo-mcp-benchmark", editable = "packages/kodo-mcp-benchmark" },
     { name = "kodo-mcp-datetime", editable = "packages/kodo-mcp-datetime" },
+    { name = "kodo-mcp-utils", editable = "packages/kodo-mcp-utils" },
     { name = "kokoro-onnx", marker = "extra == 'tts'", specifier = ">=0.4.9" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.31.3" },
     { name = "mlx-vlm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.6.3" },
@@ -1263,6 +1266,21 @@ requires-dist = [
 name = "kodo-mcp-datetime"
 version = "0.1.0"
 source = { editable = "packages/kodo-mcp-datetime" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "pluginkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+]
+
+[[package]]
+name = "kodo-mcp-utils"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-utils" }
 dependencies = [
     { name = "fastmcp" },
     { name = "pluginkit" },

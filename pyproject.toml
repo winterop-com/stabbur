@@ -12,6 +12,7 @@ dependencies = [
     "huggingface-hub>=1.21.0",
     "kodo-mcp-benchmark",
     "kodo-mcp-datetime",
+    "kodo-mcp-utils",
     "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
     "textual>=0.85",
@@ -58,6 +59,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 kodo-mcp-datetime = { workspace = true }
 kodo-mcp-benchmark = { workspace = true }
+kodo-mcp-utils = { workspace = true }
 
 [tool.fastapi]
 # Let `fastapi dev` / `fastapi run` auto-detect the app.
