@@ -95,9 +95,9 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/Dia-1.6B",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Expressive dialogue TTS with [S1]/[S2] speaker tags and nonverbals "
-        "(laughter, cough). Generates a NEW random voice each run unless you pin a seed or "
-        "provide a reference clip to clone a voice.",
+        description="Expressive TTS with nonverbal cues (laughter, coughs) and voice cloning "
+        "from a reference clip. Its voice is random each run — pin a seed for a repeatable, "
+        "reliable result (an unlucky seed can drone instead of speak).",
         voice_mode=VoiceMode.seeded,
         cloneable=True,
         multi_speaker=True,

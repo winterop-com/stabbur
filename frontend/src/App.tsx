@@ -10,6 +10,7 @@ import {
   getLibrary,
   getStatus,
   getTools,
+  getVoiceModels,
   getVoices,
   loadModel,
   setModelTags,
@@ -32,6 +33,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
+import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ModelsView } from "@/components/ModelsView";
@@ -85,6 +87,7 @@ export function App() {
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
   const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("kodo.tts_voice") || "");
   const [health, setHealth] = useState<DoctorReport | null>(null);
   const [loadingName, setLoadingName] = useState<string | null>(null);
@@ -188,6 +191,9 @@ export function App() {
         .finally(() => setLibraryLoaded(true)); // distinguish "still loading" from "empty"
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
       getVoices().then(setVoices).catch(() => {}); // voices are optional (no TTS engine)
+      getVoiceModels()
+        .then((vm) => setSttAvailable(vm.some((m) => m.kind === "stt")))
+        .catch(() => {}); // enables the composer's dictation mic when Whisper is present
       getDoctor().then(setHealth).catch(() => {});
     };
     refreshSlow();
@@ -728,7 +734,13 @@ export function App() {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <LoadedModelBadge
+                status={status}
+                loadingName={loadingName}
+                onEject={eject}
+                onShowModels={showModels}
+              />
               {activeConv && messages.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -826,6 +838,7 @@ export function App() {
                   leftSlot={composerControls}
                   attachments={attachments}
                   accept={accept}
+                  canDictate={sttAvailable}
                   onAdd={addAttachments}
                   onRemove={removeAttachment}
                 />

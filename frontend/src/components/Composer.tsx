@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 
+import { transcribeAudio } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startRecording, type Recording } from "@/lib/recorder";
@@ -99,6 +100,7 @@ export function Composer({
   leftSlot,
   attachments,
   accept,
+  canDictate,
   onAdd,
   onRemove,
 }: {
@@ -115,6 +117,8 @@ export function Composer({
   attachments: Attachment[];
   /** Which modalities the loaded model accepts (gates the attach affordances). */
   accept: Accept;
+  /** A Whisper STT model is in the library, so speech can be dictated into the prompt. */
+  canDictate?: boolean;
   onAdd: (items: Attachment[]) => void;
   onRemove: (index: number) => void;
 }) {
@@ -190,6 +194,39 @@ export function Composer({
       setRecState("recording");
     } catch {
       setRecState("idle"); // permission denied / unsupported
+    }
+  };
+
+  // --- dictation: record, transcribe with Whisper, drop the text into the prompt.
+  // Distinct from the audio-attach mic above (which feeds raw audio to audio-native
+  // models); this turns speech into a text prompt that any model can read.
+  const dictRef = useRef<Recording | null>(null);
+  const [dictState, setDictState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const finishDictation = async () => {
+    const rec = dictRef.current;
+    if (!rec) return;
+    dictRef.current = null;
+    setDictState("transcribing");
+    try {
+      const wavUrl = await rec.stop();
+      const blob = await (await fetch(wavUrl)).blob();
+      const text = (await transcribeAudio(blob)).trim();
+      if (text) onChange(value ? `${value} ${text}` : text);
+    } catch (e) {
+      showHint(e instanceof Error ? e.message : "transcription failed");
+    } finally {
+      setDictState("idle");
+      ref.current?.focus();
+    }
+  };
+  const toggleDictation = async () => {
+    if (dictState === "transcribing") return;
+    if (dictState === "recording") return void finishDictation();
+    try {
+      dictRef.current = await startRecording({ onSilence: () => void finishDictation() });
+      setDictState("recording");
+    } catch {
+      setDictState("idle"); // permission denied / unsupported
     }
   };
 
@@ -342,6 +379,32 @@ export function Composer({
               </TooltipTrigger>
               <TooltipContent>
                 {recState === "recording" ? "Stop & attach recording" : "Record audio from your mic"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {/* Dictation mic (Whisper -> prompt): shown for non-audio models when a
+              Whisper STT model is in the library, so speech becomes a text prompt. */}
+          {canAttach && canDictate && !accept.audio && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleDictation}
+                  aria-label={dictState === "recording" ? "Stop dictation" : "Dictate with your mic"}
+                  className={cn(dictState === "recording" && "text-destructive")}
+                >
+                  {dictState === "transcribing" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : dictState === "recording" ? (
+                    <Square className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {dictState === "recording" ? "Stop & transcribe" : "Dictate (speech to text)"}
               </TooltipContent>
             </Tooltip>
           )}

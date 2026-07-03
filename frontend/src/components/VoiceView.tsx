@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Loader2, Mic, Play, Sparkles, Upload, Users, Wand2 } from "lucide-react";
+import { AudioLines, Loader2, Mic, Pause, Play, RotateCcw, Sparkles, Upload, Users, Wand2 } from "lucide-react";
 
 import {
   getVoiceModels,
@@ -109,7 +109,9 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [text, setText] = useState("Hello from kodo. This voice runs fully on your own machine.");
   const [voice, setVoice] = useState<string>("af_heart");
   const [format, setFormat] = useState<string>("wav");
-  const [seed, setSeed] = useState<string>("");
+  // Dia is stochastic — a random seed sometimes drones instead of speaking. Default to a
+  // known-good seed so it's reliable out of the box; clear it for a fresh random voice.
+  const [seed, setSeed] = useState<string>("0");
   const [refText, setRefText] = useState("");
   const [refB64, setRefB64] = useState<string | null>(null);
   const [refName, setRefName] = useState<string>("");
@@ -117,6 +119,25 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const dialogueRef = useRef<HTMLTextAreaElement>(null);
+
+  // --- unified inline player: one control that morphs Speak -> Synthesizing -> a
+  // play/pause + scrubber + regenerate row (the native <audio> is hidden, driven here).
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+  const togglePlay = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) void a.play();
+    else a.pause();
+  };
+  const seek = (frac: number) => {
+    const a = audioRef.current;
+    if (a && a.duration) a.currentTime = frac * a.duration;
+  };
+  const fmt = (s: number) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
+  const progress = dur ? cur / dur : 0;
 
   const isKokoro = model?.backend === "kokoro-onnx" || voiceId(model ?? ({} as VoiceModelInfo)) === "kokoro";
   const isDialogue = !!model?.multi_speaker;
@@ -244,7 +265,9 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
       {isDialogue && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">Speakers: use [S1] / [S2].</span>
+          <span className="text-[11px] text-muted-foreground">
+            Plain text is most reliable; add cues, or pin a seed for a repeatable voice.
+          </span>
           {NONVERBALS.map((n) => (
             <button
               key={n}
@@ -264,7 +287,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={isDialogue ? 4 : 3}
-        placeholder={isDialogue ? "[S1] Hello there. [S2] Hi! (laughs)" : "Type something to say…"}
+        placeholder={isDialogue ? "Say something expressive… add (laughs) or (sighs) for flavor." : "Type something to say…"}
         className="mt-3 w-full resize-y rounded-lg border border-border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
       />
 
@@ -311,16 +334,60 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       )}
 
       <div className="mt-3 flex items-center gap-3">
-        <Button onClick={speak} disabled={busy || !text.trim()} className="gap-1.5">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {busy ? "Synthesizing…" : "Speak"}
-        </Button>
+        {!audioUrl || busy ? (
+          <Button onClick={speak} disabled={busy || !text.trim()} className="gap-1.5">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {busy ? "Synthesizing…" : "Speak"}
+          </Button>
+        ) : (
+          <div className="flex flex-1 items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-2 pr-3">
+            <button
+              type="button"
+              onClick={togglePlay}
+              aria-label={playing ? "Pause" : "Play"}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 pl-0.5" />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.001}
+              value={progress}
+              onChange={(e) => seek(Number(e.target.value))}
+              aria-label="Seek"
+              className="h-1 flex-1 cursor-pointer accent-primary"
+            />
+            <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+              {fmt(cur)} / {fmt(dur)}
+            </span>
+            <button
+              type="button"
+              onClick={speak}
+              aria-label="Speak again"
+              title="Synthesize again"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {error && <span className="text-xs text-destructive">{error}</span>}
       </div>
 
-      {audioUrl && (
-        <audio aria-label="Synthesized audio" controls autoPlay src={audioUrl} className="mt-3 w-full" />
-      )}
+      <audio
+        ref={audioRef}
+        aria-label="Synthesized audio"
+        src={audioUrl ?? undefined}
+        autoPlay
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
+        className="hidden"
+      />
     </div>
   );
 }

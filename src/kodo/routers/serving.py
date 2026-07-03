@@ -213,14 +213,18 @@ def voice_models() -> list[VoiceModelInfo]:
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     """
     out: list[VoiceModelInfo] = []
+    seen: set[str] = set()
     for m in library_ops.scan():
-        if not m.voice_kind:
-            continue
         spec = voice_registry.by_repo(m.name)
+        # Voice models are the voice/ bucket (voice_kind set) plus llama-tts GGUF models
+        # (the legacy tts/ bucket) that the registry knows — so OuteTTS shows here too.
+        if (not m.voice_kind and not (m.tts and spec is not None)) or m.name in seen:
+            continue
+        seen.add(m.name)
         out.append(
             VoiceModelInfo(
                 name=m.name,
-                kind=m.voice_kind,
+                kind=m.voice_kind or (spec.kind.value if spec else "tts"),
                 backend=spec.backend.value if spec else "",
                 display_name=spec.display_name if spec else m.name.split("/")[-1],
                 description=spec.description if spec else "",
@@ -663,6 +667,18 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
         finally:
             if ref_path is not None:
                 ref_path.unlink(missing_ok=True)
+    elif backend == Backend.llama_tts:
+        if not tts.available():
+            raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
+        # Resolve a copy that carries its vocoder (the functional tts/ layout), not a
+        # bare weights dup — llama-tts needs both the model and its paired vocoder.
+        repo = spec.repo if spec else req.model
+        matches = [m for m in library_ops.tts_models() if m.name == repo and m.vocoder]
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"{repo!r} has no runnable llama-tts copy (missing vocoder)")
+        wav_path = await asyncio.to_thread(tts.synthesize, text, None, matches[0].load_target, matches[0].vocoder)
+        data = wav_path.read_bytes()
+        wav_path.unlink(missing_ok=True)
     else:
         raise HTTPException(status_code=422, detail=f"model {req.model!r} is not a TTS model")
 

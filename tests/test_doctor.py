@@ -77,7 +77,7 @@ def test_check_library_counts_by_format(tmp_path: Path, monkeypatch: pytest.Monk
 def test_check_project_missing_model_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Absent"))
     monkeypatch.setattr(library, "find", lambda *_a, **_k: [])
-    check = next(c for c in doctor.check_project(_settings(tmp_path)) if c.name == "Project model")
+    check = next(c for c in doctor.check_project(_settings(tmp_path)) if c.name == "Default model")
     assert check.status is doctor.CheckStatus.warn
     assert check.hint is not None
 

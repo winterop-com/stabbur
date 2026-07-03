@@ -140,14 +140,14 @@ def check_project(settings: Settings) -> list[Check]:
         resolved = library_ops.find(proj.model)
         checks.append(
             Check(
-                name="Project model",
+                name="Default model",
                 status=CheckStatus.ok if resolved else CheckStatus.warn,
                 detail=proj.model + ("" if resolved else " (not in library)"),
                 hint=None if resolved else f"Pull it: `kodo pull huggingface {proj.model}`.",
             )
         )
     else:
-        checks.append(Check(name="Project model", status=CheckStatus.warn, detail="not set"))
+        checks.append(Check(name="Default model", status=CheckStatus.warn, detail="not set"))
     if proj.mcp:
         names = ", ".join(m.name or m.command.split()[0] for m in proj.mcp)
         checks.append(Check(name="Project tools (MCP)", status=CheckStatus.ok, detail=f"{len(proj.mcp)} ({names})"))
