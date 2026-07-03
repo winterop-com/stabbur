@@ -504,7 +504,11 @@ export function ModelsView({
                   Language models you talk to — text in and out. Some also read images or audio, or call tools.
                 </p>
               </div>
-              {models.length === 0 ? (
+              {!loaded ? (
+                <div className="flex items-center gap-2 px-1 py-4 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </div>
+              ) : models.length === 0 ? (
                 <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
                   No chat models yet. Pull one with <code className="font-mono">kodo pull</code>.
                 </div>

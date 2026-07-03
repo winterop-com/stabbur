@@ -155,7 +155,11 @@ export function ModelSelector({
         {locked && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">locked</span>}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="max-h-[70vh] w-[30rem] overflow-y-auto">
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={12}
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-[30rem] overflow-y-auto"
+      >
         {/* Capability filter chips */}
         {library.length > 0 && (
           <div className="mb-1 flex items-center gap-1 border-b border-border px-2 pb-2 pt-1">

@@ -620,7 +620,11 @@ export function VoiceView() {
             <SpeakPanel ttsModels={ttsModels} kokoroVoices={kokoroVoices} />
             <TranscribePanel sttModels={sttModels} />
             <p className="pt-1 text-[11px] text-muted-foreground">
-              Browse every voice model in the <span className="font-medium text-foreground">Library</span>.
+              Browse every voice model in the{" "}
+              <a href="#/library" className="font-medium text-primary hover:underline">
+                Library
+              </a>
+              .
             </p>
           </div>
         )}

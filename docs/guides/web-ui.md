@@ -1,16 +1,44 @@
 # Web UI (`serve --ui`)
 
 `kodo serve` runs the FastAPI app: a browse API, an OpenAI `/v1` proxy to the
-loaded model, and — with `--ui` — the browser single-page app (a React/Vite +
-Tailwind chat UI with a model picker).
+loaded model, plus `/v1/audio/*` for speech, and — with `--ui` — the browser
+single-page app (React/Vite + Tailwind).
 
 ![kodo web UI](../assets/web-ui.png)
 
+## The model landscape
+
+kodo runs two families of models — keep them distinct:
+
+- **Chat** — **language models you talk to**: text in, text out. Some also *read*
+  other input (a **vision** model sees images; an **audio** model hears speech) and
+  some **call tools** — but their job is generating a text reply. These load into the
+  runtime (`llama-server` / `mlx_lm`) one at a time.
+- **Voice** — **audio in/out, not chat**: **TTS** turns text into speech (Kokoro,
+  Dia, …), **STT** transcribes speech into text (Whisper). These run *on demand* per
+  request; they're never "loaded" into the chat runtime. See the
+  [Voice guide](voice.md).
+
+A chat model that *reads* audio is not a voice model — it hears you and answers in
+text; it never speaks (that's TTS) and transcription is STT's job.
+
+## Surfaces
+
+Three surfaces, reachable from the sidebar (or the collapsed icon rail):
+
+- **Chat** — the conversation: pick a chat model in the composer and talk to it
+  (New chat + your recent conversations).
+- **Voice** — the TTS/STT studio (generate speech, clone a voice, transcribe).
+- **Library** — browse **every** model, in **Chat** and **Voice** categories: load
+  a chat model, tag/filter, and see each voice model's card.
+
 ## Features
 
-- **Model picker** — grouped by format, with per-model **capability icons**
-  (tools · vision · audio), a rich hover tooltip (format/size/context/caps),
-  **filter chips** to narrow by capability, and an **eject** action to free memory.
+- **Model picker** (in the Chat composer) — grouped by format, with per-model
+  **capability icons** (tools · vision · audio), a rich hover tooltip
+  (format/size/context/caps), **filter chips**, and an **eject** action. Hidden when
+  the server is **locked** (a project assistant, or `--model`) — the top-bar badge
+  then shows the bound model.
 - **Tools** — a per-server fly-out menu with a master switch, per-server
   toggle-all, and per-tool switches (scales from 3 tools to hundreds).
 - **Multimodal input** — for vision/audio models, attach **images** and **audio**
@@ -76,14 +104,17 @@ The app keeps one stable origin while swapping the underlying runtime:
 | Endpoint | Purpose |
 | -------- | ------- |
 | `GET /api/status` | runtime state (`stopped`/`loading`/`ready`), model, n_ctx, error |
-| `GET /api/library` | runnable models + capabilities (vision/audio/tools/context) |
+| `GET /api/library` | runnable **chat** models + capabilities (vision/audio/tools/context) |
+| `GET /api/voice` | **voice** models (TTS/STT) with backend + traits, for the Library/studio |
 | `GET /api/model?name=` | one model's card + metadata + recommended sampling |
 | `POST /api/load/{name}` | load/switch a model (`?n_ctx=` sets context; locked → 409) |
 | `POST /api/unload` | eject the loaded model (frees memory) |
 | `POST /api/chat` | server-side agent loop (tools + multimodal) → typed SSE |
 | `GET /api/tools` | attached MCP tools (namespaced `<server>__<tool>`) |
 | `GET /api/doctor` | system-health report (mirrors `kodo doctor`) |
-| `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV |
+| `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV (chat Listen) |
+| `POST /v1/audio/speech` | OpenAI TTS: text → audio (Kokoro/Dia/…), formats via ffmpeg, voice cloning |
+| `POST /v1/audio/transcriptions` | OpenAI STT: audio → text (Whisper) |
 | `POST /v1/{path}` | stream-proxied to the loaded runtime's `/v1` |
 | `GET /health`, `GET /docs` | health check, OpenAPI docs |
 
@@ -97,10 +128,16 @@ So the SPA only ever talks to `serve`'s origin; `serve` starts `llama-server` /
 kodo serve --ui --model <name>        # or: make run MODEL=<name>
 ```
 
-Locks the server to one model: no switching and a stable `/v1`. This is the
-intended backend for the [Chrome extension](../roadmap.md) — the extension's side
-panel points at this endpoint. Set `cors_origins` to the extension's origin so it
-can call across origins (see below).
+Locks the server to one model: no switching, the composer's model picker is hidden
+(the top-bar badge shows the bound model), and a stable `/v1`. This is the intended
+backend for the [Chrome extension](../roadmap.md) — the extension's side panel points
+at this endpoint. Set `cors_origins` to the extension's origin so it can call across
+origins (see below).
+
+**A project locks too.** In a directory with a `kodo.toml` whose `[project].model`
+is set, `kodo serve` binds to that model the same way (a project is a purpose-built
+assistant: model + system prompt + tools). Working **without** a project is free-play
+— pick and switch any chat model. An explicit `--model` overrides a project.
 
 ## Cross-origin access
 
