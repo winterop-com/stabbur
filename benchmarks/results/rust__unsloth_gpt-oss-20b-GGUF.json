@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "unsloth/gpt-oss-20b-GGUF",
+  "timestamp": "2026-07-03T01:18:52",
+  "load_s": 119.77219458401669,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 3.0500490829872433,
+      "exec_s": 0.7426931670051999
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.657677541981684,
+      "exec_s": 0.46301804200629704
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 5.945329125010176,
+      "exec_s": 0.45831412498955615
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 6.637604916992132,
+      "exec_s": 0.45581133299856447
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 10.507071500003804,
+      "exec_s": 0.49958483400405385
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 9.87870037497487,
+      "exec_s": 0.980569250008557
+    }
+  ],
+  "gen_s": 43.67643254194991,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

@@ -1,0 +1,49 @@
+{
+  "suite": "tools-utils",
+  "language": "tools",
+  "type": "tool",
+  "model": "mradermacher/MN-Violet-Lotus-12B-GGUF",
+  "timestamp": "2026-07-03T09:10:58",
+  "load_s": 129.5617248750059,
+  "outcomes": [
+    {
+      "id": "reverse",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 7.421105957997497,
+      "exec_s": 0.0
+    },
+    {
+      "id": "base64",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 3.190612667007372,
+      "exec_s": 0.0
+    },
+    {
+      "id": "gcd",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 2.120442457991885,
+      "exec_s": 0.0
+    },
+    {
+      "id": "to-base",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 5.128353790991241,
+      "exec_s": 0.0
+    },
+    {
+      "id": "sha256",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 5.065953209006693,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 22.92646808299469,
+  "total": 5,
+  "passed": 0,
+  "score": 0.0
+}

@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "TheDrummer/Rocinante-X-12B-v1-GGUF",
+  "timestamp": "2026-07-03T00:40:19",
+  "load_s": 66.56804120901506,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 3.048534749977989,
+      "exec_s": 0.8182981249992736
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.5049946670187637,
+      "exec_s": 0.46209012501640245
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.07019879197469,
+      "exec_s": 0.47957070800475776
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.229482124996139,
+      "exec_s": 0.479173500003526
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 1.8709914580103941,
+      "exec_s": 0.43678545800503343
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 4.818276125006378,
+      "exec_s": 0.9619163330062293
+    }
+  ],
+  "gen_s": 17.542477916984353,
+  "total": 6,
+  "passed": 5,
+  "score": 0.8333333333333334
+}

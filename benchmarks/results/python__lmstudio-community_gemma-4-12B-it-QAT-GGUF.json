@@ -1,0 +1,56 @@
+{
+  "suite": "python",
+  "language": "python",
+  "type": "code",
+  "model": "lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+  "timestamp": "2026-07-02T22:55:07",
+  "load_s": 7.398806124983821,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 37.08343524998054,
+      "exec_s": 0.41767662498750724
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 21.955702792009106,
+      "exec_s": 0.2729309170099441
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 40.74056183299399,
+      "exec_s": 0.2814470420125872
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 55.32001329198829,
+      "exec_s": 0.2839486669981852
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 45.02433949999977,
+      "exec_s": 0.2850149169971701
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 24.744828249997227,
+      "exec_s": 0.5684861250047106
+    }
+  ],
+  "gen_s": 224.86888091696892,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

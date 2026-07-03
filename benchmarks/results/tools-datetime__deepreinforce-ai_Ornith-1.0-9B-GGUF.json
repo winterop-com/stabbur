@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "deepreinforce-ai/Ornith-1.0-9B-GGUF",
+  "timestamp": "2026-07-03T08:36:51",
+  "load_s": 58.449680249992525,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.924868166010128,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 13.70362783301971,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.417588040989358,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 4.995306500000879,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 35.041390540020075,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

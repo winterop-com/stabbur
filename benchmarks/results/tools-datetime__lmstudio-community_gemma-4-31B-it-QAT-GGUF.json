@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/gemma-4-31B-it-QAT-GGUF",
+  "timestamp": "2026-07-03T08:54:21",
+  "load_s": 189.7139440830215,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 17.80591274998733,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 56.76502104199608,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 20.899141750007402,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 11.45572566697956,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 106.92580120897037,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

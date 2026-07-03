@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "timestamp": "2026-07-03T09:04:29",
+  "load_s": 170.77374079200672,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 4.118277917004889,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.9986095000058413,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 2.611303792014951,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 1.6287294999929145,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 10.356920709018596,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

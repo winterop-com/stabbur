@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "unsloth/Qwen3.5-4B-GGUF",
+  "timestamp": "2026-07-03T03:45:49",
+  "load_s": 1.669977999990806,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.019180624978617,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 10.177737249992788,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 6.1539252499933355,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 5.317091834003804,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 28.667934958968544,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

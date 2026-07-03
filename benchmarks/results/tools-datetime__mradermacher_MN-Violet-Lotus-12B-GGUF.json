@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "mradermacher/MN-Violet-Lotus-12B-GGUF",
+  "timestamp": "2026-07-03T08:41:04",
+  "load_s": 129.9956066670129,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 7.567728875001194,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 11.201128374988912,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 9.179352167004254,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 1.8141400000022259,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 29.762349416996585,
+  "total": 4,
+  "passed": 0,
+  "score": 0.0
+}

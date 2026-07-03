@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "TheDrummer/Cydonia-24B-v4.3-GGUF",
+  "timestamp": "2026-07-03T08:49:20",
+  "load_s": 202.4971131249913,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 10.548095667007146,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 8.201588583993725,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 10.615890709013911,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 6.345447208994301,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 35.711022169009084,
+  "total": 4,
+  "passed": 0,
+  "score": 0.0
+}

@@ -1,0 +1,56 @@
+{
+  "suite": "python",
+  "language": "python",
+  "type": "code",
+  "model": "TheDrummer/Cydonia-24B-v4.3-GGUF",
+  "timestamp": "2026-07-02T23:13:43",
+  "load_s": 129.94876975001534,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.8220085409993771,
+      "exec_s": 0.4504412910027895
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.1098192920035217,
+      "exec_s": 0.30885429101181217
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.6812037500203587,
+      "exec_s": 0.28918737499043345
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 5.298092666984303,
+      "exec_s": 0.27698612498352304
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.631058958009817,
+      "exec_s": 0.2824540000001434
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 8.44993566602352,
+      "exec_s": 0.5565040420042351
+    }
+  ],
+  "gen_s": 22.992118874040898,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

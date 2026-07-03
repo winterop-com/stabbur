@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "deepreinforce-ai/Ornith-1.0-9B-GGUF",
+  "timestamp": "2026-07-03T00:42:53",
+  "load_s": 55.614899000007426,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 35.6875125420047,
+      "exec_s": 0.8201468749903142
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 3.009284458006732,
+      "exec_s": 0.34503495797980577
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 4.095389249996515,
+      "exec_s": 0.47609029200975783
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 26.336773499991978,
+      "exec_s": 0.30224108399124816
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 13.437412541999947,
+      "exec_s": 0.4992885829997249
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 12.120744707994163,
+      "exec_s": 0.5518008749932051
+    }
+  ],
+  "gen_s": 94.68711699999403,
+  "total": 6,
+  "passed": 3,
+  "score": 0.5
+}

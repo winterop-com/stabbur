@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "TheDrummer/Cydonia-24B-v4.3-GGUF",
+  "timestamp": "2026-07-03T00:38:51",
+  "load_s": 130.18881570801022,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 8.84169058399857,
+      "exec_s": 0.8730736249999609
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 4.960738624999067,
+      "exec_s": 0.4759408749814611
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 4.291377042012755,
+      "exec_s": 0.48032145798788406
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.743211249995511,
+      "exec_s": 0.5014068339951336
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 6.867546416004188,
+      "exec_s": 0.5479679579730146
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 13.977154625026742,
+      "exec_s": 0.9629532920080237
+    }
+  ],
+  "gen_s": 47.68171854203683,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

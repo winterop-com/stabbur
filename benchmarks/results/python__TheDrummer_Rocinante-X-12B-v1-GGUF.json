@@ -1,0 +1,56 @@
+{
+  "suite": "python",
+  "language": "python",
+  "type": "code",
+  "model": "TheDrummer/Rocinante-X-12B-v1-GGUF",
+  "timestamp": "2026-07-02T23:15:01",
+  "load_s": 66.6536615829973,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 0.9960026250046212,
+      "exec_s": 0.4993525000172667
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 0.8065567499725148,
+      "exec_s": 0.3211830829968676
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 0.6113478330080397,
+      "exec_s": 0.32073629202204756
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 2.7264007500198204,
+      "exec_s": 0.31729254199308343
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 0.7937079169787467,
+      "exec_s": 0.31774479101295583
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 2.654345416027354,
+      "exec_s": 0.5552956669998821
+    }
+  ],
+  "gen_s": 8.588361291011097,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

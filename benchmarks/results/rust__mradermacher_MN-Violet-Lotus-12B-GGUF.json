@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "mradermacher/MN-Violet-Lotus-12B-GGUF",
+  "timestamp": "2026-07-03T00:35:49",
+  "load_s": 129.09898483299185,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 5.550515334005468,
+      "exec_s": 0.8829553330142517
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.3795016249932814,
+      "exec_s": 0.4697978750045877
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 2.121537791012088,
+      "exec_s": 0.46162333301617764
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.793656291003572,
+      "exec_s": 0.4750425840029493
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 2.4103595830092672,
+      "exec_s": 0.46990620798897
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 7.997152415977325,
+      "exec_s": 0.9695987500017509
+    }
+  ],
+  "gen_s": 25.252723040001,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

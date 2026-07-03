@@ -1,0 +1,49 @@
+{
+  "suite": "tools-utils",
+  "language": "tools",
+  "type": "tool",
+  "model": "TheDrummer/Cydonia-24B-v4.3-GGUF",
+  "timestamp": "2026-07-03T09:20:14",
+  "load_s": 253.05181649999577,
+  "outcomes": [
+    {
+      "id": "reverse",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 5.769684375001816,
+      "exec_s": 0.0
+    },
+    {
+      "id": "base64",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 7.124645999982022,
+      "exec_s": 0.0
+    },
+    {
+      "id": "gcd",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 10.528752041980624,
+      "exec_s": 0.0
+    },
+    {
+      "id": "to-base",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 15.556335541012231,
+      "exec_s": 0.0
+    },
+    {
+      "id": "sha256",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 14.592764291999629,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 53.57218224997632,
+  "total": 5,
+  "passed": 0,
+  "score": 0.0
+}

@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "TheDrummer/Rocinante-X-12B-v1-GGUF",
+  "timestamp": "2026-07-03T08:38:20",
+  "load_s": 67.1821593749919,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 6.22636312499526,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 1.8244343749829568,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 8.16381141700549,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 1.2421670829935465,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 17.456775999977253,
+  "total": 4,
+  "passed": 0,
+  "score": 0.0
+}

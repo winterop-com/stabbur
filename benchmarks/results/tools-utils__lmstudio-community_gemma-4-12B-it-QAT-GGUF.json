@@ -1,0 +1,49 @@
+{
+  "suite": "tools-utils",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+  "timestamp": "2026-07-03T09:12:48",
+  "load_s": 77.61368599999696,
+  "outcomes": [
+    {
+      "id": "reverse",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.950335665984312,
+      "exec_s": 0.0
+    },
+    {
+      "id": "base64",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 5.734923334006453,
+      "exec_s": 0.0
+    },
+    {
+      "id": "gcd",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 3.2060701249865815,
+      "exec_s": 0.0
+    },
+    {
+      "id": "to-base",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.914039583993144,
+      "exec_s": 0.0
+    },
+    {
+      "id": "sha256",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 6.6178300000028685,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 28.42319870897336,
+  "total": 5,
+  "passed": 5,
+  "score": 1.0
+}

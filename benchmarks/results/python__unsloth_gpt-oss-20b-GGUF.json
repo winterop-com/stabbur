@@ -1,0 +1,56 @@
+{
+  "suite": "python",
+  "language": "python",
+  "type": "code",
+  "model": "unsloth/gpt-oss-20b-GGUF",
+  "timestamp": "2026-07-03T00:13:28",
+  "load_s": 119.69643104099669,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.953806874982547,
+      "exec_s": 0.41998404200421646
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 3.8825242920138407,
+      "exec_s": 0.2968031660129782
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 4.805452542001149,
+      "exec_s": 0.26868512498913333
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 6.92619129200466,
+      "exec_s": 0.28390420897630975
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 3.3218122079852037,
+      "exec_s": 0.27005279099103063
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 6.970131999987643,
+      "exec_s": 0.5614451669971459
+    }
+  ],
+  "gen_s": 27.859919208975043,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

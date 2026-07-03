@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "timestamp": "2026-07-03T01:13:24",
+  "load_s": 164.1361502080108,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.6270702500187326,
+      "exec_s": 3.3101029169920366
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.0234551249886863,
+      "exec_s": 0.49615262501174584
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 1.0235743749944959,
+      "exec_s": 0.4798652080062311
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 2.0558403749892022,
+      "exec_s": 0.48284750001039356
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 1.239273040991975,
+      "exec_s": 0.5448825000203215
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 2.7552737089863513,
+      "exec_s": 1.0569489590125158
+    }
+  ],
+  "gen_s": 9.724486874969443,
+  "total": 6,
+  "passed": 6,
+  "score": 1.0
+}

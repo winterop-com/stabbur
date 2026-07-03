@@ -1,0 +1,42 @@
+{
+  "suite": "tools-datetime",
+  "language": "tools",
+  "type": "tool",
+  "model": "unsloth/gpt-oss-20b-GGUF",
+  "timestamp": "2026-07-03T08:45:18",
+  "load_s": 119.71806895799818,
+  "outcomes": [
+    {
+      "id": "day-of-week",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 3.9406085000082385,
+      "exec_s": 0.0
+    },
+    {
+      "id": "days-between",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 6.612342207983602,
+      "exec_s": 0.0
+    },
+    {
+      "id": "convert-timezone",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 6.436137582990341,
+      "exec_s": 0.0
+    },
+    {
+      "id": "week-number",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 2.885801416996401,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 19.874889707978582,
+  "total": 4,
+  "passed": 4,
+  "score": 1.0
+}

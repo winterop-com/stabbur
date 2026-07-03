@@ -1,0 +1,56 @@
+{
+  "suite": "rust",
+  "language": "rust",
+  "type": "code",
+  "model": "lmstudio-community/Qwen3.6-27B-GGUF",
+  "timestamp": "2026-07-03T01:07:09",
+  "load_s": 194.9260586250166,
+  "outcomes": [
+    {
+      "id": "sum-two",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 118.76651108299848,
+      "exec_s": 3.0434266249940265
+    },
+    {
+      "id": "reverse-string",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 107.90052116700099,
+      "exec_s": 0.5050023749936372
+    },
+    {
+      "id": "count-words",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 285.12862529201084,
+      "exec_s": 0.32775754199246876
+    },
+    {
+      "id": "fizzbuzz",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 288.3586146669986,
+      "exec_s": 0.3274649580125697
+    },
+    {
+      "id": "reverse-words",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 169.49491320899688,
+      "exec_s": 0.4828281659865752
+    },
+    {
+      "id": "count-primes",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 285.7915984590072,
+      "exec_s": 0.5854337500059046
+    }
+  ],
+  "gen_s": 1255.440783877013,
+  "total": 6,
+  "passed": 3,
+  "score": 0.5
+}
