@@ -58,7 +58,16 @@ per-model matrix). Ordered roughly by impact:
   1. `kodo voice list` (done in module; wire the CLI) + `kodo voice import` — copy models
      from the HF cache into `<library>/voice/<repo>` so they're portable + organized, and
      dedup (the two 6GB Dia copies collapse to the MLX one).
-  2. Voice-category detection in the library scan (a `voice/` bucket; tts/stt sub-type).
+  2. **Unify the store, keep category lenses (decided: option B).** The library is the
+     *store* — it holds everything (LLMs + voice), not LLMs only. So the library scan gains
+     a `voice/` bucket + voice-category detection (tts/stt sub-type, metadata from the
+     registry), and `kodo library ls` shows a **Voice group** alongside the format groups —
+     a 6GB Dia shouldn't be invisible to `library ls` when it's sitting in the library.
+     `kodo library rm/tag` then cover voice models for free. Voice-*specific* verbs (import,
+     synth, transcribe, voices) stay under `kodo voice`. Mirrors the web UI: one library, a
+     Models section + a Voice section. Also fold the legacy `kodo audio` TTS group into
+     `kodo voice speak` (keep an `audio` alias); reserve the word "audio" for the chat-LLM
+     *input* capability (Voxtral/ultravox), distinct from the voice category.
   3. **mlx-audio runtime** (an external process kodo spawns, like llama-server) + OpenAI
      audio endpoints `/v1/audio/speech` (TTS) and `/v1/audio/transcriptions` (STT), so the
      SPA and any client use one standard.
