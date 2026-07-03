@@ -1,13 +1,17 @@
 """Model lifecycle, server-side chat (agent loop + MCP), and OpenAI `/v1` proxy."""
 
 import asyncio
+import base64
 import json
+import os
+import tempfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -18,6 +22,10 @@ from kodo.config import Settings
 from kodo.sampling import ModelSampling
 from kodo.server import ServerManager
 from kodo.tools import MCPToolset
+from kodo.voice import audio as audio_export
+from kodo.voice import registry as voice_registry
+from kodo.voice import runtime as voice_runtime
+from kodo.voice.registry import Backend
 
 router = APIRouter(tags=["serving"])
 
@@ -544,6 +552,110 @@ async def unload(manager: ManagerDep, settings: ConfDep, lock: LockDep, request:
         _reject_if_generating(request)  # don't kill the runtime under a live generation
         await asyncio.to_thread(manager.stop)
     return await _status(manager, settings)
+
+
+class AudioSpeechRequest(BaseModel):
+    """OpenAI ``/v1/audio/speech`` request, plus kodo's voice-cloning extensions."""
+
+    model: str = "kokoro"  # a voice id ("kokoro"/"dia"/"qwen3-tts") or a library repo
+    input: str  # the text to speak
+    voice: str | None = None  # named preset voice (Kokoro/Qwen3-TTS); ignored when cloning
+    response_format: str = "wav"  # wav | mp3 | flac | opus | ogg | aac (non-wav needs ffmpeg)
+    # kodo extensions for voice cloning (Dia): a reference clip (base64 WAV) + its transcript.
+    ref_audio_b64: str | None = None
+    ref_text: str | None = None
+    seed: int | None = None  # pin Dia's otherwise-random voice for reproducibility
+
+
+def _voice_library_model(repo: str, *, kind: str | None = None) -> library_ops.LibraryModel:
+    """Resolve a library voice model by repo (optionally constrained to tts/stt), or 404."""
+    matches = [m for m in library_ops.find(repo) if m.voice_kind and (kind is None or m.voice_kind == kind)]
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"voice model {repo!r} is not in the library")
+    return matches[0]
+
+
+@router.post("/v1/audio/speech")
+async def audio_speech(req: AudioSpeechRequest) -> Response:
+    """Synthesize speech (OpenAI ``/v1/audio/speech``) across kodo's voice backends.
+
+    Routes by the model's backend: Kokoro -> the cross-platform ONNX path (kodo's
+    lightweight chat voice); mlx-audio models (Dia, Qwen3-TTS) -> the Apple-Silicon
+    runtime, where ``ref_audio_b64`` + ``ref_text`` clone a voice (Dia). Markdown is
+    reduced to prose first; blocking synthesis runs off-loop. Returns ``audio/wav``.
+    """
+    text = tts.speech_text(req.input)
+    if not text:
+        raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
+
+    spec = voice_registry.get(req.model) or voice_registry.by_repo(req.model)
+    backend = spec.backend if spec else Backend.kokoro_onnx  # unknown -> the safe ONNX chat voice
+
+    if backend == Backend.kokoro_onnx:
+        if not kokoro.available():
+            raise HTTPException(status_code=503, detail="Kokoro TTS is not installed (make install-tts)")
+        name = (req.voice or "af_heart").split(":")[-1]
+        wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
+        data = wav_path.read_bytes()
+        wav_path.unlink(missing_ok=True)
+    elif backend == Backend.mlx_audio:
+        if not voice_runtime.available():
+            raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
+        model = _voice_library_model(spec.repo if spec else req.model, kind="tts")
+        ref_path: Path | None = None
+        try:
+            if req.ref_audio_b64:
+                fd, name = tempfile.mkstemp(suffix=".wav")
+                os.close(fd)
+                ref_path = Path(name)
+                ref_path.write_bytes(base64.b64decode(req.ref_audio_b64))
+            params: dict[str, Any] = {"seed": req.seed} if req.seed is not None else {}
+            data = await asyncio.to_thread(
+                _synthesize_mlx, model.load_target, text, req.voice, ref_path, req.ref_text, params
+            )
+        finally:
+            if ref_path is not None:
+                ref_path.unlink(missing_ok=True)
+    else:
+        raise HTTPException(status_code=422, detail=f"model {req.model!r} is not a TTS model")
+
+    # Synthesis produces WAV; transcode to the requested format (ffmpeg) if it isn't WAV.
+    fmt = audio_export.normalize(req.response_format)
+    try:
+        data = await asyncio.to_thread(audio_export.convert, data, fmt)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(content=data, media_type=audio_export.media_type(fmt))
+
+
+def _synthesize_mlx(
+    model: Path, text: str, voice: str | None, ref_audio: Path | None, ref_text: str | None, params: dict[str, Any]
+) -> bytes:
+    """Thread body: call the mlx-audio runtime (kept out of the endpoint for a clean to_thread)."""
+    return voice_runtime.synthesize(model, text, voice=voice, ref_audio=ref_audio, ref_text=ref_text, **params)
+
+
+@router.post("/v1/audio/transcriptions")
+async def audio_transcriptions(
+    file: Annotated[UploadFile, File()],
+    model: Annotated[str, Form()] = "whisper",
+    language: Annotated[str | None, Form()] = None,
+) -> dict[str, str]:
+    """Transcribe audio to text (OpenAI ``/v1/audio/transcriptions``) via Whisper (mlx-audio)."""
+    if not voice_runtime.available():
+        raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
+    spec = voice_registry.get(model) or voice_registry.by_repo(model)
+    stt_model = _voice_library_model(spec.repo if spec else model, kind="stt")
+    suffix = Path(file.filename or "audio.wav").suffix or ".wav"
+    fd, name = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    clip = Path(name)
+    try:
+        clip.write_bytes(await file.read())
+        text = await asyncio.to_thread(voice_runtime.transcribe, stt_model.load_target, clip, language=language)
+    finally:
+        clip.unlink(missing_ok=True)
+    return {"text": text}
 
 
 @router.api_route("/v1/{path:path}", methods=["GET", "POST"])

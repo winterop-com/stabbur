@@ -1,8 +1,10 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
+import os
 import shutil
+import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from rich import box
@@ -790,72 +792,117 @@ def speak(
     words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
     voice: Annotated[
         str | None,
-        typer.Option("--voice", "-v", help="Kokoro voice id (e.g. af_heart; see `kodo audio voices`)."),
+        typer.Option("--voice", "-v", help="Kokoro voice id (e.g. af_heart; see `kodo voice voices`)."),
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option("--model", "-m", help="Library OuteTTS model to use (llama-tts; ignored if --voice given)."),
+        typer.Option("--model", "-m", help="Voice model: an mlx-audio model (dia, qwen3-tts) or a library OuteTTS."),
     ] = None,
+    ref_audio: Annotated[
+        Path | None,
+        typer.Option("--ref-audio", help="Reference clip to clone a voice from (Dia; pair with --ref-text)."),
+    ] = None,
+    ref_text: Annotated[
+        str | None,
+        typer.Option("--ref-text", help="Exact transcript of --ref-audio (required for a good clone)."),
+    ] = None,
+    seed: Annotated[
+        int | None,
+        typer.Option("--seed", help="Pin Dia's otherwise-random voice for a reproducible result."),
+    ] = None,
+    fmt: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: wav, mp3, flac, opus, ogg, aac (non-wav needs ffmpeg)."),
+    ] = "wav",
     output: Annotated[
         Path | None,
-        typer.Option("--output", "-o", help="Write the WAV here (default: a temp file, played aloud)."),
+        typer.Option("--output", "-o", help="Write audio here (default: a temp file, played aloud)."),
     ] = None,
     play: Annotated[
         bool,
         typer.Option("--play/--no-play", help="Play the audio after generating (macOS afplay)."),
     ] = True,
 ) -> None:
-    """Text-to-speech: synthesize ``text`` to a WAV.
+    """Text-to-speech: synthesize ``text`` to audio.
 
-    ``--voice`` picks one of Kokoro's built-in voices (multi-voice engine; run
-    ``kodo voice voices`` to list them, downloaded on first use). Otherwise uses
-    ``llama-tts``/OuteTTS — the default model, or ``--model`` for a library TTS
-    model. With ``-o`` writes the WAV there; otherwise a temp file is played.
+    ``--voice`` picks one of Kokoro's built-in voices (the lightweight default engine).
+    ``--model dia`` (or ``qwen3-tts``) uses the mlx-audio runtime — with ``--ref-audio`` +
+    ``--ref-text`` Dia clones the voice in that clip, or ``--seed`` pins its random voice.
+    Any other ``--model`` uses ``llama-tts``/OuteTTS. ``--format`` transcodes the result
+    (ffmpeg); with ``-o`` writes there, otherwise a temp file is played.
     """
     from kodo import kokoro, tts  # noqa: PLC0415
+    from kodo.voice import audio as audio_export  # noqa: PLC0415
+    from kodo.voice import registry as voice_registry  # noqa: PLC0415
+    from kodo.voice import runtime as voice_runtime  # noqa: PLC0415
 
-    if voice is not None:
-        if not kokoro.available():
-            typer.secho("Kokoro TTS not installed. Run `make install-tts`.", fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
-        text = tts.speech_text(" ".join(words))
-        try:
+    text = tts.speech_text(" ".join(words))  # accept an unquoted phrase; strip any Markdown
+    if not audio_export.is_supported(fmt):
+        typer.secho(
+            f"Unknown format {fmt!r}; use one of {', '.join(audio_export.FORMATS)}.", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(1)
+
+    spec = voice_registry.get(model) if model else None
+    spec = spec or (voice_registry.by_repo(model) if model else None)
+    try:
+        if voice is not None:  # Kokoro (ONNX) — the lightweight preset engine
+            if not kokoro.available():
+                typer.secho("Kokoro TTS not installed. Run `make install-tts`.", fg=typer.colors.RED, err=True)
+                raise typer.Exit(1)
             if not kokoro.assets_present():
                 with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):
                     kokoro.ensure_assets()
             with console.status(f"[cyan]Synthesizing speech ({voice})…", spinner="dots"):
-                wav = kokoro.synthesize(text, voice, output)
-        except RuntimeError as exc:
-            typer.secho(str(exc), fg=typer.colors.RED, err=True)
-            raise typer.Exit(1) from exc
-        _finish_speak(wav, output, play)
-        return
-
-    text = tts.speech_text(" ".join(words))  # accept an unquoted phrase; strip any Markdown
-    model_path: Path | None = None
-    vocoder_path: Path | None = None
-    if model is not None:
-        matches = [m for m in library_ops.find(model) if m.tts]
-        if not matches:
-            typer.secho(f"No TTS model matches {model!r} (see `kodo library ls`).", fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
-        model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
-    try:
-        with console.status("[cyan]Synthesizing speech…", spinner="dots"):
-            wav = tts.synthesize(text, output, model_path, vocoder_path)
+                data = kokoro.synthesize(text, voice, None).read_bytes()
+        elif spec is not None and spec.backend == voice_registry.Backend.mlx_audio:  # Dia / Qwen3-TTS
+            if not voice_runtime.available():
+                typer.secho("mlx-audio not installed. Run `uv sync --extra voice`.", fg=typer.colors.RED, err=True)
+                raise typer.Exit(1)
+            matches = [m for m in library_ops.find(spec.repo) if m.voice_kind == "tts"]
+            if not matches:
+                typer.secho(
+                    f"{spec.display_name} is not in the library (`kodo voice import`).", fg=typer.colors.RED, err=True
+                )
+                raise typer.Exit(1)
+            extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
+            with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
+                data = voice_runtime.synthesize(
+                    matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra
+                )
+        else:  # llama-tts / OuteTTS
+            model_path = vocoder_path = None
+            if model is not None:
+                matches = [m for m in library_ops.find(model) if m.tts]
+                if not matches:
+                    typer.secho(
+                        f"No TTS model matches {model!r} (see `kodo library ls`).", fg=typer.colors.RED, err=True
+                    )
+                    raise typer.Exit(1)
+                model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
+            with console.status("[cyan]Synthesizing speech…", spinner="dots"):
+                data = tts.synthesize(text, None, model_path, vocoder_path).read_bytes()
+        data = audio_export.convert(data, fmt)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
-    _finish_speak(wav, output, play)
+    _finish_speak(data, fmt, output, play)
 
 
-def _finish_speak(wav: Path, output: Path | None, play: bool) -> None:
-    """Report the written WAV and (optionally) play it back on macOS."""
-    console.print(f"[green]Wrote[/] {wav}")
+def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> None:
+    """Write synthesized audio (to ``output`` or a temp file) and optionally play it (macOS)."""
+    if output is not None:
+        dest = output
+    else:
+        fd, name = tempfile.mkstemp(suffix=f".{fmt}")
+        os.close(fd)
+        dest = Path(name)
+    dest.write_bytes(data)
+    console.print(f"[green]Wrote[/] {dest}")
     if play and output is None and shutil.which("afplay"):
         import subprocess  # noqa: PLC0415
 
-        subprocess.run(["afplay", str(wav)])  # noqa: S603, S607 - local playback of our own file
+        subprocess.run(["afplay", str(dest)])  # noqa: S603, S607 - local playback of our own file
 
 
 # Attachment helpers live in kodo.attach (shared with the Textual chat); alias the
