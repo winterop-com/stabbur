@@ -100,7 +100,7 @@ def check_library(settings: Settings) -> list[Check]:
                 name="Libraries",
                 status=CheckStatus.fail,
                 detail="not configured",
-                hint="Set KODO_LIBRARY_ROOT (e.g. /Volumes/LLM/Library), or run `kodo project init`.",
+                hint="Set KODO_LIBRARY_ROOT to your library path, or run `kodo project init`.",
             )
         ]
     checks: list[Check] = []

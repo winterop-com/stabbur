@@ -23,6 +23,8 @@ class Project(BaseModel):
     model: str | None = None
     system_prompt: str = ""
     mcp: list[ProjectMcp] = []
+    chat_voice: str | None = None
+    """Voice for spoken replies in chat (e.g. ``kokoro:af_heart``); ``None`` = the UI default."""
     # Libraries this project uses, in priority order (read: first match wins).
     # Entries are paths relative to the project dir (e.g. ``.kodo/library``), or the
     # token ``@shared`` for the machine's default library (``library_root``). Empty
@@ -40,6 +42,7 @@ def load(path: Path = Path("kodo.toml")) -> Project | None:
     return Project(
         model=project.get("model"),
         system_prompt=project.get("system_prompt", ""),
+        chat_voice=project.get("chat_voice"),
         mcp=[ProjectMcp(**entry) for entry in data.get("mcp", [])],
         libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
     )

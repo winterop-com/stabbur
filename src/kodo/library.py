@@ -44,8 +44,8 @@ class LibraryNotConfigured(RuntimeError):
     """
 
     HINT = (
-        "No library configured. Point kodo at your model library — set KODO_LIBRARY_ROOT, e.g.:\n"
-        "  export KODO_LIBRARY_ROOT=/Volumes/LLM/Library\n"
+        "No library configured. Point kodo at your model library — set KODO_LIBRARY_ROOT:\n"
+        "  export KODO_LIBRARY_ROOT=/path/to/your/library   # an external drive is ideal\n"
         "or run `kodo project init` to scaffold a project with its own library."
     )
 

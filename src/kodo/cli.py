@@ -179,7 +179,11 @@ _LOCAL_LIBRARY = "library"
 
 
 def _project_toml(
-    model: str, system_prompt: str = "", mcp: list[tuple[str, str]] | None = None, local_library: bool = False
+    model: str,
+    system_prompt: str = "",
+    mcp: list[tuple[str, str]] | None = None,
+    local_library: bool = False,
+    chat_voice: str | None = None,
 ) -> str:
     """Render a kodo.toml: the libraries this project uses + its assistant.
 
@@ -210,13 +214,17 @@ def _project_toml(
             "# Uses your machine library (KODO_LIBRARY_ROOT). To also read a project-local\n"
             f'# store, add:  libraries = ["{_LOCAL_LIBRARY}", "@shared"]  (relative to this file).\n\n'
         )
+    # Kokoro (tiny) is the default speak-replies voice for every project, so any assistant
+    # can talk back without loading a second multi-GB model.
+    voice_line = f"chat_voice = {json.dumps(chat_voice)}  # spoken-reply voice (Kokoro)\n" if chat_voice else ""
     return (
         "# kodo project — a purpose-built assistant (model + system prompt + tools).\n"
         "# Portable + committable: no machine-specific paths.\n\n"
         f"{libraries_block}"
         "[project]\n"
         f"model = {json.dumps(model)}\n"
-        f"system_prompt = {json.dumps(system_prompt)}\n\n"
+        f"system_prompt = {json.dumps(system_prompt)}\n"
+        f"{voice_line}\n"
         f"{tools_block}"
     )
 
@@ -611,13 +619,37 @@ def _pick_tools_interactive() -> list[tuple[str, str]]:
     return [(s.name, s.command) for s in chosen]
 
 
-def _scaffold_project(target: Path, model: str | None, force: bool) -> None:
+def _pull_or_exit(model: str, library_root: Path | None) -> None:
+    """Pull ``model`` from Hugging Face (into ``library_root`` or the shared library), or exit."""
+    try:
+        if library_root is None:
+            catalog_ops.pull(ModelSource.huggingface, model)
+        else:
+            catalog_ops.pull(ModelSource.huggingface, model, library_root=library_root)
+    except Exception as exc:  # noqa: BLE001 - surface pull/network failures
+        console.print(f"[red]Pull failed:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+
+def _copy_model_local(model: library_ops.LibraryModel, dest_root: Path) -> None:
+    """Copy a library model's directory into a project-local library, preserving its layout."""
+    rel = model.path.relative_to(model.library_root)
+    dest = dest_root / rel
+    if dest.exists():
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(model.path, dest)
+
+
+def _scaffold_project(target: Path, model: str | None, force: bool, local: bool) -> None:
     """Interactive project scaffolder shared by `init` (here) and `new` (a fresh dir).
 
-    Walks through a default model, a toolset (installed MCP plugins), and a system prompt,
-    then writes ``target/kodo.toml``. With a machine library (KODO_LIBRARY_ROOT) set it uses
-    that and pulls a missing model into it; with none set it warns and creates a project-local
-    ``library/`` to download into (so you can start from nothing).
+    Walks through a kind, default model, toolset (installed MCP plugins), system prompt, and
+    a spoken-reply voice, then writes ``target/kodo.toml``. By default it uses your machine
+    library (KODO_LIBRARY_ROOT), pulling a missing model into it. ``local`` (``--local``/
+    ``--copy``) instead builds a project-local ``library/`` — copying the model from the
+    shared library if it's there (a fast local-disk copy), else downloading it there. With no
+    KODO_LIBRARY_ROOT set it falls back to that project-local library so you can start fresh.
     """
     proj = target / "kodo.toml"
     if proj.exists() and not force:
@@ -626,55 +658,75 @@ def _scaffold_project(target: Path, model: str | None, force: bool) -> None:
 
     # Gather every choice first, so canceling the wizard (Ctrl-C) leaves nothing behind —
     # the directory is created only once we're committing to writing the project below.
+    console.print("\n[bold]0. Kind[/] [dim]— tailors the defaults[/]")
+    console.print("  1. Chat  [dim]— text conversation (replies can still be spoken)[/]")
+    console.print("  2. Voice  [dim]— talk to it: mic dictation in, spoken replies out[/]")
+    voice_project = typer.prompt("Number", default="1").strip() == "2"
+
     model = model or _pick_model_interactive()
     mcp = _pick_tools_interactive()
-    system_prompt = typer.prompt("\n3. System prompt", default="You are a concise, helpful assistant.")
+    default_prompt = (
+        "You are a friendly voice assistant. Keep replies short and natural for speech."
+        if voice_project
+        else "You are a concise, helpful assistant."
+    )
+    system_prompt = typer.prompt("\n3. System prompt", default=default_prompt)
+    # Kokoro is tiny, so every project can speak replies; a voice project lets you pick which voice.
+    chat_voice = (
+        typer.prompt("\n4. Spoken-reply voice (Kokoro)", default="kokoro:af_heart")
+        if voice_project
+        else "kokoro:af_heart"
+    )
 
     target.mkdir(parents=True, exist_ok=True)
     shared = library_ops.configured()
-    local = False
-    if shared and library_ops.find(model):
-        console.print(f"\n[green]✓[/] {model} is in your library")
-    else:
-        pull_root: Path | None = None
-        if shared:
-            console.print(f"\nPulling [bold]{model}[/] into your library …")
+    existing = library_ops.find(model) if shared else []
+    use_local = local or not shared  # --local/--copy forces it; no KODO_LIBRARY_ROOT falls back to it
+    if not use_local:
+        if existing:
+            console.print(f"\n[green]✓[/] {model} is in your library")
         else:
-            console.print(
-                "\n[yellow]No KODO_LIBRARY_ROOT set[/] — creating a project-local "
-                f"[bold]{_LOCAL_LIBRARY}/[/] and downloading the model there."
-            )
-            pull_root = target / _LOCAL_LIBRARY
-            pull_root.mkdir(parents=True, exist_ok=True)
-            local = True
-        try:
-            if pull_root is None:
-                catalog_ops.pull(ModelSource.huggingface, model)
+            console.print(f"\nPulling [bold]{model}[/] into your library …")
+            _pull_or_exit(model, None)
+    else:
+        local_lib = target / _LOCAL_LIBRARY
+        local_lib.mkdir(parents=True, exist_ok=True)
+        if existing:
+            console.print(f"\nCopying [bold]{model}[/] into [bold]{_LOCAL_LIBRARY}/[/] (local-disk copy) …")
+            _copy_model_local(existing[0], local_lib)
+        else:
+            if not shared:
+                console.print(
+                    f"\n[yellow]No KODO_LIBRARY_ROOT set[/] — downloading [bold]{model}[/] into {_LOCAL_LIBRARY}/."
+                )
             else:
-                catalog_ops.pull(ModelSource.huggingface, model, library_root=pull_root)
-        except Exception as exc:  # noqa: BLE001 - surface pull/network failures
-            console.print(f"[red]Pull failed:[/] {exc}")
-            raise typer.Exit(1) from exc
+                console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
+            _pull_or_exit(model, local_lib)
 
-    proj.write_text(_project_toml(model, system_prompt, mcp, local_library=local))
+    proj.write_text(_project_toml(model, system_prompt, mcp, local_library=use_local, chat_voice=chat_voice))
     console.print(f"\n[green]Created[/] {proj}")
     console.print(f"  [dim]model:[/] {model}")
     console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in mcp) if mcp else 'none'}")
+    console.print(f"  [dim]voice:[/] {chat_voice}")
 
 
 _ModelOpt = Annotated[str | None, typer.Option("--model", help="Model to bind (skips the model picker).")]
 _ForceOpt = Annotated[bool, typer.Option("--force", help="Overwrite an existing kodo.toml.")]
+_LocalOpt = Annotated[
+    bool,
+    typer.Option("--local", "--copy", help="Copy the model into a project-local library/ (fast local disk)."),
+]
 
 
 @project_app.command("init")
-def init(model: _ModelOpt = None, force: _ForceOpt = False) -> None:
+def init(model: _ModelOpt = None, force: _ForceOpt = False, local: _LocalOpt = False) -> None:
     """Scaffold a project assistant in the current directory (interactive wizard).
 
     A project is a purpose-built assistant: `kodo serve`/`chat` here bind to its model
     (like --model) with its tools + prompt; outside a project it's free-play. Use
     `kodo project new <dir>` to scaffold into a fresh directory instead.
     """
-    _scaffold_project(Path("."), model, force)
+    _scaffold_project(Path("."), model, force, local)
     console.print("[dim]Next:[/] kodo serve --ui")
 
 
@@ -683,9 +735,10 @@ def new(
     name: Annotated[str, typer.Argument(help="New project directory to create + scaffold.")],
     model: _ModelOpt = None,
     force: _ForceOpt = False,
+    local: _LocalOpt = False,
 ) -> None:
     """Create a new project directory and scaffold an assistant in it (like `cargo new`)."""
-    _scaffold_project(Path(name), model, force)
+    _scaffold_project(Path(name), model, force, local)
     console.print(f"[dim]Next:[/] cd {name} && kodo serve --ui")
 
 
