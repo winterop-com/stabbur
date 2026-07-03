@@ -59,7 +59,8 @@ function voiceId(m: VoiceModelInfo): string {
 function defaultTextFor(m: VoiceModelInfo | undefined): string {
   switch (m ? voiceId(m) : "") {
     case "dia":
-      return "Hey there, this is Dia — an expressive voice that runs on your own machine. I can even laugh. (laughs)";
+      // Dia's strength is multi-speaker dialogue — default to a two-voice [S1]/[S2] exchange.
+      return "[S1] Hey there, welcome to kodo. [S2] Everything you hear runs right here on your machine. (laughs)";
     case "kokoro":
       return "Hi, I'm Kokoro, a small and fast voice running fully on your machine.";
     case "qwen3-tts":
@@ -132,12 +133,13 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [text, setText] = useState(() => defaultTextFor(ttsModels[0]));
   const [voice, setVoice] = useState<string>("af_heart");
   const [format, setFormat] = useState<string>("wav");
-  // Dia is stochastic — a random seed sometimes drones instead of speaking. Default to a
-  // known-good seed so it's reliable out of the box; clear it for a fresh random voice.
-  const [seed, setSeed] = useState<string>("0");
+  // Dia is stochastic — an unpinned voice varies (and can drone) every run. Default to a
+  // known-good seed so it's reliable + repeatable out of the box; clear it for a random voice.
+  const [seed, setSeed] = useState<string>("10");
   const [refText, setRefText] = useState("");
   const [refB64, setRefB64] = useState<string | null>(null);
   const [refName, setRefName] = useState<string>("");
+  const [refBusy, setRefBusy] = useState(false); // auto-transcribing the reference clip
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -188,6 +190,13 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     const next = defaultTextFor(model);
     lastDefaultRef.current = next;
     setText((prev) => (prev === prevDefault ? next : prev));
+    // Reset the player on a model switch — the last clip belonged to the old model, so the
+    // button should read "Generate" (not "Generate again") for the newly selected voice.
+    setAudioUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setError(null);
   }, [model]);
 
   const insertCue = (cue: string) => {
@@ -198,12 +207,24 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const onPickClip = async (file: File) => {
     setRefB64(await toBase64(file));
     setRefName(file.name);
+    // Cloning needs the reference clip's transcript; auto-fill it with Whisper so you don't
+    // have to type it (editable afterwards). Leaves it blank if transcription fails.
+    setRefBusy(true);
+    try {
+      const t = (await transcribeAudio(file)).trim();
+      if (t) setRefText(t);
+    } catch {
+      /* Whisper unavailable / failed — fall back to manual entry */
+    } finally {
+      setRefBusy(false);
+    }
   };
 
   const speak = async () => {
     if (!model || !text.trim()) return;
     setBusy(true);
     setError(null);
+    audioRef.current?.pause(); // stop the previous clip so it can't play during generation
     try {
       const blob = await synthesizeSpeech({
         model: voiceId(model),
@@ -371,13 +392,24 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             )}
           </div>
           {refB64 && (
-            <Input
-              aria-label="Reference transcript"
-              value={refText}
-              onChange={(e) => setRefText(e.target.value)}
-              placeholder="Exact transcript of the reference clip (needed for a good clone)"
-              className="mt-2 h-8 text-sm"
-            />
+            <div className="mt-2">
+              <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                {refBusy ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" /> Transcribing the clip with Whisper…
+                  </>
+                ) : (
+                  "Reference transcript — auto-filled by Whisper; edit if it's wrong."
+                )}
+              </div>
+              <Input
+                aria-label="Reference transcript"
+                value={refText}
+                onChange={(e) => setRefText(e.target.value)}
+                placeholder="Transcript of the reference clip"
+                className="h-8 text-sm"
+              />
+            </div>
           )}
         </div>
       )}
@@ -406,10 +438,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         {/* Inline player for the last clip: play/pause + scrubber + time. The Speak
             button above re-synthesizes the current settings (model/voice/text). */}
         {audioUrl && (
-          <div className="flex items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-2 pr-4">
+          <div
+            className={cn(
+              "flex items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-2 pr-4",
+              busy && "pointer-events-none opacity-50", // generating: don't let the old clip play
+            )}
+          >
             <button
               type="button"
               onClick={togglePlay}
+              disabled={busy}
               aria-label={playing ? "Pause" : "Play"}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
             >
@@ -422,6 +460,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               step={0.001}
               value={progress}
               onChange={(e) => seek(Number(e.target.value))}
+              disabled={busy}
               aria-label="Seek"
               className="h-1 flex-1 cursor-pointer accent-primary"
             />

@@ -50,6 +50,14 @@ def synthesize(
     from mlx_audio.tts.generate import generate_audio  # noqa: PLC0415
 
     loaded = _load(str(model))
+    # mlx-audio's generate_audio has no `seed` arg (it silently ignores one), so a seed only
+    # takes effect by seeding MLX's RNG here — that's what makes a seeded model (Dia)
+    # reproducible instead of a fresh random voice every run.
+    seed = params.pop("seed", None)
+    if seed is not None:
+        import mlx.core as mx  # noqa: PLC0415
+
+        mx.random.seed(int(seed))
     kwargs: dict[str, Any] = {"file_prefix": "out", "audio_format": audio_format, "save": True, "verbose": False}
     if voice is not None:
         kwargs["voice"] = voice
