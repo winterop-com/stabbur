@@ -43,10 +43,12 @@ library_app = typer.Typer(
 audio_app = typer.Typer(help="Text-to-speech: list voices and synthesize speech.", no_args_is_help=True)
 project_app = typer.Typer(help="The project's assistant (./kodo.toml): scaffold and inspect it.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP tool servers kodo can attach (from installed plugins).", no_args_is_help=True)
+voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
 app.add_typer(library_app, name="library")
 app.add_typer(audio_app, name="audio")
 app.add_typer(project_app, name="project")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(voice_app, name="voice")
 
 
 @mcp_app.command("list")
@@ -1129,6 +1131,59 @@ def serve(
         port=bind_port,
         reload=reload,
     )
+
+
+# --- voice -----------------------------------------------------------------
+
+
+@voice_app.command("list")
+def voice_list() -> None:
+    """List known voice models (TTS/STT) and where each lives — HF cache or the library."""
+    from kodo import voice  # noqa: PLC0415
+
+    table = Table(box=box.SIMPLE, header_style="bold")
+    for col in ("ID", "KIND", "VOICE", "BACKEND", "WHERE", "SIZE"):
+        table.add_column(col, style="cyan" if col == "ID" else None)
+    for p in voice.discover(get_settings().library_root):
+        s = p.spec
+        where = "[green]library[/]" if p.in_library else ("[yellow]hf-cache[/]" if p.in_cache else "[dim]—[/]")
+        table.add_row(
+            s.id, s.kind.value, s.voice_mode.value, s.backend.value, where, p.size_human if p.available else "—"
+        )
+    console.print(table)
+    console.print("[dim]kodo voice import --all   moves them into the library (portable, dedups).[/]")
+
+
+@voice_app.command("import")
+def voice_import(
+    models: Annotated[list[str], typer.Argument(help="Voice model id(s) to import; omit with --all.")] = [],
+    all_: Annotated[bool, typer.Option("--all", help="Import every voice model found in the HF cache.")] = False,
+    prune: Annotated[bool, typer.Option("--prune", help="Delete the HF-cache copy after a verified import.")] = False,
+) -> None:
+    """Copy voice models from the HF cache into the library's ``voice/`` bucket (portable)."""
+    from kodo import voice  # noqa: PLC0415
+    from kodo.voice import importer  # noqa: PLC0415
+
+    presences = {p.spec.id: p for p in voice.discover(get_settings().library_root)}
+    if all_:
+        targets = [p for p in presences.values() if p.available]
+    else:
+        if not models:
+            console.print("[red]Give a model id or --all[/] (see [bold]kodo voice list[/]).")
+            raise typer.Exit(1)
+        targets = [presences[m] for m in models if m in presences]
+    if not targets:
+        console.print("[yellow]Nothing to import[/] — no matching voice models in the HF cache.")
+        return
+    for p in targets:
+        if p.in_library:
+            console.print(f"[dim]{p.spec.id}: already in library[/]")
+            continue
+        dest = voice.voice_dir(get_settings().library_root) / p.spec.repo
+        console.print(f"importing [cyan]{p.spec.id}[/] ({p.size_human}) → {dest} …")
+        result = importer.import_to_library(p, get_settings().library_root, prune_cache=prune)
+        note = " [dim](cache pruned)[/]" if result.cache_pruned else ""
+        console.print(f"  [green]done[/] {_human_size(result.copied_bytes)}{note}")
 
 
 # --- plugins ---------------------------------------------------------------

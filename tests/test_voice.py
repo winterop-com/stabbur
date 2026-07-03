@@ -54,3 +54,33 @@ def test_discover_reports_presence(tmp_path: Path, monkeypatch: object) -> None:
     assert found["dia"].location == "library"
     assert not found["kokoro"].available  # nothing downloaded for it here
     assert found["kokoro"].location == "not downloaded"
+
+
+def test_import_copies_from_cache_and_prunes(tmp_path: Path, monkeypatch: object) -> None:
+    import pytest
+
+    assert isinstance(monkeypatch, pytest.MonkeyPatch)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    # Fake a cached kokoro (real bytes under blobs/, like the HF cache).
+    cache = voice.hf_hub_cache() / "models--mlx-community--Kokoro-82M-bf16" / "blobs"
+    cache.mkdir(parents=True)
+    (cache / "data").write_bytes(b"x" * 4096)
+    lib = tmp_path / "lib"
+
+    import huggingface_hub
+
+    def fake_download(repo_id: str, local_dir: str, local_files_only: bool) -> str:
+        Path(local_dir).mkdir(parents=True, exist_ok=True)
+        (Path(local_dir) / "model.bin").write_bytes(b"x" * 4096)  # stand in for the copied snapshot
+        return local_dir
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
+
+    from kodo.voice import importer
+
+    presence = next(p for p in voice.discover(lib) if p.spec.id == "kokoro")
+    result = importer.import_to_library(presence, lib, prune_cache=True)
+    assert result.copied_bytes == 4096 and result.cache_pruned
+    assert not presence.cache_path.exists()  # cache pruned after a verified copy
+    # Re-discovering now finds it in the library, not the cache.
+    assert voice.discover(lib)[0].location == "library" or any(p.in_library for p in voice.discover(lib))
