@@ -3,54 +3,89 @@
   "language": "python",
   "type": "code",
   "model": "unsloth/Qwen3.5-4B-GGUF",
-  "timestamp": "2026-07-03T00:10:58",
-  "load_s": 29.196563083998626,
+  "timestamp": "2026-07-03T10:59:32",
+  "load_s": 29.700074499996845,
   "outcomes": [
     {
       "id": "sum-two",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 2.803069832996698,
-      "exec_s": 0.42949508398305625
+      "gen_s": 3.11147574998904,
+      "exec_s": 0.41806133300997317
     },
     {
       "id": "reverse-string",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 1.9047977909795009,
-      "exec_s": 0.28662479197373614
+      "gen_s": 3.2314350419910625,
+      "exec_s": 0.2784214580024127
     },
     {
       "id": "count-words",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 58.10599716700381,
-      "exec_s": 0.2900204999896232
+      "gen_s": 26.256388708017766,
+      "exec_s": 0.2859711660130415
     },
     {
       "id": "fizzbuzz",
       "difficulty": "intermediate",
       "passed": true,
-      "gen_s": 7.341104999999516,
-      "exec_s": 0.2764096659957431
+      "gen_s": 8.503667666984256,
+      "exec_s": 0.26166562500293367
     },
     {
       "id": "reverse-words",
       "difficulty": "intermediate",
       "passed": true,
-      "gen_s": 4.297007917019073,
-      "exec_s": 0.29255837498931214
+      "gen_s": 8.456559749989538,
+      "exec_s": 0.28424954201909713
     },
     {
       "id": "count-primes",
       "difficulty": "advanced",
       "passed": true,
-      "gen_s": 13.91491716701421,
-      "exec_s": 0.5774263330094982
+      "gen_s": 8.114272917009657,
+      "exec_s": 0.5392320409882814
+    },
+    {
+      "id": "expr-eval",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 12.342415167018771,
+      "exec_s": 0.7890427089878358
+    },
+    {
+      "id": "edit-distance",
+      "difficulty": "expert",
+      "passed": true,
+      "gen_s": 16.56316908399458,
+      "exec_s": 0.5655447909957729
+    },
+    {
+      "id": "lis",
+      "difficulty": "expert",
+      "passed": true,
+      "gen_s": 17.400297791988123,
+      "exec_s": 0.5848317909985781
+    },
+    {
+      "id": "interval-merge",
+      "difficulty": "expert",
+      "passed": true,
+      "gen_s": 26.460582333005732,
+      "exec_s": 0.5911341249884572
+    },
+    {
+      "id": "shortest-path",
+      "difficulty": "expert",
+      "passed": true,
+      "gen_s": 21.09968574999948,
+      "exec_s": 0.5554582080221735
     }
   ],
-  "gen_s": 88.3668948750128,
-  "total": 6,
-  "passed": 6,
-  "score": 1.0
+  "gen_s": 151.539949959988,
+  "total": 11,
+  "passed": 10,
+  "score": 0.9090909090909091
 }

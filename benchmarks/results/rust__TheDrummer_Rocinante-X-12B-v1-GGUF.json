@@ -3,54 +3,89 @@
   "language": "rust",
   "type": "code",
   "model": "TheDrummer/Rocinante-X-12B-v1-GGUF",
-  "timestamp": "2026-07-03T00:40:19",
-  "load_s": 66.56804120901506,
+  "timestamp": "2026-07-03T12:43:14",
+  "load_s": 67.20331929199165,
   "outcomes": [
     {
       "id": "sum-two",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 3.048534749977989,
-      "exec_s": 0.8182981249992736
+      "gen_s": 3.211335332976887,
+      "exec_s": 0.8165730000182521
     },
     {
       "id": "reverse-string",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 1.5049946670187637,
-      "exec_s": 0.46209012501640245
+      "gen_s": 1.6810235419834498,
+      "exec_s": 0.4651567499968223
     },
     {
       "id": "count-words",
       "difficulty": "basics",
-      "passed": true,
-      "gen_s": 2.07019879197469,
-      "exec_s": 0.47957070800475776
+      "passed": false,
+      "gen_s": 2.2052569999941625,
+      "exec_s": 0.476595082989661
     },
     {
       "id": "fizzbuzz",
       "difficulty": "intermediate",
-      "passed": true,
-      "gen_s": 4.229482124996139,
-      "exec_s": 0.479173500003526
+      "passed": false,
+      "gen_s": 4.134431333019165,
+      "exec_s": 0.28408750001108274
     },
     {
       "id": "reverse-words",
       "difficulty": "intermediate",
-      "passed": false,
-      "gen_s": 1.8709914580103941,
-      "exec_s": 0.43678545800503343
+      "passed": true,
+      "gen_s": 2.00533045901102,
+      "exec_s": 0.43503491699812
     },
     {
       "id": "count-primes",
       "difficulty": "advanced",
       "passed": true,
-      "gen_s": 4.818276125006378,
-      "exec_s": 0.9619163330062293
+      "gen_s": 5.7128096249944065,
+      "exec_s": 0.9595143329934217
+    },
+    {
+      "id": "expr-eval",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 9.666932624997571,
+      "exec_s": 0.560435665975092
+    },
+    {
+      "id": "edit-distance",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 9.228811458015116,
+      "exec_s": 0.6113632080086973
+    },
+    {
+      "id": "lis",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 9.662131625023903,
+      "exec_s": 0.6049277499841992
+    },
+    {
+      "id": "interval-merge",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 8.889137749996735,
+      "exec_s": 0.5843623749969993
+    },
+    {
+      "id": "shortest-path",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 15.915859707980417,
+      "exec_s": 0.6135444169922266
     }
   ],
-  "gen_s": 17.542477916984353,
-  "total": 6,
-  "passed": 5,
-  "score": 0.8333333333333334
+  "gen_s": 72.31306045799283,
+  "total": 11,
+  "passed": 4,
+  "score": 0.36363636363636365
 }

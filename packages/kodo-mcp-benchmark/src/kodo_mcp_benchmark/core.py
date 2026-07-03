@@ -490,7 +490,13 @@ def render_leaderboard(records: list[RunRecord]) -> str:
         runs = by_model[model].values()
         return sum(r.passed for r in runs), sum(r.total for r in runs)
 
-    ranked = sorted(by_model, key=lambda m: totals(m)[0] / t if (t := totals(m)[1]) else 0.0, reverse=True)
+    # Rank by absolute problems passed (then rate) so coverage matters: a model that solved
+    # 30/31 across all suites outranks one that only ran the easy tool suites and went 9/9.
+    def _rank_key(model: str) -> tuple[int, float]:
+        passed, total = totals(model)
+        return passed, (passed / total if total else 0.0)
+
+    ranked = sorted(by_model, key=_rank_key, reverse=True)
     header = "| Rank | Model | " + " | ".join(suites) + " | Overall |"
     separator = "|" + "---|" * (len(suites) + 3)
     rows = [header, separator]
