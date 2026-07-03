@@ -204,6 +204,7 @@ class VoiceModelInfo(BaseModel):
     voices: list[str] = []  # named preset voices, if statically known
     languages: list[str] = []
     chat_default: bool = False  # the lightweight in-chat "speak replies" voice (Kokoro)
+    supported: bool = True  # False = listed but not runnable yet (UI disables synthesis)
 
 
 @router.get("/api/voice")
@@ -235,6 +236,7 @@ def voice_models() -> list[VoiceModelInfo]:
                 voices=list(spec.voices) if spec else [],
                 languages=list(spec.languages) if spec else list(m.languages),
                 chat_default=spec.chat_default if spec else False,
+                supported=spec.supported if spec else True,
             )
         )
     return out

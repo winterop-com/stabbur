@@ -96,6 +96,11 @@ function VoiceCard({ model }: { model: VoiceModelInfo }) {
         <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">{model.description}</p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+        {!model.supported && (
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">
+            not runnable yet
+          </span>
+        )}
         {model.chat_default && (
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">
             <Sparkles className="h-2.5 w-2.5" /> chat voice
@@ -215,10 +220,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setAudioUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev); // drop the stale player so a failure isn't masked by old audio
+        return null;
+      });
     } finally {
       setBusy(false);
     }
   };
+
+  const unsupported = model ? !model.supported : false;
 
   if (ttsModels.length === 0) {
     return (
@@ -373,7 +384,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
       <div className="mt-3 flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <Button onClick={speak} disabled={busy || !text.trim()} className="gap-1.5">
+          <Button onClick={speak} disabled={busy || unsupported || !text.trim()} className="gap-1.5">
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : audioUrl ? (
@@ -383,7 +394,13 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             )}
             {busy ? "Generating…" : audioUrl ? "Generate again" : "Generate"}
           </Button>
-          {error && <span className="text-xs text-destructive">{error}</span>}
+          {unsupported ? (
+            <span className="text-xs text-muted-foreground">
+              {model?.display_name} isn't runnable in kodo yet.
+            </span>
+          ) : (
+            error && <span className="text-xs text-destructive">{error}</span>
+          )}
         </div>
 
         {/* Inline player for the last clip: play/pause + scrubber + time. The Speak

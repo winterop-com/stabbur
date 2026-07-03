@@ -200,6 +200,7 @@ export interface VoiceModelInfo {
   voices: string[];
   languages: string[];
   chat_default: boolean;
+  supported: boolean;
 }
 
 /** List library voice models (TTS + STT) for the Voice section. */

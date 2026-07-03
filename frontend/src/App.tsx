@@ -33,6 +33,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
+import { IconRail } from "@/components/IconRail";
 import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
@@ -655,11 +656,23 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <PanelGroup
-        direction="horizontal"
-        autoSaveId="kodo-layout"
-        className="h-full overflow-hidden"
-      >
+      <div className="flex h-full overflow-hidden">
+        {/* When the sidebar is collapsed, a thin icon rail keeps new-chat + Models +
+            Voice reachable (and usable on mobile) rather than hiding nav entirely. */}
+        {!sidebarOpen && (
+          <IconRail
+            view={view}
+            onExpand={openSidebar}
+            onNew={startNewChat}
+            onShowModels={showModels}
+            onShowVoice={showVoice}
+          />
+        )}
+        <PanelGroup
+          direction="horizontal"
+          autoSaveId="kodo-layout"
+          className="h-full min-w-0 flex-1 overflow-hidden"
+        >
         {/* Left rail: collapsible + resizable. Kept in sync with sidebarOpen so
             the top-bar re-open button knows when to show. */}
         <Panel
@@ -700,40 +713,9 @@ export function App() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* top bar */}
           <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
-            <div className="flex items-center gap-1">
-              {/* When the sidebar is collapsed, keep its actions reachable in the
-                  top bar (open + new chat), like chapkit's persistent rail. */}
-              {!sidebarOpen && (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={openSidebar}
-                        aria-label="Open sidebar"
-                      >
-                        <PanelLeft className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Open sidebar</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={startNewChat}
-                        aria-label="New chat"
-                      >
-                        <SquarePen className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>New chat</TooltipContent>
-                  </Tooltip>
-                </>
-              )}
-            </div>
+            {/* Collapsed-sidebar actions (open + new chat) live in the persistent
+                IconRail on the far left, so the top bar stays clean. */}
+            <div className="flex items-center gap-1" />
             <div className="flex items-center gap-1.5">
               <LoadedModelBadge
                 status={status}
@@ -935,7 +917,8 @@ export function App() {
             />
           )}
         </Panel>
-      </PanelGroup>
+        </PanelGroup>
+      </div>
     </TooltipProvider>
   );
 }

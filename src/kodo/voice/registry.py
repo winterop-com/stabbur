@@ -71,6 +71,11 @@ class VoiceModel(BaseModel):
     # run alongside a large chat LLM without a second multi-GB load.
     chat_default: bool = False
 
+    # Whether kodo can actually run this model today. False for models present in the
+    # registry (so they're documented/listed) but not yet runnable via our runtime — e.g.
+    # a model needing bespoke loading the runtime doesn't do. Clients disable synthesis.
+    supported: bool = True
+
 
 # Registry of known voice models. Extend by adding an entry (accurate metadata; conservative
 # where a detail is unverified). Discovery (catalog.py) reports which of these are present.
@@ -111,10 +116,12 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Compact multilingual TTS.",
+        description="Compact multilingual TTS. Not yet runnable in kodo: mlx-audio's simple "
+        "loader doesn't wire up its separate speech tokenizer, so synthesis is disabled for now.",
         voice_mode=VoiceMode.preset,
         sample_rate=24000,
         size_hint="~1.2 GB",
+        supported=False,
     ),
     VoiceModel(
         id="outetts",
