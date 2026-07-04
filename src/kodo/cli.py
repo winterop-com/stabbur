@@ -633,6 +633,49 @@ def _pull_or_exit(model: str, library_root: Path | None) -> None:
         raise typer.Exit(1) from exc
 
 
+# A project-local library holds multi-GB weights, and `.env` holds machine secrets —
+# neither belongs in git. Keep the rest (kodo.toml, this .gitignore) committable.
+_GITIGNORE = f"""\
+# kodo project — the local model library holds large weights; don't commit them.
+/{_LOCAL_LIBRARY}/
+
+# Machine-specific config / secrets.
+.env
+
+# Python / OS noise.
+__pycache__/
+*.py[cod]
+.DS_Store
+"""
+
+
+def _git_init_project(target: Path) -> None:
+    """`git init` the project and write a `.gitignore` (ignoring the local library + secrets).
+
+    Best-effort: an existing repo is left alone, and a missing/failing ``git`` warns
+    rather than aborting — the project itself is already written.
+    """
+    import subprocess  # noqa: PLC0415
+
+    gitignore = target / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(_GITIGNORE)
+    if (target / ".git").exists():
+        console.print(f"  [dim]git:[/] already a repo — wrote {gitignore.name}")
+        return
+    try:
+        subprocess.run(
+            ["git", "init", "-q"],  # noqa: S607 - git on PATH; fixed args
+            cwd=target,
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:  # git missing or failed
+        console.print(f"  [yellow]git:[/] init skipped ({exc}); wrote {gitignore.name}")
+        return
+    console.print(f"  [dim]git:[/] initialized repo + {gitignore.name}")
+
+
 def _copy_model_local(model: library_ops.LibraryModel, dest_root: Path) -> None:
     """Copy a library model's directory into a project-local library, preserving its layout."""
     rel = model.path.relative_to(model.library_root)
@@ -643,7 +686,7 @@ def _copy_model_local(model: library_ops.LibraryModel, dest_root: Path) -> None:
     shutil.copytree(model.path, dest)
 
 
-def _scaffold_project(target: Path, model: str | None, force: bool, local: bool) -> None:
+def _scaffold_project(target: Path, model: str | None, force: bool, local: bool, git: bool = False) -> None:
     """Interactive project scaffolder shared by `init` (here) and `new` (a fresh dir).
 
     Walks through a kind, default model, toolset (installed MCP plugins), system prompt, and
@@ -710,6 +753,8 @@ def _scaffold_project(target: Path, model: str | None, force: bool, local: bool)
     console.print(f"  [dim]model:[/] {model}")
     console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in mcp) if mcp else 'none'}")
     console.print(f"  [dim]voice:[/] {chat_voice}")
+    if git:
+        _git_init_project(target)
 
 
 _ModelOpt = Annotated[str | None, typer.Option("--model", help="Model to bind (skips the model picker).")]
@@ -718,17 +763,21 @@ _LocalOpt = Annotated[
     bool,
     typer.Option("--local", "--copy", help="Copy the model into a project-local library/ (fast local disk)."),
 ]
+_GitOpt = Annotated[
+    bool,
+    typer.Option("--git", help="git init the project + write a .gitignore (excludes the local library/ + .env)."),
+]
 
 
 @project_app.command("init")
-def init(model: _ModelOpt = None, force: _ForceOpt = False, local: _LocalOpt = False) -> None:
+def init(model: _ModelOpt = None, force: _ForceOpt = False, local: _LocalOpt = False, git: _GitOpt = False) -> None:
     """Scaffold a project assistant in the current directory (interactive wizard).
 
     A project is a purpose-built assistant: `kodo serve`/`chat` here bind to its model
     (like --model) with its tools + prompt; outside a project it's free-play. Use
     `kodo project new <dir>` to scaffold into a fresh directory instead.
     """
-    _scaffold_project(Path("."), model, force, local)
+    _scaffold_project(Path("."), model, force, local, git)
     console.print("[dim]Next:[/] kodo serve --ui")
 
 
@@ -738,9 +787,10 @@ def new(
     model: _ModelOpt = None,
     force: _ForceOpt = False,
     local: _LocalOpt = False,
+    git: _GitOpt = False,
 ) -> None:
     """Create a new project directory and scaffold an assistant in it (like `cargo new`)."""
-    _scaffold_project(Path(name), model, force, local)
+    _scaffold_project(Path(name), model, force, local, git)
     console.print(f"[dim]Next:[/] cd {name} && kodo serve --ui")
 
 
