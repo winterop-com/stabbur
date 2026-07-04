@@ -24,11 +24,14 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import re
 import socket
 from functools import partial
+from html import unescape
 from typing import Literal
 from urllib.parse import urlparse
 
+import httpx
 import trafilatura
 from fastmcp import FastMCP
 from playwright.async_api import Browser, BrowserContext, Playwright, Route, async_playwright
@@ -45,6 +48,9 @@ class Settings(BaseSettings):
     timeout_seconds: float = 20.0  # per-page navigation timeout
     settle_ms: int = 500  # brief wait after load for late client-side rendering
     max_chars: int = 20_000  # cap the Markdown handed back to the model's context
+    static_first: bool = True  # try a plain httpx GET first; fall back to the browser if it's thin
+    min_chars: int = 100  # static extraction shorter than this -> retry with the browser (likely a JS app-shell)
+    max_redirects: int = 5  # cap redirects on the static path (each hop is SSRF-guarded)
     # Playwright wait strategy; a Literal so an invalid KODO_WEB_WAIT_UNTIL is rejected at startup.
     wait_until: Literal["load", "domcontentloaded", "networkidle", "commit"] = "load"
     allow_private: bool = False  # opt in to private/loopback hosts (internal servers)
@@ -154,20 +160,63 @@ async def _get_browser() -> Browser:
         return _browser
 
 
-# --- the tool --------------------------------------------------------------
+# --- extraction + formatting -----------------------------------------------
+
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_TAGS_RE = re.compile(r"<[^>]+>")
 
 
-@mcp.tool
-async def read_url(url: str) -> str:
-    """Read a web page and return its main content as Markdown.
+def _title_from_html(html: str) -> str:
+    """Pull the ``<title>`` text out of raw HTML (for the static path; browser uses page.title())."""
+    match = _TITLE_RE.search(html)
+    return unescape(_TAGS_RE.sub("", match.group(1))).strip() if match else ""
 
-    Renders the page in a headless browser (so JavaScript-rendered pages work), strips
-    boilerplate (navigation, ads, footers), and returns Markdown prefixed with the page
-    title and source URL. Only ``http(s)`` URLs to public hosts are allowed; long pages are
-    truncated with a note. Pass a full URL including the scheme, e.g.
-    ``https://example.com/article``.
+
+def _extract_body(html: str, final_url: str) -> str:
+    """Main content of a page as Markdown (trafilatura), stripped; empty if nothing extractable."""
+    raw = trafilatura.extract(html, output_format="markdown", include_links=True, url=final_url)
+    return (raw or "").strip()
+
+
+def _format(body: str, final_url: str, title: str) -> str:
+    """Assemble the final tool output: a title heading + source URL + capped Markdown body."""
+    if len(body) > settings.max_chars:
+        body = body[: settings.max_chars].rstrip() + "\n\n… [truncated]"
+    header = f"# {title}\n" if title else ""
+    return f"{header}<{final_url}>\n\n{body}"
+
+
+# --- fetching: static (httpx) fast path, then browser (Playwright) fallback ---
+
+
+async def _fetch_static(url: str) -> tuple[str, str, str]:
+    """Fetch a page with a plain guarded httpx GET; return (final_url, html, title).
+
+    Redirects are followed manually so every hop is SSRF-guarded; non-text responses raise
+    (the caller falls back to the browser). No JavaScript — cheap, for static/server-rendered pages.
     """
-    _guard_url(url)
+    async with httpx.AsyncClient(
+        timeout=settings.timeout_seconds,
+        headers={"User-Agent": settings.user_agent},
+        follow_redirects=False,
+    ) as client:
+        current = url
+        for _ in range(settings.max_redirects + 1):
+            _guard_url(current)
+            resp = await client.get(current)
+            if resp.is_redirect and "location" in resp.headers:
+                current = str(resp.url.join(resp.headers["location"]))
+                continue
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "")
+            if not any(kind in content_type for kind in ("html", "xml", "text")):
+                raise ValueError(f"non-text content-type {content_type!r}")
+            return str(resp.url), resp.text, _title_from_html(resp.text)
+        raise ValueError(f"too many redirects (> {settings.max_redirects})")
+
+
+async def _fetch_browser(url: str) -> tuple[str, str, str]:
+    """Render a page in headless Chromium; return (final_url, html, title). Handles JS-rendered pages."""
     browser = await _get_browser()
     context: BrowserContext = await browser.new_context(user_agent=settings.user_agent)
     cache: dict[str, bool] = {}
@@ -182,21 +231,44 @@ async def read_url(url: str) -> str:
             raise ValueError(f"failed to load {url!r}: {exc}") from exc
         final_url = str(page.url)
         _guard_url(final_url)  # a client-side redirect may have moved us off the vetted host
-        html: str = await page.content()
-        title: str = (await page.title()).strip()
+        return final_url, await page.content(), (await page.title()).strip()
     finally:
         await context.close()
 
-    raw_md = trafilatura.extract(html, output_format="markdown", include_links=True, url=final_url)
-    md: str = (raw_md or "").strip()
-    if not md:
+
+# --- the tool --------------------------------------------------------------
+
+
+@mcp.tool
+async def read_url(url: str) -> str:
+    """Read a web page and return its main content as Markdown.
+
+    Fetches the page — a cheap static HTTP GET first, falling back to a headless browser when
+    the static extraction is thin (a JavaScript-rendered page) — strips boilerplate (nav, ads,
+    footers), and returns Markdown prefixed with the page title and source URL. Only ``http(s)``
+    URLs to public hosts are allowed; long pages are truncated with a note. Pass a full URL
+    including the scheme, e.g. ``https://example.com/article``.
+    """
+    _guard_url(url)
+
+    # Fast path: a plain HTTP GET is enough for static/server-rendered pages and skips the
+    # browser entirely. If it yields too little (a JS-rendered SPA) or fails, fall back below.
+    if settings.static_first:
+        try:
+            final_url, html, title = await _fetch_static(url)
+            body = _extract_body(html, final_url)
+            if len(body) >= settings.min_chars:
+                return _format(body, final_url, title)
+        except Exception:  # noqa: BLE001 - any static failure just means we try the browser
+            pass
+
+    final_url, html, title = await _fetch_browser(url)
+    body = _extract_body(html, final_url)
+    if not body:
         raise ValueError(
             f"no readable content extracted from {url!r} (the page may be empty, blocked, or not an article)"
         )
-    if len(md) > settings.max_chars:
-        md = md[: settings.max_chars].rstrip() + "\n\n… [truncated]"
-    header = f"# {title}\n" if title else ""
-    return f"{header}<{final_url}>\n\n{md}"
+    return _format(body, final_url, title)
 
 
 def main() -> None:

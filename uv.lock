@@ -1597,6 +1597,7 @@ version = "0.1.0"
 source = { editable = "packages/kodo-mcp-web" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "playwright" },
     { name = "pluginkit" },
     { name = "pydantic-settings" },
@@ -1606,6 +1607,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "playwright", specifier = ">=1.47" },
     { name = "pluginkit", specifier = ">=0.4.7" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },

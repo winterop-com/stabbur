@@ -41,12 +41,14 @@ kodo bundles pure-stdlib/light plugins — always available:
 
 One heavier first-party server is **optional**:
 
-- **`web`** (`kodo-mcp-web`) — `read_url(url)` reads a page in a **headless browser**
-  (Playwright/Chromium, so JavaScript-rendered pages work) and returns its main content as
-  Markdown. Because the browser is heavy, it's shipped as an extra: `make install-web`
-  (or `uv sync --extra web` then `playwright install chromium`). Once installed it advertises
-  itself, so `kodo mcp add web` wires it into a project. An SSRF guard refuses private/loopback
-  hosts (top URL and every browser request); `KODO_WEB_ALLOW_PRIVATE=1` opts into internal hosts.
+- **`web`** (`kodo-mcp-web`) — `read_url(url)` returns a page's main content as Markdown. It
+  tries a cheap static HTTP GET first and only falls back to a **headless browser**
+  (Playwright/Chromium) for JavaScript-rendered pages, so simple pages skip the browser.
+  Because the browser is heavy, it's shipped as an extra: `make install-web` (or `uv sync
+  --extra web` then `playwright install chromium`) — `kodo mcp list` shows it with that hint
+  even before it's installed. Once installed it advertises itself, so `kodo mcp add web` wires
+  it into a project. An SSRF guard refuses private/loopback hosts (the static and browser paths,
+  and every browser subrequest); `KODO_WEB_ALLOW_PRIVATE=1` opts into internal hosts.
 
 
 ```toml

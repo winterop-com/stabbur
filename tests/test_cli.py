@@ -278,3 +278,18 @@ def test_inline_files_prepends_fenced_blocks() -> None:
     assert inlined.endswith("summarize")
     # No text: just the blocks.
     assert attach.inline_files("", [("a.txt", "hi")]) == "Attached file: a.txt\n```\nhi\n```"
+
+
+def test_uninstalled_optional_lists_web_only_when_absent() -> None:
+    # `web` is optional (behind `--extra web`); it's listed for discovery only when not installed.
+    assert [o.name for o in cli._uninstalled_optional(set())] == ["web"]
+    assert cli._uninstalled_optional({"web"}) == []  # installed/advertised -> not in the optional list
+
+
+def test_mcp_list_shows_optional_web_with_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import plugins
+
+    monkeypatch.setattr(plugins, "advertised_servers", lambda _pm: [])  # simulate web (and all) not installed
+    result = runner.invoke(cli.app, ["mcp", "list"])
+    assert result.exit_code == 0
+    assert "web" in result.stdout and "install-web" in result.stdout  # discoverable with a hint

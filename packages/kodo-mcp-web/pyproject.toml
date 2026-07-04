@@ -8,6 +8,7 @@ dependencies = [
     "fastmcp>=3.4.2",
     "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
+    "httpx>=0.28",
     "playwright>=1.47",
     "trafilatura>=1.12",
 ]

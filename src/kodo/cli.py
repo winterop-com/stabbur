@@ -95,6 +95,23 @@ _CURATED_MCP: list[CuratedMcp] = [
 ]
 
 
+# First-party servers that are optional (behind an extra, e.g. a heavy dep) — so they don't
+# advertise until installed. Listed here too, with an install hint, so they stay discoverable.
+_OPTIONAL_FIRST_PARTY: list[CuratedMcp] = [
+    CuratedMcp(
+        name="web",
+        command="kodo-mcp-web",
+        description="Read a web page in a headless browser and return its main content as Markdown.",
+        setup="install with: make install-web  (Playwright + Chromium)",
+    ),
+]
+
+
+def _uninstalled_optional(advertised: set[str]) -> list[CuratedMcp]:
+    """Optional first-party servers not currently installed (advertised), for discovery."""
+    return [s for s in _OPTIONAL_FIRST_PARTY if s.name not in advertised]
+
+
 def _project_mcp_keys(path: Path = Path("kodo.toml")) -> set[str]:
     """Names + commands of MCP servers already listed in the local ``kodo.toml`` (empty if none)."""
     proj = project.load(path)
@@ -139,6 +156,23 @@ def mcp_list() -> None:
         for s in servers:
             plug.add_row(mark(s.name, s.command), s.name, s.command, s.description)
         console.print(plug)
+
+    # Optional first-party servers not yet installed — show them with an install hint so they're
+    # discoverable before `make install-<name>` (once installed they move up to Installed plugins).
+    optional = _uninstalled_optional({s.name for s in servers})
+    if optional:
+        opt = Table(
+            box=box.SIMPLE,
+            header_style="bold",
+            title="[bold]Optional first-party[/] [dim]— not installed yet[/]",
+            title_justify="left",
+        )
+        opt.add_column("NAME", style="cyan")
+        opt.add_column("INSTALL")
+        opt.add_column("DESCRIPTION", style="dim", overflow="fold")
+        for o in optional:
+            opt.add_row(o.name, o.setup.replace("install with: ", ""), o.description)
+        console.print(opt)
 
     catalog = Table(
         box=box.SIMPLE,
