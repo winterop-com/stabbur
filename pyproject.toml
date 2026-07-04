@@ -158,7 +158,16 @@ disallow_untyped_defs = false
 [[tool.mypy.overrides]]
 # Optional `tts` extra: untyped (soundfile/espeakng_loader) or absent when the
 # extra isn't synced. Treat as Any so `make check` passes with or without it.
-module = ["soundfile.*", "espeakng_loader.*", "kokoro_onnx.*", "mlx_audio.*", "misaki.*"]
+module = [
+    "soundfile.*",
+    "espeakng_loader.*",
+    "kokoro_onnx.*",
+    "mlx.*",
+    "mlx_lm.*",
+    "mlx_vlm.*",
+    "mlx_audio.*",
+    "misaki.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
