@@ -111,10 +111,12 @@ def _project_mcp_keys(path: Path = Path("kodo.toml")) -> set[str]:
 @mcp_app.command("list")
 @mcp_app.command("ls", hidden=True)  # `ls` alias, mirroring `kodo library ls`
 def mcp_list() -> None:
-    """List MCP tool servers: a curated catalog to add, plus any installed plugins.
+    """List MCP tool servers: first-party plugins first, then an external catalog.
 
-    A [green]✓[/] marks a server already in this directory's ``kodo.toml``. Add a curated
-    one with ``kodo mcp add <name>``.
+    First-party ``kodo-mcp-*`` plugins are the recommended set — kodo controls them, they
+    need no external runtime, and they're always up to date. The external catalog is a
+    fallback for tools kodo doesn't ship yet. A [green]✓[/] marks a server already in this
+    directory's ``kodo.toml``; add one with ``kodo mcp add <name>``.
     """
     from kodo import plugins  # noqa: PLC0415
 
@@ -123,7 +125,29 @@ def mcp_list() -> None:
     def mark(name: str, command: str) -> str:
         return "[green]✓[/]" if name in in_project or command in in_project else ""
 
-    catalog = Table(box=box.SIMPLE, header_style="bold", title="[bold]Curated servers[/]", title_justify="left")
+    # First-party plugins lead: they're what kodo controls and recommends.
+    servers = plugins.advertised_servers(plugins.manager())
+    if servers:
+        plug = Table(
+            box=box.SIMPLE,
+            header_style="bold",
+            title="[bold]Installed plugins[/] [dim]— first-party, kodo-controlled (recommended)[/]",
+            title_justify="left",
+        )
+        plug.add_column("IN", justify="center")
+        plug.add_column("NAME", style="cyan")
+        plug.add_column("COMMAND")
+        plug.add_column("DESCRIPTION", style="dim")
+        for s in servers:
+            plug.add_row(mark(s.name, s.command), s.name, s.command, s.description)
+        console.print(plug)
+
+    catalog = Table(
+        box=box.SIMPLE,
+        header_style="bold",
+        title="[bold]External catalog[/] [dim]— third-party servers, added on demand[/]",
+        title_justify="left",
+    )
     catalog.add_column("IN", justify="center")
     catalog.add_column("NAME", style="cyan")
     catalog.add_column("COMMAND")
@@ -132,29 +156,18 @@ def mcp_list() -> None:
         desc = c.description + (f"\n[yellow]setup:[/] [dim]{c.setup}[/]" if c.setup else "")
         catalog.add_row(mark(c.name, c.command), c.name, c.command, desc)
     console.print(catalog)
-    console.print("[dim]Add one to this project's kodo.toml:[/] kodo mcp add <name>\n")
-
-    servers = plugins.advertised_servers(plugins.manager())
-    if servers:
-        plug = Table(box=box.SIMPLE, header_style="bold", title="[bold]Installed plugins[/]", title_justify="left")
-        plug.add_column("IN", justify="center")
-        plug.add_column("NAME", style="cyan")
-        plug.add_column("COMMAND")
-        plug.add_column("DESCRIPTION", style="dim")
-        for s in servers:
-            plug.add_row(mark(s.name, s.command), s.name, s.command, s.description)
-        console.print(plug)
-        console.print("[dim]Add one by name too:[/] kodo mcp add <name>")
+    console.print("[dim]Add one to this project's kodo.toml (plugins or catalog):[/] kodo mcp add <name>")
 
 
 @mcp_app.command("add")
 def mcp_add(
-    name: Annotated[str, typer.Argument(help="A curated server or installed plugin name (see `kodo mcp list`).")],
+    name: Annotated[str, typer.Argument(help="An installed plugin or external-catalog name (see `kodo mcp list`).")],
 ) -> None:
     """Add an MCP server to this directory's ``kodo.toml`` (idempotent).
 
-    Resolves ``name`` against the curated catalog first, then installed plugins. Appends a
-    ``[[mcp]]`` block; edit the command afterwards if it has a placeholder (path/profile).
+    Resolves ``name`` against installed first-party plugins first, then the external
+    catalog. Appends a ``[[mcp]]`` block; edit the command afterwards if it has a
+    placeholder (path/profile).
     """
     from kodo import plugins  # noqa: PLC0415
 
@@ -163,15 +176,16 @@ def mcp_add(
         console.print("[red]No kodo.toml here.[/] Run [bold]kodo project init[/] first (or cd into a project).")
         raise typer.Exit(1)
 
-    curated = next((c for c in _CURATED_MCP if c.name == name), None)
-    if curated is not None:
-        entry_name, command, setup = curated.name, curated.command, curated.setup
+    # First-party plugins win a name clash — kodo controls them, so prefer them over external.
+    server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == name), None)
+    if server is not None:
+        entry_name, command, setup = server.name, server.command, ""
     else:
-        server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == name), None)
-        if server is None:
+        curated = next((c for c in _CURATED_MCP if c.name == name), None)
+        if curated is None:
             console.print(f"[red]Unknown MCP {name!r}.[/] See [bold]kodo mcp list[/] for the catalog.")
             raise typer.Exit(1)
-        entry_name, command, setup = server.name, server.command, ""
+        entry_name, command, setup = curated.name, curated.command, curated.setup
 
     if entry_name in _project_mcp_keys(path) or command in _project_mcp_keys(path):
         console.print(f"[yellow]{entry_name}[/] is already in {path}.")
