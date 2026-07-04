@@ -55,6 +55,7 @@ app.add_typer(voice_app, name="voice")
 
 
 @mcp_app.command("list")
+@mcp_app.command("ls", hidden=True)  # `ls` alias, mirroring `kodo library ls`
 def mcp_list() -> None:
     """List the MCP tool servers advertised by installed plugins."""
     from kodo import plugins  # noqa: PLC0415
