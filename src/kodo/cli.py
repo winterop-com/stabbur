@@ -390,6 +390,88 @@ def _project_toml(
     )
 
 
+def _kodo_repo_root() -> Path:
+    """The kodo source checkout (repo root), for pinning kodo in a project's pyproject."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _pip_deps_from_mcp(mcp: list[tuple[str, str]]) -> list[str]:
+    """Pip packages a uv project must install for its MCP servers.
+
+    Maps each ``[[mcp]]`` command to a PyPI package where possible: ``uvx <pkg>`` -> ``<pkg>``
+    (the server the project pins so it need not be fetched at runtime). Skips node servers
+    (``bunx``/``npx``) and kodo's own bundled ``kodo-mcp-*`` (they ship with the ``kodo`` dep).
+    """
+    import shlex  # noqa: PLC0415
+
+    deps: set[str] = set()
+    for _name, command in mcp:
+        toks = shlex.split(command)
+        i = 0
+        if toks and toks[0] == "env":  # skip a leading `env VAR=val ...` prefix
+            i = 1
+            while i < len(toks) and "=" in toks[i]:
+                i += 1
+        rest = toks[i:]
+        if len(rest) >= 2 and rest[0] == "uvx":
+            deps.add(rest[1].split("==")[0].split("@")[0])
+    return sorted(deps)
+
+
+def _strip_uvx(command: str) -> str:
+    """Drop a ``uvx `` runner from an MCP command — in a uv project the server is an installed dep."""
+    return command.replace("uvx ", "", 1) if "uvx " in command else command
+
+
+def _project_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool) -> str:
+    """Render a project ``pyproject.toml`` that makes the project a self-contained uv project.
+
+    Pins ``kodo`` (a local path source until kodo is on PyPI) plus any pip-installable MCP
+    servers, so ``uv run kodo serve`` uses this project's own environment — no global kodo,
+    no runtime ``uvx`` fetches.
+    """
+    import re  # noqa: PLC0415
+
+    pkg_name = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-._") or "kodo-project"
+    extras = "[mlx]" if mlx else ""
+    deps = [f"kodo{extras}", *_pip_deps_from_mcp(mcp)]
+    dep_lines = "".join(f"    {json.dumps(d)},\n" for d in deps)
+    kodo_root = json.dumps(str(_kodo_repo_root()))
+    return (
+        "[project]\n"
+        f"name = {json.dumps(pkg_name)}\n"
+        'version = "0.0.0"\n'
+        'description = "A kodo assistant project."\n'
+        'requires-python = ">=3.13"\n'
+        "dependencies = [\n"
+        f"{dep_lines}"
+        "]\n\n"
+        "[tool.uv.sources]\n"
+        "# kodo is not yet on PyPI; pin the local checkout (editable). This line is\n"
+        "# machine-specific -- replace it with a version once kodo publishes.\n"
+        f"kodo = {{ path = {kodo_root}, editable = true }}\n"
+    )
+
+
+_PROJECT_README = """\
+# {name} -- a kodo assistant
+
+A self-contained [kodo](https://github.com/winterop-com/kodo) project: its own uv
+environment, model library, and assistant definition (`kodo.toml`).
+
+## Run
+
+```bash
+uv sync                     # build the project's environment (kodo + its MCP servers)
+uv run kodo serve --ui      # browser UI
+uv run kodo chat            # terminal chat
+```
+
+The assistant (model, system prompt, tools) is defined in `kodo.toml`. The model lives in
+`{library}/` (not committed). Machine secrets go in `.env` (not committed).
+"""
+
+
 def _library_names() -> set[str]:
     """Names of models already in the library, plus their bare repo/tag forms."""
     names: set[str] = set()
@@ -830,13 +912,16 @@ def _pull_or_exit(model: str, library_root: Path | None) -> None:
 
 
 # A project-local library holds multi-GB weights, and `.env` holds machine secrets —
-# neither belongs in git. Keep the rest (kodo.toml, this .gitignore) committable.
+# neither belongs in git. Keep the rest (kodo.toml, pyproject.toml, uv.lock) committable.
 _GITIGNORE = f"""\
 # kodo project — the local model library holds large weights; don't commit them.
 /{_LOCAL_LIBRARY}/
 
 # Machine-specific config / secrets.
 .env
+
+# uv project environment (rebuilt with `uv sync`; keep uv.lock).
+.venv/
 
 # Python / OS noise.
 __pycache__/
@@ -882,7 +967,9 @@ def _copy_model_local(model: library_ops.LibraryModel, dest_root: Path) -> None:
     shutil.copytree(model.path, dest)
 
 
-def _scaffold_project(target: Path, model: str | None, force: bool, local: bool, git: bool = False) -> None:
+def _scaffold_project(
+    target: Path, model: str | None, force: bool, local: bool, git: bool = False, uv: bool = True
+) -> None:
     """Interactive project scaffolder shared by `init` (here) and `new` (a fresh dir).
 
     Walks through a kind, default model, toolset (installed MCP plugins), system prompt, and
@@ -891,6 +978,10 @@ def _scaffold_project(target: Path, model: str | None, force: bool, local: bool,
     ``--copy``) instead builds a project-local ``library/`` — copying the model from the
     shared library if it's there (a fast local-disk copy), else downloading it there. With no
     KODO_LIBRARY_ROOT set it falls back to that project-local library so you can start fresh.
+
+    ``uv`` (default on) also makes the project a **self-contained uv project**: a
+    ``pyproject.toml`` pinning ``kodo`` + its MCP servers, so ``uv run kodo serve`` uses the
+    project's own environment instead of a global kodo and runtime ``uvx`` fetches.
     """
     proj = target / "kodo.toml"
     if proj.exists() and not force:
@@ -944,11 +1035,23 @@ def _scaffold_project(target: Path, model: str | None, force: bool, local: bool,
                 console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
             _pull_or_exit(model, local_lib)
 
-    proj.write_text(_project_toml(model, system_prompt, mcp, local_library=use_local, chat_voice=chat_voice))
+    # In a uv project the MCP servers are pinned deps, so they run straight off PATH — drop
+    # the runtime `uvx ` fetch from each command that has one.
+    toml_mcp = [(name, _strip_uvx(command)) for name, command in mcp] if uv else mcp
+    proj.write_text(_project_toml(model, system_prompt, toml_mcp, local_library=use_local, chat_voice=chat_voice))
+
+    if uv:
+        mlx = "mlx" in model.lower() or bool(existing and existing[0].model_format == "mlx")
+        # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
+        (target / "pyproject.toml").write_text(_project_pyproject(target.resolve().name, mcp, mlx))
+        (target / "README.md").write_text(_PROJECT_README.format(name=target.resolve().name, library=_LOCAL_LIBRARY))
+
     console.print(f"\n[green]Created[/] {proj}")
     console.print(f"  [dim]model:[/] {model}")
     console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in mcp) if mcp else 'none'}")
     console.print(f"  [dim]voice:[/] {chat_voice}")
+    if uv:
+        console.print("  [dim]uv:[/] pyproject.toml (run [bold]uv sync[/] to build the environment)")
     if git:
         _git_init_project(target)
 
@@ -963,18 +1066,28 @@ _GitOpt = Annotated[
     bool,
     typer.Option("--git", help="git init the project + write a .gitignore (excludes the local library/ + .env)."),
 ]
+_UvOpt = Annotated[
+    bool,
+    typer.Option("--uv/--no-uv", help="Make it a self-contained uv project (pyproject.toml pinning kodo + tools)."),
+]
 
 
 @project_app.command("init")
-def init(model: _ModelOpt = None, force: _ForceOpt = False, local: _LocalOpt = False, git: _GitOpt = False) -> None:
+def init(
+    model: _ModelOpt = None,
+    force: _ForceOpt = False,
+    local: _LocalOpt = False,
+    git: _GitOpt = False,
+    uv: _UvOpt = True,
+) -> None:
     """Scaffold a project assistant in the current directory (interactive wizard).
 
     A project is a purpose-built assistant: `kodo serve`/`chat` here bind to its model
     (like --model) with its tools + prompt; outside a project it's free-play. Use
     `kodo project new <dir>` to scaffold into a fresh directory instead.
     """
-    _scaffold_project(Path("."), model, force, local, git)
-    console.print("[dim]Next:[/] kodo serve --ui")
+    _scaffold_project(Path("."), model, force, local, git, uv)
+    console.print(f"[dim]Next:[/] {'uv sync && uv run kodo serve --ui' if uv else 'kodo serve --ui'}")
 
 
 @project_app.command("new")
@@ -984,10 +1097,11 @@ def new(
     force: _ForceOpt = False,
     local: _LocalOpt = False,
     git: _GitOpt = False,
+    uv: _UvOpt = True,
 ) -> None:
     """Create a new project directory and scaffold an assistant in it (like `cargo new`)."""
-    _scaffold_project(Path(name), model, force, local, git)
-    console.print(f"[dim]Next:[/] cd {name} && kodo serve --ui")
+    _scaffold_project(Path(name), model, force, local, git, uv)
+    console.print(f"[dim]Next:[/] cd {name} && {'uv sync && uv run kodo serve --ui' if uv else 'kodo serve --ui'}")
 
 
 def _connect_project_tools(
