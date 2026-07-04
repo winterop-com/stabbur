@@ -198,11 +198,30 @@ export function App() {
       getDoctor().then(setHealth).catch(() => {});
     };
     refreshSlow();
-    const t = setInterval(refreshStatus, 2000);
-    const s = setInterval(refreshSlow, 10000);
+    // Ambient polling is deliberately relaxed: a model load/eject/reload refreshes status
+    // immediately on its own (and `pick` fast-polls while a load is in flight), so these
+    // intervals only catch out-of-band changes (a server restart, another client). We also
+    // pause entirely while the tab is hidden — no point hammering /api/status in the
+    // background — and do one immediate refresh when it becomes visible again.
+    const STATUS_POLL_MS = 15_000;
+    const SLOW_POLL_MS = 60_000;
+    const t = setInterval(() => {
+      if (!document.hidden) void refreshStatus();
+    }, STATUS_POLL_MS);
+    const s = setInterval(() => {
+      if (!document.hidden) refreshSlow();
+    }, SLOW_POLL_MS);
+    const onVisible = () => {
+      if (!document.hidden) {
+        void refreshStatus();
+        refreshSlow();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(t);
       clearInterval(s);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshStatus]);
 
