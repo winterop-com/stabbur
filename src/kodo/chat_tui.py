@@ -20,6 +20,7 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.command import Hit, Hits, Provider
 from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widgets import Collapsible, Static, TextArea
@@ -61,6 +62,43 @@ _GERUNDS = (
     "Synthesizing",
     "Wrangling",
 )
+
+# Braille spinner frames for the "thinking" indicator.
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+class _KodoCommands(Provider):
+    """Commands for the Ctrl+P palette, alongside Textual's built-ins."""
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        app: Any = self.app
+        items: list[tuple[str, str, Any]] = [
+            ("MCP servers & tools", "list the MCP servers and tools available to the model", app.action_show_mcp),
+            (
+                "Reconnect MCP servers",
+                "respawn the MCP servers (if one died or its config changed)",
+                app.action_reconnect_mcp,
+            ),
+            ("Copy last reply", "copy the last reply to the clipboard", app.action_copy_reply),
+            ("Clear conversation", "clear the transcript, keep the system prompt", app.action_clear),
+            ("Help", "commands + keyboard shortcuts", app.action_help),
+        ]
+        # One enable/disable entry per loaded MCP server.
+        for srv in app._server_names():
+            off = srv in app._disabled
+            verb = "Enable" if off else "Disable"
+            items.append(
+                (
+                    f"{verb} MCP server: {srv}",
+                    f"turn {srv}'s tools {'on' if off else 'off'}",
+                    lambda s=srv, e=off: app._mcp_toggle(s, e),
+                )
+            )
+        for title, help_text, callback in items:
+            score = matcher.match(title)
+            if score > 0:
+                yield Hit(score, matcher.highlight(title), callback, help=help_text)
 
 
 class ChatInput(TextArea):
@@ -106,7 +144,7 @@ class ChatApp(App[None]):
     CSS = """
     Screen { layers: base; }
     #transcript { height: 1fr; padding: 1 2; scrollbar-size-vertical: 0; }
-    #transcript > .user { color: $text; margin-top: 1; }
+    #transcript > .user { color: $text-muted; margin-top: 2; }
     #transcript > .tools { color: $text-muted; }
     #transcript > .answer { margin-bottom: 1; }
     #transcript Collapsible { border: none; padding: 0; background: transparent; }
@@ -119,8 +157,11 @@ class ChatApp(App[None]):
     #input:focus { border: round #fb7185; }
     """
 
+    COMMANDS = App.COMMANDS | {_KodoCommands}
+
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", priority=True),
+        Binding("ctrl+p", "command_palette", "Commands", show=True, priority=True),
         Binding("escape", "cancel", "Stop", show=True),
         # A full-screen TUI captures the mouse, so the terminal's own click-drag selection
         # doesn't reach the text. Give an explicit "copy the last reply" shortcut; Textual's
@@ -161,6 +202,7 @@ class ChatApp(App[None]):
         self._stack = AsyncExitStack()
         self._busy = False
         self._queue: list[str] = []  # prompts submitted while a reply is streaming
+        self._disabled: set[str] = set()  # MCP server prefixes the user turned off
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="transcript")
@@ -219,15 +261,18 @@ class ChatApp(App[None]):
             line1.append("  ·  ", style="grey37")
             line1.append(f"{_fmt_tokens(used)}/{window}", style=color)
             line1.append(f" ({pct * 100:.0f}%)", style="grey50")
-        n_tools = len(self.toolset.names)
-        if n_tools:
+        n_tools = len(self._active_toolset().names)
+        n_off = len(self._disabled)
+        if n_tools or n_off:
             line1.append("  ·  ", style="grey37")
             line1.append(f"{n_tools} tool{'s' if n_tools != 1 else ''}", style="cyan")
+            if n_off:
+                line1.append(f" ({n_off} off)", style="grey42")
         if self._queue:
             line1.append("  ·  ", style="grey37")
             line1.append(f"{len(self._queue)} queued", style="yellow")
 
-        line2 = Text("enter send  ·  shift+↵ newline  ·  esc stop  ·  ^y copy  ·  /exit", style="grey42")
+        line2 = Text("enter send  ·  ^p commands  ·  /help  ·  esc stop  ·  /exit", style="grey42")
         return Group(line1, line2)
 
     def _last_reply_text(self) -> str | None:
@@ -248,6 +293,131 @@ class ChatApp(App[None]):
         else:
             self.notify("No reply to copy yet.", severity="warning", timeout=2)
 
+    # -- commands / MCP management ----------------------------------------------
+
+    def _post(self, renderable: Any) -> None:
+        """Mount a muted command-output block in the transcript."""
+        transcript = self.query_one("#transcript", VerticalScroll)
+        transcript.mount(Static(renderable, classes="reasoning"))
+        transcript.scroll_end(animate=False)
+
+    def _server_names(self) -> list[str]:
+        """Distinct MCP server prefixes in the loaded toolset, in load order."""
+        seen: list[str] = []
+        for schema in self.toolset.schemas:
+            srv = schema["function"]["name"].split("__")[0]
+            if srv not in seen:
+                seen.append(srv)
+        return seen
+
+    def _active_toolset(self) -> mcp_tools.MCPToolset:
+        """What the model sees: the full toolset minus any disabled servers."""
+        if not self._disabled:
+            return self.toolset
+        names = {
+            s["function"]["name"]
+            for s in self.toolset.schemas
+            if s["function"]["name"].split("__")[0] not in self._disabled
+        }
+        return self.toolset.subset(names)
+
+    def action_show_mcp(self) -> None:
+        """List MCP servers + their tools (with on/off state) in the transcript."""
+        from collections import defaultdict  # noqa: PLC0415
+
+        servers = self._server_names()
+        if not servers:
+            self._post(Text("No MCP tools loaded — add servers with `kodo mcp add <name>`.", style="grey50"))
+            return
+        by_server: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for s in self.toolset.schemas:
+            srv, _, tool = s["function"]["name"].partition("__")
+            desc = (s["function"].get("description", "") or "").splitlines()[0]
+            by_server[srv].append((tool or s["function"]["name"], desc))
+        body = Text()
+        body.append(
+            f"MCP  ·  {len(self._active_toolset().names)} tool(s) active · {len(servers)} server(s)\n", "grey50"
+        )
+        for srv in servers:
+            off = srv in self._disabled
+            body.append(f"\n{srv}", style="bold grey42" if off else "bold #fb7185")
+            body.append("  (disabled)\n" if off else "\n", style="grey42")
+            for tool, desc in by_server[srv]:
+                body.append(f"  {tool}", style="grey35" if off else "grey66")
+                if desc:
+                    body.append(f"   {desc[:60]}", style="grey42")
+                body.append("\n")
+        body.append("\n/mcp on <server>  ·  /mcp off <server>  ·  /mcp reconnect", style="grey42")
+        self._post(body)
+
+    def _mcp_toggle(self, server: str, enable: bool) -> None:
+        if server not in self._server_names():
+            self._post(Text(f"no such server {server!r} — /mcp to list", style="grey50"))
+            return
+        self._disabled.discard(server) if enable else self._disabled.add(server)
+        self._refresh_status()
+        self.action_show_mcp()
+
+    def action_reconnect_mcp(self) -> None:
+        """Respawn the project's MCP servers (useful if one died or its config changed)."""
+        if not self._servers:
+            self._post(Text("No MCP servers to reconnect.", style="grey50"))
+            return
+        if self._busy:
+            self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
+            return
+        self.run_worker(self._reconnect_mcp(), group="mcp")
+
+    async def _reconnect_mcp(self) -> None:
+        self.notify("Reconnecting MCP servers…", timeout=2)
+        try:
+            await self._stack.aclose()
+        except Exception:  # noqa: BLE001 - closing a dead connection can raise; ignore
+            pass
+        self._stack = AsyncExitStack()
+        self.toolset = mcp_tools.MCPToolset()
+        self._refresh_status()
+        try:
+            self.toolset = await self._stack.enter_async_context(mcp_tools.connect(self._servers))
+        except Exception as exc:  # noqa: BLE001 - surface a failed reconnect instead of hanging
+            self._post(Text(f"reconnect failed: {exc}", style="red"))
+        self._refresh_status()
+        self._post(Text(f"Reconnected — {len(self.toolset.names)} tool(s).", style="grey50"))
+
+    def action_clear(self) -> None:
+        """Clear the transcript (keep the intro) and reset the conversation (keep the system prompt)."""
+        if self._busy:
+            self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
+            return
+        transcript = self.query_one("#transcript", VerticalScroll)
+        for child in list(transcript.children):
+            if "intro" not in child.classes:
+                child.remove()
+        self.messages = [m for m in self.messages if m.get("role") == "system"]
+        self.ctx_used = None
+        self._refresh_status()
+
+    def action_help(self) -> None:
+        """Show slash commands + keyboard shortcuts in the transcript."""
+        body = Text()
+        body.append("commands\n", style="bold #fb7185")
+        for cmd, desc in (
+            ("/mcp", "MCP servers + tools (alias /tools)"),
+            ("/mcp on|off <server>", "enable / disable a server's tools"),
+            ("/mcp reconnect", "respawn the MCP servers"),
+            ("/copy", "copy the last reply"),
+            ("/clear", "clear the conversation"),
+            ("/help", "this help"),
+            ("/exit", "quit"),
+        ):
+            body.append(f"  {cmd}", style="grey66")
+            body.append(f"   {desc}\n", style="grey42")
+        body.append("\nkeys\n", style="bold #fb7185")
+        for key, desc in (("ctrl+p", "command palette"), ("ctrl+y", "copy reply"), ("esc", "stop"), ("ctrl+d", "quit")):
+            body.append(f"  {key}", style="grey66")
+            body.append(f"   {desc}\n", style="grey42")
+        self._post(body)
+
     def _refresh_status(self) -> None:
         self.query_one("#status", Static).update(self._status_renderable())
 
@@ -264,14 +434,40 @@ class ChatApp(App[None]):
         text = message.text.strip()
         if not text:
             return
-        if text in ("/exit", "/quit", "exit", "quit"):
-            self.exit()
+        if text.startswith("/") or text in ("exit", "quit"):
+            self.query_one(ChatInput).text = ""
+            self._run_command(text)
             return
         self.query_one(ChatInput).text = ""
         # Send now if idle, otherwise queue behind the in-flight reply.
         self._queue.append(message.text)
         self._refresh_status()
         self._pump()
+
+    def _run_command(self, raw: str) -> None:
+        """Handle a ``/command`` typed in the input (not sent to the model)."""
+        parts = raw.lstrip("/").split()
+        name = parts[0].lower() if parts else ""
+        arg = parts[1].lower() if len(parts) > 1 else ""
+        if name in ("exit", "quit"):
+            self.exit()
+        elif name in ("mcp", "tools", "t"):
+            if arg == "reconnect":
+                self.action_reconnect_mcp()
+            elif arg in ("on", "enable") and len(parts) > 2:
+                self._mcp_toggle(parts[2], enable=True)
+            elif arg in ("off", "disable") and len(parts) > 2:
+                self._mcp_toggle(parts[2], enable=False)
+            else:
+                self.action_show_mcp()
+        elif name in ("help", "h", "?"):
+            self.action_help()
+        elif name in ("copy", "y"):
+            self.action_copy_reply()
+        elif name in ("clear", "reset"):
+            self.action_clear()
+        else:
+            self._post(Text(f"unknown command {raw!r} — /help for commands", style="grey50"))
 
     def _pump(self) -> None:
         """Start the next queued prompt if nothing is generating."""
@@ -337,8 +533,10 @@ class ChatApp(App[None]):
             think_timer: Any = None
 
             def _think_tick() -> None:
-                secs = round(time.monotonic() - think_start)
-                label = Text("· ", style="grey42")
+                elapsed = time.monotonic() - think_start
+                frame = _SPINNER[int(elapsed / 0.08) % len(_SPINNER)]  # spins independent of the 1s clock
+                secs = round(elapsed)
+                label = Text(f"{frame} ", style="#fb7185")
                 label.append(f"{think_word}… ", style="#fb7185")
                 label.append(f"({secs}s{' · thinking more' if secs >= 10 else ''})", style="grey42")
                 answer_w.update(label)
@@ -350,7 +548,7 @@ class ChatApp(App[None]):
                     think_timer = None
 
             _think_tick()
-            think_timer = self.set_interval(1.0, _think_tick)
+            think_timer = self.set_interval(0.08, _think_tick)
 
             answer_buf: list[str] = []
             reasoning_buf: list[str] = []
@@ -411,7 +609,7 @@ class ChatApp(App[None]):
                 reply = await agent.run(
                     self._base,
                     self.messages,
-                    self.toolset,
+                    self._active_toolset(),  # honor any servers the user disabled
                     self._max_tokens,
                     on_event,
                     on_token,
