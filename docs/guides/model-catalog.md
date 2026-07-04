@@ -86,5 +86,12 @@ args): `qwen3-tts`, KittenTTS, OuteTTS-1.0 (mlx), Qwen3-TTS-VoiceDesign, Voxtral
 ## Benchmarks
 
 Tool-calling and code/reasoning are measured by the `kodo benchmark` suites (`tools-datetime`,
-`tools-utils`, `tools-search`, `tools-web`, `python`, `rust`). Run `kodo benchmark` to score a
-model against them; use the results to pick which chat model to bind in a project.
+`tools-utils`, `tools-search`, `tools-web`, `tools-dhis2`, `python`, `rust`). Run `kodo benchmark`
+to score a model against them; use the results to pick which chat model to bind in a project.
+
+**DHIS2 (`tools-dhis2`, read-only):** the standout is **`deepreinforce-ai/Ornith-1.0-9B-GGUF`** —
+a perfect **12/12** driving the DHIS2 CLI bridge, and the **fastest** (~12s/problem) and
+**smallest** (5.2 GB) model to do so, beating the 27B/31B models. `gemma-4-12B` and `Qwen3.6-27B`
+also went 12/12; `Qwen3.5-4B` (2.6 GB) and `gpt-oss-20b` reached 11/12. Roleplay finetunes
+(`Rocinante`, `MN-Violet-Lotus`) scored 0/12 — they never call the tool. See the full write-up in
+[DHIS2 benchmark report](dhis2-benchmark-report.md).

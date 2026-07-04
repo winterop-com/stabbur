@@ -1,0 +1,98 @@
+{
+  "suite": "tools-dhis2",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+  "timestamp": "2026-07-04T20:02:18",
+  "load_s": 77.64349966699956,
+  "outcomes": [
+    {
+      "id": "system-name",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 14.271066458022688,
+      "exec_s": 0.0
+    },
+    {
+      "id": "server-version",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.922869208035991,
+      "exec_s": 0.0
+    },
+    {
+      "id": "whoami",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 20.17729445802979,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-orgunits",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 8.5444103750051,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-dataelements",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 7.1249263329664245,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-indicators",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 7.928516542015132,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-datasets",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.89012262498727,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-level-3-name",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.033408417017199,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-optionsets",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 7.338625375006814,
+      "exec_s": 0.0
+    },
+    {
+      "id": "dataelement-uid",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 9.93482074997155,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-uid",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 691.3332237920258,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-name-from-uid",
+      "difficulty": "expert",
+      "passed": true,
+      "gen_s": 24.537424791953526,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 816.0367091250373,
+  "total": 12,
+  "passed": 12,
+  "score": 1.0
+}

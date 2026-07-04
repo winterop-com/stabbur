@@ -1,0 +1,98 @@
+{
+  "suite": "tools-dhis2",
+  "language": "tools",
+  "type": "tool",
+  "model": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "timestamp": "2026-07-04T19:31:13",
+  "load_s": 4.108156624948606,
+  "outcomes": [
+    {
+      "id": "system-name",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 7.977660584030673,
+      "exec_s": 0.0
+    },
+    {
+      "id": "server-version",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 5.4265595829929225,
+      "exec_s": 0.0
+    },
+    {
+      "id": "whoami",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 9.963607333018444,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-orgunits",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 5.0873730419552885,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-dataelements",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.958153624960687,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-indicators",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.941978749993723,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-datasets",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 4.875413916015532,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-level-3-name",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 5.256385041982867,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-optionsets",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 4.9874230829882436,
+      "exec_s": 0.0
+    },
+    {
+      "id": "dataelement-uid",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 6.207470667024609,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-uid",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 12.274646707985085,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-name-from-uid",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 1.420373999979347,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 73.37704633292742,
+  "total": 12,
+  "passed": 11,
+  "score": 0.9166666666666666
+}

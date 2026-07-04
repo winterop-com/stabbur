@@ -1,0 +1,98 @@
+{
+  "suite": "tools-dhis2",
+  "language": "tools",
+  "type": "tool",
+  "model": "TheDrummer/Rocinante-X-12B-v1-GGUF",
+  "timestamp": "2026-07-04T18:33:59",
+  "load_s": 71.96463470801245,
+  "outcomes": [
+    {
+      "id": "system-name",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 9.026926291000564,
+      "exec_s": 0.0
+    },
+    {
+      "id": "server-version",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 4.189269416965544,
+      "exec_s": 0.0
+    },
+    {
+      "id": "whoami",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 1.4151634169975296,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-orgunits",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 3.3248046670341864,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-dataelements",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 4.548260291980114,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-indicators",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 2.2513297079713084,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-datasets",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 2.3199507920071483,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-level-3-name",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 2.669231084000785,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-optionsets",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 3.583257207996212,
+      "exec_s": 0.0
+    },
+    {
+      "id": "dataelement-uid",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 3.8971559170167893,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-uid",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 4.164423000009265,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-name-from-uid",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 2.7340360000380315,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 44.12380779301748,
+  "total": 12,
+  "passed": 0,
+  "score": 0.0
+}

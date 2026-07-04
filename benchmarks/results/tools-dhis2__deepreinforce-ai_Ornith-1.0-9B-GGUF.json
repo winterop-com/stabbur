@@ -1,0 +1,98 @@
+{
+  "suite": "tools-dhis2",
+  "language": "tools",
+  "type": "tool",
+  "model": "deepreinforce-ai/Ornith-1.0-9B-GGUF",
+  "timestamp": "2026-07-04T19:29:54",
+  "load_s": 55.6103866249905,
+  "outcomes": [
+    {
+      "id": "system-name",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 13.588422040978912,
+      "exec_s": 0.0
+    },
+    {
+      "id": "server-version",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 9.143521874968428,
+      "exec_s": 0.0
+    },
+    {
+      "id": "whoami",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 14.568327333021443,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-orgunits",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 9.886100249947049,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-dataelements",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.703543290961534,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-indicators",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 7.635681583953556,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-datasets",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 8.136643917008769,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-level-3-name",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 13.147622082964517,
+      "exec_s": 0.0
+    },
+    {
+      "id": "count-optionsets",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 9.80850162502611,
+      "exec_s": 0.0
+    },
+    {
+      "id": "dataelement-uid",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 9.537890249979682,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-uid",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 15.482892292027827,
+      "exec_s": 0.0
+    },
+    {
+      "id": "orgunit-name-from-uid",
+      "difficulty": "expert",
+      "passed": true,
+      "gen_s": 27.527975041011814,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 147.16712158184964,
+  "total": 12,
+  "passed": 12,
+  "score": 1.0
+}
