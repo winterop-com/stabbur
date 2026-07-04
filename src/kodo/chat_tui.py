@@ -20,7 +20,7 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.command import Hit, Hits, Provider
+from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widgets import Collapsible, Static, TextArea
@@ -66,12 +66,26 @@ _GERUNDS = (
 # Braille spinner frames for the "thinking" indicator.
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
+# Slash commands typed in the input, for the in-line autocomplete menu. Each is
+# (display, completion, help): the completion is what Tab fills in (a trailing space
+# where an argument follows). The palette (Ctrl+P) is generated separately from live app state.
+_SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
+    ("/mcp", "/mcp", "MCP servers + tools (alias /tools)"),
+    ("/mcp on <server>", "/mcp on ", "enable a server's tools"),
+    ("/mcp off <server>", "/mcp off ", "disable a server's tools"),
+    ("/mcp reconnect", "/mcp reconnect", "respawn the MCP servers"),
+    ("/copy", "/copy", "copy the last reply"),
+    ("/clear", "/clear", "clear the conversation"),
+    ("/help", "/help", "commands + keyboard shortcuts"),
+    ("/exit", "/exit", "quit"),
+)
+
 
 class _KodoCommands(Provider):
     """Commands for the Ctrl+P palette, alongside Textual's built-ins."""
 
-    async def search(self, query: str) -> Hits:
-        matcher = self.matcher(query)
+    def _commands(self) -> list[tuple[str, str, Any]]:
+        """(title, help, callback) for every palette command, from live app state."""
         app: Any = self.app
         items: list[tuple[str, str, Any]] = [
             ("MCP servers & tools", "list the MCP servers and tools available to the model", app.action_show_mcp),
@@ -95,7 +109,16 @@ class _KodoCommands(Provider):
                     lambda s=srv, e=off: app._mcp_toggle(s, e),
                 )
             )
-        for title, help_text, callback in items:
+        return items
+
+    async def discover(self) -> Hits:
+        # Shown when the palette opens with no query typed yet.
+        for title, help_text, callback in self._commands():
+            yield DiscoveryHit(title, callback, help=help_text)
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        for title, help_text, callback in self._commands():
             score = matcher.match(title)
             if score > 0:
                 yield Hit(score, matcher.highlight(title), callback, help=help_text)
@@ -117,6 +140,14 @@ class ChatInput(TextArea):
             super().__init__()
 
     async def _on_key(self, event: events.Key) -> None:
+        # Tab completes a slash command being typed (instead of inserting a tab).
+        if event.key == "tab" and self.text.startswith("/") and "\n" not in self.text:
+            event.prevent_default()
+            event.stop()
+            complete = getattr(self.app, "_complete_slash", None)
+            if complete is not None:
+                complete()
+            return
         if event.key in ("shift+enter", "ctrl+j"):
             event.prevent_default()
             event.stop()
@@ -153,6 +184,7 @@ class ChatApp(App[None]):
     .reasoning { color: $text-muted; }
     #transcript > .intro { margin-bottom: 1; }
     #status { height: 3; padding: 1 2 0 2; color: $text-muted; }
+    #suggest { height: auto; max-height: 8; padding: 0 3; margin: 0 1; color: $text-muted; display: none; }
     #input { height: auto; max-height: 10; border: round #3a3a3a; margin: 0 1 1 1; padding: 0 1; }
     #input:focus { border: round #fb7185; }
     """
@@ -206,6 +238,7 @@ class ChatApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="transcript")
+        yield Static(id="suggest")  # slash-command autocomplete menu (above the input)
         yield ChatInput(id="input", soft_wrap=True, show_line_numbers=False)
         yield Static(id="status")
 
@@ -292,6 +325,56 @@ class ChatApp(App[None]):
             self.notify(f"Copied last reply ({len(text)} chars)", timeout=2)
         else:
             self.notify("No reply to copy yet.", severity="warning", timeout=2)
+
+    # -- slash-command autocomplete ---------------------------------------------
+
+    def _match_commands(self, text: str) -> list[tuple[str, str, str]]:
+        """Slash commands whose name prefixes the (single-line) text being typed."""
+        query = text.lstrip("/").lower()
+        return [c for c in _SLASH_COMMANDS if c[0].lstrip("/").lower().startswith(query)]
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        self._update_suggestions()
+
+    def _update_suggestions(self) -> None:
+        """Show/refresh the autocomplete menu while a slash command is being typed."""
+        suggest = self.query_one("#suggest", Static)
+        text = self.query_one(ChatInput).text
+        matches = self._match_commands(text) if text.startswith("/") and "\n" not in text else []
+        if not matches:
+            suggest.display = False
+            return
+        body = Text()
+        for i, (display, _complete, help_text) in enumerate(matches):
+            if i:
+                body.append("\n")
+            body.append(f"{display:<20}", style="#fb7185")
+            body.append(f"  {help_text}", style="grey42")
+        body.append("\ntab", style="grey50")
+        body.append(" complete  ·  ", style="grey37")
+        body.append("enter", style="grey50")
+        body.append(" run", style="grey37")
+        suggest.update(body)
+        suggest.display = True
+
+    def _complete_slash(self) -> None:
+        """Tab: fill the input with the matching command (or the common prefix of several)."""
+        input_w = self.query_one(ChatInput)
+        matches = self._match_commands(input_w.text)
+        if not matches:
+            return
+        completions = [c[1] for c in matches]
+        if len(completions) == 1:
+            new = completions[0]
+        else:
+            new = completions[0]
+            for other in completions[1:]:
+                while not other.startswith(new):
+                    new = new[:-1]
+        if new and new != input_w.text:
+            input_w.text = new
+            input_w.move_cursor(input_w.document.end)
+        self._update_suggestions()
 
     # -- commands / MCP management ----------------------------------------------
 
@@ -436,9 +519,11 @@ class ChatApp(App[None]):
             return
         if text.startswith("/") or text in ("exit", "quit"):
             self.query_one(ChatInput).text = ""
+            self._update_suggestions()
             self._run_command(text)
             return
         self.query_one(ChatInput).text = ""
+        self._update_suggestions()
         # Send now if idle, otherwise queue behind the in-flight reply.
         self._queue.append(message.text)
         self._refresh_status()
