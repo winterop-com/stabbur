@@ -44,6 +44,7 @@ nav:
       - Projects: guides/projects.md
       - Tools (MCP): guides/tools.md
       - "DHIS2 assistant (worked example)": guides/dhis2-project.md
+      - "Model catalog (validated)": guides/model-catalog.md
       - Using models directly: guides/direct-usage.md
       - How models work (formats & modalities): guides/how-models-work.md
       - Models & compatibility: guides/models.md
