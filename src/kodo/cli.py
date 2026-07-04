@@ -547,12 +547,42 @@ def tag_model(
     console.print(f"[white]{model.name}[/]\n  [dim]tags[/]  {label}")
 
 
+def _pull_voice_all(root: Path | None, move: bool) -> None:
+    """Import every registry voice model already in the HF cache into the target library.
+
+    Mirrors the old ``kodo voice import --all`` (no mass downloads): only cached models are
+    pulled. Fetch a not-yet-downloaded one by name, e.g. ``kodo library pull voice kokoro``.
+    """
+    from kodo.voice import importer as voice_importer  # noqa: PLC0415
+
+    target = root or get_settings().library_root
+    ids = voice_importer.cached_voice_ids(target)
+    if not ids:
+        console.print("No cached voice models to import. Pull one by name, e.g. kodo library pull voice kokoro.")
+        return
+    failed = 0
+    for vid in ids:
+        try:
+            result = catalog_ops.pull(ModelSource.voice, vid, library_root=root, move=move)
+        except Exception as exc:  # noqa: BLE001 - one bad model must not abort the batch
+            failed += 1
+            console.print(f"[red]✗ fail[/] {vid} [dim]— {exc}[/]")
+            continue
+        console.print(f"[green]✓ pull[/] {vid} [dim]({result.size_human})[/]")
+    console.print(f"\n[bold]{len(ids) - failed} imported[/] · {failed} failed")
+    if failed:
+        raise typer.Exit(1)
+
+
 def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
     """Import every model from ``source``'s local store into the library.
 
     Idempotent (skips models already in the library) and resilient (one failing
     model logs and the batch continues).
     """
+    if source is ModelSource.voice:
+        _pull_voice_all(root, move)
+        return
     entries = catalog_ops.list_models(source).entries
     if not entries:
         console.print(f"No {source.value} models found in the local store.")
@@ -591,7 +621,9 @@ def pull(
     source: Annotated[ModelSource, typer.Argument(help="Source the model belongs to.")],
     name: Annotated[
         str | None,
-        typer.Argument(help="Model id (HF repo, Ollama model:tag, LM Studio path). Omit with --all."),
+        typer.Argument(
+            help="Model id (HF repo, Ollama model:tag, LM Studio path, or voice id e.g. kokoro). Omit with --all."
+        ),
     ] = None,
     all_: Annotated[
         bool,
@@ -626,6 +658,11 @@ def pull(
     library; ``--shared`` forces the shared/default library. Give a model name for
     one model, or --all to import everything from this source's local store
     (skipping models already in the library).
+
+    The ``voice`` source pulls a TTS/STT model by its registry id (e.g.
+    ``kodo library pull voice kokoro``) into ``<root>/voice/`` — downloading it if it
+    isn't already in the Hugging Face cache. This is the project-aware way to add a
+    voice model (``kodo voice import`` is the older cache-only alias).
     """
     # Default target: the first library in scope (project-local if any, else the
     # default). --shared forces the machine's default (shared) library.
@@ -1544,72 +1581,69 @@ def serve(
 @voice_app.command("list")
 @voice_app.command("ls", hidden=True)  # alias, matching `kodo library ls`
 def voice_list() -> None:
-    """List known voice models (TTS/STT) and where each lives — HF cache or the library."""
+    """List known voice models (TTS/STT) and where each lives — HF cache or a project library.
+
+    Presence is checked across the project's libraries (project-local + ``@shared``), like
+    ``kodo library ls`` — so a model on the shared drive shows as ``library`` here too.
+    """
     from kodo import voice  # noqa: PLC0415
+
+    # Merge presence across every library in scope: a model counts as "in library" if it's in
+    # any of them (project-local or @shared). in_cache is machine-global (the HF cache).
+    merged: dict[str, voice.VoicePresence] = {}
+    for r in library_ops.roots():
+        for p in voice.discover(r):
+            cur = merged.get(p.spec.id)
+            if cur is None or (p.in_library and not cur.in_library):
+                merged[p.spec.id] = p
 
     table = Table(box=box.SIMPLE, header_style="bold")
     for col in ("ID", "KIND", "VOICE", "BACKEND", "WHERE", "SIZE"):
         table.add_column(col, style="cyan" if col == "ID" else None)
-    for p in voice.discover(get_settings().library_root):
+    for p in merged.values():
         s = p.spec
         where = "[green]library[/]" if p.in_library else ("[yellow]hf-cache[/]" if p.in_cache else "[dim]—[/]")
         table.add_row(
             s.id, s.kind.value, s.voice_mode.value, s.backend.value, where, p.size_human if p.available else "—"
         )
     console.print(table)
-    console.print("[dim]kodo voice import --all   moves them into the library (portable, dedups).[/]")
+    console.print(
+        "[dim]Add one to the project library:[/] kodo library pull voice <id>  [dim](downloads if needed).[/]"
+    )
 
 
 @voice_app.command("import")
 def voice_import(
     models: Annotated[list[str], typer.Argument(help="Voice model id(s) to import; omit with --all.")] = [],
-    all_: Annotated[bool, typer.Option("--all", help="Import every voice model found in the HF cache.")] = False,
+    all_: Annotated[bool, typer.Option("--all", help="Import every voice model already in the HF cache.")] = False,
     prune: Annotated[bool, typer.Option("--prune", help="Delete the HF-cache copy after a verified import.")] = False,
+    shared: Annotated[
+        bool, typer.Option("--shared", help="Import into the shared/default library instead of the project-local one.")
+    ] = False,
 ) -> None:
-    """Copy voice models from the HF cache into the library's ``voice/`` bucket (portable)."""
-    from kodo import voice  # noqa: PLC0415
-    from kodo.voice import importer  # noqa: PLC0415
+    """Import voice models into a library — a project-aware alias for ``kodo library pull voice``.
 
-    presences = {p.spec.id: p for p in voice.discover(get_settings().library_root)}
+    Targets the project-local library by default (``--shared`` for the archive). A named model
+    not yet in the HF cache is downloaded; ``--all`` imports only what's already cached.
+    """
+    root = get_settings().library_root if shared else library_ops.roots()[0]
     if all_:
-        targets = [p for p in presences.values() if p.available]
-    else:
-        if not models:
-            console.print("[red]Give a model id or --all[/] (see [bold]kodo voice list[/]).")
-            raise typer.Exit(1)
-        targets = [presences[m] for m in models if m in presences]
-    # A named id that isn't a known voice model at all (typo) — flag it distinctly from
-    # a known model that just isn't downloaded yet (handled per-target below).
-    unknown = [m for m in models if m not in presences] if not all_ else []
-    for m in unknown:
-        console.print(f"[yellow]{m}: unknown voice model[/] (see [bold]kodo voice list[/]).")
-    if not targets:
-        console.print("[yellow]Nothing to import[/] — no matching voice models in the HF cache.")
-        raise typer.Exit(1 if unknown else 0)
-    failed = bool(unknown)
-    for p in targets:
-        if p.in_library:
-            console.print(f"[dim]{p.spec.id}: already in library[/]")
-            continue
-        # Only cached models can be imported. A preset voice (e.g. kokoro) is fetched on
-        # first use, so before that there's nothing to copy — say so instead of crashing.
-        if not p.in_cache:
-            console.print(
-                f"[yellow]{p.spec.id}: not downloaded yet[/] — nothing to import. "
-                f"It's fetched to the HF cache on first use (e.g. run it once in the Voice studio), then re-run."
-            )
-            failed = True
-            continue
-        dest = voice.voice_dir(get_settings().library_root) / p.spec.repo
-        console.print(f"importing [cyan]{p.spec.id}[/] ({p.size_human}) → {dest} …")
+        _pull_voice_all(root, prune)
+        return
+    if not models:
+        console.print("[red]Give a model id or --all[/] (see [bold]kodo voice list[/]).")
+        raise typer.Exit(1)
+    failed = False
+    for vid in models:
+        typer.echo(f"Pulling voice:{vid} -> {root} …")
         try:
-            result = importer.import_to_library(p, get_settings().library_root, prune_cache=prune)
-        except (FileNotFoundError, OSError) as exc:  # missing snapshot, disk error, etc.
+            result = catalog_ops.pull(ModelSource.voice, vid, library_root=root, move=prune)
+        except Exception as exc:  # noqa: BLE001 - unknown id / download / disk; surface cleanly
             console.print(f"  [red]failed[/]: {exc}")
             failed = True
             continue
-        note = " [dim](cache pruned)[/]" if result.cache_pruned else ""
-        console.print(f"  [green]done[/] {_human_size(result.copied_bytes)}{note}")
+        console.print(f"  [green]done[/] {result.size_human} → {result.destination}")
+    console.print("[dim]Same thing, project-aware:[/] kodo library pull voice <id>")
     if failed:
         raise typer.Exit(1)
 

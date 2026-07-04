@@ -7,8 +7,10 @@ clip — from the CLI, the web UI, and the OpenAI-compatible API.
 
 ## Models
 
-kodo keeps a small registry of voice models it knows how to run. Import them into
-your library with `kodo voice import --all` (they're pulled from Hugging Face):
+kodo keeps a small registry of voice models it knows how to run. Add one to your
+library — like any model — with `kodo library pull voice <id>` (e.g.
+`kodo library pull voice kokoro`), which downloads it if needed and lands it in the
+**project-local** library by default (`--shared` for the archive):
 
 | Model | Kind | Backend | Notes |
 | --- | --- | --- | --- |
@@ -31,8 +33,10 @@ On Linux, Kokoro (ONNX) covers TTS; the mlx-audio models are macOS-only.
 ## CLI
 
 ```bash
-kodo voice list                 # voice models in the library (TTS + STT)
-kodo voice import --all         # import known voice models to the library
+kodo library pull voice kokoro  # add a voice model to the project-local library (downloads if needed)
+kodo library pull voice kokoro --shared   # ...into the shared/default library instead
+kodo voice list                 # voice models + where each lives (project libraries + @shared)
+kodo voice import --all         # back-compat alias: import everything already in the HF cache
 kodo voice voices               # list Kokoro's 54 named voices
 kodo voice speak "Hello there"                 # speak with the default engine
 kodo voice speak "Hi" --voice af_heart         # a specific Kokoro voice

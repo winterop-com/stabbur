@@ -12,6 +12,7 @@ class ModelSource(StrEnum):
     huggingface = "huggingface"
     ollama = "ollama"
     lmstudio = "lmstudio"
+    voice = "voice"  # kodo's registry of TTS/STT models (by short id, e.g. "kokoro"); lands in <root>/voice/
 
 
 class ModelFormat(StrEnum):

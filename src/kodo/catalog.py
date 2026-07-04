@@ -73,3 +73,14 @@ def pull(
             return ollama.pull(name, root, move=move)
         case ModelSource.lmstudio:
             return lmstudio.pull(name, root, move=move)
+        case ModelSource.voice:
+            from kodo.voice import importer as voice_importer  # noqa: PLC0415 - keep voice deps lazy
+
+            res = voice_importer.pull_to_library(name, root, move=move, token=get_settings().hf_token)
+            return PullResult(
+                source=ModelSource.voice,
+                name=name,
+                destination=res.dest,
+                size_bytes=res.copied_bytes,
+                file_count=res.file_count,
+            )

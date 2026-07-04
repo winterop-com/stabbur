@@ -13,7 +13,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from kodo.voice.catalog import VoicePresence, _dir_size, hf_hub_cache, voice_dir
+from kodo.voice.catalog import VoicePresence, _dir_size, _real_files, discover, hf_hub_cache, voice_dir
+from kodo.voice.registry import BUILTIN
 
 
 class ImportResult(BaseModel):
@@ -24,8 +25,10 @@ class ImportResult(BaseModel):
     repo: str
     dest: Path
     copied_bytes: int
+    file_count: int = 0
     already_present: bool = False
     cache_pruned: bool = False
+    downloaded: bool = False  # fetched from Hugging Face (not already in the cache)
 
 
 def import_to_library(presence: VoicePresence, library_root: Path | str, prune_cache: bool = False) -> ImportResult:
@@ -57,7 +60,46 @@ def import_to_library(presence: VoicePresence, library_root: Path | str, prune_c
     if prune_cache and presence.cache_bytes and copied >= presence.cache_bytes * 0.95:
         shutil.rmtree(presence.cache_path, ignore_errors=True)
         pruned = True
-    return ImportResult(repo=presence.spec.repo, dest=dest, copied_bytes=copied, cache_pruned=pruned)
+    return ImportResult(
+        repo=presence.spec.repo, dest=dest, copied_bytes=copied, file_count=len(_real_files(dest)), cache_pruned=pruned
+    )
+
+
+def pull_to_library(
+    voice_id: str, library_root: Path | str, *, move: bool = False, token: str | None = None
+) -> ImportResult:
+    """Acquire a registry voice model into a library's ``voice/`` bucket (project-aware target).
+
+    Resolves ``voice_id`` (a registry short id like ``kokoro``) to its HF repo, then: if it's
+    already in this library, no-op; if it's in the HF cache, copy it in; otherwise **download**
+    it from Hugging Face into the cache first, then copy. ``move`` prunes the cache copy after a
+    verified import. This is what ``kodo library pull voice <id>`` calls, so voice models land in
+    the project-local library like chat models do.
+    """
+    spec = next((s for s in BUILTIN if s.id == voice_id), None)
+    if spec is None:
+        known = ", ".join(s.id for s in BUILTIN)
+        raise ValueError(f"unknown voice model {voice_id!r}; known ids: {known}")
+
+    def _presence() -> VoicePresence:
+        return next(p for p in discover(library_root) if p.spec.id == voice_id)
+
+    presence = _presence()
+    downloaded = False
+    if not presence.in_library and not presence.in_cache:
+        from huggingface_hub import snapshot_download  # noqa: PLC0415 - only needed on the download path
+
+        snapshot_download(spec.repo, token=token)  # into the HF cache; import copies it out below
+        downloaded = True
+        presence = _presence()  # re-scan now that it's cached
+
+    result = import_to_library(presence, library_root, prune_cache=move)
+    return result.model_copy(update={"downloaded": downloaded})
+
+
+def cached_voice_ids(library_root: Path | str) -> list[str]:
+    """Registry ids that are in the HF cache but not yet in this library (for ``pull voice --all``)."""
+    return [p.spec.id for p in discover(library_root) if p.in_cache and not p.in_library]
 
 
 def _cache_snapshot(cache_repo_dir: Path) -> Path | None:
