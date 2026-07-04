@@ -25,7 +25,9 @@ grouping for the bound instance (`chrome.tabGroups`), and a "Publishing" section
 shipping a Web Store extension that requires a user-run local service. The
 target-metadata endpoint was also de-DHIS2-ified: kept generic (`GET /api/assistant`
 from opaque project metadata + an MCP resource) so kodo keeps zero DHIS2 logic,
-rather than a DHIS2-named `GET /api/dhis2/target`.
+rather than a DHIS2-named `GET /api/dhis2/target`. A "Cross-browser" section notes
+WebExtensions/MV3 as the de facto standard (Chromium family free, Firefox modest via
+`sidebar_action` + polyfill, Safari a separate Xcode-wrapped effort).
 
 ## Short version
 
@@ -1053,6 +1055,45 @@ fetch(`${baseUrl}/api/status`)
 
 The side panel should store `baseUrl` in `chrome.storage` and provide a simple
 connection setup/test screen.
+
+## Cross-browser: the WebExtensions standard
+
+"Chrome extension" is really the **WebExtensions API** — a *de facto* standard
+(originated by Chrome, adopted by Firefox/Edge/Opera/Brave/Vivaldi/Arc/Safari;
+aligned by the W3C WebExtensions Community Group, not a ratified spec). **Manifest
+V3** is the common baseline. So targeting more than one browser is realistic, and
+kodo's thin-client architecture makes it cheap: the logic is in local kodo, the UI
+is the shared SPA, and only a small manifest + panel-mount + a few `chrome.*` calls
+are browser-specific.
+
+Reach per target:
+
+- **Chromium family (Chrome, Edge, Brave, Opera, Vivaldi, Arc)** — one MV3 build
+  runs on all of them essentially unchanged, `chrome.sidePanel` included. "Chrome
+  is fine" already covers ~5 browsers.
+- **Firefox** — achievable with modest effort. Same WebExtensions model, but:
+  1. `browser.*` (promise-based) vs `chrome.*` — normalize with Mozilla's
+     **`webextension-polyfill`**.
+  2. Background is an event page, not necessarily a service worker (irrelevant for
+     a thin client).
+  3. **Side panel is the real catch**: Firefox uses `sidebar_action` (its own
+     manifest key + `browser.sidebarAction`), *not* `chrome.sidePanel`. Same UX,
+     different mount — so hide it behind a thin "panel mount" adapter.
+  4. Adds a `browser_specific_settings` manifest key; separate store (AMO).
+- **Safari** — the expensive one, treat as a later standalone effort. It runs
+  WebExtensions but must be wrapped in a macOS/iOS app via Xcode
+  (`safari-web-extension-converter`) and shipped through the App Store, and it has
+  **no built-in persistent side panel**, so the side-panel UX does not map (fall
+  back to a popover).
+
+Practical approach: use **`webextension-polyfill`** for the namespace and a
+build tool like **WXT** (Vite-based) or **Plasmo** to emit per-browser bundles from
+one codebase (they handle the manifest/target differences, including sidePanel vs
+sidebar_action). The one early design decision: **abstract the panel mount behind
+our own adapter** so the shared SPA does not care which browser hosts it — the SSE
+chat loop, target logic, and auth are all already browser-agnostic. Each store
+(Chrome Web Store, Firefox AMO, Edge Add-ons, Safari App Store) is a separate
+submission and review.
 
 ## Extension <-> backend auth (and where OIDC fits)
 
