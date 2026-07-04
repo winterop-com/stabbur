@@ -87,6 +87,7 @@ class ChatApp(App[None]):
     #transcript Collapsible > CollapsibleTitle { color: $text-muted; padding: 0; }
     #transcript Collapsible Contents { padding: 0 0 0 2; }
     .reasoning { color: $text-muted; }
+    #transcript > .intro { margin-bottom: 1; }
     #status { height: 2; padding: 0 2; background: $panel; color: $text-muted; }
     #input { height: auto; max-height: 10; border: round $primary; margin: 0 1 1 1; padding: 0 1; }
     #input:focus { border: round $accent; }
@@ -143,11 +144,7 @@ class ChatApp(App[None]):
     async def on_mount(self) -> None:
         self.title = "kodo chat"
         transcript = self.query_one("#transcript", VerticalScroll)
-        intro = Text()
-        intro.append(self._model_name, style="bold")
-        intro.append(f"  ·  {self._model_format}\n", style="dim")
-        intro.append(f"api  {self._base}/v1  (OpenAI-compatible)", style="dim")
-        await transcript.mount(Static(intro, classes="reasoning"))
+        await transcript.mount(Static(self._intro(), classes="intro"))
         self._refresh_status()
         self.query_one(ChatInput).focus()
         # Connecting MCP servers can take a moment; do it after the UI is up.
@@ -159,6 +156,31 @@ class ChatApp(App[None]):
         await self._stack.aclose()
 
     # -- status footer ---------------------------------------------------------
+
+    def _intro(self) -> Group:
+        """The welcome block shown on start: kodo wordmark + version, then model + endpoint."""
+        from importlib.metadata import version as _pkg_version  # noqa: PLC0415
+
+        try:
+            ver = _pkg_version("kodo")
+        except Exception:  # noqa: BLE001 - version is cosmetic; never block the intro on it
+            ver = ""
+
+        title = Text()
+        title.append("♥ ", style="#f43f5e")  # heartbeat — kodo is 鼓動, "heartbeat/pulse"
+        title.append("kodo", style="bold #f43f5e")
+        if ver:
+            title.append(f"  v{ver}", style="grey50")
+        title.append("   local models, on your own hardware", style="grey42")
+
+        model = Text()
+        model.append(self._model_name, style="bold")
+        model.append(f"   {self._model_format}", style="grey50")
+
+        api = Text(f"{self._base}/v1", style="grey42")
+        api.append("   OpenAI-compatible", style="grey35")
+
+        return Group(title, Text(), model, api)
 
     def _status_renderable(self) -> Group:
         line1 = Text()
