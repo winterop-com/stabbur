@@ -990,11 +990,14 @@ def new(
     console.print(f"[dim]Next:[/] cd {name} && kodo serve --ui")
 
 
-def _connect_project_tools(mcp: list[project.ProjectMcp]) -> tuple[dict[str, list[tuple[str, str]]], str | None]:
+def _connect_project_tools(
+    mcp: list[project.ProjectMcp],
+) -> tuple[dict[str, list[tuple[str, str]]], str | None, list[tuple[str, str]]]:
     """Spawn the project's MCP servers and return their real tools, grouped by server.
 
-    Returns ``({server: [(tool, description), ...]}, error)``; ``error`` is a message
-    if connecting failed (e.g. an MCP command not installed), else ``None``.
+    Returns ``({server: [(tool, description), ...]}, error, failures)``: ``error`` is a message
+    if the whole connect failed, else ``None``; ``failures`` is per-server ``(label, reason)``
+    for servers that couldn't start (e.g. an uninstalled optional server) — the rest still work.
     """
     import asyncio  # noqa: PLC0415
     import shlex  # noqa: PLC0415
@@ -1003,19 +1006,20 @@ def _connect_project_tools(mcp: list[project.ProjectMcp]) -> tuple[dict[str, lis
 
     servers = [(m.name, shlex.split(m.command)) for m in mcp]
 
-    async def _collect() -> list[tuple[str, str]]:
+    async def _collect() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         async with mcp_tools.connect(servers) as toolset:
-            return [(s["function"]["name"], s["function"].get("description", "") or "") for s in toolset.schemas]
+            pairs = [(s["function"]["name"], s["function"].get("description", "") or "") for s in toolset.schemas]
+            return pairs, toolset.errors
 
     try:
-        pairs = asyncio.run(_collect())
+        pairs, failures = asyncio.run(_collect())
     except Exception as exc:  # noqa: BLE001 - a missing/failing MCP server shouldn't crash `show`
-        return {}, str(exc)
+        return {}, str(exc), []
     grouped: dict[str, list[tuple[str, str]]] = {}
     for name, desc in pairs:
         server, _, tool = name.partition("__")  # tools are namespaced <server>__<tool>
         grouped.setdefault(server, []).append((tool or name, desc))
-    return grouped, None
+    return grouped, None, failures
 
 
 @project_app.command("show")
@@ -1061,11 +1065,19 @@ def project_(
         console.print("  [dim]none[/]")
     else:
         console.print(f"  [dim]connecting to {len(proj.mcp)} MCP server(s) …[/]")
-        grouped, error = _connect_project_tools(proj.mcp)
+        grouped, error, failures = _connect_project_tools(proj.mcp)
         if error:
             console.print(f"  [red]could not connect:[/] [dim]{error}[/]")
+        failed = {label: reason for label, reason in failures}
         for m in proj.mcp:
             server = m.name or m.command.split()[0]
+            if server in failed:  # this one couldn't start; the others still work
+                console.print(f"  [yellow]{server}[/] [dim]({m.command})[/] — [red]failed:[/] [dim]{failed[server]}[/]")
+                if m.command.startswith("kodo-mcp-web"):
+                    console.print(
+                        "    [dim]hint:[/] the web reader is optional — install it with [bold]make install-web[/]"
+                    )
+                continue
             tools_here = grouped.get(server, [])
             console.print(f"  [cyan]{server}[/] [dim]({m.command})[/] — [bold]{len(tools_here)}[/] tool(s)")
             for tool, desc in tools_here:

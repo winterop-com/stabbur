@@ -132,3 +132,10 @@ async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.Monk
     assert out == stopped
     assert tokens == [stopped]  # streamed to the client
     assert messages[-1] == {"role": "assistant", "content": stopped}  # recorded in history
+
+
+async def test_connect_skips_a_failing_server_and_records_it() -> None:
+    # An uninstalled/bad server must not abort the others: it's skipped and recorded in errors.
+    async with tools.connect([("bogus", ["kodo-nonexistent-server-xyz"])]) as toolset:
+        assert toolset.schemas == []  # nothing from the failed server
+        assert toolset.errors and toolset.errors[0][0] == "bogus"  # failure recorded with its label

@@ -98,6 +98,7 @@ class MCPToolset:
     def __init__(self) -> None:
         self.schemas: list[dict[str, Any]] = []
         self._owner: dict[str, tuple[Client, str]] = {}  # qualified name → (client, tool name)
+        self.errors: list[tuple[str, str]] = []  # (server label, error) for servers that failed to start
 
     async def add(self, client: Client, prefix: str) -> None:
         """Register a server's tools under ``<prefix>__<tool>`` (skip duplicates)."""
@@ -144,13 +145,18 @@ async def connect(servers: list[tuple[str | None, list[str]]]) -> AsyncGenerator
     env = _mcp_env()  # kodo's bin/ on PATH so bundled kodo-mcp-* servers resolve
     async with AsyncExitStack() as stack:
         for name, command in servers:
-            # Discard the spawned server's stderr (banners/logs) to keep our output clean.
-            transport = StdioTransport(
-                command=_resolve_command(command[0]), args=command[1:], env=env, log_file=Path(os.devnull)
-            )
-            client = await stack.enter_async_context(Client(transport))
             prefix = _server_prefix(name, command)
-            n = used.get(prefix, 0)
-            used[prefix] = n + 1
-            await toolset.add(client, prefix if n == 0 else f"{prefix}{n + 1}")
+            # One server failing to start (e.g. an uninstalled optional server, a bad command)
+            # must not take down the others — skip it, record why, and keep going.
+            try:
+                # Discard the spawned server's stderr (banners/logs) to keep our output clean.
+                transport = StdioTransport(
+                    command=_resolve_command(command[0]), args=command[1:], env=env, log_file=Path(os.devnull)
+                )
+                client = await stack.enter_async_context(Client(transport))
+                n = used.get(prefix, 0)
+                used[prefix] = n + 1
+                await toolset.add(client, prefix if n == 0 else f"{prefix}{n + 1}")
+            except Exception as exc:  # noqa: BLE001 - surface any spawn/connect failure without aborting the rest
+                toolset.errors.append((name or command[0], str(exc)))
         yield toolset

@@ -97,7 +97,7 @@ def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.Monk
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
     # Stub the (network/subprocess) MCP connect so the test stays hermetic.
     monkeypatch.setattr(
-        cli, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None)
+        cli, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None, [])
     )
     result = runner.invoke(cli.app, ["project", "show"])
     assert result.exit_code == 0, result.output
