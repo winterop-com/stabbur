@@ -88,9 +88,9 @@ class ChatApp(App[None]):
     #transcript Collapsible Contents { padding: 0 0 0 2; }
     .reasoning { color: $text-muted; }
     #transcript > .intro { margin-bottom: 1; }
-    #status { height: 2; padding: 0 2; background: $panel; color: $text-muted; }
-    #input { height: auto; max-height: 10; border: round $primary; margin: 0 1 1 1; padding: 0 1; }
-    #input:focus { border: round $accent; }
+    #status { height: 3; padding: 1 2 0 2; color: $text-muted; }
+    #input { height: auto; max-height: 10; border: round #3a3a3a; margin: 0 1 1 1; padding: 0 1; }
+    #input:focus { border: round #fb7185; }
     """
 
     BINDINGS = [
