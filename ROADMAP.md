@@ -68,11 +68,26 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
   component registry (waveform player, orb, …) on the same stack — a natural polish pass.
 - **Voice cloning in the Textual TUI.** Reachable from the web UI + CLI (`kodo voice speak
   --model dia --ref-audio … --ref-text …`); add a TUI affordance too.
-- **Expressive / emotion-controllable voices (future).** Kokoro/OuteTTS give natural prosody but
-  no emotion knob. Real control needs a heavier class — instruction-prompted (CosyVoice 2,
-  Parler-TTS, Qwen3-TTS VoiceDesign), tag-based (Orpheus-3B, Dia non-verbals), or
-  intensity-controlled (Chatterbox). All PyTorch/GPU-leaning — a deliberate later add-on, not a
-  replacement for the Kokoro baseline.
+- **Evaluate newer mlx-audio models** ([models page](https://blaizzy.github.io/mlx-audio/models/)
+  — mlx-audio has grown well past kodo's 5 registry entries). Each is one `VoiceModel` entry +
+  a load-test (mlx-audio's high-level `load_model` doesn't support every model — that's why
+  `qwen3-tts` is `supported=False`). Apple-Silicon-only. Shortlist by value:
+  - **Chatterbox** (`mlx-community/chatterbox-fp16`) — expressive TTS with an emotion/exaggeration
+    param, **native MLX** (see the expressive-voices note below — this is the cross-platform-ish path).
+  - **Voxtral-TTS** (`Voxtral-4B-TTS`) — 20 voices / 9 languages; a richer preset engine than Kokoro.
+  - **CSM / MisoTTS** (`csm-1b`) — conversational TTS with voice cloning (lighter than Dia).
+  - **Soprano** (`Soprano-1.1-80M`), **KittenTTS** (`kitten-tts-nano-0.8`) — tiny English TTS for edge.
+  - **OuteTTS-1.0** (`OuteTTS-1.0-0.6B`) — native-MLX upgrade from kodo's OuteTTS-0.2 GGUF.
+  - **Parakeet** (`parakeet-tdt-0.6b-v3`) — fast, accurate STT, 25 EU languages; a Whisper alternative.
+  - **Speaker diarization** (MOSS-Transcribe-Diarize, VibeVoice-ASR) — who-said-what + timestamps,
+    a new capability. Plus **speech enhancement** (DeepFilterNet / MossFormer2-SE) to denoise mic
+    input before STT, and **endpoint detection** (Smart Turn) for better turn-taking than the VAD recorder.
+
+- **Expressive / emotion-controllable voices (future).** Kokoro/OuteTTS give natural prosody but no
+  emotion knob. **Chatterbox** (above) is the most promising path — it has an intensity param and runs
+  natively on MLX. Heavier alternatives stay PyTorch/GPU-leaning: instruction-prompted (CosyVoice 2,
+  Parler-TTS, Qwen3-TTS VoiceDesign), tag-based (Orpheus-3B, Dia non-verbals). A deliberate later
+  add-on, not a replacement for the Kokoro baseline.
 
 ## Other open ideas
 
