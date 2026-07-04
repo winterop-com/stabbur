@@ -16,7 +16,7 @@ resolution-markers = [
 [manifest]
 members = [
     "kodo",
-    "kodo-mcp-benchmark",
+    "kodo-benchmark",
     "kodo-mcp-datetime",
     "kodo-mcp-search",
     "kodo-mcp-utils",
@@ -1437,7 +1437,7 @@ dependencies = [
     { name = "hf-xet" },
     { name = "httpx" },
     { name = "huggingface-hub" },
-    { name = "kodo-mcp-benchmark" },
+    { name = "kodo-benchmark" },
     { name = "kodo-mcp-datetime" },
     { name = "kodo-mcp-search" },
     { name = "kodo-mcp-utils" },
@@ -1488,7 +1488,7 @@ requires-dist = [
     { name = "hf-xet", specifier = ">=1.5.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=1.21.0" },
-    { name = "kodo-mcp-benchmark", editable = "packages/kodo-mcp-benchmark" },
+    { name = "kodo-benchmark", editable = "packages/kodo-benchmark" },
     { name = "kodo-mcp-datetime", editable = "packages/kodo-mcp-datetime" },
     { name = "kodo-mcp-search", editable = "packages/kodo-mcp-search" },
     { name = "kodo-mcp-utils", editable = "packages/kodo-mcp-utils" },
@@ -1524,9 +1524,9 @@ dev = [
 ]
 
 [[package]]
-name = "kodo-mcp-benchmark"
+name = "kodo-benchmark"
 version = "0.1.0"
-source = { editable = "packages/kodo-mcp-benchmark" }
+source = { editable = "packages/kodo-benchmark" }
 dependencies = [
     { name = "fastmcp" },
     { name = "pluginkit" },

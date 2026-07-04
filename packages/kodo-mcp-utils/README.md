@@ -20,4 +20,4 @@ kodo chat --mcp utils             # kodo resolves the advertised name to the com
 
 Follows the `kodo-mcp-datetime` template (src layout, `__init__` + `__main__` + `app.py`);
 `plugin.py` is an advertise-only pluginkit extension so kodo discovers it without
-hardcoding. Benchmarked by the `tools-utils` suite in `kodo-mcp-benchmark`.
+hardcoding. Benchmarked by the `tools-utils` suite in `kodo-benchmark`.

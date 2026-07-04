@@ -97,7 +97,7 @@ count (77, 27, 171). The cause was in the benchmark, not the models: the answer 
 substring match, so a model answering "**1,332**" failed an expected "1332" — the thousands
 separator broke the match. Sub-1000 counts have no separator, so they always matched.
 
-Fixed in `kodo_mcp_benchmark.core`: the matcher now retries with digit-group separators (comma or
+Fixed in `kodo_benchmark.core`: the matcher now retries with digit-group separators (comma or
 whitespace between digits) stripped from both sides. Re-running under the corrected scoring moved
 the four affected models from 10/12 to 12/12 and lifted the rest accordingly. The numbers above
 are post-fix.

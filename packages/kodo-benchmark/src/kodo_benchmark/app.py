@@ -5,7 +5,7 @@ directly; this MCP surface lets any MCP host (or a model self-driving in chat) r
 same suites and sandboxed executor. Tools mirror ``core``: list suites, fetch a problem's
 public part, evaluate a candidate solution, or run arbitrary code in the sandbox.
 
-Run standalone over stdio: ``kodo-mcp-benchmark`` (or ``python -m kodo_mcp_benchmark``).
+Run standalone over stdio: ``kodo-benchmark`` (or ``python -m kodo_benchmark``).
 """
 
 import asyncio
@@ -13,7 +13,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from kodo_mcp_benchmark import core
+from kodo_benchmark import core
 
 mcp: FastMCP = FastMCP("kodo-benchmark")
 

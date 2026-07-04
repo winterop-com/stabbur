@@ -10,7 +10,7 @@ dependencies = [
     "hf-xet>=1.5.1",
     "httpx>=0.28.1",
     "huggingface-hub>=1.21.0",
-    "kodo-mcp-benchmark",
+    "kodo-benchmark",
     "kodo-mcp-datetime",
     "kodo-mcp-search",
     "kodo-mcp-utils",
@@ -79,7 +79,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 kodo-mcp-datetime = { workspace = true }
-kodo-mcp-benchmark = { workspace = true }
+kodo-benchmark = { workspace = true }
 kodo-mcp-search = { workspace = true }
 kodo-mcp-utils = { workspace = true }
 kodo-mcp-web = { workspace = true }  # optional (the `web` extra); heavy Playwright deps
@@ -130,7 +130,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_benchmark"]
+source = ["kodo", "kodo_mcp_datetime", "kodo_benchmark"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from pluginkit import Extension
 
-from kodo_mcp_benchmark import core
+from kodo_benchmark import core
 
 if TYPE_CHECKING:
     from kodo.library import LibraryModel

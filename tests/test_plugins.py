@@ -27,7 +27,7 @@ def test_benchmark_plugin_is_discovered_and_mounts_a_group() -> None:
     pm = plugins.load_plugins()
     groups = plugins.command_groups(pm, cast(plugins.PluginContext, _FakeContext()))
     names = [name for name, _ in groups]
-    assert "benchmark" in names  # contributed by kodo-mcp-benchmark's kodo.plugins entry point
+    assert "benchmark" in names  # contributed by kodo-benchmark's kodo.plugins entry point
 
 
 def test_cli_mounts_plugin_commands() -> None:
@@ -44,7 +44,7 @@ def test_cli_mounts_plugin_commands() -> None:
 def test_advertised_mcp_servers_and_resolution() -> None:
     # Register the advertise-only plugins directly (entry-point-independent) and check
     # the mcp_servers hook surfaces them and that names resolve to spawn commands.
-    from kodo_mcp_benchmark.plugin import PLUGIN as BENCH
+    from kodo_benchmark.plugin import PLUGIN as BENCH
     from kodo_mcp_datetime.plugin import PLUGIN as DATETIME
     from pluginkit import PluginManager
 

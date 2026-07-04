@@ -1,4 +1,4 @@
-# kodo-mcp-benchmark
+# kodo-benchmark
 
 Language + tool-use benchmarks for local models. A *suite* is a set of *problems*:
 
@@ -28,7 +28,7 @@ kodo benchmark leaderboard                                # regenerate docs/benc
 Results saved with `--save` land in `benchmarks/results/` as one JSON per (suite, model);
 `kodo benchmark leaderboard` renders them into a Markdown leaderboard for the docs.
 
-Also an MCP server (`kodo-mcp-benchmark` over stdio): `list_suites`, `get_problem`,
+Also an MCP server (`kodo-benchmark` over stdio): `list_suites`, `get_problem`,
 `evaluate`, `run_code` — for any MCP host or a model self-driving in chat.
 
 ## Suite format

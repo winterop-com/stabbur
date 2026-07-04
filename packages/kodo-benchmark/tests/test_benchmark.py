@@ -8,7 +8,7 @@ Docker isn't available so the suite still passes on a machine without it.
 from pathlib import Path
 
 import pytest
-from kodo_mcp_benchmark import core
+from kodo_benchmark import core
 
 pytestmark = pytest.mark.filterwarnings("ignore")
 
@@ -28,7 +28,7 @@ def test_suites_load_and_language_propagates() -> None:
 def test_qualifies_gates_by_capability_and_tag() -> None:
     from typing import Any, cast
 
-    from kodo_mcp_benchmark.plugin import _qualifies
+    from kodo_benchmark.plugin import _qualifies
 
     from kodo.plugins import PluginContext
 
