@@ -46,7 +46,11 @@ The north star (bottom of this file) is the local DHIS2 assistant. Concrete next
    the play42 dev instance and may need a refresh if it's reset. **Then a write suite** (create /
    update / delete against a throwaway/local instance, `DHIS2_MCP_READONLY` off) to see which
    models can safely drive mutations. Run with `kodo benchmark run tools-dhis2 --all --save` and
-   fold the winner into the DHIS2 project's `[project].model`.
+   fold the winner into the DHIS2 project's `[project].model`. **Status (2026-07-04):** read-only
+   suite shipped and run — see `docs/guides/dhis2-benchmark-report.md`. The write suite is
+   **blocked**: no local writable DHIS2 was reachable (profile `local` at http://localhost:8080 is
+   down) and writes to the shared play demos are refused by design. Start a local DHIS2, then add
+   `tools-dhis2-write.toml`.
 2. **`kodo project new --template dhis2` (a DHIS2 starter).** Scaffold a ready-to-run DHIS2
    assistant project: `kodo.toml` with the bridge `[[mcp]]` block, a DHIS2 system prompt, the
    recommended model — **and** scaffold a profiles file (`.dhis2/profiles.toml` project-local, or a
@@ -61,6 +65,13 @@ The north star (bottom of this file) is the local DHIS2 assistant. Concrete next
 
 ## Open issues
 
+- **MLX vision runtime (mlx-vlm) is broken by a transformers incompatibility.** [High] Serving
+  any MLX model routed to `mlx-vlm` crashes at import time with `AttributeError: 'str' object has
+  no attribute '__module__'` (in `transformers` `AutoTokenizer.register`, via mlx-vlm's bundled
+  `mlx_lm.tokenizer_utils`). Surfaced by the `tools-dhis2` benchmark: all three MLX models
+  (Qwen3.5-4B-MLX, gemma-4-26B-MLX, Qwen3.6-27B-4bit) failed to load and could not be evaluated.
+  Likely a version pin in the `mlx-vlm` uv tool env; pin/upgrade `transformers` there. Blocks
+  serving + benchmarking MLX vision models until fixed.
 - **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes audio
   fine, but Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the
   audio — likely a `llama-server` mmproj-routing issue for their audio-only projectors; needs
