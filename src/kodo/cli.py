@@ -17,7 +17,7 @@ from kodo import attach, capabilities, cards, config, doctor, project, runtime, 
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
-from kodo.models import CuratedMcp, CuratedModel, ModelFormat, ModelSource, _human_size
+from kodo.models import CuratedMcp, CuratedModel, ModelFormat, ModelSource, ProjectTemplate, _human_size
 from kodo.sources import huggingface as hf
 
 if TYPE_CHECKING:
@@ -110,6 +110,71 @@ _OPTIONAL_FIRST_PARTY: list[CuratedMcp] = [
 def _uninstalled_optional(advertised: set[str]) -> list[CuratedMcp]:
     """Optional first-party servers not currently installed (advertised), for discovery."""
     return [s for s in _OPTIONAL_FIRST_PARTY if s.name not in advertised]
+
+
+# --- project templates (`kodo project new --template <name>`) ---------------------------------
+
+_DHIS2_PROMPTS_MD = """\
+# Example prompts
+
+Copy these into `uv run kodo chat` (or the web UI). The assistant is bound to a DHIS2-capable
+model and the DHIS2 CLI bridge (read-only), pointed at the public **play42** demo (DHIS2
+"Sierra Leone").
+
+## Discover the instance
+- What DHIS2 version is this server running, and what is the system name?
+- Who am I logged in as?
+- List the organisation unit levels and their names.
+
+## Counts and inventory
+- How many organisation units, data elements, and indicators are there?
+- How many data sets are configured? List a few of their names.
+
+## Name to UID (and back)
+- What is the UID of the data element named 'ANC 1st visit'?
+- What is the UID of the organisation unit 'Bo', and what level is it at?
+- What is the name of the organisation unit with UID ImspTQPwCqd?
+
+## Analytics (multi-step: resolve name -> UID, then query)
+- What was 'ANC 1st visit' for all of Sierra Leone over the last 12 months?
+- Compare 'ANC 1st visit' and 'ANC 2nd visit' nationally for the last 4 quarters.
+"""
+
+_DHIS2_PROFILE_EXAMPLE = """\
+# Copy to .dhis2/profiles.toml (mkdir -p .dhis2) and fill in your instance, or run:
+#   d2w profile add play42 --url <url> --auth basic --username <user> --local
+# For the public DHIS2 demo the credentials are admin / district.
+default = "play42"
+
+[profiles.play42]
+base_url = "https://play.im.dhis2.org/dev-2-42"
+auth = "basic"
+username = "admin"
+# password = "district"   # public demo; for a real instance prefer a PAT (auth = "pat")
+"""
+
+_TEMPLATES: dict[str, ProjectTemplate] = {
+    "dhis2": ProjectTemplate(
+        # Ornith-1.0-9B won the tools-dhis2 benchmark (12/12, fastest, smallest).
+        model="deepreinforce-ai/Ornith-1.0-9B-GGUF",
+        system_prompt=(
+            "You are a DHIS2 assistant for a connected DHIS2 instance. ALWAYS use the dhis2 tools "
+            "(the dhis2_cli tool) to look up real data - never answer counts, UIDs, or metadata from "
+            "memory. To use a name in analytics or a filter, resolve it to a UID first with a metadata "
+            "search or a filtered list. Keep answers concise and state the values you retrieved."
+        ),
+        mcp=[("dhis2", "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge")],
+        files={"examples/prompts.md": _DHIS2_PROMPTS_MD, "examples/dhis2-profiles.toml": _DHIS2_PROFILE_EXAMPLE},
+        next_steps=(
+            "Set up the DHIS2 profile, then run:\n"
+            "  mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo: admin/district\n"
+            "  uv sync && uv run kodo project show      # confirm the model + dhis2 tools are wired\n"
+            "  uv run kodo serve --ui                   # or: uv run kodo chat\n"
+            "Point it at your own instance: edit .dhis2/profiles.toml (or `d2w profile add … --local`) "
+            "and DHIS2_PROFILE in kodo.toml; drop DHIS2_MCP_READONLY=1 to allow writes."
+        ),
+    ),
+}
 
 
 def _project_mcp_keys(path: Path = Path("kodo.toml")) -> set[str]:
@@ -968,7 +1033,13 @@ def _copy_model_local(model: library_ops.LibraryModel, dest_root: Path) -> None:
 
 
 def _scaffold_project(
-    target: Path, model: str | None, force: bool, local: bool, git: bool = False, uv: bool = True
+    target: Path,
+    model: str | None,
+    force: bool,
+    local: bool,
+    git: bool = False,
+    uv: bool = True,
+    template: str | None = None,
 ) -> None:
     """Interactive project scaffolder shared by `init` (here) and `new` (a fresh dir).
 
@@ -988,27 +1059,42 @@ def _scaffold_project(
         console.print(f"[red]{proj} already exists[/] — use --force to overwrite.")
         raise typer.Exit(1)
 
-    # Gather every choice first, so canceling the wizard (Ctrl-C) leaves nothing behind —
-    # the directory is created only once we're committing to writing the project below.
-    console.print("\n[bold]0. Kind[/] [dim]— tailors the defaults[/]")
-    console.print("  1. Chat  [dim]— text conversation (replies can still be spoken)[/]")
-    console.print("  2. Voice  [dim]— talk to it: mic dictation in, spoken replies out[/]")
-    voice_project = typer.prompt("Number", default="1").strip() == "2"
+    tmpl = None
+    if template is not None:
+        tmpl = _TEMPLATES.get(template)
+        if tmpl is None:
+            console.print(f"[red]Unknown template {template!r}[/] — available: {', '.join(sorted(_TEMPLATES))}")
+            raise typer.Exit(1)
 
-    model = model or _pick_model_interactive()
-    mcp = _pick_tools_interactive()
-    default_prompt = (
-        "You are a friendly voice assistant. Keep replies short and natural for speech."
-        if voice_project
-        else "You are a concise, helpful assistant."
-    )
-    system_prompt = typer.prompt("\n3. System prompt", default=default_prompt)
-    # Kokoro is tiny, so every project can speak replies; a voice project lets you pick which voice.
-    chat_voice = (
-        typer.prompt("\n4. Spoken-reply voice (Kokoro)", default="kokoro:af_heart")
-        if voice_project
-        else "kokoro:af_heart"
-    )
+    if tmpl is not None:
+        # A template presets the whole wizard, so scaffolding is reproducible in one command.
+        console.print(f"\nUsing the [bold]{template}[/] template.")
+        model = model or tmpl.model
+        mcp = list(tmpl.mcp)
+        system_prompt = tmpl.system_prompt
+        chat_voice = "kokoro:af_heart"
+    else:
+        # Gather every choice first, so canceling the wizard (Ctrl-C) leaves nothing behind —
+        # the directory is created only once we're committing to writing the project below.
+        console.print("\n[bold]0. Kind[/] [dim]— tailors the defaults[/]")
+        console.print("  1. Chat  [dim]— text conversation (replies can still be spoken)[/]")
+        console.print("  2. Voice  [dim]— talk to it: mic dictation in, spoken replies out[/]")
+        voice_project = typer.prompt("Number", default="1").strip() == "2"
+
+        model = model or _pick_model_interactive()
+        mcp = _pick_tools_interactive()
+        default_prompt = (
+            "You are a friendly voice assistant. Keep replies short and natural for speech."
+            if voice_project
+            else "You are a concise, helpful assistant."
+        )
+        system_prompt = typer.prompt("\n3. System prompt", default=default_prompt)
+        # Kokoro is tiny, so every project can speak replies; a voice project lets you pick which voice.
+        chat_voice = (
+            typer.prompt("\n4. Spoken-reply voice (Kokoro)", default="kokoro:af_heart")
+            if voice_project
+            else "kokoro:af_heart"
+        )
 
     target.mkdir(parents=True, exist_ok=True)
     shared = library_ops.configured()
@@ -1046,6 +1132,12 @@ def _scaffold_project(
         (target / "pyproject.toml").write_text(_project_pyproject(target.resolve().name, mcp, mlx))
         (target / "README.md").write_text(_PROJECT_README.format(name=target.resolve().name, library=_LOCAL_LIBRARY))
 
+    if tmpl is not None:
+        for rel, content in tmpl.files.items():
+            dest = target / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content)
+
     console.print(f"\n[green]Created[/] {proj}")
     console.print(f"  [dim]model:[/] {model}")
     console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in mcp) if mcp else 'none'}")
@@ -1054,6 +1146,8 @@ def _scaffold_project(
         console.print("  [dim]uv:[/] pyproject.toml (run [bold]uv sync[/] to build the environment)")
     if git:
         _git_init_project(target)
+    if tmpl is not None and tmpl.next_steps:
+        console.print(f"\n[bold]Next steps[/]\n{tmpl.next_steps}")
 
 
 _ModelOpt = Annotated[str | None, typer.Option("--model", help="Model to bind (skips the model picker).")]
@@ -1070,6 +1164,10 @@ _UvOpt = Annotated[
     bool,
     typer.Option("--uv/--no-uv", help="Make it a self-contained uv project (pyproject.toml pinning kodo + tools)."),
 ]
+_TemplateOpt = Annotated[
+    str | None,
+    typer.Option("--template", "-t", help="Start from a preset (e.g. 'dhis2'): model + prompt + tools + files."),
+]
 
 
 @project_app.command("init")
@@ -1079,14 +1177,16 @@ def init(
     local: _LocalOpt = False,
     git: _GitOpt = False,
     uv: _UvOpt = True,
+    template: _TemplateOpt = None,
 ) -> None:
     """Scaffold a project assistant in the current directory (interactive wizard).
 
     A project is a purpose-built assistant: `kodo serve`/`chat` here bind to its model
     (like --model) with its tools + prompt; outside a project it's free-play. Use
-    `kodo project new <dir>` to scaffold into a fresh directory instead.
+    `kodo project new <dir>` to scaffold into a fresh directory instead. `--template dhis2`
+    presets a reproducible DHIS2 assistant (model + prompt + bridge + example files).
     """
-    _scaffold_project(Path("."), model, force, local, git, uv)
+    _scaffold_project(Path("."), model, force, local, git, uv, template)
     console.print(f"[dim]Next:[/] {'uv sync && uv run kodo serve --ui' if uv else 'kodo serve --ui'}")
 
 
@@ -1098,9 +1198,14 @@ def new(
     local: _LocalOpt = False,
     git: _GitOpt = False,
     uv: _UvOpt = True,
+    template: _TemplateOpt = None,
 ) -> None:
-    """Create a new project directory and scaffold an assistant in it (like `cargo new`)."""
-    _scaffold_project(Path(name), model, force, local, git, uv)
+    """Create a new project directory and scaffold an assistant in it (like `cargo new`).
+
+    `--template dhis2` presets a reproducible DHIS2 assistant (model + prompt + bridge + files);
+    pair with `--copy` to bundle the model and `--git` to init a repo.
+    """
+    _scaffold_project(Path(name), model, force, local, git, uv, template)
     console.print(f"[dim]Next:[/] cd {name} && {'uv sync && uv run kodo serve --ui' if uv else 'kodo serve --ui'}")
 
 

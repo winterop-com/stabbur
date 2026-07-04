@@ -3,7 +3,7 @@
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class ModelSource(StrEnum):
@@ -131,6 +131,22 @@ class CuratedMcp(BaseModel):
     command: str  # the kodo.toml [[mcp]].command to run it
     description: str
     setup: str = ""  # one-line hint when the server needs config (a profile, path, key, Node, …)
+
+
+class ProjectTemplate(BaseModel):
+    """A named starter for `kodo project new --template <name>`.
+
+    Presets the wizard so a purpose-built project (e.g. a DHIS2 assistant) is reproducible in
+    one command: a default model, system prompt, MCP tools, and extra files to drop in.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str  # default library model to bind (overridable with --model)
+    system_prompt: str
+    mcp: list[tuple[str, str]] = Field(default_factory=list)  # (name, command) per [[mcp]] block
+    files: dict[str, str] = Field(default_factory=dict)  # relative path -> content, written verbatim
+    next_steps: str = ""  # printed after scaffolding (setup the template still needs)
 
 
 class ErrorResponse(BaseModel):
