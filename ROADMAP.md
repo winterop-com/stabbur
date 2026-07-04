@@ -27,7 +27,6 @@ history is the record) — this file is only open threads.
 | 2 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
 | 3 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
 | 4 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
-| 5 | Structured MCP config: `env`/`args` fields on `[[mcp]]` instead of one `env VAR=… uvx …` command string | M | Cleans up the last of the "MCP is a mess"; drops the `env__`-prefixed tool namespace when a server has no manifest name (e.g. the benchmark's `env__dhis2_cli`). Touches `tools.connect` + `ProjectMcp` + the benchmark runner. |
 
 ## DHIS2 assistant — near-term
 

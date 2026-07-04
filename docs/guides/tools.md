@@ -110,10 +110,13 @@ line, so this just works). `DHIS2_MCP_READONLY=1` keeps it query-only:
 ```toml
 [[mcp]]
 name = "dhis2"
-command = "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"
+command = "dhis2w-mcp-bridge"
+env = { DHIS2_PROFILE = "play42", DHIS2_MCP_READONLY = "1" }
 ```
 
-`uvx dhis2w-mcp-bridge` runs the bridge without a persistent install; swap the
-profile name (e.g. `play43`) to retarget. For a full end-to-end walkthrough — scaffold,
+Per-server settings go in the `env` table; swap the profile name (e.g. `play43`) to
+retarget. In a non-uv project the command is `uvx dhis2w-mcp-bridge` (no persistent install);
+the older single-string form (`command = "env DHIS2_PROFILE=play42 … uvx dhis2w-mcp-bridge"`)
+still works. For a full end-to-end walkthrough — scaffold,
 local model copy, wire the bridge, and confirm the model calls it — see the
 [DHIS2 assistant worked example](dhis2-project.md).

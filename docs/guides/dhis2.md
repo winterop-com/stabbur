@@ -116,11 +116,14 @@ That writes an `[[mcp]]` block roughly like:
 ```toml
 [[mcp]]
 name = "dhis2"
-command = "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"
+command = "dhis2w-mcp-bridge"
+env = { DHIS2_PROFILE = "play42", DHIS2_MCP_READONLY = "1" }
 ```
 
-Change `DHIS2_PROFILE` to your profile name; drop `DHIS2_MCP_READONLY=1` to allow writes.
-Swap `uvx dhis2w-mcp-bridge` for `dhis2w-mcp-router` or `dhis2w-mcp` to move up a tier.
+Change `DHIS2_PROFILE` to your profile name; drop `DHIS2_MCP_READONLY` to allow writes.
+Swap `dhis2w-mcp-bridge` for `dhis2w-mcp-router` or `dhis2w-mcp` to move up a tier. (In a
+non-uv project the command is `uvx dhis2w-mcp-bridge`; the older single-string form —
+`command = "env DHIS2_PROFILE=play42 … uvx dhis2w-mcp-bridge"` — still works too.)
 
 Confirm the model reaches it:
 
