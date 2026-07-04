@@ -6,6 +6,8 @@ as OpenAI function schemas for the model, and executes ``tool_call``s against it
 
 import os
 import re
+import shutil
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -15,6 +17,35 @@ from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
 _NAME_STRIP = re.compile(r"^(kodo-mcp-|mcp-server-|mcp-)")
+
+
+def _bin_dir() -> str:
+    """The running interpreter's directory — where kodo's bundled ``kodo-mcp-*`` scripts live.
+
+    Not necessarily on PATH (a ``uv tool install``ed kodo exposes only the ``kodo`` symlink),
+    so we add it explicitly when spawning bundled servers.
+    """
+    return str(Path(sys.executable).parent)
+
+
+def _mcp_env() -> dict[str, str]:
+    """Environment for a spawned MCP server, with kodo's own bin/ prepended to PATH.
+
+    So bundled ``kodo-mcp-*`` scripts (and tools they call) resolve regardless of how kodo ran.
+    """
+    env = dict(os.environ)
+    env["PATH"] = _bin_dir() + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def _resolve_command(cmd: str) -> str:
+    """Resolve a bare command to an absolute path, searching kodo's own bin/ too.
+
+    subprocess resolves a bare executable name against the *parent's* PATH, so putting kodo's
+    bin/ only in the child env isn't enough — resolve it here. A command already found on PATH
+    (or absolute) is returned as-is; an unfound one is passed through unchanged.
+    """
+    return shutil.which(cmd, path=os.environ.get("PATH", "") + os.pathsep + _bin_dir()) or cmd
 
 
 def _slug(text: str) -> str:
@@ -110,10 +141,13 @@ async def connect(servers: list[tuple[str | None, list[str]]]) -> AsyncGenerator
     """
     toolset = MCPToolset()
     used: dict[str, int] = {}  # disambiguate servers that derive the same prefix
+    env = _mcp_env()  # kodo's bin/ on PATH so bundled kodo-mcp-* servers resolve
     async with AsyncExitStack() as stack:
         for name, command in servers:
             # Discard the spawned server's stderr (banners/logs) to keep our output clean.
-            transport = StdioTransport(command=command[0], args=command[1:], log_file=Path(os.devnull))
+            transport = StdioTransport(
+                command=_resolve_command(command[0]), args=command[1:], env=env, log_file=Path(os.devnull)
+            )
             client = await stack.enter_async_context(Client(transport))
             prefix = _server_prefix(name, command)
             n = used.get(prefix, 0)
