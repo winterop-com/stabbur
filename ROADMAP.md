@@ -24,6 +24,41 @@ history is the record) — this file is only open threads.
 4. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
    drawer-style sidebar for very narrow mobile widths.
 
+### Near-term polish queue (proposed 2026-07-04, ranked)
+
+| # | Item | Size | Why now |
+|---|------|------|---------|
+| 1 | Rename `kodo-mcp-benchmark` → `kodo-benchmark` | S | The `mcp-` is a misnomer (it's the `kodo benchmark` CLI, not an assistant MCP). Pure rename: dir, package, entry point, workspace member. Low-risk cleanup. |
+| 2 | Finish the TUI palette — voice picker, model switch, sampling knobs, `/export` transcript | M | Natural continuation of the palette we shipped; closes the keyboard-parity gap with the web UI. |
+| 3 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
+| 4 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
+| 5 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+
+## DHIS2 assistant — near-term
+
+The north star (bottom of this file) is the local DHIS2 assistant. Concrete next steps:
+
+1. **`tools-dhis2` benchmark suite — pick the best model for the bridge.** A tool-use suite
+   (`packages/kodo-mcp-benchmark/.../suites/tools-dhis2.toml`) that attaches `dhis2w-mcp-bridge`
+   against the **play42** profile and scores whether a model calls `dhis2_cli` and returns the
+   right answer. **Read-only first** (metadata counts, UID/name resolution, version, system name —
+   stable structural facts about the Sierra Leone demo); the ground-truth values are a snapshot of
+   the play42 dev instance and may need a refresh if it's reset. **Then a write suite** (create /
+   update / delete against a throwaway/local instance, `DHIS2_MCP_READONLY` off) to see which
+   models can safely drive mutations. Run with `kodo benchmark run tools-dhis2 --all --save` and
+   fold the winner into the DHIS2 project's `[project].model`.
+2. **`kodo project new --template dhis2` (a DHIS2 starter).** Scaffold a ready-to-run DHIS2
+   assistant project: `kodo.toml` with the bridge `[[mcp]]` block, a DHIS2 system prompt, the
+   recommended model — **and** scaffold a profiles file (`.dhis2/profiles.toml` project-local, or a
+   pointer to `~/.config/dhis2/profiles.toml`) with a commented template so a new user fills in
+   base URL + token and runs. Wizard prompts for base URL / profile name / token. Pairs with the
+   `--git` flag already on `project new/init`.
+3. **Full DHIS2 docs guide.** Expand `docs/guides/dhis2-project.md` (or a new `guides/dhis2.md`)
+   into a complete guide: creating a DHIS2 profile (`d2w` profiles, base URL + PAT/token), the
+   three bridge tiers (bridge / router / full), read-only vs write, and **plenty of copy-paste
+   suggested prompts** (metadata counts, name->UID, analytics, tracker) — linking the official
+   dhis2w-utils docs at https://winterop-com.github.io/dhis2w-utils/.
+
 ## Open issues
 
 - **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes audio
