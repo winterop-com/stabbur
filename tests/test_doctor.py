@@ -16,6 +16,30 @@ def _settings(tmp_path: Path, *, drive: bool = True) -> Settings:
     return Settings(library_root=root)
 
 
+def _shared_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """chdir into a project that lists @shared, with KODO_LIBRARY_ROOT removed from the env."""
+    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "kodo.toml").write_text('libraries = ["library", "@shared"]\n[project]\nmodel = "x"\n')
+    monkeypatch.chdir(proj)
+
+
+def test_project_warns_when_shared_unreachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _shared_project(tmp_path, monkeypatch)
+    settings = Settings()  # no library_root set -> @shared drops out, silently unreachable
+    assert "library_root" not in settings.model_fields_set
+    shared = [c for c in doctor.check_project(settings) if c.name == "Shared library (@shared)"]
+    assert shared and shared[0].status is doctor.CheckStatus.warn
+    assert shared[0].hint and "KODO_LIBRARY_ROOT" in shared[0].hint
+
+
+def test_project_no_shared_warning_when_library_root_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _shared_project(tmp_path, monkeypatch)
+    settings = Settings(library_root=tmp_path / "lib")  # explicitly set -> @shared reachable
+    assert not any(c.name == "Shared library (@shared)" for c in doctor.check_project(settings))
+
+
 def test_report_status_rolls_up_worst() -> None:
     ok = doctor.Check(name="a", status=doctor.CheckStatus.ok, detail="")
     warn = doctor.Check(name="b", status=doctor.CheckStatus.warn, detail="")

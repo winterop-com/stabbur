@@ -140,6 +140,19 @@ def check_project(settings: Settings) -> list[Check]:
         # report — so emit no project checks at all rather than a "none in cwd" row.
         return []
     checks = [Check(name="Project (kodo.toml)", status=CheckStatus.ok, detail="found")]
+    # A project that lists @shared but whose KODO_LIBRARY_ROOT is unset silently drops the
+    # shared archive (see library.roots): the project runs from its own libraries, but the
+    # drive's models are invisible with no error. Warn so it's not a mystery.
+    if library_ops.SHARED_TOKEN in proj.libraries and "library_root" not in settings.model_fields_set:
+        checks.append(
+            Check(
+                name="Shared library (@shared)",
+                status=CheckStatus.warn,
+                detail="listed in this project but unreachable — KODO_LIBRARY_ROOT is not set",
+                hint="Set KODO_LIBRARY_ROOT (e.g. export it in your shell profile) so @shared resolves; "
+                "until then this project runs only from its own libraries.",
+            )
+        )
     if proj.model:
         resolved = library_ops.find(proj.model)
         checks.append(
