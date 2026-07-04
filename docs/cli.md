@@ -22,8 +22,13 @@ offers a small curated set and pulls the choice into the project-local library.
 ```bash
 kodo project init                                  # pick a curated starter model
 kodo project init --model unsloth/Qwen3.5-4B-GGUF  # bind a specific model
+kodo project init --copy                           # copy the model into a project-local library/
+kodo project init --git                            # also: git init + a .gitignore (excludes library/ + .env)
 kodo project init --force                          # overwrite an existing kodo.toml
 ```
+
+`kodo project new <dir>` scaffolds into a fresh directory instead (like `cargo new`)
+and takes the same `--model` / `--copy` / `--git` / `--force` flags.
 
 A project is a **reproducible assistant**: in a project directory both `kodo chat`
 and `kodo serve --ui` default to its model, system prompt, and MCP tool servers —

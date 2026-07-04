@@ -59,5 +59,23 @@ command = "dhis2w-mcp-bridge"
 ```
 
 `kodo serve --ui` (or `kodo chat`) in that directory then binds the model with the
-DHIS2 tools available. Configure the DHIS2 connection (base URL, credentials/profile)
-per the `dhis2w-mcp` package's own docs — kodo just spawns the command.
+DHIS2 tools available.
+
+### Selecting the target server (profiles)
+
+The DHIS2 servers pick their target from a **profile** in
+`~/.config/dhis2/profiles.toml` (base URL + credentials, kept on the machine), read
+from the `DHIS2_PROFILE` environment variable. Because `[[mcp]].command` has no `env`
+field, carry the profile with an `env` prefix (kodo splits `command` like a shell
+line, so this just works). `DHIS2_MCP_READONLY=1` keeps it query-only:
+
+```toml
+[[mcp]]
+name = "dhis2"
+command = "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"
+```
+
+`uvx dhis2w-mcp-bridge` runs the bridge without a persistent install; swap the
+profile name (e.g. `play43`) to retarget. For a full end-to-end walkthrough — scaffold,
+local model copy, wire the bridge, and confirm the model calls it — see the
+[DHIS2 assistant worked example](dhis2-project.md).
