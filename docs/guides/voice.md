@@ -9,8 +9,10 @@ clip — from the CLI, the web UI, and the OpenAI-compatible API.
 
 kodo keeps a small registry of voice models it knows how to run. Add one to your
 library — like any model — with `kodo library pull voice <id>` (e.g.
-`kodo library pull voice kokoro`), which downloads it if needed and lands it in the
-**project-local** library by default (`--shared` for the archive):
+`kodo library pull voice kokoro`). It lands in the **project-local** library by default
+(`--shared` for the archive), and acquires it the cheapest way: if another library in
+scope (like `@shared`) already has it, it's **copied** (fast, no download); otherwise
+it's pulled from the HF cache or downloaded from Hugging Face:
 
 | Model | Kind | Backend | Notes |
 | --- | --- | --- | --- |

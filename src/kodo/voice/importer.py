@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from kodo.voice.catalog import VoicePresence, _dir_size, _real_files, discover, hf_hub_cache, voice_dir
+from kodo.voice.catalog import VoicePresence, _dir_size, _library_dir, _real_files, discover, hf_hub_cache, voice_dir
 from kodo.voice.registry import BUILTIN
 
 
@@ -29,6 +29,7 @@ class ImportResult(BaseModel):
     already_present: bool = False
     cache_pruned: bool = False
     downloaded: bool = False  # fetched from Hugging Face (not already in the cache)
+    copied_from: Path | None = None  # another library it was copied from (fast local copy, no download)
 
 
 def import_to_library(presence: VoicePresence, library_root: Path | str, prune_cache: bool = False) -> ImportResult:
@@ -70,31 +71,74 @@ def pull_to_library(
 ) -> ImportResult:
     """Acquire a registry voice model into a library's ``voice/`` bucket (project-aware target).
 
-    Resolves ``voice_id`` (a registry short id like ``kokoro``) to its HF repo, then: if it's
-    already in this library, no-op; if it's in the HF cache, copy it in; otherwise **download**
-    it from Hugging Face into the cache first, then copy. ``move`` prunes the cache copy after a
-    verified import. This is what ``kodo library pull voice <id>`` calls, so voice models land in
-    the project-local library like chat models do.
+    Resolves ``voice_id`` (a registry short id like ``kokoro``) to its HF repo, then acquires it
+    in the cheapest available way: if it's already in this library, no-op; if another reachable
+    library (e.g. ``@shared``) has it, **copy it library-to-library** (a fast local/drive copy, no
+    download); if it's in the HF cache, copy it in; otherwise **download** it from Hugging Face.
+    ``move`` prunes the cache copy after a verified cache import (never touches the source library).
+    This is what ``kodo library pull voice <id>`` calls, so voice models land in the project-local
+    library like chat models do.
     """
     spec = next((s for s in BUILTIN if s.id == voice_id), None)
     if spec is None:
         known = ", ".join(s.id for s in BUILTIN)
         raise ValueError(f"unknown voice model {voice_id!r}; known ids: {known}")
 
+    target = Path(library_root)
+    dest = voice_dir(target) / spec.repo
+
     def _presence() -> VoicePresence:
-        return next(p for p in discover(library_root) if p.spec.id == voice_id)
+        return next(p for p in discover(target) if p.spec.id == voice_id)
 
     presence = _presence()
+    if presence.in_library:
+        return ImportResult(repo=spec.repo, dest=dest, copied_bytes=presence.library_bytes, already_present=True)
+
+    # Fast path: another reachable library already has it — copy it in (no re-download).
+    source = _other_library_with(spec.repo, target)
+    if source is not None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, dest, symlinks=False, dirs_exist_ok=True)
+        return ImportResult(
+            repo=spec.repo,
+            dest=dest,
+            copied_bytes=_dir_size(dest),
+            file_count=len(_real_files(dest)),
+            copied_from=source,
+        )
+
     downloaded = False
-    if not presence.in_library and not presence.in_cache:
+    if not presence.in_cache:
         from huggingface_hub import snapshot_download  # noqa: PLC0415 - only needed on the download path
 
         snapshot_download(spec.repo, token=token)  # into the HF cache; import copies it out below
         downloaded = True
         presence = _presence()  # re-scan now that it's cached
 
-    result = import_to_library(presence, library_root, prune_cache=move)
+    result = import_to_library(presence, target, prune_cache=move)
     return result.model_copy(update={"downloaded": downloaded})
+
+
+def _other_library_with(repo: str, target: Path) -> Path | None:
+    """The ``voice/<repo>`` dir in another reachable library (project-local / ``@shared``), if any.
+
+    Uses :func:`kodo.library.roots` to find the libraries in scope, skipping ``target`` itself, so
+    a model already on the shared drive is copied rather than re-downloaded.
+    """
+    from kodo.library import roots  # noqa: PLC0415 - lazy: avoid importing library on every voice import
+
+    try:
+        reachable = roots()
+    except Exception:  # noqa: BLE001 - no library configured -> nothing to copy from; fall back to download
+        return None
+    target_resolved = target.resolve()
+    for root in reachable:
+        if root.resolve() == target_resolved:
+            continue
+        found = _library_dir(root, repo)
+        if found is not None:
+            return found
+    return None
 
 
 def cached_voice_ids(library_root: Path | str) -> list[str]:

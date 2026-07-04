@@ -80,3 +80,27 @@ def test_import_copies_from_cache_and_prunes(tmp_path: Path, monkeypatch: object
     assert (lib / "voice" / "mlx-community/Kokoro-82M-bf16" / "model.bin").read_bytes() == b"x" * 4096
     # Re-discovering now finds it in the library.
     assert next(p for p in voice.discover(lib) if p.spec.id == "kokoro").location == "library"
+
+
+def test_pull_copies_from_another_library_without_downloading(tmp_path: Path, monkeypatch: object) -> None:
+    # A model already in @shared must be copied into the project-local library, not re-downloaded.
+    import pytest
+
+    assert isinstance(monkeypatch, pytest.MonkeyPatch)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))  # empty HF cache -> a download would be the only fallback
+    from kodo.voice import importer
+
+    shared = tmp_path / "shared"
+    src = voice.voice_dir(shared) / "mlx-community/Kokoro-82M-bf16"
+    src.mkdir(parents=True)
+    (src / "model.bin").write_bytes(b"y" * 4096)
+    target = tmp_path / "proj"  # project-local library, initially empty
+
+    # roots() in scope: project-local target first, then the shared archive.
+    monkeypatch.setattr("kodo.library.roots", lambda settings=None: [target, shared])
+
+    result = importer.pull_to_library("kokoro", target)
+    assert result.copied_from == src  # copied library->library
+    assert not result.downloaded and result.copied_bytes == 4096 and result.file_count == 1
+    assert (target / "voice" / "mlx-community/Kokoro-82M-bf16" / "model.bin").read_bytes() == b"y" * 4096
+    assert next(p for p in voice.discover(target) if p.spec.id == "kokoro").location == "library"
