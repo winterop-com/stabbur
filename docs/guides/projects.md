@@ -54,6 +54,25 @@ For a complete worked example — a DHIS2 assistant with its model copied in, a 
 DHIS2 profile, and example prompts — see the
 [DHIS2 assistant worked example](dhis2-project.md).
 
+## Templates
+
+`--template <name>` presets the whole wizard so a purpose-built assistant is reproducible in
+one command — a model, a system prompt, tools, and example files:
+
+```bash
+kodo project new mydhis2 --template dhis2 --copy --git
+```
+
+| Template | Model | Tools |
+| --- | --- | --- |
+| `dhis2` | `Ornith-1.0-9B` (the [benchmark](model-catalog.md) winner) | the DHIS2 bridge (read-only) + a profile template |
+| `coder` | `Qwen3-Coder-30B` | `git` + `filesystem` |
+| `research` | `gemma-4-12B` | `search` + `fetch` |
+
+In a uv project the template's pip-installable tools are pinned in `pyproject.toml`
+automatically; bundled kodo servers and node (`bunx`) servers are left as-is. Override the
+model with `--model`, and add more tools later with `kodo mcp add` (also uv-aware).
+
 ```bash
 kodo project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
 ```

@@ -153,7 +153,58 @@ username = "admin"
 # password = "district"   # public demo; for a real instance prefer a PAT (auth = "pat")
 """
 
+_CODER_PROMPTS_MD = """\
+# Example prompts
+
+- Read `README.md` and summarize what this project does.
+- What files changed in the last commit? Explain the diff.
+- Find every place `foo()` is called and list the files.
+- Refactor `x.py` to ... (describe the change), then show me the new version.
+"""
+
+_RESEARCH_PROMPTS_MD = """\
+# Example prompts
+
+- Search the web for the latest on <topic> and summarize the top results.
+- Fetch <url> and give me the key points.
+- Compare <A> and <B> using current sources; cite the pages you used.
+"""
+
 _TEMPLATES: dict[str, ProjectTemplate] = {
+    "coder": ProjectTemplate(
+        model="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+        system_prompt=(
+            "You are a coding assistant working in a local repository. Use the git and filesystem "
+            "tools to read real files and history instead of guessing. Make minimal, focused changes; "
+            "show diffs; explain what you changed and why. Never invent file contents or APIs."
+        ),
+        mcp=[
+            ("git", "uvx mcp-server-git --repository ."),  # pip -> pinned in a uv project
+            ("filesystem", "bunx @modelcontextprotocol/server-filesystem ."),  # node -> stays as-is
+        ],
+        files={"examples/prompts.md": _CODER_PROMPTS_MD},
+        next_steps=(
+            "The filesystem tool needs bun (bunx) on PATH; the git tool reads the current repo.\n"
+            "  uv sync && uv run kodo chat"
+        ),
+    ),
+    "research": ProjectTemplate(
+        model="lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+        system_prompt=(
+            "You are a research assistant. Use the search and fetch tools to find and read current "
+            "sources instead of answering from memory. Cite the pages you used and be clear about "
+            "what is uncertain."
+        ),
+        mcp=[
+            ("search", "kodo-mcp-search"),  # bundled with kodo -> no extra pin
+            ("fetch", "uvx mcp-server-fetch"),  # pip -> pinned in a uv project
+        ],
+        files={"examples/prompts.md": _RESEARCH_PROMPTS_MD},
+        next_steps=(
+            "search uses DuckDuckGo by default (no key). For Brave/Exa set the relevant API key.\n"
+            "  uv sync && uv run kodo chat"
+        ),
+    ),
     "dhis2": ProjectTemplate(
         # Ornith-1.0-9B won the tools-dhis2 benchmark (12/12, fastest, smallest).
         model="deepreinforce-ai/Ornith-1.0-9B-GGUF",
