@@ -341,6 +341,20 @@ def _args_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     return all(actual.get(key) == value for key, value in expected.items())
 
 
+def _answer_contains(answer: str, want: str) -> bool:
+    """Case-insensitive substring match, tolerant of thousands separators in numbers.
+
+    Models routinely format counts as ``1,332`` (or ``1 332``); a bare ``1332`` expectation
+    should still match. We check the raw text first, then retry with digit-group separators
+    (a comma or space *between digits*) stripped from both the answer and the expected text.
+    """
+    a, w = answer.lower(), want.lower()
+    if w in a:
+        return True
+    strip = lambda s: re.sub(r"(?<=\d)[,\s](?=\d)", "", s)  # noqa: E731 - comma/space between digits
+    return strip(w) in strip(a)
+
+
 def score_tool(problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer: str, gen_s: float) -> ProblemResult:
     """Score a ``tool`` problem: the expected tool called with expected args AND a matching answer.
 
@@ -349,7 +363,7 @@ def score_tool(problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer
     """
     tool_ok = any(name == problem.expect_tool and _args_match(problem.expect_args, args) for name, args in calls)
     want = problem.expect_answer_contains
-    answer_ok = want.lower() in answer.lower() if want else True
+    answer_ok = _answer_contains(answer, want) if want else True
     made = ", ".join(f"{n}({a})" for n, a in calls) or "(no tool calls)"
     cases = [
         CaseResult(
