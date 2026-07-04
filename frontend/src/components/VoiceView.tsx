@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Dices, Loader2, Mic, Pause, Play, RotateCcw, Square, Upload, Wand2 } from "lucide-react";
+import {
+  AudioLines,
+  Dices,
+  Loader2,
+  Mic,
+  Pause,
+  Play,
+  RotateCcw,
+  Square,
+  Upload,
+  Volume2,
+  VolumeX,
+  Wand2,
+} from "lucide-react";
 
 import {
   getVoiceModels,
@@ -99,6 +112,21 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [ended, setEnded] = useState(false); // finished: show the "played" waveform + a replay control
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
+  const [volume, setVolume] = useState(1); // 0..1, persisted onto the <audio> element
+  const [muted, setMuted] = useState(false);
+  // Keep the hidden <audio> in sync with the volume/mute controls.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.volume = volume;
+      a.muted = muted;
+    }
+  }, [volume, muted, audioUrl]);
+  const toggleMute = () => setMuted((m) => !m);
+  const changeVolume = (v: number) => {
+    setVolume(v);
+    setMuted(v === 0); // dragging to zero mutes; dragging up unmutes
+  };
   const togglePlay = () => {
     const a = audioRef.current;
     if (!a) return;
@@ -488,6 +516,29 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
               {fmt(cur)} / {fmt(dur)}
             </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={toggleMute}
+                disabled={busy}
+                aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                title={muted || volume === 0 ? "Unmute" : "Mute"}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              >
+                {muted || volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={muted ? 0 : volume}
+                onChange={(e) => changeVolume(Number(e.target.value))}
+                aria-label="Volume"
+                title="Volume"
+                className="h-1 w-20 cursor-pointer accent-primary"
+              />
+            </div>
           </div>
         )}
       </div>
