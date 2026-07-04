@@ -63,7 +63,14 @@ any model). Pass `--model` to override the binding.
 ## Tools
 
 Add tools with `[[mcp]]` blocks — installed `kodo-mcp-*` plugins or any external MCP
-server command:
+server command. Browse a curated catalog and append one with `kodo mcp`:
+
+```bash
+kodo mcp list        # curated servers + installed plugins (✓ = already in kodo.toml)
+kodo mcp add fetch   # append its [[mcp]] block to ./kodo.toml
+```
+
+…or write the block by hand:
 
 ```toml
 [[mcp]]

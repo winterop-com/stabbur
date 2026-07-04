@@ -47,6 +47,22 @@ kodo project show
 kodo project show --card    # also print the model card (README)
 ```
 
+## `kodo mcp list` / `kodo mcp add`
+
+Browse MCP tool servers and attach them to a project. `list` shows a **curated
+catalog** (DHIS2, `fetch`, `git`, `sqlite`, `filesystem`, …) plus any
+installed `kodo-mcp-*` plugins; a `✓` marks servers already in the current
+directory's `kodo.toml`. `add` appends a server's `[[mcp]]` block to that file
+(idempotent), printing a `setup:` hint when the command needs config.
+
+```bash
+kodo mcp list          # curated catalog + installed plugins (ls is an alias)
+kodo mcp add fetch     # append its [[mcp]] block to ./kodo.toml
+kodo mcp add dhis2     # then edit the DHIS2_PROFILE in the command
+```
+
+See [Tools (MCP)](guides/tools.md) for the full picture.
+
 ## `kodo library search <query>`
 
 Search the Hugging Face Hub for new models to pull (most-downloaded first).

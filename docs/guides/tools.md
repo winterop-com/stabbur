@@ -5,13 +5,27 @@ servers (the agent loop executes the call and feeds the result back). Tools come
 from two places:
 
 - **Installed plugins** — MCP servers advertised by installed `kodo-mcp-*` packages
-  (`datetime`, `utils`). `kodo mcp list` shows them. (The `benchmark` package is a
-  dev/benchmarking tool and does *not* advertise itself as an assistant tool.)
+  (`datetime`, `utils`). (The `benchmark` package is a dev/benchmarking tool and does
+  *not* advertise itself as an assistant tool.)
 - **A project's `[[mcp]]`** — any MCP server command, listed in `kodo.toml`. This is
   how you attach an external server like DHIS2.
 
-Pick tools interactively with `kodo project init` (the wizard multi-selects from the
-installed plugins), or add `[[mcp]]` blocks to `kodo.toml` by hand:
+## Browse and add — `kodo mcp`
+
+`kodo mcp list` shows a **curated catalog** of ready-to-run servers (DHIS2, `fetch`,
+`git`, `sqlite`, `filesystem`, …) plus any installed plugins. A `✓` marks a
+server already in the current directory's `kodo.toml`.
+
+```bash
+kodo mcp list          # curated catalog + installed plugins (✓ = already in kodo.toml)
+kodo mcp add fetch     # append its [[mcp]] block to ./kodo.toml (idempotent)
+kodo mcp add dhis2     # prints a "setup:" hint when the server needs config
+```
+
+`kodo mcp add` resolves the name against the catalog first, then installed plugins,
+and appends a `[[mcp]]` block. Curated commands may carry a placeholder (a path, a
+DHIS2 profile) — the `setup:` hint says what to edit. You can also pick plugin tools
+interactively in the `kodo project init` wizard, or write `[[mcp]]` blocks by hand:
 
 ```toml
 [[mcp]]
