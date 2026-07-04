@@ -133,18 +133,24 @@ class MCPToolset:
 
 
 @asynccontextmanager
-async def connect(servers: list[tuple[str | None, list[str]]]) -> AsyncGenerator[MCPToolset, None]:
+async def connect(
+    servers: list[tuple[str | None, list[str]]] | list[tuple[str | None, list[str], dict[str, str]]],
+) -> AsyncGenerator[MCPToolset, None]:
     """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset.
 
-    Each server is ``(name, command)``: the tools are namespaced under the manifest
-    ``name`` when given (``kodo.toml`` ``[[mcp]].name``), else a prefix derived from
-    the executable. ``name`` may be ``None`` for a bare command (e.g. CLI ``--mcp``).
+    Each server is ``(name, command)`` or ``(name, command, env)``: tools are namespaced under
+    the manifest ``name`` when given (``kodo.toml`` ``[[mcp]].name``), else a prefix derived from
+    the executable. ``name`` may be ``None`` for a bare command (e.g. CLI ``--mcp``). A server's
+    ``env`` (from ``[[mcp]].env``) is merged over kodo's base environment for that server only.
     """
     toolset = MCPToolset()
     used: dict[str, int] = {}  # disambiguate servers that derive the same prefix
-    env = _mcp_env()  # kodo's bin/ on PATH so bundled kodo-mcp-* servers resolve
+    base_env = _mcp_env()  # kodo's bin/ on PATH so bundled kodo-mcp-* servers resolve
     async with AsyncExitStack() as stack:
-        for name, command in servers:
+        for spec in servers:
+            name, command = spec[0], spec[1]
+            server_env = spec[2] if len(spec) > 2 else {}  # type: ignore[misc]
+            env = {**base_env, **server_env} if server_env else base_env
             prefix = _server_prefix(name, command)
             # One server failing to start (e.g. an uninstalled optional server, a bad command)
             # must not take down the others — skip it, record why, and keep going.

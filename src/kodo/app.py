@@ -1,7 +1,6 @@
 """FastAPI application factory."""
 
 import asyncio
-import shlex
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 
@@ -83,7 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
         app.state.voice_enabled = proj.voice_enabled if proj else True
-        servers = [(m.name, shlex.split(m.command)) for m in proj.mcp] if proj else []
+        servers = [m.to_spec() for m in proj.mcp] if proj else []
         if servers:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
         try:

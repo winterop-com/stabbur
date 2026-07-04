@@ -343,9 +343,11 @@ def mcp_add(
     # runtime `uvx` fetch from the command and add the package to pyproject.toml.
     pyproject = Path("pyproject.toml")
     uv_project = pyproject.is_file()
-    toml_command = _strip_uvx(command) if uv_project else command
+    cmd, env = _split_env_prefix(_strip_uvx(command) if uv_project else command)
 
-    block = f"\n[[mcp]]\nname = {json.dumps(entry_name)}\ncommand = {json.dumps(toml_command)}\n"
+    block = f"\n[[mcp]]\nname = {json.dumps(entry_name)}\ncommand = {json.dumps(cmd)}\n"
+    if env:
+        block += f"env = {_toml_inline_env(env)}\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(block)
     console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
@@ -481,9 +483,14 @@ def _project_toml(
     ``[[mcp]]`` define the assistant. Override anything per machine with ``KODO_*``.
     """
     if mcp:
-        tools_block = "# Tools via MCP — the assistant's toolset.\n" + "".join(
-            f"[[mcp]]\nname = {json.dumps(name)}\ncommand = {json.dumps(command)}\n\n" for name, command in mcp
-        )
+        blocks = []
+        for name, command in mcp:
+            cmd, env = _split_env_prefix(command)
+            block = f"[[mcp]]\nname = {json.dumps(name)}\ncommand = {json.dumps(cmd)}\n"
+            if env:
+                block += f"env = {_toml_inline_env(env)}\n"
+            blocks.append(block)
+        tools_block = "# Tools via MCP — the assistant's toolset.\n" + "\n".join(blocks) + "\n"
     else:
         tools_block = (
             "# Tools via MCP (repeatable; add a server to give the assistant tools):\n"
@@ -548,6 +555,31 @@ def _pip_deps_from_mcp(mcp: list[tuple[str, str]]) -> list[str]:
 def _strip_uvx(command: str) -> str:
     """Drop a ``uvx `` runner from an MCP command — in a uv project the server is an installed dep."""
     return command.replace("uvx ", "", 1) if "uvx " in command else command
+
+
+def _split_env_prefix(command: str) -> tuple[str, dict[str, str]]:
+    """Lift a leading ``env VAR=val …`` prefix out of a command into structured env.
+
+    ``env DHIS2_PROFILE=play42 dhis2w-mcp-bridge`` -> ``("dhis2w-mcp-bridge", {"DHIS2_PROFILE": "play42"})``.
+    Lets a ``[[mcp]]`` block carry a clean ``command`` plus a readable ``env`` table.
+    """
+    import shlex  # noqa: PLC0415
+
+    toks = shlex.split(command)
+    env: dict[str, str] = {}
+    i = 0
+    if toks and toks[0] == "env":
+        i = 1
+        while i < len(toks) and "=" in toks[i] and not toks[i].startswith("-"):
+            key, val = toks[i].split("=", 1)
+            env[key] = val
+            i += 1
+    return shlex.join(toks[i:]), env
+
+
+def _toml_inline_env(env: dict[str, str]) -> str:
+    """Render an env dict as a TOML inline table: ``{ K = "V", … }``."""
+    return "{ " + ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items()) + " }"
 
 
 def _add_pyproject_dep(path: Path, pkg: str) -> bool:
@@ -1306,11 +1338,10 @@ def _connect_project_tools(
     for servers that couldn't start (e.g. an uninstalled optional server) — the rest still work.
     """
     import asyncio  # noqa: PLC0415
-    import shlex  # noqa: PLC0415
 
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
-    servers = [(m.name, shlex.split(m.command)) for m in mcp]
+    servers = [m.to_spec() for m in mcp]
 
     async def _collect() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         async with mcp_tools.connect(servers) as toolset:
@@ -1694,8 +1725,8 @@ def chat(
     # (name, command) per server. A bare --mcp value is resolved against advertised
     # servers (so `--mcp datetime` finds kodo-mcp-datetime), else used verbatim as a
     # command; project [[mcp]] entries carry their own manifest name (the tool namespace).
-    mcp_servers: list[tuple[str | None, str]] = (
-        [plugins.resolve_mcp(c) for c in mcp] + [(m.name, m.command) for m in (proj.mcp if proj else [])]
+    mcp_servers: list[tuple[str | None, str, dict[str, str]]] = (
+        [(*plugins.resolve_mcp(c), {}) for c in mcp] + [(m.name, m.command, m.env) for m in (proj.mcp if proj else [])]
         if tools
         else []
     )
@@ -1718,7 +1749,7 @@ def chat(
 
 def _chat_with_tools(
     model: library_ops.LibraryModel,
-    mcp_servers: list[tuple[str | None, str]],
+    mcp_servers: list[tuple[str | None, str, dict[str, str]]],
     prompt: str | None,
     max_tokens: int | None,
     system_prompt: str = "",
@@ -1742,7 +1773,7 @@ def _chat_with_tools(
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
-    servers = [(name, shlex.split(cmd)) for name, cmd in mcp_servers]
+    servers = [(name, shlex.split(cmd), env) for name, cmd, env in mcp_servers]
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied
     # to every CLI chat turn just like the web path does.
     rec = sampling.recommended(model)

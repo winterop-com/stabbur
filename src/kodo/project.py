@@ -4,10 +4,11 @@ A project declares which model to use, MCP servers for tools, and a system
 prompt, so `kodo chat` in a project directory picks them up without flags.
 """
 
+import shlex
 import tomllib
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProjectMcp(BaseModel):
@@ -15,6 +16,12 @@ class ProjectMcp(BaseModel):
 
     command: str
     name: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
+    """Environment variables for this server (``[[mcp]].env``), merged over kodo's base env."""
+
+    def to_spec(self) -> tuple[str | None, list[str], dict[str, str]]:
+        """The ``(name, argv, env)`` spec :func:`kodo.tools.connect` expects."""
+        return self.name, shlex.split(self.command), self.env
 
 
 class Project(BaseModel):
@@ -47,6 +54,13 @@ def load(path: Path = Path("kodo.toml")) -> Project | None:
         system_prompt=project.get("system_prompt", ""),
         chat_voice=project.get("chat_voice"),
         voice_enabled=bool(voice.get("enabled", True)) if isinstance(voice, dict) else True,
-        mcp=[ProjectMcp(**entry) for entry in data.get("mcp", [])],
+        mcp=[
+            ProjectMcp(
+                command=entry["command"],
+                name=entry.get("name"),
+                env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
+            )
+            for entry in data.get("mcp", [])
+        ],
         libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
     )
