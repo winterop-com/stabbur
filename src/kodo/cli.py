@@ -1578,18 +1578,40 @@ def voice_import(
             console.print("[red]Give a model id or --all[/] (see [bold]kodo voice list[/]).")
             raise typer.Exit(1)
         targets = [presences[m] for m in models if m in presences]
+    # A named id that isn't a known voice model at all (typo) — flag it distinctly from
+    # a known model that just isn't downloaded yet (handled per-target below).
+    unknown = [m for m in models if m not in presences] if not all_ else []
+    for m in unknown:
+        console.print(f"[yellow]{m}: unknown voice model[/] (see [bold]kodo voice list[/]).")
     if not targets:
         console.print("[yellow]Nothing to import[/] — no matching voice models in the HF cache.")
-        return
+        raise typer.Exit(1 if unknown else 0)
+    failed = bool(unknown)
     for p in targets:
         if p.in_library:
             console.print(f"[dim]{p.spec.id}: already in library[/]")
             continue
+        # Only cached models can be imported. A preset voice (e.g. kokoro) is fetched on
+        # first use, so before that there's nothing to copy — say so instead of crashing.
+        if not p.in_cache:
+            console.print(
+                f"[yellow]{p.spec.id}: not downloaded yet[/] — nothing to import. "
+                f"It's fetched to the HF cache on first use (e.g. run it once in the Voice studio), then re-run."
+            )
+            failed = True
+            continue
         dest = voice.voice_dir(get_settings().library_root) / p.spec.repo
         console.print(f"importing [cyan]{p.spec.id}[/] ({p.size_human}) → {dest} …")
-        result = importer.import_to_library(p, get_settings().library_root, prune_cache=prune)
+        try:
+            result = importer.import_to_library(p, get_settings().library_root, prune_cache=prune)
+        except (FileNotFoundError, OSError) as exc:  # missing snapshot, disk error, etc.
+            console.print(f"  [red]failed[/]: {exc}")
+            failed = True
+            continue
         note = " [dim](cache pruned)[/]" if result.cache_pruned else ""
         console.print(f"  [green]done[/] {_human_size(result.copied_bytes)}{note}")
+    if failed:
+        raise typer.Exit(1)
 
 
 # --- plugins ---------------------------------------------------------------
