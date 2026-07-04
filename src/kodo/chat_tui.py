@@ -9,6 +9,7 @@ agent loop, and ESC cancels an in-flight reply.
 """
 
 import asyncio
+import random
 import time
 from contextlib import AsyncExitStack
 from typing import Any
@@ -35,6 +36,31 @@ def _fmt_tokens(n: int) -> str:
     if n < 1_000_000:
         return f"{n / 1000:.1f}K".replace(".0K", "K")
     return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+
+
+# Whimsical "working" words shown while the model thinks (one picked per turn), à la Claude Code.
+_GERUNDS = (
+    "Percolating",
+    "Noodling",
+    "Conjuring",
+    "Ruminating",
+    "Marinating",
+    "Cogitating",
+    "Simmering",
+    "Pondering",
+    "Tinkering",
+    "Brewing",
+    "Musing",
+    "Whirring",
+    "Moonwalking",
+    "Computing",
+    "Scheming",
+    "Puzzling",
+    "Deliberating",
+    "Contemplating",
+    "Synthesizing",
+    "Wrangling",
+)
 
 
 class ChatInput(TextArea):
@@ -138,8 +164,8 @@ class ChatApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="transcript")
-        yield Static(id="status")
         yield ChatInput(id="input", soft_wrap=True, show_line_numbers=False)
+        yield Static(id="status")
 
     async def on_mount(self) -> None:
         self.title = "kodo chat"
@@ -201,12 +227,7 @@ class ChatApp(App[None]):
             line1.append("  ·  ", style="grey37")
             line1.append(f"{len(self._queue)} queued", style="yellow")
 
-        line2 = Text()
-        line2.append("▸ ", style="cyan")
-        line2.append(self._model_format, style="grey50")
-        line2.append(
-            "   enter sends  ·  shift+return newline  ·  esc stops  ·  ^y copy reply  ·  /exit", style="grey42"
-        )
+        line2 = Text("enter send  ·  shift+↵ newline  ·  esc stop  ·  ^y copy  ·  /exit", style="grey42")
         return Group(line1, line2)
 
     def _last_reply_text(self) -> str | None:
@@ -281,7 +302,7 @@ class ChatApp(App[None]):
                 return
 
             user = Text()
-            user.append("❯ ", style="bold")
+            user.append("❯ ", style="bold #fb7185")
             user.append(raw_text or "(attachments)")
             extras = []
             if imgs:
@@ -304,10 +325,32 @@ class ChatApp(App[None]):
             reasoning_box.display = False  # shown only if the model streams reasoning
             tools_w = Static("", classes="tools")
             tools_w.display = False
-            answer_w = Static(Text("thinking …", style="dim italic"), classes="answer")
+            answer_w = Static(Text(""), classes="answer")
             transcript = self.query_one("#transcript", VerticalScroll)
             await transcript.mount(reasoning_box, tools_w, answer_w)
             self._scroll_end()
+
+            # Animated "thinking" placeholder — a whimsical word + elapsed timer, until the first
+            # answer token replaces it (à la Claude Code's "· Moonwalking… (26s · thinking more)").
+            think_word = random.choice(_GERUNDS)
+            think_start = time.monotonic()
+            think_timer: Any = None
+
+            def _think_tick() -> None:
+                secs = round(time.monotonic() - think_start)
+                label = Text("· ", style="grey42")
+                label.append(f"{think_word}… ", style="#fb7185")
+                label.append(f"({secs}s{' · thinking more' if secs >= 10 else ''})", style="grey42")
+                answer_w.update(label)
+
+            def _stop_think() -> None:
+                nonlocal think_timer
+                if think_timer is not None:
+                    think_timer.stop()
+                    think_timer = None
+
+            _think_tick()
+            think_timer = self.set_interval(1.0, _think_tick)
 
             answer_buf: list[str] = []
             reasoning_buf: list[str] = []
@@ -328,6 +371,7 @@ class ChatApp(App[None]):
 
             def on_token(tok: str) -> None:
                 nonlocal last_render
+                _stop_think()  # first answer token — drop the animated placeholder
                 finalize_reasoning()
                 answer_buf.append(tok)
                 now = time.monotonic()
@@ -381,18 +425,21 @@ class ChatApp(App[None]):
                     model=self._model_target,  # required by mlx-vlm; ignored by llama-server/mlx-lm
                 )
             except asyncio.CancelledError:  # ESC: drop the partial turn, keep the session
+                _stop_think()
                 finalize_reasoning()
                 del self.messages[mark:]
                 answer_w.update(Text("(canceled)", style="yellow"))
                 self._scroll_end()
                 return
             except Exception as exc:  # noqa: BLE001 - surface runtime/network errors in the transcript
+                _stop_think()
                 finalize_reasoning()
                 del self.messages[mark:]
                 answer_w.update(Text(f"error: {exc}", style="red"))
                 self._scroll_end()
                 return
 
+            _stop_think()
             finalize_reasoning()  # reasoning-only replies (no answer tokens) still collapse
             if (reply or "").strip():
                 answer_w.update(Markdown(reply))
