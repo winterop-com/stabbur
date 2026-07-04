@@ -46,14 +46,14 @@ The north star (bottom of this file) is the local DHIS2 assistant. Concrete next
    **blocked**: no local writable DHIS2 was reachable (profile `local` at http://localhost:8080 is
    down) and writes to the shared play demos are refused by design. Start a local DHIS2, then add
    `tools-dhis2-write.toml`.
-2. **`kodo project new --template dhis2` (a DHIS2 starter).** **Partly done (2026-07-04):**
-   `kodo project new/init` now scaffolds a **self-contained uv project** (`pyproject.toml`
-   pinning kodo + MCP servers; `uv run kodo serve`), and a full worked DHIS2 project was built at
-   `../kodo-projects/dhis2` (Ornith-9B copied into `library/`, project-local `.dhis2/profiles.toml`
-   for play42, bridge `[[mcp]]`, examples, git) and verified end-to-end. **Remaining:** a `--template
-   dhis2` shortcut so the wizard offers the DHIS2 bridge (not just installed plugins) and scaffolds
-   the profile template + example prompts in one command, and teach `kodo mcp add` to also add the
-   server's pip dep to `pyproject.toml` (and drop `uvx`) in a uv project.
+2. **`kodo project new --template dhis2` (a DHIS2 starter).** **Done (2026-07-04):**
+   `kodo project new/init` scaffolds a **self-contained uv project** (`pyproject.toml` pinning
+   kodo + MCP servers; `uv run kodo serve`), and `--template dhis2` reproduces a full DHIS2
+   assistant in one command — Ornith-9B, a DHIS2 system prompt, the read-only bridge `[[mcp]]`,
+   example prompts + a profile template, and printed profile-setup steps
+   (`kodo project new mydhis2 --template dhis2 --copy --git`). A worked instance lives at
+   `../kodo-projects/dhis2`, verified end-to-end. **Remaining:** teach `kodo mcp add` to also add
+   a server's pip dep to `pyproject.toml` (and drop `uvx`) when run inside a uv project.
 3. **Full DHIS2 docs guide.** **Done (2026-07-04):** `docs/guides/dhis2.md` (profiles, bridge
    tiers, ~30 prompts, official-docs link) + `docs/guides/dhis2-benchmark-report.md`. Remaining:
    fold in the uv-project run instructions and link the `../kodo-projects/dhis2` example.

@@ -12,6 +12,18 @@ See [Tools (MCP)](tools.md) for choosing between the three DHIS2 MCP sizes; this
 guide uses the **bridge** (one `dhis2_cli` tool) because it pairs well with a
 smaller local model.
 
+!!! tip "One command (the reproducible shortcut)"
+    Everything below is scaffolded by a single template:
+
+    ```bash
+    kodo project new mydhis2 --template dhis2 --copy --git
+    ```
+
+    That presets the model (`Ornith-1.0-9B`, the [benchmark](model-catalog.md) winner), a
+    DHIS2 system prompt, the read-only bridge, and example files — then prints the profile
+    setup. The rest of this guide walks through what that command sets up, so you can build
+    or adapt it by hand.
+
 ## Prerequisites
 
 - **`KODO_LIBRARY_ROOT`** set to your library (so the model can be copied from it).
