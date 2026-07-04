@@ -24,6 +24,7 @@ export function Sidebar({
   onSelect,
   onShowLibrary,
   onShowVoice,
+  voiceEnabled = true,
   onRename,
   onDelete,
   onCollapse,
@@ -35,6 +36,7 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
+  voiceEnabled?: boolean;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onCollapse: () => void;
@@ -110,17 +112,19 @@ export function Sidebar({
           <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
           Library
         </button>
-        <button
-          type="button"
-          onClick={onShowVoice}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
-            view === "voice" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-          )}
-        >
-          <AudioLines className="h-4 w-4 shrink-0 text-muted-foreground" />
-          Voice
-        </button>
+        {voiceEnabled && (
+          <button
+            type="button"
+            onClick={onShowVoice}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
+              view === "voice" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+            )}
+          >
+            <AudioLines className="h-4 w-4 shrink-0 text-muted-foreground" />
+            Voice
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">

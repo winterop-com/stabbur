@@ -27,3 +27,18 @@ def test_load_parses_model_prompt_and_mcp(tmp_path: Path) -> None:
     assert proj.system_prompt == "Be terse."
     assert [m.command for m in proj.mcp] == ["kodo-mcp-datetime", "dhis2w-mcp-bridge"]
     assert proj.mcp[0].name == "datetime"
+
+
+def test_voice_defaults_and_toggle(tmp_path: Path) -> None:
+    # chat_voice + [voice] enabled default sensibly, and parse when set.
+    plain = tmp_path / "plain.toml"
+    plain.write_text('[project]\nmodel = "x"\n')
+    proj = project.load(plain)
+    assert proj is not None and proj.chat_voice is None and proj.voice_enabled is True
+
+    manifest = tmp_path / "kodo.toml"
+    manifest.write_text('[project]\nmodel = "x"\nchat_voice = "kokoro:af_bella"\n\n[voice]\nenabled = false\n')
+    proj = project.load(manifest)
+    assert proj is not None
+    assert proj.chat_voice == "kokoro:af_bella"
+    assert proj.voice_enabled is False

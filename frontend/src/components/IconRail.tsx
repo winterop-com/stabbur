@@ -15,12 +15,14 @@ export function IconRail({
   onNew,
   onShowLibrary,
   onShowVoice,
+  voiceEnabled = true,
 }: {
   view: "chat" | "library" | "voice";
   onExpand: () => void;
   onNew: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
+  voiceEnabled?: boolean;
 }) {
   const item = (
     label: string,
@@ -52,7 +54,7 @@ export function IconRail({
       <div className="my-1 h-px w-6 bg-border" />
       {item("New chat", <SquarePen className="h-4 w-4" />, onNew, view === "chat")}
       {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
-      {item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
+      {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
     </aside>
   );
 }

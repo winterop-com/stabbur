@@ -43,6 +43,8 @@ class ServerStatus(BaseModel):
     error: str | None = None  # why the runtime died (stderr tail), if it exited unexpectedly
     default_system_prompt: str = ""  # the project (kodo.toml) system prompt, so the UI can prefill/show it
     project_model: str | None = None  # the project's bound model, so the UI auto-loads it on open
+    default_chat_voice: str | None = None  # the project's [project] chat_voice, so the UI defaults the Listen voice
+    voice_enabled: bool = True  # the project's [voice] enabled; false hides the Voice surface (text-only assistant)
     runtime_load_timeout: int = 600  # seconds a load may take, so the UI polls as long as the runtime does
 
 
@@ -132,7 +134,12 @@ def _reject_if_generating(request: Request) -> None:
 
 
 async def _status(
-    manager: ServerManager, settings: Settings, system_prompt: str = "", project_model: str | None = None
+    manager: ServerManager,
+    settings: Settings,
+    system_prompt: str = "",
+    project_model: str | None = None,
+    chat_voice: str | None = None,
+    voice_enabled: bool = True,
 ) -> ServerStatus:
     current = manager.current
     return ServerStatus(
@@ -143,6 +150,8 @@ async def _status(
         error=manager.last_error if current is None else None,
         default_system_prompt=system_prompt,
         project_model=project_model,
+        default_chat_voice=chat_voice,
+        voice_enabled=voice_enabled,
         runtime_load_timeout=settings.runtime_load_timeout,
     )
 
@@ -155,6 +164,8 @@ async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> Se
         settings,
         getattr(request.app.state, "system_prompt", "") or "",
         getattr(request.app.state, "project_model", None),
+        getattr(request.app.state, "chat_voice", None),
+        getattr(request.app.state, "voice_enabled", True),
     )
 
 

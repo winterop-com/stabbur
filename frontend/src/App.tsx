@@ -357,8 +357,16 @@ export function App() {
   );
 
   // --- primary view navigation (chat vs the model library grid vs the voice studio) ---
+  // The project can turn the Voice surface off ([voice] enabled = false) for a text-only
+  // assistant; default on until status loads. Speak-replies default to the project's chat_voice.
+  const voiceEnabled = status?.voice_enabled !== false;
+  const effectiveTtsVoice = ttsVoice || status?.default_chat_voice || undefined;
   const showLibrary = useCallback(() => setView("library"), []);
   const showVoice = useCallback(() => setView("voice"), []);
+  // If Voice is disabled while we're on it, fall back to chat.
+  useEffect(() => {
+    if (!voiceEnabled && view === "voice") setView("chat");
+  }, [voiceEnabled, view]);
   const selectConversation = useCallback((id: string) => {
     setActiveId(id);
     setView("chat");
@@ -688,6 +696,7 @@ export function App() {
             onNew={startNewChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
+            voiceEnabled={voiceEnabled}
           />
         )}
         <PanelGroup
@@ -718,6 +727,7 @@ export function App() {
             onSelect={selectConversation}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
+            voiceEnabled={voiceEnabled}
             onRename={renameConversation}
             onDelete={deleteConversation}
             onCollapse={toggleSidebar}
@@ -863,7 +873,7 @@ export function App() {
                       streaming={streaming && i === messages.length - 1 && m.role === "assistant"}
                       canRegenerate={!streaming && i === lastAssistantIndex}
                       onRegenerate={regenerate}
-                      ttsVoice={ttsVoice}
+                      ttsVoice={effectiveTtsVoice}
                     />
                   ))}
                 </div>

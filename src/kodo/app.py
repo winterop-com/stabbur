@@ -79,6 +79,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # The project's bound model, surfaced in /api/status so the UI auto-loads
         # it on open (a project is a reproducible assistant: model + prompt + tools).
         app.state.project_model = proj.model if proj else None
+        # The project's spoken-reply voice + whether the Voice surface is enabled, surfaced in
+        # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
+        app.state.chat_voice = proj.chat_voice if proj else None
+        app.state.voice_enabled = proj.voice_enabled if proj else True
         servers = [(m.name, shlex.split(m.command)) for m in proj.mcp] if proj else []
         if servers:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
@@ -121,6 +125,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.toolset = None
     app.state.system_prompt = ""
     app.state.project_model = None
+    app.state.chat_voice = None
+    app.state.voice_enabled = True
 
     if settings.cors_origins:
         app.add_middleware(
