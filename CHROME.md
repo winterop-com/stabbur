@@ -27,7 +27,14 @@ target-metadata endpoint was also de-DHIS2-ified: kept generic (`GET /api/assist
 from opaque project metadata + an MCP resource) so kodo keeps zero DHIS2 logic,
 rather than a DHIS2-named `GET /api/dhis2/target`. A "Cross-browser" section notes
 WebExtensions/MV3 as the de facto standard (Chromium family free, Firefox modest via
-`sidebar_action` + polyfill, Safari a separate Xcode-wrapped effort).
+`sidebar_action` + polyfill, Safari a separate Xcode-wrapped effort). A third pass
+(2026-07-04) re-verified every API claim against the code, then fixed the gaps it
+surfaced: the model-load step now names `POST /api/load/{name}` (status only
+reports, it does not load); the vision/screenshot path is marked schema-accepted
+but runtime-unverified; the "credentialed reads in the service worker" instinct was
+corrected at its source (Option B) so `SameSite=Lax` reads run in the DHIS2-tab
+content script throughout; and Phase 1 gained conversation-history ownership and a
+graceful not-connected state.
 
 ## Short version
 
@@ -274,22 +281,16 @@ Recommended click behavior:
 ```text
 active tab is DHIS2
   -> extension derives base URL from the tab
-  -> extension service worker fetches the DHIS2 <base>/api/system/info and <base>/api/me with browser credentials
+  -> a narrow content script in the DHIS2 tab fetches <base>/api/system/info and <base>/api/me (same-origin, cookie rides along)
   -> side panel shows instance name/version/user
   -> side panel asks kodo whether a backend target matches this base URL
 ```
 
-The extension needs host permissions for the DHIS2 origin and the fetch should
-explicitly opt into browser credentials, for example
-`fetch(url, { credentials: "include" })`. Whether cookies are sent depends on the
-DHIS2 server's cookie attributes and browser SameSite behavior — and the measured
-reality is that they are **not** sent on a cross-site service-worker fetch for a
-normal `SameSite=Lax` deployment (play is `Lax`). See "Driving the active DHIS2
-login" below: cookie-authenticated reads have to originate in the DHIS2-**tab**
-context (a narrow, allowlisted content script), not the service worker, precisely
-because only the tab request is same-site and carries the cookie. Keep the content
-script narrow (fixed endpoints, sanitized results) rather than an arbitrary-URL
-proxy.
+The credentialed fetch (`fetch(url, { credentials: "include" })`) must run in the
+DHIS2-**tab** content script, not the service worker: only the same-site tab
+request carries a `SameSite=Lax` session cookie (play is `Lax`; measured). Keep
+that content script narrow — fixed endpoints, sanitized results — not an
+arbitrary-URL proxy. Full detail in "Driving the active DHIS2 login" below.
 
 Then branch:
 
@@ -371,32 +372,28 @@ the most compelling version of the extension and also the one with the most
 subtle failure mode. It sits above Options A-D below: it is the *why* behind
 choosing among them.
 
-### It is genuinely possible
+### The mechanism is real — but only from the DHIS2 tab
 
-The mechanism exists and is not exotic. A Manifest V3 extension with
-`host_permissions` for the DHIS2 origin can:
+The loop "logged into DHIS2 -> click -> AI acts on this instance as this user" is
+architecturally real. A Manifest V3 extension reads the active tab's URL, calls the
+DHIS2 Web API *as the logged-in browser user* (no separately-entered credential),
+and hands the results to an AI (local kodo or a cloud model) that decides the next
+call. The AI does not run in the browser; the extension holds the session and the
+model drives it.
 
-- read the active tab's URL and derive the instance base,
-- call the DHIS2 Web API from its **service worker / extension page** with
-  `fetch(url, { credentials: "include" })` — i.e. as the currently logged-in
-  browser user, with no separately-entered credential,
-- hand those results to an AI (local kodo, or a cloud model) that reasons and
-  decides the next call.
+The catch is **which layer** makes that credentialed call, and it turns on one
+cookie attribute: `SameSite`.
 
-So the loop "logged into DHIS2 -> click -> AI acts on this instance as this user"
-is architecturally real. The AI itself does not run in the browser; the extension
-is the executor that holds the session, and the model drives it.
-
-### The one variable that decides whether the zero-setup dream works: SameSite
+### SameSite decides it — and the measured evidence says cross-site fails
 
 The whole "just use my existing login" appeal rests on the DHIS2 session cookie
-riding along on the extension's fetch. **This is not guaranteed, and the measured
-evidence says it usually will not.** The extension page's origin is
-`chrome-extension://…`, so a fetch to `https://play.dhis2.org` is *cross-site*. If
-DHIS2's session cookie is `SameSite=Lax` or `SameSite=Strict`, the browser will
-**not** attach it to a cross-site request — even with `credentials:"include"` and
-host permissions granted. The call then returns 401 / a login page and the dream
-quietly fails.
+riding along on the fetch. A fetch from the extension's own origin
+(`chrome-extension://…`) to `https://play.dhis2.org` is **cross-site**; a fetch
+from a content script *running inside the DHIS2 tab* is **same-site**. A
+`SameSite=Lax` cookie rides only the same-site request — so the **service worker /
+side-panel page cannot use the login (401/login page), but a tab content script
+can**, even though both have host permissions. Host permissions grant cross-origin
+*access*, not a cookie on a cross-site request.
 
 **Measured on live play (2026-07-04, `https://play.im.dhis2.org/dev`):**
 
@@ -407,57 +404,23 @@ Set-Cookie: SESSION_EXPIRE=...; Path=/; Max-Age=3600; Secure; SameSite=lax
 
 Three facts fall out of that one header:
 
-- **`SameSite=lax`** — a cross-site request does not carry it. See the layer note
-  below for the one context that still works.
-- **`HttpOnly`** — JavaScript cannot read the cookie value at all (no
-  `document.cookie`; `chrome.cookies` can read it only with the `cookies`
-  permission). So "extract the cookie and relay it" (Option D) is not even a clean
-  read; the only viable browser-auth path is *making the request from a context the
-  browser will auto-attach the cookie to*, not copying the cookie.
-- **`Path=/dev`** — the cookie is scoped to the instance sub-path, so any
-  authenticated call must preserve that base path.
+- **`SameSite=lax`** — not carried cross-site; carried from the tab content script.
+- **`HttpOnly`** — JS cannot read the cookie value at all (`chrome.cookies` only
+  with the `cookies` permission), so "extract and relay the cookie" (Option D) is
+  not even a clean read. The only viable path is *issuing the request from a context
+  the browser auto-attaches the cookie to*, not copying it.
+- **`Path=/dev`** — scoped to the instance sub-path, so any authenticated call must
+  preserve that base path.
 
-### It is deployment-dependent — and dhis.conf does not directly control it
-
-The SameSite value is **not** a `dhis.conf` setting, so it varies by how the
-instance is deployed:
-
-- `dhis.conf` has **no** SameSite key. `server.https = on` only sets the `Secure`
-  flag (which is why the cookie above is `Secure`); it does not touch SameSite.
-  `system.session.timeout` (default 3600s) and `max.sessions.per_user` are the
-  other session-related keys, neither relevant here.
-- DHIS2 core sets **no** SameSite attribute of its own. The `SameSite=lax` we
-  observe on play is added by the **reverse proxy / servlet container** in front of
-  it (e.g. NGINX `proxy_cookie_path ... SameSite=Lax`, or a Tomcat
-  `CookieProcessor sameSiteCookies="lax"`), per DHIS2's own cross-origin-cookies
-  guidance.
-- So across deployments you can see: **no attribute** (browser then defaults to
-  Lax in Chrome -> still not sent cross-site), **`Lax`** (play; not sent
-  cross-site), or **`None; Secure`** (would be sent cross-site) — but `None; Secure`
-  is non-default and DHIS2 explicitly frames it as a deliberate, CSRF-weakening
-  choice a site must opt into via its proxy. Do not expect it in the wild.
-
-Net: for essentially every normal DHIS2 deployment, a cross-site extension fetch
-will **not** carry the session cookie. Treat the pure "service worker uses my
-login" path as *off the table by default*, not as a coin flip.
-
-### The layer that still works: a same-origin content script
-
-`SameSite=Lax` is satisfied by a **same-site** request. A content script (or
-`chrome.scripting.executeScript`) running *in the DHIS2 tab itself* makes requests
-against the page's own origin, so `fetch("/dev/api/me.json", { credentials:
-"include" })` from there **is same-site and does carry the Lax cookie**. The
-extension **service worker / side-panel page** (`chrome-extension://…` origin) does
-not — its fetch to DHIS2 is cross-site regardless of host permissions.
-
-This is the opposite of the layering the earlier sections assume for security
-reasons ("do credentialed reads in the service worker, not the content script").
-Both concerns are real and they resolve like this: **cookie-authenticated DHIS2
-reads have to originate in the DHIS2-tab context to get the cookie at all, so make
-that content script narrow and allowlisted** (specific endpoints only, sanitized
-results passed back) rather than an arbitrary-URL proxy. Host permissions on the
-service worker grant cross-origin *access* but cannot conjure a Lax cookie onto a
-cross-site request.
+And `SameSite` is **not** a `dhis.conf` setting — it varies by deployment. DHIS2
+core sets no SameSite attribute; `server.https = on` only sets `Secure`. The
+`SameSite=lax` on play is added by the reverse proxy / servlet container (NGINX
+`proxy_cookie_path`, Tomcat `CookieProcessor sameSiteCookies`). Across deployments
+you see **no attribute** (Chrome defaults to Lax -> still not cross-site), **`Lax`**
+(play), or **`None; Secure`** (would work cross-site, but non-default and a
+deliberate CSRF-weakening opt-in — do not expect it). Net: for essentially every
+normal deployment the cross-site fetch will not carry the cookie. Treat "service
+worker uses my login" as *off the table by default*.
 
 ### Confirm on the target instance (expect it to fail cross-site)
 
@@ -499,13 +462,12 @@ service worker — the tab request carries the cookie, the cross-site one does n
 The content script makes exactly one narrow call (create token), passes the token
 value once to local kodo, and does nothing else.
 
-This is the same flow already sketched as "Create local profile for this instance"
-(second implementation option). The verdict of this section is that this, not raw
-cookie relay, is the actual answer to "can we drive the live login": it gives the
-zero-friction feel, dodges the SameSite problem, and dodges the "an AI loop now
-holds your ambient browser session" problem. It is sensitive (it mints a durable
-credential), so it needs an explicit confirmation screen and clear storage
-semantics — but that is a one-time gate, not per-request ambient authority.
+This is the same flow sketched as "Create local profile for this instance" and is
+the section's verdict: it gives the zero-friction feel while dodging both the
+SameSite problem and the "an AI loop now holds your ambient browser session"
+problem. It is sensitive (it mints a durable credential), so gate it behind an
+explicit confirmation screen with clear storage semantics — a one-time gate, not
+per-request ambient authority.
 
 ### Read vs write: where to draw the line
 
@@ -531,26 +493,20 @@ default to local kodo and treat any cloud model as an explicit, separate decisio
 
 ### Bottom line
 
-Yes, it is possible, and "activate on a DHIS2 login and drive it" is the right
-north star — it is what makes this more than a generic chat box. The measured
-evidence sharpens the earlier "test it first" advice into a default: on play (and
-any normal `Lax` deployment) the pure cross-site cookie path does **not** work, so
-do not build on it. Build it as:
+"Activate on a DHIS2 login and drive it" is the right north star — it is what makes
+this more than a generic chat box. The ambition is sound; the realism is that the
+cross-site cookie shortcut is off by default, so build it as:
 
 1. read-only first;
 2. **PAT-minted-from-the-live-session, from the DHIS2-tab content script**, as the
-   credential path — not cookie relay, and not a service-worker cross-site fetch.
-   This is the robust version of exactly this idea and it works on `Lax`;
+   credential path — not cookie relay, not a service-worker cross-site fetch. This
+   is the robust version of the idea and it works on `Lax`;
 3. optionally, narrow same-origin content-script reads for live page context
    (`/api/me`, `/api/system/info`) where a durable token is overkill;
 4. writes behind explicit per-action confirmation, added last, always via the
    PAT/profile tool channel (never ambient cookie, and mind CSRF);
-5. still run the two-layer confirm snippet on each new target deployment, but
-   expect A=401/B=200 — treat A=200 (`SameSite=None`) as the rare exception.
-
-The ambition is sound. The realism is: the cross-site cookie shortcut is off by
-default, the cookie only works from the tab context, the PAT path is better anyway,
-and writes are a deliberate, gated, later step.
+5. run the two-layer confirm snippet on each new deployment, expecting A=401/B=200
+   — treat A=200 (`SameSite=None`) as the rare exception.
 
 ## Browser session vs backend tool auth
 
@@ -697,8 +653,15 @@ Build a Manifest V3 side panel that talks to local kodo.
 Responsibilities:
 
 - Store the kodo base URL, for example `http://127.0.0.1:8000`.
-- Test connectivity with `GET /api/status`.
+- Test connectivity with `GET /api/status`; on failure/refused, show a graceful
+  "not connected — start kodo" state rather than a blank panel (this is also the
+  #1 Web Store review-pass requirement — see "Publishing").
+- Load a model if `/api/status` reports none (`POST /api/load/{name}`), so the
+  first chat turn does not 409 (see "Handle 409" below).
 - List tools with `GET /api/tools`.
+- Own the conversation history: `/api/chat` is stateless (it takes the full
+  `messages` array each turn), so the panel accumulates prior turns and resends
+  them on every request.
 - Send chat turns to `POST /api/chat`.
 - Render typed SSE events from `/api/chat`: tokens, reasoning, tool calls, tool
   results, errors, and done.
@@ -716,6 +679,11 @@ POST /api/chat
     "enabled_tools": ["dhis2_cli"],    // optional allow-list; omit for all tools
     "system_prompt": null              // null → fall back to project prompt; "" → none
   }
+  // `messages` is typed list[dict] (serving.py), so `content` may be a plain
+  // string OR an OpenAI content-part array (text + {"type":"image_url",...}) for
+  // vision models. The schema accepts image parts, but that they actually reach
+  // the mlx-vlm runtime is UNVERIFIED — confirm end-to-end before relying on it
+  // (see "Screenshots, visual context, and Playwright").
   -> text/event-stream, one JSON object per `data:` frame:
        {"type":"token","text":...}
        {"type":"reasoning","text":...}
@@ -725,11 +693,20 @@ POST /api/chat
 ```
 
 **Handle 409 "No model loaded".** `POST /api/chat` returns 409 if no model is
-loaded. In a locked project the model loads at server startup; otherwise the web
-UI auto-loads it via `/api/status`. The side panel must do the same: read
-`/api/status`, and if no model is loaded, load the project/locked model (or surface
-a clear "no model" state) before sending the first chat turn — do not assume the
-first `POST /api/chat` will succeed.
+loaded. In a locked project the model loads at server startup; otherwise a model
+must be loaded explicitly via **`POST /api/load/{name}`** (`routers/serving.py`;
+`GET /api/status` only *reports* state, it does not trigger a load — the web UI
+reads status then issues the load itself). The side panel must do the same:
+
+1. `GET /api/status`; if `state` is already loaded, proceed.
+2. Otherwise `POST /api/load/{project_model}` — the model name is in the status
+   payload as `project_model`.
+3. Poll `GET /api/status` until loaded, honoring `runtime_load_timeout` (in the
+   status payload, default 600s — a cold runtime start is slow).
+4. Only then send the first `POST /api/chat`.
+
+If there is no project model to load, surface a clear "no model" state instead of
+sending a chat turn — do not assume the first `POST /api/chat` will succeed.
 
 Scope note: v1 targets a locked-project assistant (`[project].model` set, no
 picker). Free-play model switching in the side panel is out of scope for the
@@ -762,13 +739,11 @@ lookups.
 If there is a real need to act as the currently logged-in browser user, prefer a
 small allowlisted read path over passing raw cookies to kodo.
 
-**Layer correction (from the measured `Lax` result in "Driving the active DHIS2
-login"):** the read must run in the **DHIS2-tab context** (a narrow content script
-or `chrome.scripting.executeScript`), not the service worker — only the tab's
-same-origin request carries a `SameSite=Lax` session cookie. A service-worker
-cross-site fetch, even with host permissions, will not. So the earlier instinct
-("do it in the service worker for safety") is inverted by cookie reality; safety is
-instead achieved by making the *content script* narrow and fixed-endpoint.
+The read must run in the **DHIS2-tab context** (a narrow content script or
+`chrome.scripting.executeScript`), not the service worker — only the tab's
+same-origin request carries a `SameSite=Lax` session cookie (see "Driving the
+active DHIS2 login"). Safety comes from making that content script narrow and
+fixed-endpoint, not from the layer it runs in.
 
 Example shape:
 
@@ -848,10 +823,16 @@ just a client for local kodo.
 ### Option B: extension -> DHIS2 Web API -> prompt context
 
 The extension can make cross-origin requests from an extension page or service
-worker if the manifest has host permissions for the target DHIS2 origin. Content
-scripts themselves are still constrained by the page's origin, so DHIS2 API
-fetches should happen in the extension page/background layer, not directly in a
-content script.
+worker if the manifest has host permissions for the target DHIS2 origin — but that
+grants cross-origin *access*, not the session cookie. The split is:
+
+- **Unauthenticated / token-bearing reads** can run in the extension page or
+  service worker.
+- **Cookie-authenticated reads (using the live login) must run in a same-origin
+  content script in the DHIS2 tab** — a `SameSite=Lax` session cookie rides only a
+  same-site request, so the service-worker cross-site fetch will not carry it (the
+  measured play case; see "Driving the active DHIS2 login"). Keep that content
+  script narrow and fixed-endpoint, never an arbitrary-URL proxy.
 
 Potential use:
 
@@ -958,6 +939,7 @@ The side panel should primarily use:
 
 ```text
 GET  /api/status
+POST /api/load/{name}        load a model when status shows none (avoids the /api/chat 409)
 GET  /api/tools
 POST /api/chat
 POST /api/speak              optional
@@ -1026,12 +1008,11 @@ If the DHIS2 origins are known ahead of time, declare a content script directly:
 If the user can point the extension at arbitrary DHIS2 hosts, keep the content
 script out of the static manifest and inject it only after a user gesture with
 `chrome.scripting.executeScript()` under `activeTab`. The content script collects
-page context (DOM/URL/selection). For *cookie-authenticated* DHIS2 reads, note the
-layer correction in "Driving the active DHIS2 login": on a `SameSite=Lax`
-deployment only a same-origin request from the DHIS2 tab carries the session
-cookie, so those specific reads run in a **narrow, fixed-endpoint content script**,
-not the service worker. Either way, never expose an arbitrary-URL fetch the page
-could abuse — expose only named operations over the message API.
+page context (DOM/URL/selection). *Cookie-authenticated* DHIS2 reads run in that
+**narrow, fixed-endpoint content script**, not the service worker (only the
+same-origin tab request carries a `SameSite=Lax` cookie; see "Driving the active
+DHIS2 login"). Either way, never expose an arbitrary-URL fetch the page could
+abuse — expose only named operations over the message API.
 
 Only add `"cookies"` if a later design explicitly needs browser-authenticated
 reads. Do not include it in the first version.
@@ -1149,8 +1130,12 @@ Runtime capture, in preference order (all native, no Playwright):
 - **What the user is looking at (for a vision model):** `chrome.tabs.captureVisibleTab()`
   returns the visible tab as a PNG in the user's real session. Full-page beyond the
   viewport needs the debugger API (`Page.captureScreenshot`), still native. This is
-  the right path for "look at this dashboard" grounding — kodo already routes
-  vision-capable models, so the extension can attach the PNG as image content.
+  the intended path for "look at this dashboard" grounding — kodo already routes
+  vision-capable models, so the extension would attach the PNG as an OpenAI
+  `image_url` content part on the `/api/chat` message. **Caveat:** `/api/chat`
+  accepts content-part arrays structurally (`messages` is `list[dict]`), but that
+  image parts actually flow through the agent loop to the `mlx-vlm` runtime is
+  **unverified** — verify this end-to-end before building the capture UX on it.
 - **Deterministic DHIS2 charts/maps:** fetch DHIS2's server-rendered favorite
   images (`/api/visualizations/{id}/data.png`, `/api/maps/{id}/data.png`) through
   `d2w` as a tool. Reproducible, tab-independent, and reusable from CLI/TUI/bench —
@@ -1232,8 +1217,9 @@ reserve only if a future feature needs kodo to call back into the browser (see t
 2. Configure the local bridge from `/Users/morteoh/dev/local/dhis2w-utils`.
 3. Run `kodo serve --port 8000`.
 4. Build a minimal MV3 side panel with a base URL setting.
-5. Connect to `/api/status` (and load the model if none is loaded, so the first
-   `/api/chat` does not 409), then `/api/tools`, then `/api/chat`.
+5. Connect to `/api/status`; if it reports no model, `POST /api/load/{name}` and
+   poll status until loaded (so the first `/api/chat` does not 409), then
+   `/api/tools`, then `/api/chat`.
 6. Verify against `play42` with `DHIS2_PROFILE=play42` and
    `DHIS2_MCP_READONLY=1`.
 
