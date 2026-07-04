@@ -25,13 +25,13 @@ local models:
 
 ## Phases
 
-1. **Phase 1 — kodo + web chat UI** (in progress). Library, pull/run/chat,
+1. **Phase 1 — kodo + web chat UI** (essentially complete). Library, pull/run/chat,
    `serve --ui` + locked mode, the `/v1` proxy, and **generic tool/MCP support**
    (agent loop + MCP client pointable at any MCP server; tool activity rendered
-   in the chat).
-2. **Phase 2 — DHIS2 + Chrome extension.** Point the MCP client at
-   `dhis2w-mcp-bridge`/`-router`; ship the chat UI as the side-panel extension
-   against the locked `/v1`.
+   in the chat). Bundled MCP servers: `datetime`, `utils`, `search`, and the optional `web`.
+2. **Phase 2 — DHIS2 + Chrome extension** (next). Point the MCP client at
+   `dhis2w-mcp-bridge`/`-router` (bridge wiring done — `kodo mcp add dhis2`); ship the chat
+   UI as the MV3 side-panel extension against the locked `/v1`.
 3. **Later** — extension page-context, then page-actions via `dhis2w-browser`.
 
 ## Projects (assistant definitions)
@@ -76,10 +76,9 @@ one on-ramp.
 ## Discovering models (`kodo library search`)
 
 `kodo library sources` shows what's already in your local app caches; `kodo library search
-<query>` will find **new** models to pull — querying the Hugging Face Hub
-(filtered to GGUF/MLX, sortable by downloads/likes/size) and surfacing results you
-can `kodo library pull` directly. Closes the loop: discover → pull → run, without leaving
-the CLI.
+<query>` finds **new** models to pull — querying the Hugging Face Hub (filtered to GGUF/MLX,
+sortable by downloads/likes/size) and surfacing results you can `kodo library pull` directly.
+Closes the loop: discover → pull → run, without leaving the CLI.
 
 ## One SPA, many surfaces
 
