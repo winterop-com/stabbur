@@ -288,10 +288,21 @@ def mcp_add(
         console.print(f"[yellow]{entry_name}[/] is already in {path}.")
         return
 
-    block = f"\n[[mcp]]\nname = {json.dumps(entry_name)}\ncommand = {json.dumps(command)}\n"
+    # In a uv project (pyproject.toml present) the server is a pinned dependency, so drop the
+    # runtime `uvx` fetch from the command and add the package to pyproject.toml.
+    pyproject = Path("pyproject.toml")
+    uv_project = pyproject.is_file()
+    toml_command = _strip_uvx(command) if uv_project else command
+
+    block = f"\n[[mcp]]\nname = {json.dumps(entry_name)}\ncommand = {json.dumps(toml_command)}\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(block)
     console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
+
+    if uv_project:
+        for pkg in _pip_deps_from_mcp([(entry_name, command)]):  # original (uvx) command -> pip pkg
+            if _add_pyproject_dep(pyproject, pkg):
+                console.print(f"  [dim]uv:[/] pinned [cyan]{pkg}[/] in pyproject.toml — run [bold]uv sync[/]")
     if setup:
         console.print(f"  [yellow]setup:[/] {setup}")
     console.print("[dim]Check it:[/] kodo project show")
@@ -486,6 +497,31 @@ def _pip_deps_from_mcp(mcp: list[tuple[str, str]]) -> list[str]:
 def _strip_uvx(command: str) -> str:
     """Drop a ``uvx `` runner from an MCP command — in a uv project the server is an installed dep."""
     return command.replace("uvx ", "", 1) if "uvx " in command else command
+
+
+def _add_pyproject_dep(path: Path, pkg: str) -> bool:
+    """Add ``pkg`` to a pyproject's ``[project].dependencies``. Returns True if it was inserted.
+
+    A light text edit (no TOML round-trip, so comments/formatting survive): inserts into a
+    multiline ``dependencies = [`` list, or expands an empty ``dependencies = []``. Idempotent —
+    a dep already present (any version/extras form) is left alone.
+    """
+    import re  # noqa: PLC0415
+
+    text = path.read_text()
+    if re.search(rf'["\']{re.escape(pkg)}(?:["\'\[]|==|>=|<=|~=|!=|>|<|@|;|\s)', text):
+        return False
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if re.match(r"\s*dependencies\s*=\s*\[\s*\]\s*$", line):  # empty inline list
+            lines[i] = line.replace("[]", f'[\n    "{pkg}",\n]')
+            path.write_text("".join(lines))
+            return True
+        if re.match(r"\s*dependencies\s*=\s*\[\s*$", line):  # start of a multiline list
+            lines.insert(i + 1, f'    "{pkg}",\n')
+            path.write_text("".join(lines))
+            return True
+    return False
 
 
 def _project_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool) -> str:
