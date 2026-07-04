@@ -46,7 +46,7 @@ address. Read an internal/localhost host on purpose with `KODO_WEB_ALLOW_PRIVATE
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `KODO_WEB_STATIC_FIRST` | `true` | Try a plain httpx GET first; fall back to the browser if thin. |
-| `KODO_WEB_MIN_CHARS` | `100` | Static extraction shorter than this retries with the browser. |
+| `KODO_WEB_THIN_CHARS` | `500` | Extract shorter than this on a large page = pruned -> render + use visible text. |
 | `KODO_WEB_TIMEOUT_SECONDS` | `20` | Per-page navigation timeout. |
 | `KODO_WEB_SETTLE_MS` | `500` | Extra wait after load for late client-side rendering. |
 | `KODO_WEB_MAX_CHARS` | `20000` | Cap on the returned Markdown. |

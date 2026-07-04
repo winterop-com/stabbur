@@ -58,6 +58,19 @@ def test_guard_respects_allow_private(monkeypatch: pytest.MonkeyPatch) -> None:
         app._guard_url("file:///etc/passwd")
 
 
+def test_needs_render_thin_vs_good() -> None:
+    big_html = "x" * 100_000
+    # Near-empty extraction (JS app-shell / failure) -> render.
+    assert app._needs_render("", big_html) is True
+    assert app._needs_render("hi", "small") is True
+    # Tiny extract from a large page (a front page trafilatura pruned) -> render + visible text.
+    assert app._needs_render("a consent banner, ~40 chars of junk only", big_html) is True
+    # A genuine (short) article on a small page -> trust the extract, don't render.
+    assert app._needs_render("A short but real article body. " * 5, "html" * 500) is False
+    # A rich article extract -> trust it.
+    assert app._needs_render("word " * 500, big_html) is False
+
+
 async def test_route_guard_blocks_private_allows_public() -> None:
     cache: dict[str, bool] = {}
     assert await app._route_is_blocked("http://127.0.0.1/x.js", cache) is True

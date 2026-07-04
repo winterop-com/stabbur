@@ -1,8 +1,10 @@
-"""A FastMCP server that reads a web page in a headless browser and returns Markdown.
+"""A FastMCP server that reads a web page and returns readable Markdown.
 
-One tool, ``read_url``: it renders the page with Playwright (Chromium) — so
-JavaScript-rendered pages work — then extracts the main content with trafilatura and
-returns Markdown (boilerplate like nav/ads removed), prefixed with the title + source URL.
+One tool, ``read_url``. It fetches the page cheaply first (a plain httpx GET) and extracts the
+main content with trafilatura; if that's thin — a JavaScript-rendered page, or a front page /
+listing whose content trafilatura prunes as boilerplate — it renders the page in a headless
+browser (Playwright/Chromium) and, when the precise extract is still thin, returns the page's
+**visible text** (what you'd read looking at it). Output is prefixed with the title + source URL.
 
 Security (SSRF): only ``http(s)`` URLs are allowed, and any host that resolves to a
 private / loopback / link-local / reserved address is refused — checked for the top-level
@@ -49,7 +51,8 @@ class Settings(BaseSettings):
     settle_ms: int = 500  # brief wait after load for late client-side rendering
     max_chars: int = 20_000  # cap the Markdown handed back to the model's context
     static_first: bool = True  # try a plain httpx GET first; fall back to the browser if it's thin
-    min_chars: int = 100  # static extraction shorter than this -> retry with the browser (likely a JS app-shell)
+    thin_chars: int = 500  # extract shorter than this on a large page = trafilatura pruned it -> render
+    large_html_bytes: int = 30_000  # a page whose HTML exceeds this is content-rich (see thin_chars)
     max_redirects: int = 5  # cap redirects on the static path (each hop is SSRF-guarded)
     # Playwright wait strategy; a Literal so an invalid KODO_WEB_WAIT_UNTIL is rejected at startup.
     wait_until: Literal["load", "domcontentloaded", "networkidle", "commit"] = "load"
@@ -172,10 +175,33 @@ def _title_from_html(html: str) -> str:
     return unescape(_TAGS_RE.sub("", match.group(1))).strip() if match else ""
 
 
+_BLANKS_RE = re.compile(r"\n{3,}")
+
+# Extract shorter than this = basically nothing (a JS app-shell or an extraction failure).
+_EMPTY_FLOOR = 50
+
+
 def _extract_body(html: str, final_url: str) -> str:
     """Main content of a page as Markdown (trafilatura), stripped; empty if nothing extractable."""
     raw = trafilatura.extract(html, output_format="markdown", include_links=True, url=final_url)
     return (raw or "").strip()
+
+
+def _needs_render(body: str, html: str) -> bool:
+    """Whether trafilatura's extract is too thin to trust, so we should render + use visible text.
+
+    Two cases: near-empty extraction (a JS app-shell, or a failure), or a tiny extract from a
+    large page — a front page / listing whose content trafilatura pruned as boilerplate (e.g. a
+    news homepage). Both mean the precise extractor didn't capture the page's real content.
+    """
+    if len(body) < _EMPTY_FLOOR:
+        return True
+    return len(body) < settings.thin_chars and len(html) > settings.large_html_bytes
+
+
+def _collapse(text: str) -> str:
+    """Tidy visible text: trim, and collapse runs of blank lines."""
+    return _BLANKS_RE.sub("\n\n", text).strip()
 
 
 def _format(body: str, final_url: str, title: str) -> str:
@@ -215,8 +241,12 @@ async def _fetch_static(url: str) -> tuple[str, str, str]:
         raise ValueError(f"too many redirects (> {settings.max_redirects})")
 
 
-async def _fetch_browser(url: str) -> tuple[str, str, str]:
-    """Render a page in headless Chromium; return (final_url, html, title). Handles JS-rendered pages."""
+async def _fetch_browser(url: str) -> tuple[str, str, str, str]:
+    """Render a page in headless Chromium; return (final_url, html, title, visible_text).
+
+    ``visible_text`` is the rendered ``body`` text (what you'd read looking at the page) — a
+    fallback for JS-hydrated pages whose content trafilatura can't extract from the HTML.
+    """
     browser = await _get_browser()
     context: BrowserContext = await browser.new_context(user_agent=settings.user_agent)
     cache: dict[str, bool] = {}
@@ -231,7 +261,7 @@ async def _fetch_browser(url: str) -> tuple[str, str, str]:
             raise ValueError(f"failed to load {url!r}: {exc}") from exc
         final_url = str(page.url)
         _guard_url(final_url)  # a client-side redirect may have moved us off the vetted host
-        return final_url, await page.content(), (await page.title()).strip()
+        return final_url, await page.content(), (await page.title()).strip(), await page.inner_text("body")
     finally:
         await context.close()
 
@@ -251,24 +281,32 @@ async def read_url(url: str) -> str:
     """
     _guard_url(url)
 
-    # Fast path: a plain HTTP GET is enough for static/server-rendered pages and skips the
-    # browser entirely. If it yields too little (a JS-rendered SPA) or fails, fall back below.
+    # Fast path: a plain HTTP GET is enough for static/server-rendered article pages and skips
+    # the browser entirely. If the extract is thin (a JS-rendered SPA or a listing page whose
+    # content trafilatura pruned) or the fetch fails, fall back to the browser below.
     if settings.static_first:
         try:
             final_url, html, title = await _fetch_static(url)
             body = _extract_body(html, final_url)
-            if len(body) >= settings.min_chars:
+            if not _needs_render(body, html):
                 return _format(body, final_url, title)
         except Exception:  # noqa: BLE001 - any static failure just means we try the browser
             pass
 
-    final_url, html, title = await _fetch_browser(url)
+    final_url, html, title, visible_text = await _fetch_browser(url)
     body = _extract_body(html, final_url)
-    if not body:
-        raise ValueError(
-            f"no readable content extracted from {url!r} (the page may be empty, blocked, or not an article)"
-        )
-    return _format(body, final_url, title)
+    if not _needs_render(body, html):
+        return _format(body, final_url, title)
+
+    # Rendered, but trafilatura's precise extract is still thin (a JS-hydrated front page /
+    # listing). Return the page's visible text — what you'd get reading it in a browser
+    # directly — when that's richer than the precise extract.
+    text = _collapse(visible_text)
+    if len(text) > len(body):
+        return _format(text, final_url, title)
+    if body:
+        return _format(body, final_url, title)
+    raise ValueError(f"no readable content extracted from {url!r} (the page may be empty, blocked, or require login)")
 
 
 def main() -> None:
