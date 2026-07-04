@@ -7,32 +7,27 @@ history is the record) — this file is only open threads.
 
 ## Next up (concrete, as of 2026-07-04)
 
-1. **Rename `packages/kodo-mcp-benchmark` → `kodo-benchmark`.** It's a benchmarking
-   tool (the `kodo benchmark` CLI), not an assistant MCP — the `mcp-` in the name is a
-   misnomer. Rename the dir, package (`kodo_mcp_benchmark` → `kodo_benchmark`), the entry
-   point, and the workspace member/source in `pyproject.toml`. (`kodo-mcp-utils`/`-datetime`
-   /`-search`/`-web` are genuine MCP servers — their names are fine.)
-2. **Surface uninstalled optional MCP servers in the web health menu**, mirroring what
+1. **Surface uninstalled optional MCP servers in the web health menu**, mirroring what
    `kodo project show` now does (a project listing `web` without `--extra web` reports
    `failed: … make install-web` instead of silently 0 tools). Also: warn in `kodo project
    init` / `kodo mcp add` when adding `web` without the extra installed.
-3. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
+2. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
    autocomplete, and MCP enable/disable/reconnect have shipped. Still keyboard-only-missing vs the
    web UI: change the **speak-replies (chat) voice**, switch model, adjust sampling
    (temperature/top-p/top-k/…), export the transcript. Reuse the same `/api`-equivalent logic the
    web UI calls so behavior stays consistent across surfaces.
-4. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
+3. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
    drawer-style sidebar for very narrow mobile widths.
 
-### Near-term polish queue (proposed 2026-07-04, ranked)
+### Near-term polish queue (ranked)
 
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | Rename `kodo-mcp-benchmark` → `kodo-benchmark` | S | The `mcp-` is a misnomer (it's the `kodo benchmark` CLI, not an assistant MCP). Pure rename: dir, package, entry point, workspace member. Low-risk cleanup. |
-| 2 | Finish the TUI palette — voice picker, model switch, sampling knobs, `/export` transcript | M | Natural continuation of the palette we shipped; closes the keyboard-parity gap with the web UI. |
-| 3 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
-| 4 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
-| 5 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+| 1 | Finish the TUI palette — voice picker, model switch, sampling knobs, `/export` transcript | M | Natural continuation of the palette we shipped; closes the keyboard-parity gap with the web UI. |
+| 2 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
+| 3 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
+| 4 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+| 5 | Structured MCP config: `env`/`args` fields on `[[mcp]]` instead of one `env VAR=… uvx …` command string | M | Cleans up the last of the "MCP is a mess"; drops the `env__`-prefixed tool namespace when a server has no manifest name (e.g. the benchmark's `env__dhis2_cli`). Touches `tools.connect` + `ProjectMcp` + the benchmark runner. |
 
 ## DHIS2 assistant — near-term
 
@@ -51,17 +46,17 @@ The north star (bottom of this file) is the local DHIS2 assistant. Concrete next
    **blocked**: no local writable DHIS2 was reachable (profile `local` at http://localhost:8080 is
    down) and writes to the shared play demos are refused by design. Start a local DHIS2, then add
    `tools-dhis2-write.toml`.
-2. **`kodo project new --template dhis2` (a DHIS2 starter).** Scaffold a ready-to-run DHIS2
-   assistant project: `kodo.toml` with the bridge `[[mcp]]` block, a DHIS2 system prompt, the
-   recommended model — **and** scaffold a profiles file (`.dhis2/profiles.toml` project-local, or a
-   pointer to `~/.config/dhis2/profiles.toml`) with a commented template so a new user fills in
-   base URL + token and runs. Wizard prompts for base URL / profile name / token. Pairs with the
-   `--git` flag already on `project new/init`.
-3. **Full DHIS2 docs guide.** Expand `docs/guides/dhis2-project.md` (or a new `guides/dhis2.md`)
-   into a complete guide: creating a DHIS2 profile (`d2w` profiles, base URL + PAT/token), the
-   three bridge tiers (bridge / router / full), read-only vs write, and **plenty of copy-paste
-   suggested prompts** (metadata counts, name->UID, analytics, tracker) — linking the official
-   dhis2w-utils docs at https://winterop-com.github.io/dhis2w-utils/.
+2. **`kodo project new --template dhis2` (a DHIS2 starter).** **Partly done (2026-07-04):**
+   `kodo project new/init` now scaffolds a **self-contained uv project** (`pyproject.toml`
+   pinning kodo + MCP servers; `uv run kodo serve`), and a full worked DHIS2 project was built at
+   `../kodo-projects/dhis2` (Ornith-9B copied into `library/`, project-local `.dhis2/profiles.toml`
+   for play42, bridge `[[mcp]]`, examples, git) and verified end-to-end. **Remaining:** a `--template
+   dhis2` shortcut so the wizard offers the DHIS2 bridge (not just installed plugins) and scaffolds
+   the profile template + example prompts in one command, and teach `kodo mcp add` to also add the
+   server's pip dep to `pyproject.toml` (and drop `uvx`) in a uv project.
+3. **Full DHIS2 docs guide.** **Done (2026-07-04):** `docs/guides/dhis2.md` (profiles, bridge
+   tiers, ~30 prompts, official-docs link) + `docs/guides/dhis2-benchmark-report.md`. Remaining:
+   fold in the uv-project run instructions and link the `../kodo-projects/dhis2` example.
 
 ## Open issues
 

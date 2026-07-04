@@ -27,7 +27,32 @@ spoken-reply voice. Flags skip or change parts of it:
 | `--model <name>` | Bind this model, skipping the model picker. |
 | `--copy` (`--local`) | Copy the model into a **project-local `library/`** (a fast local-disk copy if it's already in your shared library) — makes the project self-contained. |
 | `--git` | `git init` the project and write a `.gitignore` that excludes `library/` (the weights) and `.env`. |
+| `--no-uv` | Skip the uv project (write only `kodo.toml`, no `pyproject.toml`). |
 | `--force` | Overwrite an existing `kodo.toml`. |
+
+## A project is a uv project
+
+By default the scaffolder also writes a **`pyproject.toml`**, making the project a
+self-contained [uv](https://docs.astral.sh/uv/) project. It pins `kodo` and the project's
+pip-installable MCP servers, so the project carries its own environment:
+
+```bash
+cd my-assistant
+uv sync                     # build the project's .venv (kodo + its MCP servers)
+uv run kodo serve --ui      # runs this project's kodo, not a global one
+uv run kodo chat
+```
+
+This is what makes a project *truly* portable: `uv run kodo` uses the pinned kodo and the
+MCP servers installed into the project's `.venv`, instead of relying on a globally-installed
+kodo and runtime `uvx` fetches. Because the servers are real dependencies, their `[[mcp]]`
+commands drop the `uvx` runner. `.venv/` is gitignored; `uv.lock` is committed for
+reproducibility. (`kodo` isn't on PyPI yet, so its pin is a local path source — replace it
+with a version once kodo publishes. Pass `--no-uv` for the plain `kodo.toml`-only shape.)
+
+For a complete worked example — a DHIS2 assistant with its model copied in, a project-local
+DHIS2 profile, and example prompts — see the
+[DHIS2 assistant worked example](dhis2-project.md).
 
 ```bash
 kodo project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
