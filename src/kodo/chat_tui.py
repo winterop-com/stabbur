@@ -95,6 +95,11 @@ class ChatApp(App[None]):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", priority=True),
         Binding("escape", "cancel", "Stop", show=True),
+        # A full-screen TUI captures the mouse, so the terminal's own click-drag selection
+        # doesn't reach the text. Give an explicit "copy the last reply" shortcut; Textual's
+        # own click-drag + ctrl+c selection also works, and holding Option (macOS terminals)
+        # falls back to native terminal selection.
+        Binding("ctrl+y", "copy_reply", "Copy reply", show=True, priority=True),
     ]
 
     def __init__(
@@ -177,8 +182,28 @@ class ChatApp(App[None]):
         line2 = Text()
         line2.append("▸ ", style="cyan")
         line2.append(self._model_format, style="grey50")
-        line2.append("   enter sends  ·  shift+return newline  ·  esc stops  ·  /exit", style="grey42")
+        line2.append(
+            "   enter sends  ·  shift+return newline  ·  esc stops  ·  ^y copy reply  ·  /exit", style="grey42"
+        )
         return Group(line1, line2)
+
+    def _last_reply_text(self) -> str | None:
+        """The text of the most recent assistant reply (skips tool-call turns), if any."""
+        for message in reversed(self.messages):
+            if message.get("role") == "assistant":
+                content = message.get("content")
+                if isinstance(content, str) and content.strip():
+                    return content
+        return None
+
+    def action_copy_reply(self) -> None:
+        """Copy the last assistant reply to the clipboard (works over SSH via OSC 52)."""
+        text = self._last_reply_text()
+        if text:
+            self.copy_to_clipboard(text)
+            self.notify(f"Copied last reply ({len(text)} chars)", timeout=2)
+        else:
+            self.notify("No reply to copy yet.", severity="warning", timeout=2)
 
     def _refresh_status(self) -> None:
         self.query_one("#status", Static).update(self._status_renderable())

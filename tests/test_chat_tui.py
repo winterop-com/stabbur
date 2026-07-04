@@ -148,3 +148,35 @@ async def test_trailing_backslash_inserts_newline_instead_of_sending(monkeypatch
         await pilot.pause()
         assert sent == []
         assert "\n" in app.query_one(chat_tui.ChatInput).text
+
+
+async def test_ctrl_y_copies_last_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: Any,
+        on_event: Any,
+        on_token: Any,
+        on_reasoning: Any = None,
+        on_usage: Any = None,
+        **_kw: Any,
+    ) -> str:
+        on_token("Copy me")
+        messages.append({"role": "assistant", "content": "Copy me"})
+        return "Copy me"
+
+    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    app = _app()
+    copied: list[str] = []
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        # Capture what the copy binding sends to the clipboard, then trigger it (works even
+        # with the input focused, since the binding is priority).
+        monkeypatch.setattr(app, "copy_to_clipboard", lambda t: copied.append(t))
+        await pilot.press("ctrl+y")
+        await pilot.pause()
+    assert copied == ["Copy me"]
