@@ -1,0 +1,121 @@
+name = "tools-dhis2"
+description = "Tool-use benchmark: answer questions about a live DHIS2 instance by driving the dhis2w-mcp-bridge (read-only)."
+type = "tool"
+language = "tools"
+# Each problem attaches the DHIS2 CLI bridge against the `play42` profile in READ-ONLY mode and
+# passes only if the model calls the bridge's single `dhis2_cli` tool AND its final answer contains
+# the expected value. The bridge's command is `env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx
+# dhis2w-mcp-bridge`; since the benchmark connects each server with no explicit name, the tool is
+# namespaced by the launch command's first token (`env`) -> `env__dhis2_cli`.
+#
+# `expect_args` is intentionally empty: the bridge has ONE tool driven by free-form `d2w` argv, so
+# there are many valid ways to reach an answer. We score what matters -- did the model reach for the
+# bridge, and did it return the right value -- not one exact argv. `expect_answer_contains` values
+# are STABLE STRUCTURAL FACTS of the DHIS2 "Sierra Leone" demo (metadata counts, UIDs, names,
+# version) captured from play42 on 2026-07-04; refresh them if the dev instance is reset. Analytics
+# values are deliberately avoided -- the demo regenerates data relative to the current date, so no
+# absolute analytics number is stable.
+
+# --- basics: single direct read ---
+
+[[problems]]
+id = "system-name"
+difficulty = "basics"
+prompt = "What is the name of this DHIS2 system (its instance name)? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "Sierra Leone"
+
+[[problems]]
+id = "server-version"
+difficulty = "basics"
+prompt = "Which DHIS2 version is this server running? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "2.42"
+
+[[problems]]
+id = "whoami"
+difficulty = "basics"
+prompt = "What is the username of the currently logged-in DHIS2 user? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "admin"
+
+[[problems]]
+id = "count-orgunits"
+difficulty = "basics"
+prompt = "How many organisation units are there in this DHIS2 instance? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "1332"
+
+# --- intermediate: pick the right resource type / count ---
+
+[[problems]]
+id = "count-dataelements"
+difficulty = "intermediate"
+prompt = "How many data elements are configured in this DHIS2 instance? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "1037"
+
+[[problems]]
+id = "count-indicators"
+difficulty = "intermediate"
+prompt = "How many indicators are configured in this DHIS2 instance? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "77"
+
+[[problems]]
+id = "count-datasets"
+difficulty = "intermediate"
+prompt = "How many data sets are there in this DHIS2 instance? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "27"
+
+[[problems]]
+id = "orgunit-level-3-name"
+difficulty = "intermediate"
+prompt = "In this DHIS2 instance's organisation unit hierarchy, what is the name of level 3? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "Chiefdom"
+
+# --- advanced: name <-> UID resolution ---
+
+[[problems]]
+id = "count-optionsets"
+difficulty = "advanced"
+prompt = "How many option sets are configured in this DHIS2 instance? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "171"
+
+[[problems]]
+id = "dataelement-uid"
+difficulty = "advanced"
+prompt = "What is the UID (id) of the data element named 'ANC 1st visit'? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "fbfJHSPpUQD"
+
+[[problems]]
+id = "orgunit-uid"
+difficulty = "advanced"
+prompt = "What is the UID (id) of the organisation unit named 'Bo'? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "O6uvpzGd5pu"
+
+# --- expert: reverse lookup (UID -> name) ---
+
+[[problems]]
+id = "orgunit-name-from-uid"
+difficulty = "expert"
+prompt = "What is the name of the organisation unit whose UID is ImspTQPwCqd? Use the available tools."
+servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "Sierra Leone"
