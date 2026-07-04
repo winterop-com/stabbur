@@ -54,6 +54,15 @@ voice = [
     "soundfile>=0.13.1",
 ]
 
+# Web reader MCP server (kodo-mcp-web): reads a page in a headless browser and returns
+# Markdown. Optional because Playwright + Chromium are heavy (a ~150 MB browser via
+# `playwright install chromium`), unlike the bundled stdlib servers. Install with
+# `uv sync --extra web` (or `make install-web`, which also fetches the browser). The pure
+# stdlib/light servers stay bundled in [project.dependencies]; this one is opt-in.
+web = [
+    "kodo-mcp-web",
+]
+
 [project.scripts]
 kodo = "kodo.cli:main"
 
@@ -71,6 +80,7 @@ members = ["packages/*"]
 kodo-mcp-datetime = { workspace = true }
 kodo-mcp-benchmark = { workspace = true }
 kodo-mcp-utils = { workspace = true }
+kodo-mcp-web = { workspace = true }  # optional (the `web` extra); heavy Playwright deps
 
 [tool.fastapi]
 # Let `fastapi dev` / `fastapi run` auto-detect the app.
@@ -147,6 +157,12 @@ disallow_untyped_defs = false
 # Optional `tts` extra: untyped (soundfile/espeakng_loader) or absent when the
 # extra isn't synced. Treat as Any so `make check` passes with or without it.
 module = ["soundfile.*", "espeakng_loader.*", "kokoro_onnx.*", "mlx_audio.*", "misaki.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional `web` extra: playwright ships types but trafilatura doesn't, and both are
+# absent in the base env. Treat as Any so `make check` passes with or without the extra.
+module = ["playwright.*", "trafilatura.*"]
 ignore_missing_imports = true
 
 [tool.pyright]

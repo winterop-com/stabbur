@@ -1,0 +1,27 @@
+[project]
+name = "kodo-mcp-web"
+version = "0.1.0"
+description = "Kodo MCP server: read a web page in a headless browser and return readable Markdown (over stdio)"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.4.2",
+    "pluginkit>=0.4.7",
+    "pydantic-settings>=2.14.2",
+    "playwright>=1.47",
+    "trafilatura>=1.12",
+]
+
+# Console script -> main() re-exported from the package root. A new MCP keeps this
+# line, renaming both sides to its own kodo-mcp-<name>.
+[project.scripts]
+kodo-mcp-web = "kodo_mcp_web:main"
+
+# Advertise-only kodo plugin: makes this server discoverable (kodo mcp list, --mcp
+# resolution) without contributing a command. Still a pure MCP server otherwise.
+[project.entry-points."kodo.plugins"]
+web = "kodo_mcp_web.plugin:PLUGIN"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

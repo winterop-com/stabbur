@@ -29,6 +29,19 @@ catalog, and appends a `[[mcp]]` block. External commands may carry a placeholde
 path, a DHIS2 profile) — the `setup:` hint says what to edit. You can also pick plugin
 tools interactively in the `kodo project init` wizard, or write `[[mcp]]` blocks by hand:
 
+### First-party servers
+
+kodo bundles two pure-stdlib plugins — **`datetime`** and **`utils`** — always available.
+One heavier first-party server is **optional**:
+
+- **`web`** (`kodo-mcp-web`) — `read_url(url)` reads a page in a **headless browser**
+  (Playwright/Chromium, so JavaScript-rendered pages work) and returns its main content as
+  Markdown. Because the browser is heavy, it's shipped as an extra: `make install-web`
+  (or `uv sync --extra web` then `playwright install chromium`). Once installed it advertises
+  itself, so `kodo mcp add web` wires it into a project. An SSRF guard refuses private/loopback
+  hosts (top URL and every browser request); `KODO_WEB_ALLOW_PRIVATE=1` opts into internal hosts.
+
+
 ```toml
 [[mcp]]
 name = "datetime"

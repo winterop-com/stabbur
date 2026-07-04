@@ -1,4 +1,4 @@
-.PHONY: help install install-mlx install-tts lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
+.PHONY: help install install-mlx install-tts install-web lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
 
 # ==============================================================================
 # Venv
@@ -26,6 +26,7 @@ help:
 	@echo "  install     Install dependencies"
 	@echo "  install-mlx Install deps + MLX runtimes (Apple Silicon only)"
 	@echo "  install-tts Install deps + Kokoro TTS (multi-voice; macOS + Linux)"
+	@echo "  install-web Install deps + web reader (Playwright) + Chromium browser"
 	@echo "  lint        Format + autofix, then type-check (mutates files)"
 	@echo "  check       CI gate: verify formatting/lint/types/tests (no changes)"
 	@echo "  test        Run tests"
@@ -47,6 +48,11 @@ install-mlx:
 install-tts:
 	@echo ">>> Installing dependencies + Kokoro TTS (multi-voice; macOS + Linux)"
 	@$(UV) sync --extra tts
+
+install-web:
+	@echo ">>> Installing dependencies + web reader (Playwright) + Chromium"
+	@$(UV) sync --extra web
+	@$(UV) run playwright install chromium
 
 lint:
 	@echo ">>> Running linter"

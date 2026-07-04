@@ -148,10 +148,15 @@ Resolved in the 2026-07-03 pass:
 
   Proposed set, roughly in priority order:
 
-  1. **`kodo-mcp-fetch`** — fetch a URL and return readable text/markdown (grounding /
-     "read this page"). httpx + a readability/markdownify step. **Security:** SSRF guard
-     (block private/loopback/link-local IPs and non-http(s) schemes), size + redirect
-     caps, timeout. Optional allowlist via config.
+  1. **`kodo-mcp-web` — DONE** (built as a browser-first reader rather than the originally
+     sketched httpx path). One tool `read_url(url)` → main content as Markdown. Renders with
+     **Playwright (Chromium)** so JS-heavy pages work, then extracts with **trafilatura**.
+     **Security:** SSRF guard (reject non-http(s) + private/loopback/link-local/reserved
+     hosts) enforced on the top URL *and* every browser request (subresources/redirects) via
+     request interception; `KODO_WEB_ALLOW_PRIVATE` escape hatch; nav timeout + Markdown cap.
+     Because Playwright + Chromium are heavy, it's **optional** (`uv sync --extra web` /
+     `make install-web`), not bundled — advertised so `kodo mcp add web` works once installed.
+     Follow-up ideas: a lighter static (httpx) fast-path, and a `tools-web` benchmark (present).
   2. **`kodo-mcp-search`** — web search returning titled snippets + URLs. Pairs with
      fetch (search → fetch the winner). Pluggable backend (DuckDuckGo HTML with no key,
      or Brave/Exa via a `KODO_SEARCH_*` key in pydantic-settings). Degrade with a clear
