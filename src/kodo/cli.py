@@ -43,7 +43,6 @@ app = typer.Typer(
 library_app = typer.Typer(
     help="Manage your local model library (list, pull, remove, tag, browse).", no_args_is_help=True
 )
-audio_app = typer.Typer(help="Legacy alias for `kodo voice` (text-to-speech).", no_args_is_help=True)
 project_app = typer.Typer(help="The project's assistant (./kodo.toml): scaffold and inspect it.", no_args_is_help=True)
 mcp_app = typer.Typer(
     help="MCP tool servers: browse a curated catalog + installed plugins, and add them to kodo.toml.",
@@ -51,7 +50,6 @@ mcp_app = typer.Typer(
 )
 voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
 app.add_typer(library_app, name="library")
-app.add_typer(audio_app, name="audio")
 app.add_typer(project_app, name="project")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(voice_app, name="voice")
@@ -1093,7 +1091,6 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
 
 
 @voice_app.command("voices")
-@audio_app.command(hidden=True)  # `kodo audio` is the legacy alias for `kodo voice`
 def voices() -> None:
     """List the built-in Kokoro voices (needs the `tts` extra: `make install-tts`)."""
     from kodo import kokoro  # noqa: PLC0415
@@ -1113,7 +1110,6 @@ def voices() -> None:
 
 
 @voice_app.command("speak")
-@audio_app.command(hidden=True)  # `kodo audio` is the legacy alias for `kodo voice`
 def speak(
     words: Annotated[list[str], typer.Argument(help="Text to synthesize into speech.")],
     voice: Annotated[

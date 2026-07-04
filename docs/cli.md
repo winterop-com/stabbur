@@ -134,7 +134,7 @@ kodo library pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' 
 - `--include <glob>` — Hugging Face only; fetch only matching files (repeatable),
   e.g. one GGUF quant from a multi-quant repo. Model cards and configs come along.
 - `--vocoder <repo>` — Hugging Face only; co-locate a vocoder (e.g. WavTokenizer)
-  with the model so it's recognized as a **text-to-speech** model (see `kodo audio speak`).
+  with the model so it's recognized as a **text-to-speech** model (see `kodo voice speak`).
 
 ## `kodo chat <name>`
 
@@ -169,27 +169,27 @@ the prompt as fenced blocks, so you can drop a file into *any* model as context.
 Non-chat models (embeddings, vision encoders) are refused with a clear message —
 kodo runs generative LLMs only.
 
-## `kodo audio voices`
+## `kodo voice voices`
 
 List the built-in **Kokoro** voices (54 across 9 languages) with their id,
 language, and gender. Requires the optional TTS extra (`make install-tts`).
 
 ```bash
-kodo audio voices                            # id · name · language · gender
+kodo voice voices                            # id · name · language · gender
 ```
 
-## `kodo audio speak <text...>`
+## `kodo voice speak <text...>`
 
 Text-to-speech. `--voice`/`-v` picks a **Kokoro** voice (multi-voice engine; run
-`kodo audio voices` to list them, model downloaded on first use). Otherwise it uses
+`kodo voice voices` to list them, model downloaded on first use). Otherwise it uses
 `llama-tts`/OuteTTS — the default, or `--model` for a library TTS model (see
 `kodo library pull --vocoder`). Markdown/code in the text is reduced to prose first.
 
 ```bash
-kodo audio speak hello there                 # default voice, play aloud (macOS)
-kodo audio speak -v af_heart "hello there"   # a specific Kokoro voice
-kodo audio speak "some text" -o out.wav      # write a WAV instead of playing
-kodo audio speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
+kodo voice speak hello there                 # default voice, play aloud (macOS)
+kodo voice speak -v af_heart "hello there"   # a specific Kokoro voice
+kodo voice speak "some text" -o out.wav      # write a WAV instead of playing
+kodo voice speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
 ```
 
 ## `kodo doctor`

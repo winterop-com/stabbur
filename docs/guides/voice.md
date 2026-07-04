@@ -42,8 +42,6 @@ kodo voice speak "Hi" --model dia \            # clone the voice in a clip
 kodo voice speak "Hi" --format mp3 -o out.mp3  # export via ffmpeg
 ```
 
-`kodo audio ...` is a legacy alias for `kodo voice ...`.
-
 ## Web UI — the Voice studio
 
 `kodo serve --ui` has a **Voice** studio (a peer surface to Chat), plus the voice
