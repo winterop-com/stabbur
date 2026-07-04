@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, PanelLeft, PanelRight, SquarePen, Sun, Moon } from "lucide-react";
+import { ArrowDown, Download, PanelRight, Sun, Moon } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
