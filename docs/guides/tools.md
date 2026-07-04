@@ -31,7 +31,14 @@ tools interactively in the `kodo project init` wizard, or write `[[mcp]]` blocks
 
 ### First-party servers
 
-kodo bundles two pure-stdlib plugins — **`datetime`** and **`utils`** — always available.
+kodo bundles pure-stdlib/light plugins — always available:
+
+- **`datetime`**, **`utils`** — date/time/calendar and text/encoding/hashing/math helpers.
+- **`search`** (`kodo-mcp-search`) — `search(query)` returns titled web results (title, URL,
+  snippet). Zero-config via DuckDuckGo (no key); set `KODO_SEARCH_BRAVE_KEY` /
+  `KODO_SEARCH_EXA_KEY` to use the Brave/Exa APIs. Pairs with `web` — search, then read the
+  winner.
+
 One heavier first-party server is **optional**:
 
 - **`web`** (`kodo-mcp-web`) — `read_url(url)` reads a page in a **headless browser**

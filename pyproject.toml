@@ -12,6 +12,7 @@ dependencies = [
     "huggingface-hub>=1.21.0",
     "kodo-mcp-benchmark",
     "kodo-mcp-datetime",
+    "kodo-mcp-search",
     "kodo-mcp-utils",
     "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
@@ -79,6 +80,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 kodo-mcp-datetime = { workspace = true }
 kodo-mcp-benchmark = { workspace = true }
+kodo-mcp-search = { workspace = true }
 kodo-mcp-utils = { workspace = true }
 kodo-mcp-web = { workspace = true }  # optional (the `web` extra); heavy Playwright deps
 
