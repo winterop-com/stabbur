@@ -546,10 +546,13 @@ export function App() {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, []);
+  // Re-pin on new/updated messages AND when streaming ends — the hover action row
+  // (copy/speak/regenerate) is only rendered once `streaming` flips false, growing the
+  // last turn; without re-pinning here it gets clipped at the scroll bottom.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, streaming]);
   // On conversation switch, jump to bottom.
   useEffect(() => {
     stick.current = true;
