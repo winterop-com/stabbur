@@ -17,7 +17,7 @@ from kodo import attach, capabilities, cards, config, doctor, project, runtime, 
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
-from kodo.models import CuratedModel, ModelFormat, ModelSource, _human_size
+from kodo.models import CuratedMcp, CuratedModel, ModelFormat, ModelSource, _human_size
 from kodo.sources import huggingface as hf
 
 if TYPE_CHECKING:
@@ -45,7 +45,10 @@ library_app = typer.Typer(
 )
 audio_app = typer.Typer(help="Legacy alias for `kodo voice` (text-to-speech).", no_args_is_help=True)
 project_app = typer.Typer(help="The project's assistant (./kodo.toml): scaffold and inspect it.", no_args_is_help=True)
-mcp_app = typer.Typer(help="MCP tool servers kodo can attach (from installed plugins).", no_args_is_help=True)
+mcp_app = typer.Typer(
+    help="MCP tool servers: browse a curated catalog + installed plugins, and add them to kodo.toml.",
+    no_args_is_help=True,
+)
 voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
 app.add_typer(library_app, name="library")
 app.add_typer(audio_app, name="audio")
@@ -54,23 +57,133 @@ app.add_typer(mcp_app, name="mcp")
 app.add_typer(voice_app, name="voice")
 
 
+# Curated MCP tool servers `kodo mcp add <name>` can drop into a project's kodo.toml.
+# Real, publicly-installable servers run via `uvx` (Python) or `bunx` (Node) — no prior
+# install needed. Commands with placeholders (a path, a profile) are meant to be edited;
+# the `setup` note says what. DHIS2 leads (kodo's north star); the rest are general tools.
+_CURATED_MCP: list[CuratedMcp] = [
+    CuratedMcp(
+        name="dhis2",
+        command="env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge",
+        description="DHIS2 CLI bridge — one `dhis2_cli` tool (best for smaller models). "
+        "Swap uvx dhis2w-mcp-bridge for dhis2w-mcp-router or dhis2w-mcp for bigger models.",
+        setup="set DHIS2_PROFILE to a profile in ~/.config/dhis2/profiles.toml; "
+        "drop DHIS2_MCP_READONLY to allow writes",
+    ),
+    CuratedMcp(
+        name="fetch",
+        command="uvx mcp-server-fetch",
+        description="Fetch a URL and return its content as markdown.",
+    ),
+    # (No `time` server — the installed `datetime` plugin already covers time/timezone/calendar.)
+    CuratedMcp(
+        name="git",
+        command="uvx mcp-server-git --repository .",
+        description="Read and inspect a git repository.",
+        setup="point --repository at the repo (default: the current directory)",
+    ),
+    CuratedMcp(
+        name="sqlite",
+        command="uvx mcp-server-sqlite --db-path ./data.db",
+        description="Query a SQLite database.",
+        setup="point --db-path at your .db file",
+    ),
+    CuratedMcp(
+        name="filesystem",
+        command="bunx @modelcontextprotocol/server-filesystem .",
+        description="Read and write files under a directory.",
+        setup="pass the directory to expose (default: here); needs bun (bunx)",
+    ),
+]
+
+
+def _project_mcp_keys(path: Path = Path("kodo.toml")) -> set[str]:
+    """Names + commands of MCP servers already listed in the local ``kodo.toml`` (empty if none)."""
+    proj = project.load(path)
+    keys: set[str] = set()
+    for m in proj.mcp if proj else []:
+        keys.add(m.command)
+        if m.name:
+            keys.add(m.name)
+    return keys
+
+
 @mcp_app.command("list")
 @mcp_app.command("ls", hidden=True)  # `ls` alias, mirroring `kodo library ls`
 def mcp_list() -> None:
-    """List the MCP tool servers advertised by installed plugins."""
+    """List MCP tool servers: a curated catalog to add, plus any installed plugins.
+
+    A [green]✓[/] marks a server already in this directory's ``kodo.toml``. Add a curated
+    one with ``kodo mcp add <name>``.
+    """
     from kodo import plugins  # noqa: PLC0415
 
+    in_project = _project_mcp_keys()
+
+    def mark(name: str, command: str) -> str:
+        return "[green]✓[/]" if name in in_project or command in in_project else ""
+
+    catalog = Table(box=box.SIMPLE, header_style="bold", title="[bold]Curated servers[/]", title_justify="left")
+    catalog.add_column("IN", justify="center")
+    catalog.add_column("NAME", style="cyan")
+    catalog.add_column("COMMAND")
+    catalog.add_column("DESCRIPTION", style="dim", overflow="fold")
+    for c in _CURATED_MCP:
+        desc = c.description + (f"\n[yellow]setup:[/] [dim]{c.setup}[/]" if c.setup else "")
+        catalog.add_row(mark(c.name, c.command), c.name, c.command, desc)
+    console.print(catalog)
+    console.print("[dim]Add one to this project's kodo.toml:[/] kodo mcp add <name>\n")
+
     servers = plugins.advertised_servers(plugins.manager())
-    if not servers:
-        console.print("[dim]No MCP servers advertised. Install a kodo MCP plugin to add tools.[/]")
+    if servers:
+        plug = Table(box=box.SIMPLE, header_style="bold", title="[bold]Installed plugins[/]", title_justify="left")
+        plug.add_column("IN", justify="center")
+        plug.add_column("NAME", style="cyan")
+        plug.add_column("COMMAND")
+        plug.add_column("DESCRIPTION", style="dim")
+        for s in servers:
+            plug.add_row(mark(s.name, s.command), s.name, s.command, s.description)
+        console.print(plug)
+        console.print("[dim]Add one by name too:[/] kodo mcp add <name>")
+
+
+@mcp_app.command("add")
+def mcp_add(
+    name: Annotated[str, typer.Argument(help="A curated server or installed plugin name (see `kodo mcp list`).")],
+) -> None:
+    """Add an MCP server to this directory's ``kodo.toml`` (idempotent).
+
+    Resolves ``name`` against the curated catalog first, then installed plugins. Appends a
+    ``[[mcp]]`` block; edit the command afterwards if it has a placeholder (path/profile).
+    """
+    from kodo import plugins  # noqa: PLC0415
+
+    path = Path("kodo.toml")
+    if not path.is_file():
+        console.print("[red]No kodo.toml here.[/] Run [bold]kodo project init[/] first (or cd into a project).")
+        raise typer.Exit(1)
+
+    curated = next((c for c in _CURATED_MCP if c.name == name), None)
+    if curated is not None:
+        entry_name, command, setup = curated.name, curated.command, curated.setup
+    else:
+        server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == name), None)
+        if server is None:
+            console.print(f"[red]Unknown MCP {name!r}.[/] See [bold]kodo mcp list[/] for the catalog.")
+            raise typer.Exit(1)
+        entry_name, command, setup = server.name, server.command, ""
+
+    if entry_name in _project_mcp_keys(path) or command in _project_mcp_keys(path):
+        console.print(f"[yellow]{entry_name}[/] is already in {path}.")
         return
-    table = Table(box=box.SIMPLE, header_style="bold")
-    table.add_column("NAME", style="cyan")
-    table.add_column("COMMAND")
-    table.add_column("DESCRIPTION", style="dim")
-    for server in servers:
-        table.add_row(server.name, server.command, server.description)
-    console.print(table)
+
+    block = f"\n[[mcp]]\nname = {json.dumps(entry_name)}\ncommand = {json.dumps(command)}\n"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(block)
+    console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
+    if setup:
+        console.print(f"  [yellow]setup:[/] {setup}")
+    console.print("[dim]Check it:[/] kodo project show")
 
 
 @app.callback()

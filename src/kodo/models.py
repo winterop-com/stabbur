@@ -121,6 +121,17 @@ class CuratedModel(BaseModel):
     note: str
 
 
+class CuratedMcp(BaseModel):
+    """A curated MCP tool server offered by `kodo mcp list` / added by `kodo mcp add`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str  # tool namespace + kodo.toml [[mcp]].name, e.g. "dhis2"
+    command: str  # the kodo.toml [[mcp]].command to run it
+    description: str
+    setup: str = ""  # one-line hint when the server needs config (a profile, path, key, Node, …)
+
+
 class ErrorResponse(BaseModel):
     """Standard error response."""
 
