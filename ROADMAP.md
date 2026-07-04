@@ -16,13 +16,11 @@ history is the record) — this file is only open threads.
    `kodo project show` now does (a project listing `web` without `--extra web` reports
    `failed: … make install-web` instead of silently 0 tools). Also: warn in `kodo project
    init` / `kodo mcp add` when adding `web` without the extra installed.
-3. **Extend the Textual TUI with a command palette.** Use Textual's built-in palette
-   (`Ctrl+P`) + a custom `CommandProvider` to surface, from the keyboard, the things currently
-   only in the web UI: change the **speak-replies (chat) voice**, switch model, toggle which
-   tools are enabled, adjust sampling (temperature/top-p/top-k/…), export the transcript, clear
-   the conversation, jump to settings. Complements the existing `/` slash commands and the `^y`
-   copy binding — the general "do a thing without leaving the keyboard" surface. Reuse the same
-   `/api`-equivalent logic the web UI calls so behavior stays consistent across surfaces.
+3. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
+   autocomplete, and MCP enable/disable/reconnect have shipped. Still keyboard-only-missing vs the
+   web UI: change the **speak-replies (chat) voice**, switch model, adjust sampling
+   (temperature/top-p/top-k/…), export the transcript. Reuse the same `/api`-equivalent logic the
+   web UI calls so behavior stays consistent across surfaces.
 4. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
    drawer-style sidebar for very narrow mobile widths.
 
