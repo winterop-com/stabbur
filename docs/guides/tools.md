@@ -5,7 +5,7 @@ servers (the agent loop executes the call and feeds the result back). Tools come
 from two places:
 
 - **Installed plugins** — MCP servers advertised by installed `kodo-mcp-*` packages
-  (`datetime`, `utils`, `memory`). (The `benchmark` package is a dev/benchmarking tool and
+  (`datetime`, `utils`, `memory`, `weather-yr`). (The `benchmark` package is a dev/benchmarking tool and
   does *not* advertise itself as an assistant tool.)
 - **A project's `[[mcp]]`** — any MCP server command, listed in `kodo.toml`. This is
   how you attach an external server like DHIS2.
@@ -42,6 +42,10 @@ kodo bundles pure-stdlib/light plugins — always available:
   snippet). Zero-config via DuckDuckGo (no key); set `KODO_SEARCH_BRAVE_KEY` /
   `KODO_SEARCH_EXA_KEY` to use the Brave/Exa APIs. Pairs with `web` — search, then read the
   winner.
+- **`weather-yr`** (`kodo-mcp-weather-yr`) — `weather_forecast(place)` /
+  `weather_forecast_at(lat, lon)` return current conditions + hourly + daily forecast from the
+  free met.no (yr.no) API (place names geocoded via OpenStreetMap). No key; fixed endpoints, so
+  no arbitrary-fetch surface.
 
 One heavier first-party server is **optional**:
 
