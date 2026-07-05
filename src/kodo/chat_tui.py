@@ -12,6 +12,7 @@ import asyncio
 import random
 import time
 from contextlib import AsyncExitStack
+from pathlib import Path
 from typing import Any
 
 from rich.console import Group
@@ -66,6 +67,24 @@ _GERUNDS = (
 # Braille spinner frames for the "thinking" indicator.
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
+# Accepted aliases -> ModelSampling field, for the `/set <param> <value>` command.
+_SAMPLING_FIELDS: dict[str, str] = {
+    "temperature": "temperature",
+    "temp": "temperature",
+    "top_p": "top_p",
+    "top-p": "top_p",
+    "topp": "top_p",
+    "top_k": "top_k",
+    "top-k": "top_k",
+    "topk": "top_k",
+    "min_p": "min_p",
+    "min-p": "min_p",
+    "minp": "min_p",
+    "repeat_penalty": "repeat_penalty",
+    "repeat-penalty": "repeat_penalty",
+    "penalty": "repeat_penalty",
+}
+
 # Slash commands typed in the input, for the in-line autocomplete menu. Each is
 # (display, completion, help): the completion is what Tab fills in (a trailing space
 # where an argument follows). The palette (Ctrl+P) is generated separately from live app state.
@@ -75,6 +94,8 @@ _SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
     ("/mcp off <server>", "/mcp off ", "disable a server's tools"),
     ("/mcp reconnect", "/mcp reconnect", "respawn the MCP servers"),
     ("/copy", "/copy", "copy the last reply"),
+    ("/export", "/export ", "save the transcript to a markdown file"),
+    ("/set", "/set ", "adjust sampling (temperature/top_p/top_k/…)"),
     ("/clear", "/clear", "clear the conversation"),
     ("/help", "/help", "commands + keyboard shortcuts"),
     ("/exit", "/exit", "quit"),
@@ -95,6 +116,8 @@ class _KodoCommands(Provider):
                 app.action_reconnect_mcp,
             ),
             ("Copy last reply", "copy the last reply to the clipboard", app.action_copy_reply),
+            ("Export transcript", "save the conversation to a markdown file (chat.md)", app.action_export),
+            ("Sampling settings", "show sampling; change with /set <param> <value>", app.action_show_sampling),
             ("Clear conversation", "clear the transcript, keep the system prompt", app.action_clear),
             ("Help", "commands + keyboard shortcuts", app.action_help),
         ]
@@ -317,6 +340,69 @@ class ChatApp(App[None]):
                     return content
         return None
 
+    @staticmethod
+    def _content_text(content: Any) -> str:
+        """Plain text of a message's content (a string, or the text parts of a multimodal list)."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+        return ""
+
+    def action_export(self, path: str | None = None) -> None:
+        """Write the conversation to a Markdown file (default: chat.md in the current directory)."""
+        turns = [
+            m
+            for m in self.messages
+            if m.get("role") in ("user", "assistant") and self._content_text(m.get("content")).strip()
+        ]
+        if not turns:
+            self.notify("Nothing to export yet.", severity="warning", timeout=2)
+            return
+        dest = Path(path) if path else Path("chat.md")
+        lines = [f"# Chat — {self._model_name}", ""]
+        for m in self.messages:
+            role, text = m.get("role"), self._content_text(m.get("content"))
+            if not text.strip():
+                continue
+            heading = {"system": "System prompt", "user": "You", "assistant": "Assistant"}.get(str(role))
+            if heading:
+                lines += [f"## {heading}", "", text, ""]
+        try:
+            dest.write_text("\n".join(lines))
+        except OSError as exc:
+            self.notify(f"Export failed: {exc}", severity="error", timeout=3)
+            return
+        self.notify(f"Exported to {dest}", timeout=3)
+        self._post(Text(f"exported transcript → {dest}", style="grey50"))
+
+    def action_show_sampling(self) -> None:
+        """Show the current sampling settings (change them with `/set <param> <value>`)."""
+        body = Text("sampling\n", style="bold #fb7185")
+        for field in ("temperature", "top_p", "top_k", "min_p", "repeat_penalty"):
+            value = getattr(self._sampling, field)
+            body.append(f"  {field}", style="grey66")
+            body.append(f"   {value if value is not None else '—'}\n", style="grey42")
+        body.append("\n/set <param> <value>  ·  e.g. /set temperature 0.7", style="grey42")
+        self._post(body)
+
+    def _set_sampling(self, param: str, value: str) -> None:
+        """Apply `/set <param> <value>` to the live sampling used for subsequent turns."""
+        field = _SAMPLING_FIELDS.get(param.lower())
+        if field is None:
+            self._post(
+                Text(f"unknown setting {param!r} — temperature/top_p/top_k/min_p/repeat_penalty", style="grey50")
+            )
+            return
+        try:
+            num: float | int = int(value) if field == "top_k" else float(value)
+        except ValueError:
+            self._post(Text(f"{value!r} is not a number", style="grey50"))
+            return
+        self._sampling = self._sampling.model_copy(update={field: num})
+        self._post(Text(f"{field} = {num}", style="grey50"))
+        self._refresh_status()
+
     def action_copy_reply(self) -> None:
         """Copy the last assistant reply to the clipboard (works over SSH via OSC 52)."""
         text = self._last_reply_text()
@@ -489,6 +575,8 @@ class ChatApp(App[None]):
             ("/mcp on|off <server>", "enable / disable a server's tools"),
             ("/mcp reconnect", "respawn the MCP servers"),
             ("/copy", "copy the last reply"),
+            ("/export [file]", "save the transcript to markdown (chat.md)"),
+            ("/set <param> <value>", "adjust sampling (temperature/top_p/top_k/min_p/repeat_penalty)"),
             ("/clear", "clear the conversation"),
             ("/help", "this help"),
             ("/exit", "quit"),
@@ -549,6 +637,13 @@ class ChatApp(App[None]):
             self.action_help()
         elif name in ("copy", "y"):
             self.action_copy_reply()
+        elif name in ("export", "save"):
+            self.action_export(parts[1] if len(parts) > 1 else None)
+        elif name in ("set", "sampling"):
+            if len(parts) >= 3:
+                self._set_sampling(parts[1], parts[2])
+            else:
+                self.action_show_sampling()
         elif name in ("clear", "reset"):
             self.action_clear()
         else:
