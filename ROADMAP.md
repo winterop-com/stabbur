@@ -12,15 +12,11 @@ history is the record) — this file is only open threads.
    shipped. The only remaining web-UI parity gap is **switch model** (a real change — see the polish
    queue: the TUI would need to own the runtime lifecycle). Changing the speak-replies voice is N/A
    in the terminal (it does not speak).
-2. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
-   drawer-style sidebar for very narrow mobile widths.
-
 ### Near-term polish queue (ranked)
 
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
-| 2 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
+| 1 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
 
 ## DHIS2 assistant — near-term
 
