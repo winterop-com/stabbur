@@ -68,7 +68,15 @@ async def _stream_turn(
     calls: dict[int, dict[str, str]] = {}
     usage: dict[str, Any] | None = None
     async with http.stream("POST", f"{base_url}/v1/chat/completions", json=body) as resp:
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Read the body on error — llama-server puts the real cause (e.g. context overflow)
+            # in the JSON detail, which raise_for_status alone would discard.
+            detail = (await resp.aread()).decode("utf-8", errors="replace").strip()[:500]
+            raise httpx.HTTPStatusError(
+                f"runtime returned {resp.status_code}: {detail}" if detail else f"runtime returned {resp.status_code}",
+                request=resp.request,
+                response=resp,
+            )
         async for line in resp.aiter_lines():
             if not line.startswith("data:"):
                 continue

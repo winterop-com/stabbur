@@ -174,7 +174,14 @@ def start(model: LibraryModel) -> RuntimeProc:
         log_fh = (log_dir / f"{cmd[0]}.log").open("wb")
         stderr_target = log_fh
 
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=stderr_target)
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=stderr_target)
+    except OSError:  # spawn failed after we opened the log fd + tempdir — don't leak them
+        if log_fh is not None:
+            log_fh.close()
+        if log_dir is not None:
+            shutil.rmtree(log_dir, ignore_errors=True)
+        raise
     return RuntimeProc(proc, base, model, cmd, port, log_dir, log_fh)
 
 

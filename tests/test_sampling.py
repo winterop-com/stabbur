@@ -33,11 +33,9 @@ def test_missing_config_gets_only_the_anti_loop_default(tmp_path: Path) -> None:
 
 def test_ignores_unset_sentinels(tmp_path: Path) -> None:
     # temperature 0 / top_p 1 / top_k 0 are "no-op" sentinels — don't surface them
-    # (they would otherwise force greedy / disable nucleus sampling). A repeat_penalty
-    # of 1.0 (no penalty) falls back to the anti-loop default.
-    (tmp_path / "generation_config.json").write_text(
-        json.dumps({"temperature": 0, "top_p": 1.0, "top_k": 0, "repeat_penalty": 1.0})
-    )
+    # (they would otherwise force greedy / disable nucleus sampling). With no repeat_penalty
+    # in the config, the anti-loop default applies. (An *explicit* 1.0 is a separate test.)
+    (tmp_path / "generation_config.json").write_text(json.dumps({"temperature": 0, "top_p": 1.0, "top_k": 0}))
     assert sampling.recommended(_mlx_model(tmp_path)) == sampling.ModelSampling(
         repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY
     )
@@ -50,3 +48,18 @@ def test_gguf_reads_config_from_parent_dir(tmp_path: Path) -> None:
         name="pub/G", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "model.gguf"
     )
     assert sampling.recommended(model).temperature == 0.7
+
+
+def test_explicit_repeat_penalty_one_is_respected(tmp_path: Path) -> None:
+    # An explicit repeat_penalty: 1.0 (no penalty) must not be bumped to the anti-loop default (V-16).
+    model_dir = tmp_path / "m"
+    model_dir.mkdir()
+    (model_dir / "generation_config.json").write_text(json.dumps({"repetition_penalty": 1.0}))
+    assert sampling.recommended(_mlx_model(model_dir)).repeat_penalty == 1.0
+
+
+def test_absent_repeat_penalty_uses_default(tmp_path: Path) -> None:
+    model_dir = tmp_path / "m"
+    model_dir.mkdir()
+    (model_dir / "generation_config.json").write_text(json.dumps({"temperature": 0.7}))
+    assert sampling.recommended(_mlx_model(model_dir)).repeat_penalty == sampling.DEFAULT_REPEAT_PENALTY

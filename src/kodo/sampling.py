@@ -62,8 +62,13 @@ def recommended(model: LibraryModel) -> ModelSampling:
     top_p = _num(data.get("top_p"))
     top_k_raw = _num(data.get("top_k"))
     min_p = _num(data.get("min_p"))
-    # HF calls it repetition_penalty; llama.cpp/mlx call it repeat_penalty.
-    repeat = _num(data.get("repeat_penalty")) or _num(data.get("repetition_penalty"))
+    # HF calls it repetition_penalty; llama.cpp/mlx call it repeat_penalty. Distinguish "key
+    # present" from "absent" so an explicit repeat_penalty: 1.0 (I want no penalty) is respected,
+    # not silently bumped to the anti-loop default.
+    raw_repeat = data.get("repeat_penalty")
+    if raw_repeat is None:
+        raw_repeat = data.get("repetition_penalty")
+    repeat = _num(raw_repeat)
     return ModelSampling(
         # Some configs ship temperature: 0 / top_p: 1 as "unset" sentinels — ignore
         # those so we don't force greedy decoding on a model that didn't mean to.
@@ -71,6 +76,6 @@ def recommended(model: LibraryModel) -> ModelSampling:
         top_p=top_p if top_p and top_p < 1.0 else None,
         top_k=int(top_k_raw) if top_k_raw and top_k_raw > 0 else None,
         min_p=min_p if min_p else None,
-        # Respect an explicit model value; otherwise apply a mild anti-loop default.
-        repeat_penalty=repeat if repeat and repeat != 1.0 else DEFAULT_REPEAT_PENALTY,
+        # Respect an explicit model value (including 1.0 = no penalty); default only when absent/invalid.
+        repeat_penalty=repeat if (repeat is not None and repeat > 0) else DEFAULT_REPEAT_PENALTY,
     )
