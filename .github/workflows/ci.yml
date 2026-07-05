@@ -1,0 +1,61 @@
+name: CI
+
+# The quality gate for a repo that commits straight to main: run `make check`
+# (ruff format + lint, mypy, pyright, pytest) on every push and PR. The ubuntu +
+# macos matrix also confirms the mlx/voice extras' platform gating (mlx has no
+# Linux wheels) actually no-ops on Linux, which can't be verified on a Mac.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Newer pushes cancel superseded in-flight runs for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      # pyright (a Node tool under the hood) needs Node on PATH.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # --all-extras installs every Linux-compatible extra (tts/voice/web); mlx is
+      # env-marker-gated to darwin/arm64, so this is where "gating no-ops on Linux" is proven.
+      - run: uv sync --all-extras
+      - run: make check
+
+  frontend:
+    name: frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      # The SPA is otherwise entirely outside the quality gate — vite/esbuild strip
+      # types without checking them, so a type error would ship silently.
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
