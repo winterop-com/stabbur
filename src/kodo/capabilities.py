@@ -50,10 +50,16 @@ class ModelCapabilities(BaseModel):
     context_length: int | None = None
 
 
+# Cap a single GGUF metadata string read: chat templates are large but bounded, so a bit-flipped
+# uint64 length (corruption on the no-journal exFAT drive) can't slurp gigabytes into RAM. A
+# misaligned read past this just yields garbage the (guarded) capability parse discards.
+_MAX_GGUF_STRING = 16 * 1024 * 1024
+
+
 def _read_gguf_string(fh: Any) -> str:
-    """Read a GGUF string (uint64 length + UTF-8 bytes) from an open file."""
+    """Read a GGUF string (uint64 length + UTF-8 bytes) from an open file (length-capped)."""
     (length,) = struct.unpack("<Q", fh.read(8))
-    return bytes(fh.read(length)).decode("utf-8", errors="replace")
+    return bytes(fh.read(min(length, _MAX_GGUF_STRING))).decode("utf-8", errors="replace")
 
 
 def _skip_gguf_value(fh: Any, vtype: int) -> None:

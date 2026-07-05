@@ -82,8 +82,10 @@ def build_modelfile(model: LibraryModel, system: str | None = None) -> str:
         # A vision GGUF pairs the projector; Ollama takes it as a second FROM.
         lines.append(f"FROM {model.mmproj}")
     if system:
-        escaped = system.replace('"', '\\"')
-        lines.append(f'SYSTEM "{escaped}"')
+        if "\n" in system:  # Ollama needs a triple-quoted block for a multi-line SYSTEM prompt
+            lines.append(f'SYSTEM """{system}"""')
+        else:
+            lines.append(f'SYSTEM "{system.replace(chr(34), chr(92) + chr(34))}"')
     return "\n".join(lines) + "\n"
 
 
@@ -116,7 +118,7 @@ def install_ollama(model: LibraryModel, *, name: str | None = None, system: str 
     modelfile = build_modelfile(model, system=system)
     with tempfile.TemporaryDirectory() as tmp:
         mf_path = Path(tmp) / "Modelfile"
-        mf_path.write_text(modelfile)
+        mf_path.write_text(modelfile, encoding="utf-8")
         proc = subprocess.run(
             ["ollama", "create", target, "-f", str(mf_path)],
             capture_output=True,

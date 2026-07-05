@@ -408,7 +408,7 @@ class ChatApp(App[None]):
             if heading:
                 lines += [f"## {heading}", "", text, ""]
         try:
-            dest.write_text("\n".join(lines))
+            dest.write_text("\n".join(lines), encoding="utf-8")
         except OSError as exc:
             self.notify(f"Export failed: {exc}", severity="error", timeout=3)
             return

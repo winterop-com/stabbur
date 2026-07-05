@@ -132,3 +132,14 @@ def test_gguf_bare_mmproj_defaults_to_vision(tmp_path: Path) -> None:
     caps = capabilities.capabilities(_model(tmp_path, ModelFormat.gguf, gguf, mmproj=mmproj))
     assert caps.vision is True
     assert caps.audio is False
+
+
+def test_read_gguf_string_caps_a_bogus_length() -> None:
+    # N-L1: a bit-flipped uint64 length must not slurp gigabytes — read is capped.
+    import io
+    import struct
+
+    from kodo import capabilities
+
+    fh = io.BytesIO(struct.pack("<Q", 10**10) + b"hello")  # claims 10 GB, has 5 bytes
+    assert capabilities._read_gguf_string(fh) == "hello"

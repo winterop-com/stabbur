@@ -25,7 +25,7 @@ def write_metadata(sidecar_dir: Path, data: dict[str, Any]) -> Path:
     """Write ``metadata.json`` into ``sidecar_dir`` and return its path."""
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     path = sidecar_dir / "metadata.json"
-    path.write_text(json.dumps(data, indent=2, default=str))
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
     return path
 
 
@@ -33,7 +33,7 @@ def write_card(sidecar_dir: Path, markdown: str) -> Path:
     """Write a generated ``model-card.md`` into ``sidecar_dir`` and return its path."""
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     path = sidecar_dir / "model-card.md"
-    path.write_text(markdown)
+    path.write_text(markdown, encoding="utf-8")
     return path
 
 

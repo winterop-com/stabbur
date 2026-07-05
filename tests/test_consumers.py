@@ -160,3 +160,10 @@ def test_install_lmstudio_refuses_to_clobber_a_real_dir(tmp_path: Path, monkeypa
     (real / "existing.gguf").write_bytes(b"x")
     with pytest.raises(RuntimeError, match="already exists"):
         consumers.install_lmstudio(_model(tmp_path, ModelFormat.gguf, "pub/Foo-GGUF"))
+
+
+def test_build_modelfile_multiline_system_uses_triple_quotes(tmp_path: Path) -> None:
+    # S-L5: a multi-line system prompt needs Ollama's triple-quote block, not a broken single-quote line.
+    model = _gguf(tmp_path)
+    mf = consumers.build_modelfile(model, system="line one\nline two")
+    assert 'SYSTEM """line one\nline two"""' in mf
