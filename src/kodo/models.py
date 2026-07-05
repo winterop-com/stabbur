@@ -147,6 +147,8 @@ class ProjectTemplate(BaseModel):
     mcp: list[tuple[str, str]] = Field(default_factory=list)  # (name, command) per [[mcp]] block
     files: dict[str, str] = Field(default_factory=dict)  # relative path -> content, written verbatim
     next_steps: str = ""  # printed after scaffolding (setup the template still needs)
+    extras: list[str] = Field(default_factory=list)  # kodo extras the uv project needs, e.g. ["voice"], ["web"]
+    chat_voice: str | None = None  # spoken-reply voice override (default: kokoro:af_heart)
 
 
 class ErrorResponse(BaseModel):
