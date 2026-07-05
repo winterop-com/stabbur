@@ -1994,6 +1994,35 @@ def serve(
 # --- voice -----------------------------------------------------------------
 
 
+@voice_app.command("setup")
+def voice_setup() -> None:
+    """Make Dia self-contained: seed its DAC codec into the (drive) HF cache.
+
+    Dia decodes through ``descript-audio-codec-44khz``, which mlx-audio fetches by repo
+    id at synth time — separately from Dia's own weights. With the HF cache redirected
+    onto the library drive, this downloads the codec there once so Dia works offline and
+    travels with the drive.
+    """
+    from kodo import hfcache  # noqa: PLC0415
+    from kodo.voice import dac  # noqa: PLC0415
+
+    cache = hfcache.drive_cache_dir()
+    where = f"[green]{cache}[/] (on the drive)" if cache else "[yellow]~/.cache/huggingface[/] (machine-local)"
+    console.print(f"HF cache: {where}")
+    if not cache:
+        console.print("[dim]Set[/] KODO_LIBRARY_ROOT [dim]to a real library drive so the codec travels with it.[/]")
+    if dac.codec_present():
+        console.print(f"[green]DAC codec already present[/] [dim]({dac.DAC_REPO}).[/]")
+        return
+    console.print(f"[dim]Downloading[/] {dac.DAC_REPO} [dim](~293 MB)…[/]")
+    try:
+        path = dac.seed_codec(token=get_settings().hf_token)
+    except Exception as exc:  # noqa: BLE001 - a network/hub failure is user-facing, not a crash
+        console.print(f"[red]Failed to seed the DAC codec:[/] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Seeded[/] the DAC codec [dim]→ {path}[/]. Dia is now self-contained.")
+
+
 @voice_app.command("list")
 @voice_app.command("ls", hidden=True)  # alias, matching `kodo library ls`
 def voice_list() -> None:

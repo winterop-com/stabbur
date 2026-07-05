@@ -99,3 +99,10 @@ machine; the models and their tags come along.
   `/media/<user>/<drive>` on Linux) — set `library_root` in `kodo.toml`, or override
   it per machine with `KODO_LIBRARY_ROOT`.
 - Re-downloadable weights make the lack of journaling low-stakes.
+
+!!! tip "Runtime assets travel too"
+    Some runtimes fetch assets by Hugging Face repo id rather than from the library — e.g.
+    mlx-audio's Dia loads its DAC codec that way. So they don't get left behind in
+    `~/.cache/huggingface`, kodo points `HF_HOME` at `<library_root>/.cache/huggingface` (unless
+    you've set `HF_HOME`/`HF_HUB_CACHE` yourself). Run `kodo voice setup` once to seed Dia's codec
+    onto the drive; Dia then works offline and travels with it.

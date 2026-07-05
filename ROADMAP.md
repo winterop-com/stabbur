@@ -56,10 +56,13 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
 - **Qwen3-TTS support.** Flagged `supported=False`: mlx-audio's `load_model` doesn't wire up its
   separate speech tokenizer (`Qwen3TTSSpeechTokenizer` in the repo's `speech_tokenizer/`), so
   `generate_audio` errors. Enable by loading the tokenizer + `model.load_speech_tokenizer(...)`.
-- **Dia self-contained on the drive.** Dia loads its DAC codec
-  (`mlx-community/descript-audio-codec-44khz`, 293MB) from `~/.cache/huggingface`, not the
-  library — mlx-audio hardcodes the repo id. For offline portability, point `HF_HUB_CACHE` at a
-  drive dir **at process startup** (its cache constants are import-time) and seed it once.
+- **Dia self-contained on the drive.** [Done] `kodo.hfcache.configure()` (called from the
+  package `__init__`, before hf_hub is imported) points `HF_HOME` at
+  `<library_root>/.cache/huggingface`, so assets mlx-audio fetches by repo id — Dia's DAC codec
+  (`mlx-community/descript-audio-codec-44khz`, 293MB) — land on the drive and travel with it.
+  `kodo voice setup` seeds the codec there once (idempotent); verified that Dia's codec then
+  resolves from the drive offline and a full Dia synth works. No-op if the user set
+  `HF_HOME`/`HF_HUB_CACHE` or there's no real configured library.
 - **Richer audio UI.** [ElevenLabs UI](https://ui.elevenlabs.io/) is a shadcn/Tailwind audio
   component registry (waveform player, orb, …) on the same stack — a natural polish pass.
 - **Voice cloning in the Textual TUI.** Reachable from the web UI + CLI (`kodo voice speak

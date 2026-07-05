@@ -19,7 +19,10 @@ from kodo.voice.registry import BUILTIN, VoiceModel
 
 
 def hf_hub_cache() -> Path:
-    """The Hugging Face hub cache directory (respects ``HF_HOME``)."""
+    """The Hugging Face hub cache directory (respects ``HF_HUB_CACHE`` / ``HF_HOME``)."""
+    direct = os.environ.get("HF_HUB_CACHE")
+    if direct:
+        return Path(direct)
     home = os.environ.get("HF_HOME")
     base = Path(home) if home else Path.home() / ".cache" / "huggingface"
     return base / "hub"

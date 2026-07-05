@@ -8,4 +8,12 @@ import os
 # (The old HF_HUB_ENABLE_HF_TRANSFER flag is deprecated/removed in 1.21.)
 os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
 
+# Point the HF hub cache at the library drive (before huggingface_hub is imported), so
+# assets some runtimes fetch by repo id — e.g. mlx-audio's Dia DAC codec — travel with
+# the drive instead of living in ~/.cache/huggingface. No-op if the user set HF_HOME/
+# HF_HUB_CACHE, or there's no real configured library. See kodo.hfcache.
+from kodo import hfcache as _hfcache  # noqa: E402
+
+_hfcache.configure()
+
 __version__ = "0.1.0"
