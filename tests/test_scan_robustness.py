@@ -95,3 +95,27 @@ def test_remove_drops_model_tags(tmp_path: Path) -> None:
     library.remove(model)
     assert not repo.exists()
     assert tags.tags_for(tmp_path, "pub/Foo-GGUF") == []  # tags cleaned
+
+
+def test_migrate_keeps_hf_copy_when_bucket_copy_is_not_a_verified_dup(tmp_path: Path) -> None:
+    # S-M2: a partial/different dir already in the bucket must NOT license deleting the complete
+    # huggingface/ copy. No dedup is planned, and apply leaves the hf copy intact.
+    hf = tmp_path / "huggingface" / "pub" / "Foo-GGUF"
+    _gguf(hf, "m.gguf", b"complete-weights")
+    _gguf(tmp_path / "gguf" / "pub" / "Foo-GGUF", "m.gguf", b"x")  # different size -> not verified
+    plan = library.plan_migration(tmp_path)
+    assert all(a.kind != "dedup" for a in plan)
+    library.apply_migration(plan)
+    assert (hf / "m.gguf").read_bytes() == b"complete-weights"  # hf copy untouched
+
+
+def test_migrate_move_does_not_nest_into_a_racing_dest(tmp_path: Path) -> None:
+    # S-M2: if a dest appears between plan (move) and apply, don't move src *into* it (nesting).
+    hf = tmp_path / "huggingface" / "pub" / "Bar-GGUF"
+    _gguf(hf, "m.gguf", b"data")
+    plan = library.plan_migration(tmp_path)
+    assert plan and plan[0].kind == "move"
+    _gguf(tmp_path / "gguf" / "pub" / "Bar-GGUF", "other.gguf", b"different")  # racing pull, different content
+    library.apply_migration(plan)
+    assert not (tmp_path / "gguf" / "pub" / "Bar-GGUF" / "Bar-GGUF").exists()  # no nesting
+    assert (hf / "m.gguf").exists()  # conflict → hf copy left untouched

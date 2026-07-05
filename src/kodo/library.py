@@ -21,7 +21,7 @@ from kodo import arch, cards, project
 from kodo.config import Settings, get_settings
 from kodo.models import ModelFormat, _human_size
 from kodo.sources import ollama
-from kodo.sources.base import dir_stats
+from kodo.sources.base import copy_verified, dir_stats
 
 if TYPE_CHECKING:
     from kodo.voice.registry import VoiceModel
@@ -516,14 +516,18 @@ def plan_migration(root: Path) -> list[MigrationAction]:
             continue
         repo_id = str(src.relative_to(hf_dir))
         dest = root / fmt.value / repo_id
+        if dest.exists():
+            # Only call it a dedup when the bucket copy is a *verified* duplicate of the
+            # huggingface/ one — a partial/empty/different dir there must NOT license deleting
+            # the complete huggingface/ copy. An unverified conflict is left untouched.
+            if not copy_verified(src, dest):
+                continue
+            kind = "dedup"
+        else:
+            kind = "move"
         actions.append(
             MigrationAction(
-                repo_id=repo_id,
-                src=src,
-                dest=dest,
-                model_format=fmt,
-                kind="dedup" if dest.exists() else "move",
-                size_bytes=dir_stats(src)[0],
+                repo_id=repo_id, src=src, dest=dest, model_format=fmt, kind=kind, size_bytes=dir_stats(src)[0]
             )
         )
     return actions
@@ -542,10 +546,19 @@ def apply_migration(actions: list[MigrationAction]) -> tuple[int, int, int]:
         if "huggingface" in parts:
             hf_roots.add(Path(*parts[: parts.index("huggingface") + 1]))
         if action.kind == "move":
+            if action.dest.exists():
+                # A dest appeared between plan and apply (concurrent pull). Never move-into it
+                # (that would nest src as gguf/pub/Repo/Repo). If it's a verified dup, drop src;
+                # otherwise leave both untouched.
+                if copy_verified(action.src, action.dest):
+                    shutil.rmtree(action.src, ignore_errors=True)
+                    deduped += 1
+                    freed += action.size_bytes
+                continue
             action.dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(action.src), str(action.dest))
             moved += 1
-        else:  # dedup: the bucket already has this model, so the huggingface/ copy is redundant
+        else:  # dedup: the bucket already has a verified copy, so the huggingface/ copy is redundant
             shutil.rmtree(action.src, ignore_errors=True)
             deduped += 1
             freed += action.size_bytes
