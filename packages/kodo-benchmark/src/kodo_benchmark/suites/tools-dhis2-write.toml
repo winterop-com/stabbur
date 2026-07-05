@@ -1,0 +1,80 @@
+name = "tools-dhis2-write"
+description = "Tool-use benchmark: drive metadata WRITES (create / rename / delete) on a local DHIS2 via the dhis2w-mcp-bridge."
+type = "tool"
+language = "tools"
+# Companion to `tools-dhis2` (read-only): this measures whether a model can safely DRIVE
+# MUTATIONS. Each problem is a self-cleaning LIFECYCLE — it creates objects, optionally
+# renames/links them, then DELETES everything it made, so a run leaves the instance as it
+# found it and re-runs across models don't collide. Every test object is prefixed `KODO_`;
+# the runner sweeps any residue (a model that gives up mid-lifecycle) between models.
+#
+# The bridge runs READ-WRITE (no DHIS2_MCP_READONLY) against the `local_basic` profile
+# (localhost:8080, admin/district) — never point this at a shared/production instance. The
+# single `dhis2_cli` tool is driven by free-form `d2w` argv, so `expect_args` is empty: we
+# score that the model reached for the bridge AND completed the lifecycle (its final answer
+# contains the instructed `LIFECYCLE_OK` token, which a model only emits after finishing).
+# Because the server command starts with `env`, the tool namespaces to `env__dhis2_cli`.
+
+# --- basics: a single create + delete ---
+
+[[problems]]
+id = "de-create-delete"
+difficulty = "basics"
+prompt = "Using the available DHIS2 tools, create one aggregate data element with value type NUMBER named 'KODO_DE1' (short name 'KODO_DE1'), then delete it. When BOTH the create and the delete have succeeded, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"
+
+[[problems]]
+id = "ig-create-delete"
+difficulty = "basics"
+prompt = "Using the available DHIS2 tools, create an indicator group named 'KODO_IG1', then delete it. When BOTH have succeeded, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"
+
+# --- intermediate: create + a second operation + delete ---
+
+[[problems]]
+id = "de-rename-delete"
+difficulty = "intermediate"
+prompt = "Using the available DHIS2 tools: create an aggregate NUMBER data element named 'KODO_DE2' (short name 'KODO_DE2'), then rename it to 'KODO_DE2_v2', then delete it. When all three steps have succeeded, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"
+
+[[problems]]
+id = "deg-create-delete"
+difficulty = "intermediate"
+prompt = "Using the available DHIS2 tools, create a data element group named 'KODO_DEG1', then delete it. When both have succeeded, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"
+
+# --- advanced: create, verify by reading back, then delete ---
+
+[[problems]]
+id = "de-create-verify-delete"
+difficulty = "advanced"
+prompt = "Using the available DHIS2 tools: create an aggregate NUMBER data element named 'KODO_DE3' (short name 'KODO_DE3'). Then look it up again by name to confirm it exists and note its UID. Then delete it by that UID. When done, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"
+
+[[problems]]
+id = "deg-add-member-delete"
+difficulty = "advanced"
+prompt = "Using the available DHIS2 tools: create an aggregate NUMBER data element named 'KODO_DE4' (short name 'KODO_DE4') and a data element group named 'KODO_DEG2'. Add the data element as a member of the group. Then delete BOTH the group and the data element. When everything has succeeded, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"
+
+# --- expert: resolve a dependency, then create + delete ---
+
+[[problems]]
+id = "indicator-create-delete"
+difficulty = "expert"
+prompt = "Using the available DHIS2 tools: find any existing indicator type and note its UID, then create an indicator named 'KODO_IND1' (short name 'KODO_IND1') using that indicator type, then delete the indicator. When done, reply with exactly: LIFECYCLE_OK"
+servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+expect_tool = "env__dhis2_cli"
+expect_answer_contains = "LIFECYCLE_OK"

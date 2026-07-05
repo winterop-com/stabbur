@@ -17,13 +17,33 @@ bundled MCP toolset is complete. What's left is the longer-horizon threads below
 The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** the read-only
 `tools-dhis2` benchmark + report (`docs/guides/dhis2-benchmark-report.md`), the
 `kodo project new --template dhis2` starter (self-contained uv project; worked instance at
-`../kodo-projects/dhis2`), and the full DHIS2 docs guide (`docs/guides/dhis2.md`). Remaining:
+`../kodo-projects/dhis2`), the full DHIS2 docs guide (`docs/guides/dhis2.md`), and now the
+**write** suite + a write-enabled project. Recap:
 
-1. **`tools-dhis2` write suite.** Create / update / delete against a throwaway/local instance
-   (`DHIS2_MCP_READONLY` off) to see which models can safely drive mutations, then fold the winner
-   into the project's `[project].model`. **Blocked:** no local writable DHIS2 was reachable (profile
-   `local` at http://localhost:8080 is down) and writes to the shared play demos are refused by
-   design. Start a local DHIS2, then add `tools-dhis2-write.toml`.
+1. **`tools-dhis2-write` suite — DONE.** Create / rename / delete against a **local** v42 instance
+   (`local_basic` profile, `DHIS2_MCP_READONLY` off) — 7 self-cleaning lifecycle problems (each
+   creates `KODO_`-prefixed objects then deletes them), graded basics→expert. There's a matching
+   write-enabled starter: `kodo project new --template dhis2-write` (and a worked instance at
+   `../kodo-projects/dhis2-write`). Results (5 tool-callers that all scored 11-12/12 on the READ
+   suite):
+
+   | Model | Write score | Notes |
+   |---|---|---|
+   | gemma-4-12B-it-QAT | **4/7 (57%)** | best writer |
+   | Qwen3-Coder-30B-A3B | 3/7 (43%) | |
+   | gpt-oss-20b | 2/7 (29%) | |
+   | Ornith-1.0-9B | 1/7 (14%) | read winner; weak on writes |
+   | Qwen3.6-27B | n/a | run stalled on a tool-call hang (killed), not scored |
+
+   **Headline:** small local models drive DHIS2 **reads** near-perfectly but **writes are much
+   harder** — the multi-step create→(rename/link)→delete→confirm lifecycle trips them up, and all
+   left residue (incomplete deletes), swept between models. Scoring is a proxy (`expect_tool` called
+   + a `LIFECYCLE_OK` completion token), cross-checked against the actual DHIS2 state (residue-left
+   as a cleanliness signal). Even the best (gemma-4-12B) is not yet trustworthy for unattended
+   writes; the `dhis2-write` project keeps Ornith as its small default and notes gemma-4-12B as the
+   stronger write driver. Next: stronger write models / a guarded write chokepoint
+   (`dhis2w-mcp-router` read-only-by-default), and richer verification (assert real state, not just
+   the completion token).
 
 ## Open issues
 

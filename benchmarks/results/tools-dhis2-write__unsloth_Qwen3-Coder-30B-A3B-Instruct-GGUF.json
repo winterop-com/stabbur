@@ -1,0 +1,63 @@
+{
+  "suite": "tools-dhis2-write",
+  "language": "tools",
+  "type": "tool",
+  "model": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+  "timestamp": "2026-07-05T17:11:32",
+  "load_s": 36.029411417024676,
+  "outcomes": [
+    {
+      "id": "de-create-delete",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 252.56217362498865,
+      "exec_s": 0.0
+    },
+    {
+      "id": "ig-create-delete",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 258.39797358302167,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-rename-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 150.9013722090167,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-create-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 387.0824645420071,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-create-verify-delete",
+      "difficulty": "advanced",
+      "passed": true,
+      "gen_s": 263.185046708968,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-add-member-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 30.248408415995073,
+      "exec_s": 0.0
+    },
+    {
+      "id": "indicator-create-delete",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 47.07133241696283,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 1389.44877150096,
+  "total": 7,
+  "passed": 3,
+  "score": 0.42857142857142855
+}

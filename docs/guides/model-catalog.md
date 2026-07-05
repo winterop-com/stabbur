@@ -95,3 +95,9 @@ a perfect **12/12** driving the DHIS2 CLI bridge, and the **fastest** (~12s/prob
 also went 12/12; `Qwen3.5-4B` (2.6 GB) and `gpt-oss-20b` reached 11/12. Roleplay finetunes
 (`Rocinante`, `MN-Violet-Lotus`) scored 0/12 — they never call the tool. See the full write-up in
 [DHIS2 benchmark report](dhis2-benchmark-report.md).
+
+**DHIS2 (`tools-dhis2-write`, read-write):** driving **writes** (create / rename / delete against a
+local instance) is far harder. Of the read stars, **`gemma-4-12B-it-QAT`** leads at **4/7**, then
+`Qwen3-Coder-30B` (3/7), `gpt-oss-20b` (2/7), and `Ornith-1.0-9B` (1/7); `Qwen3.6-27B` stalled on a
+tool-call loop. The multi-step create→delete→confirm lifecycle trips up small models, so no local
+model is yet trustworthy for unattended DHIS2 writes.

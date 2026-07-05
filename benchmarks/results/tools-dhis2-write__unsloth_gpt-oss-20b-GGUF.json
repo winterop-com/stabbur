@@ -1,0 +1,63 @@
+{
+  "suite": "tools-dhis2-write",
+  "language": "tools",
+  "type": "tool",
+  "model": "unsloth/gpt-oss-20b-GGUF",
+  "timestamp": "2026-07-05T16:47:42",
+  "load_s": 27.088886167039163,
+  "outcomes": [
+    {
+      "id": "de-create-delete",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 291.9111032920191,
+      "exec_s": 0.0
+    },
+    {
+      "id": "ig-create-delete",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 160.42948425002396,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-rename-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 278.44288500002585,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-create-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 289.36687850003364,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-create-verify-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 402.8030194580206,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-add-member-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 44.17505350004649,
+      "exec_s": 0.0
+    },
+    {
+      "id": "indicator-create-delete",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 57.762221208016854,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 1524.8906452081865,
+  "total": 7,
+  "passed": 2,
+  "score": 0.2857142857142857
+}

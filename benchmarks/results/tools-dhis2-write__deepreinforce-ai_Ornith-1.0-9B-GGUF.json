@@ -1,0 +1,63 @@
+{
+  "suite": "tools-dhis2-write",
+  "language": "tools",
+  "type": "tool",
+  "model": "deepreinforce-ai/Ornith-1.0-9B-GGUF",
+  "timestamp": "2026-07-05T16:21:25",
+  "load_s": 1.659550333977677,
+  "outcomes": [
+    {
+      "id": "de-create-delete",
+      "difficulty": "basics",
+      "passed": true,
+      "gen_s": 527.3341965000145,
+      "exec_s": 0.0
+    },
+    {
+      "id": "ig-create-delete",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 263.32872970798053,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-rename-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 112.49647816701327,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-create-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 389.9067792079877,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-create-verify-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 605.3595777079463,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-add-member-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 120.9563707500347,
+      "exec_s": 0.0
+    },
+    {
+      "id": "indicator-create-delete",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 186.82036800001515,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 2206.202500040992,
+  "total": 7,
+  "passed": 1,
+  "score": 0.14285714285714285
+}
