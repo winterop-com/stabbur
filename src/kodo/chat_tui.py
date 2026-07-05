@@ -18,7 +18,7 @@ from typing import Any
 from rich.console import Group
 from rich.markdown import Markdown
 from rich.text import Text
-from textual import events
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.command import DiscoveryHit, Hit, Hits, Provider
@@ -266,6 +266,22 @@ class ChatApp(App[None]):
         self._queue: list[str] = []  # prompts submitted while a reply is streaming
         self._disabled: set[str] = set()  # MCP server prefixes the user turned off
         self._models_cache: list[library_ops.LibraryModel] | None = None  # switchable models (lazy)
+        self._reason_collapsed_pref = False  # sticky: once the user collapses thinking, keep it collapsed
+        self._reason_prog: dict[int, bool] = {}  # per reasoning box: the collapsed state kodo set itself
+
+    @on(Collapsible.Toggled)
+    def _remember_reasoning_collapse(self, event: Collapsible.Toggled) -> None:
+        """Remember the user's thinking-collapse choice so the next turn's block starts that way.
+
+        ``@on(Collapsible.Toggled)`` catches both the Expanded and Collapsed subclasses. kodo toggles
+        the box itself (on mount, and the auto-collapse in ``finalize_reasoning``); those are ignored
+        by comparing against the last state kodo set for that box, so only a real user click sticks.
+        """
+        box = event.collapsible
+        if not box.has_class("reasoning-box") or box.collapsed == self._reason_prog.get(id(box)):
+            return
+        self._reason_prog[id(box)] = box.collapsed
+        self._reason_collapsed_pref = box.collapsed
 
     def _apply_model(self) -> None:
         """Set the per-model fields (name/format/target/base/sampling/context) from the current model."""
@@ -808,7 +824,10 @@ class ChatApp(App[None]):
             )
 
             reasoning_body = Static("", classes="reasoning")
-            reasoning_box = Collapsible(reasoning_body, title="thinking …", collapsed=False)
+            reasoning_box = Collapsible(
+                reasoning_body, title="thinking …", collapsed=self._reason_collapsed_pref, classes="reasoning-box"
+            )
+            self._reason_prog[id(reasoning_box)] = self._reason_collapsed_pref  # kodo set this state
             reasoning_box.display = False  # shown only if the model streams reasoning
             tools_w = Static("", classes="tools")
             tools_w.display = False
@@ -856,7 +875,9 @@ class ChatApp(App[None]):
                     reason_collapsed = True
                     elapsed = time.monotonic() - (reason_start or time.monotonic())
                     reasoning_box.title = f"thought for {max(1, round(elapsed))}s"
-                    reasoning_box.collapsed = True
+                    if not reasoning_box.collapsed:  # auto-collapse; record it so it's not read as a user click
+                        self._reason_prog[id(reasoning_box)] = True
+                        reasoning_box.collapsed = True
 
             def on_token(tok: str) -> None:
                 nonlocal last_render

@@ -113,6 +113,52 @@ async def test_reasoning_collapses_after_answer(monkeypatch: pytest.MonkeyPatch)
         assert box.title.startswith("thought for")
 
 
+async def test_thinking_collapse_preference_is_sticky(monkeypatch: pytest.MonkeyPatch) -> None:
+    from textual.widgets import Collapsible
+
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: Any,
+        on_event: Any,
+        on_token: Any,
+        on_reasoning: Any = None,
+        on_usage: Any = None,
+        **_kw: Any,
+    ) -> str:
+        on_reasoning("thinking")
+        on_token("answer")
+        messages.append({"role": "assistant", "content": "answer"})
+        return "answer"
+
+    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        # The auto-collapse after the answer must NOT flip the preference.
+        assert app._reason_collapsed_pref is False
+        box1 = app.query_one(Collapsible)
+
+        # Simulate the user expanding then collapsing the thinking block.
+        box1.collapsed = False
+        await pilot.pause()
+        assert app._reason_collapsed_pref is False
+        box1.collapsed = True
+        await pilot.pause()
+        assert app._reason_collapsed_pref is True  # the user's collapse stuck
+
+        # Next turn: the new thinking block starts collapsed by that preference.
+        await pilot.press("y", "o")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert list(app.query(Collapsible))[-1].collapsed is True
+
+
 async def test_prompts_queue_while_busy_and_run_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
     order: list[Any] = []
     release = asyncio.Event()
