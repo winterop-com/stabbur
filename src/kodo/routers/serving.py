@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from kodo import agent, capabilities, cards, doctor, kokoro, runtime, sampling, tts
+from kodo import agent, capabilities, cards, doctor, kokoro, mcp_catalog, runtime, sampling, tts
 from kodo import library as library_ops
 from kodo import tags as tags_ops
 from kodo.config import Settings
@@ -325,14 +325,46 @@ class ToolInfo(BaseModel):
     description: str
 
 
+def _mcp_checks(toolset: MCPToolset | None) -> list[doctor.Check]:
+    """Health checks for the project's MCP servers: connected ones (tool counts) and failed ones.
+
+    A server the project lists but couldn't start (e.g. optional ``web`` without ``make
+    install-web``) shows as a warning with its install hint — instead of silently reporting
+    0 tools — mirroring what ``kodo project show`` does on the CLI.
+    """
+    if toolset is None:
+        return []
+    checks: list[doctor.Check] = []
+    counts: dict[str, int] = {}
+    for schema in toolset.schemas:
+        server = schema["function"]["name"].split("__")[0]
+        counts[server] = counts.get(server, 0) + 1
+    for server, n in counts.items():
+        checks.append(doctor.Check(name=f"MCP: {server}", status=doctor.CheckStatus.ok, detail=f"{n} tool(s)"))
+    for label, reason in toolset.errors:
+        hint = mcp_catalog.optional_hint(label)
+        checks.append(
+            doctor.Check(
+                name=f"MCP: {label}",
+                # A known-optional server that isn't installed is a warning (fixable), not a hard fail.
+                status=doctor.CheckStatus.warn if hint else doctor.CheckStatus.fail,
+                detail=reason,
+                hint=hint,
+            )
+        )
+    return checks
+
+
 @router.get("/api/doctor")
-def doctor_report(settings: ConfDep) -> doctor.DoctorReport:
-    """System health: runtime binaries, library, and the current project.
+def doctor_report(settings: ConfDep, request: Request) -> doctor.DoctorReport:
+    """System health: runtime binaries, library, the current project, and its MCP servers.
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     Mirrors the ``kodo doctor`` CLI so the UI can show the same status.
     """
-    return doctor.run_checks(settings)
+    report = doctor.run_checks(settings)
+    toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
+    return doctor.DoctorReport(checks=[*report.checks, *_mcp_checks(toolset)])
 
 
 @router.get("/api/tools")

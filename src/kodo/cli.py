@@ -13,11 +13,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import attach, capabilities, cards, config, doctor, project, runtime, tags
+from kodo import attach, capabilities, cards, config, doctor, mcp_catalog, project, runtime, tags
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
-from kodo.models import CuratedMcp, CuratedModel, ModelFormat, ModelSource, ProjectTemplate, _human_size
+from kodo.models import CuratedModel, ModelFormat, ModelSource, ProjectTemplate, _human_size
 from kodo.sources import huggingface as hf
 
 if TYPE_CHECKING:
@@ -55,61 +55,11 @@ app.add_typer(mcp_app, name="mcp")
 app.add_typer(voice_app, name="voice")
 
 
-# Curated MCP tool servers `kodo mcp add <name>` can drop into a project's kodo.toml.
-# Real, publicly-installable servers run via `uvx` (Python) or `bunx` (Node) — no prior
-# install needed. Commands with placeholders (a path, a profile) are meant to be edited;
-# the `setup` note says what. DHIS2 leads (kodo's north star); the rest are general tools.
-_CURATED_MCP: list[CuratedMcp] = [
-    CuratedMcp(
-        name="dhis2",
-        command="env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge",
-        description="DHIS2 CLI bridge — one `dhis2_cli` tool (best for smaller models). "
-        "Swap uvx dhis2w-mcp-bridge for dhis2w-mcp-router or dhis2w-mcp for bigger models.",
-        setup="set DHIS2_PROFILE to a profile in ~/.config/dhis2/profiles.toml; "
-        "drop DHIS2_MCP_READONLY to allow writes",
-    ),
-    CuratedMcp(
-        name="fetch",
-        command="uvx mcp-server-fetch",
-        description="Fetch a URL and return its content as markdown.",
-    ),
-    # (No `time` server — the installed `datetime` plugin already covers time/timezone/calendar.)
-    CuratedMcp(
-        name="git",
-        command="uvx mcp-server-git --repository .",
-        description="Read and inspect a git repository.",
-        setup="point --repository at the repo (default: the current directory)",
-    ),
-    CuratedMcp(
-        name="sqlite",
-        command="uvx mcp-server-sqlite --db-path ./data.db",
-        description="Query a SQLite database.",
-        setup="point --db-path at your .db file",
-    ),
-    CuratedMcp(
-        name="filesystem",
-        command="bunx @modelcontextprotocol/server-filesystem .",
-        description="Read and write files under a directory.",
-        setup="pass the directory to expose (default: here); needs bun (bunx)",
-    ),
-]
-
-
-# First-party servers that are optional (behind an extra, e.g. a heavy dep) — so they don't
-# advertise until installed. Listed here too, with an install hint, so they stay discoverable.
-_OPTIONAL_FIRST_PARTY: list[CuratedMcp] = [
-    CuratedMcp(
-        name="web",
-        command="kodo-mcp-web",
-        description="Read a web page in a headless browser and return its main content as Markdown.",
-        setup="install with: make install-web  (Playwright + Chromium)",
-    ),
-]
-
-
-def _uninstalled_optional(advertised: set[str]) -> list[CuratedMcp]:
-    """Optional first-party servers not currently installed (advertised), for discovery."""
-    return [s for s in _OPTIONAL_FIRST_PARTY if s.name not in advertised]
+# The MCP catalog (curated + optional first-party servers) lives in `kodo.mcp_catalog` so the
+# web layer can share it. Aliases keep the existing call sites terse.
+_CURATED_MCP = mcp_catalog.CURATED
+_OPTIONAL_FIRST_PARTY = mcp_catalog.OPTIONAL_FIRST_PARTY
+_uninstalled_optional = mcp_catalog.uninstalled_optional
 
 
 # --- project templates (`kodo project new --template <name>`) ---------------------------------
@@ -326,14 +276,20 @@ def mcp_add(
 
     # First-party plugins win a name clash — kodo controls them, so prefer them over external.
     server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == name), None)
+    uninstalled_optional = False
     if server is not None:
         entry_name, command, setup = server.name, server.command, ""
     else:
-        curated = next((c for c in _CURATED_MCP if c.name == name), None)
-        if curated is None:
+        # An optional first-party server (e.g. `web`) resolves here when its extra isn't installed
+        # — add it, but warn it reports 0 tools until installed.
+        chosen = next((c for c in _CURATED_MCP if c.name == name), None) or next(
+            (c for c in _OPTIONAL_FIRST_PARTY if c.name == name), None
+        )
+        if chosen is None:
             console.print(f"[red]Unknown MCP {name!r}.[/] See [bold]kodo mcp list[/] for the catalog.")
             raise typer.Exit(1)
-        entry_name, command, setup = curated.name, curated.command, curated.setup
+        entry_name, command, setup = chosen.name, chosen.command, chosen.setup
+        uninstalled_optional = chosen in _OPTIONAL_FIRST_PARTY
 
     if entry_name in _project_mcp_keys(path) or command in _project_mcp_keys(path):
         console.print(f"[yellow]{entry_name}[/] is already in {path}.")
@@ -356,7 +312,9 @@ def mcp_add(
         for pkg in _pip_deps_from_mcp([(entry_name, command)]):  # original (uvx) command -> pip pkg
             if _add_pyproject_dep(pyproject, pkg):
                 console.print(f"  [dim]uv:[/] pinned [cyan]{pkg}[/] in pyproject.toml — run [bold]uv sync[/]")
-    if setup:
+    if uninstalled_optional:
+        console.print(f"  [yellow]not installed[/] — reports 0 tools until you {setup}")
+    elif setup:
         console.print(f"  [yellow]setup:[/] {setup}")
     console.print("[dim]Check it:[/] kodo project show")
 
