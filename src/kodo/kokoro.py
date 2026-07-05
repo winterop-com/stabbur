@@ -213,7 +213,11 @@ def synthesize(text: str, voice: str, out_path: Path | None = None) -> Path:
 
     import soundfile as sf  # noqa: PLC0415
 
-    out = out_path or Path(tempfile.mkstemp(suffix=".wav")[1])
+    if out_path:
+        out = out_path
+    else:  # NamedTemporaryFile closes its fd on __exit__ (mkstemp leaks it); delete=False keeps the file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            out = Path(f.name)
     samples, sample_rate = _get_engine().create(text, voice=voice, speed=1.0, lang=lang_code(voice))
     sf.write(str(out), samples, sample_rate)
     if not out.is_file() or out.stat().st_size == 0:

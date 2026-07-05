@@ -18,8 +18,16 @@ from typing import Any
 
 
 def available() -> bool:
-    """Whether the mlx-audio runtime is importable (Apple-Silicon ``voice`` extra installed)."""
-    return importlib.util.find_spec("mlx_audio.tts.generate") is not None
+    """Whether the mlx-audio runtime is importable (Apple-Silicon ``voice`` extra installed).
+
+    ``find_spec`` on a dotted name imports the parent package, so it *raises* ModuleNotFoundError
+    when ``mlx_audio`` is absent (Linux / no ``voice`` extra) — catch it so voice gates degrade to
+    a 503/install-hint instead of a 500/traceback.
+    """
+    try:
+        return importlib.util.find_spec("mlx_audio.tts.generate") is not None
+    except ModuleNotFoundError:
+        return False
 
 
 @lru_cache(maxsize=4)
@@ -58,7 +66,15 @@ def synthesize(
         import mlx.core as mx  # noqa: PLC0415
 
         mx.random.seed(int(seed))
-    kwargs: dict[str, Any] = {"file_prefix": "out", "audio_format": audio_format, "save": True, "verbose": False}
+    # join_audio=True merges the per-segment files mlx-audio writes (one per newline) into a single
+    # out.<fmt>; without it we'd read only out_000 and silently truncate multi-line text to line 1.
+    kwargs: dict[str, Any] = {
+        "file_prefix": "out",
+        "audio_format": audio_format,
+        "save": True,
+        "verbose": False,
+        "join_audio": True,
+    }
     if voice is not None:
         kwargs["voice"] = voice
     if ref_audio is not None:

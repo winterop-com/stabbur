@@ -84,7 +84,11 @@ def synthesize(
         raise RuntimeError("nothing to speak (empty text)")
     if model is not None and vocoder is None:
         raise RuntimeError(f"{model.name} has no paired vocoder; can't synthesize")
-    out = out_path or Path(tempfile.mkstemp(suffix=".wav")[1])
+    if out_path:
+        out = out_path
+    else:  # NamedTemporaryFile closes its fd on __exit__ (mkstemp leaks it); delete=False keeps the file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            out = Path(f.name)
     if model is not None and vocoder is not None:
         cmd = [_TTS_BIN, "-m", str(model), "-mv", str(vocoder), "-p", text, "-o", str(out)]
     else:
