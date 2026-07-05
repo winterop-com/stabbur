@@ -41,6 +41,8 @@ def weather_forecast_at(latitude: float, longitude: float) -> dict[str, Any]:
     Use when you already have latitude/longitude. Times are UTC; temperatures Celsius; conditions
     are met.no symbol codes.
     """
+    if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
+        raise ValueError("latitude must be in [-90, 90] and longitude in [-180, 180]")
     location = Location(name=f"{latitude:.4f}, {longitude:.4f}", latitude=latitude, longitude=longitude)
     return {"found": True, **fetch_forecast(location).model_dump()}
 

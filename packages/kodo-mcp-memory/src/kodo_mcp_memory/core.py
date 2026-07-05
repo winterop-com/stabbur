@@ -15,6 +15,8 @@ Location (config via ``KODO_*`` env, resolved by :class:`MemorySettings`):
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -61,14 +63,30 @@ class MemoryStore:
         if not self.path.is_file():
             return {}
         try:
-            data = json.loads(self.path.read_text())
+            data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        # Tolerate a hand-edited store: keep only well-formed ``{key: {...}}`` entries so a stray
+        # ``{"k": "a string"}`` can't crash get/notes/search with an AttributeError on ``.get``.
+        return {k: v for k, v in data.items() if isinstance(v, dict)}
 
     def _save(self, data: dict[str, dict[str, str]]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        # Atomic + concurrent-safe: a per-write unique temp (FastMCP runs tools on a threadpool)
+        # fsync'd before the rename, so an interleaved write can't publish a truncated store.
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, sort_keys=True)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            tmp.replace(self.path)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def set(self, key: str, value: str, *, now: str = "") -> None:
         """Store (or overwrite) the note under ``key``."""

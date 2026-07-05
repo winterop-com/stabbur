@@ -155,8 +155,10 @@ def fetch_forecast(location: Location, settings: WeatherSettings | None = None) 
     with _client(settings.user_agent) as client:
         resp = client.get(_METNO, params={"lat": round(location.latitude, 4), "lon": round(location.longitude, 4)})
         resp.raise_for_status()
-        series = resp.json()["properties"]["timeseries"]
+        series = resp.json().get("properties", {}).get("timeseries") or []
 
+    if not series:
+        raise ValueError(f"met.no returned no forecast for ({location.latitude}, {location.longitude})")
     first = series[0]
     instant = first.get("data", {}).get("instant", {}).get("details", {})
     current = CurrentWeather(

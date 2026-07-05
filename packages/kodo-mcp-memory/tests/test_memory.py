@@ -58,3 +58,14 @@ def test_settings_path_resolution(tmp_path: Path) -> None:
     )
     # else a project-local fallback
     assert MemorySettings().notes_path() == Path(".kodo/memory") / "notes.json"
+
+
+def test_load_tolerates_non_object_entries(tmp_path: Path) -> None:
+    # A hand-edited store with a non-object value must not crash get/notes (P-L1).
+    p = tmp_path / "notes.json"
+    p.write_text('{"good": {"value": "v", "updated": "t"}, "bad": "a bare string"}')
+    store = MemoryStore(p)
+    assert store.get("bad") is None
+    got = store.get("good")
+    assert got is not None and got.value == "v"
+    assert [n.key for n in store.notes()] == ["good"]

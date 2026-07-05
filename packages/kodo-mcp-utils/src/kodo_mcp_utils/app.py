@@ -204,7 +204,10 @@ def calc(expression: str) -> float:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
         raise ValueError(f"could not parse expression: {exc}") from exc
-    return float(_eval(tree.body))
+    try:
+        return float(_eval(tree.body))
+    except ZeroDivisionError as exc:
+        raise ValueError(f"division by zero: {exc}") from exc
 
 
 @mcp.tool

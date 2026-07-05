@@ -71,6 +71,27 @@ def docker_available() -> bool:
     return True
 
 
+# Cap captured output: `subprocess.run(capture_output=True)` buffers the container's whole
+# stdout in host memory (the container memory cap doesn't bound it), and huge output would also
+# blow the model's context. Keep the head + tail so both the program's start and its error land.
+_MAX_OUTPUT = 200_000
+
+
+def _truncate(text: str) -> str:
+    if len(text) <= _MAX_OUTPUT:
+        return text
+    half = _MAX_OUTPUT // 2
+    return f"{text[:half]}\n...[{len(text) - _MAX_OUTPUT} chars truncated]...\n{text[-half:]}"
+
+
+def _rm_container(name: str) -> None:
+    """Best-effort force-remove a container, bounded so a wedged daemon can't hang the tool call."""
+    try:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def run_code(
     language: str,
     code: str,
@@ -109,9 +130,10 @@ def run_code(
         try:
             proc = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=timeout_s)
         except subprocess.TimeoutExpired as exc:
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True)  # best-effort kill
+            _rm_container(name)  # bounded force-kill (a wedged daemon can't hang the call)
+            partial = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
             return RunResult(
-                stdout=exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
+                stdout=_truncate(partial),
                 stderr="timed out",
                 exit_code=124,
                 timed_out=True,
@@ -120,8 +142,8 @@ def run_code(
         except FileNotFoundError as exc:  # docker binary missing
             raise DockerError("docker not found on PATH") from exc
         return RunResult(
-            stdout=proc.stdout,
-            stderr=proc.stderr,
+            stdout=_truncate(proc.stdout),
+            stderr=_truncate(proc.stderr),
             exit_code=proc.returncode,
             timed_out=False,
             duration_s=monotonic() - start,

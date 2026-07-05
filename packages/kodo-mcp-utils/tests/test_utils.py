@@ -78,3 +78,9 @@ async def test_stats_tools() -> None:
     assert await _call("total", numbers=[0.1, 0.2]) == pytest.approx(0.3)
     with pytest.raises(ToolError):
         await _call("mean", numbers=[])
+
+
+async def test_calc_division_by_zero_is_a_clean_error() -> None:
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError):
+            await client.call_tool("calc", {"expression": "1/0"})

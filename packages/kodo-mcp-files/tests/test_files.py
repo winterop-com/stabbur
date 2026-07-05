@@ -64,3 +64,17 @@ def test_writes_gated_by_flag(tmp_path: Path) -> None:
     # even with writes on, escapes are still rejected
     with pytest.raises(ValueError):
         write_text(rw, "../escape.txt", "x")
+
+
+def test_symlink_escaping_root_is_skipped(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "in.txt").write_text("needle inside\n")
+    outside = tmp_path / "secret.txt"
+    outside.write_text("needle secret\n")
+    (root / "escape").symlink_to(outside)  # points out of the root
+    s = FilesSettings(root=root)
+    listed = {e.path for e in list_dir(s)}  # must not raise on the escaping symlink
+    assert "in.txt" in listed and "escape" not in listed
+    hits = search(s, "needle")
+    assert hits and all("secret" not in m.text for m in hits)  # out-of-root bytes never read

@@ -27,6 +27,7 @@ def run_python(code: str, stdin: str = "", timeout_s: float = 10.0) -> dict[str,
     network and NO persistent filesystem (nothing carries over between calls), a read-only root
     with a writable /tmp, and is killed at `timeout_s` seconds. `ok` is true only on a clean exit.
     """
+    timeout_s = max(1.0, min(float(timeout_s), 60.0))  # bound the model-supplied timeout server-side
     try:
         result = run_code("python", code, stdin=stdin, timeout_s=timeout_s)
     except DockerError as exc:

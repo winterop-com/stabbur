@@ -61,7 +61,20 @@ def safe_join(root: Path, rel: str) -> Path:
 
 
 def _rel(root: Path, path: Path) -> str:
-    return str(path.resolve().relative_to(root.resolve())) or "."
+    """The entry's path by location under root (never resolves the target — a symlink out of root can't raise)."""
+    try:
+        return str(path.relative_to(root)) or "."
+    except ValueError:
+        return path.name
+
+
+def _within_root(root: Path, path: Path) -> bool:
+    """Whether ``path``'s real target stays under ``root`` (a symlink escaping the root is excluded)."""
+    try:
+        resolved, root_resolved = path.resolve(), root.resolve()
+    except OSError:
+        return False
+    return resolved == root_resolved or resolved.is_relative_to(root_resolved)
 
 
 def list_dir(settings: FilesSettings, subdir: str = "") -> list[Entry]:
@@ -73,6 +86,8 @@ def list_dir(settings: FilesSettings, subdir: str = "") -> list[Entry]:
     for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name)):
         if child.is_dir() and child.name in _SKIP_DIRS:
             continue
+        if child.is_symlink() and not _within_root(settings.root, child):
+            continue  # a symlink pointing outside the root — don't surface it
         entries.append(
             Entry(
                 path=_rel(settings.root, child),
@@ -114,6 +129,8 @@ def search(settings: FilesSettings, query: str, subdir: str = "") -> list[Match]
             break
         if any(part in _SKIP_DIRS for part in path.parts) or not path.is_file():
             continue
+        if not _within_root(settings.root, path):
+            continue  # reached an out-of-root file via a symlink — skip before reading its bytes
         if not _is_probably_text(path):
             continue
         try:
