@@ -25,11 +25,18 @@ def safe_join(root: Path, name: str) -> Path:
     return resolved
 
 
-def dir_stats(path: Path) -> tuple[int, int]:
-    """Return ``(total_bytes, file_count)`` for everything under ``path``.
+# Not model content: huggingface_hub's per-download bookkeeping (`.cache/huggingface/`), kodo's
+# own sidecar (`.kodo/`), and macOS AppleDouble noise (`._*`) on exFAT. Excluding them keeps
+# recorded sizes accurate — otherwise the transient `.cache/` blobs+metadata inflate the count.
+_STATS_SKIP_DIRS = frozenset({".cache", ".kodo"})
 
-    Symlinks are followed when they resolve (the Hugging Face cache stores
-    real blobs behind symlinked snapshots); broken links are skipped.
+
+def dir_stats(path: Path) -> tuple[int, int]:
+    """Return ``(total_bytes, file_count)`` for a model's real files under ``path``.
+
+    Skips huggingface_hub's ``.cache/`` bookkeeping, kodo's ``.kodo/`` sidecar, and macOS
+    ``._`` files. Symlinks are followed when they resolve (the HF cache stores real blobs behind
+    symlinked snapshots); broken links are skipped.
 
     Args:
         path: Directory to walk. A non-directory returns ``(0, 0)``.
@@ -43,6 +50,8 @@ def dir_stats(path: Path) -> tuple[int, int]:
     total_bytes = 0
     file_count = 0
     for child in path.rglob("*"):
+        if child.name.startswith("._") or _STATS_SKIP_DIRS.intersection(child.parts):
+            continue
         try:
             if child.is_file():
                 total_bytes += child.stat().st_size

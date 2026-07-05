@@ -762,6 +762,42 @@ def install(
         )
 
 
+@library_app.command("verify")
+def verify_library(
+    query: Annotated[str | None, typer.Argument(help="Model to verify (full name or bare tail); omit for all.")] = None,
+    deep: Annotated[
+        bool, typer.Option("--deep", help="Re-hash Ollama blobs against their sha256 (slow; true content integrity).")
+    ] = False,
+) -> None:
+    """Check library models on disk against their recorded metadata.
+
+    Verifies each model's total size, file count, and card against its ``.kodo/metadata.json``
+    (catches truncated/incomplete pulls or deleted files). Ollama models are content-addressed,
+    so their blobs are checked for existence — and with ``--deep``, re-hashed against their sha256.
+    """
+    models = library_ops.find(query) if query else library_ops.scan()
+    if not models:
+        console.print(f"[yellow]No models to verify[/]{f' matching {query!r}' if query else ''}.")
+        raise typer.Exit(1 if query else 0)
+
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("", justify="center")
+    table.add_column("MODEL", style="cyan")
+    table.add_column("CHECKED", style="dim")
+    table.add_column("ISSUES")
+    ok_count = 0
+    for m in sorted(models, key=lambda x: x.name):
+        r = library_ops.verify(m, deep=deep)
+        ok_count += r.ok
+        mark = "[green]✓[/]" if r.ok else "[red]✗[/]"
+        table.add_row(mark, m.name, r.checked, "[green]ok[/]" if r.ok else f"[red]{'; '.join(r.issues)}[/]")
+    console.print(table)
+    bad = len(models) - ok_count
+    console.print(f"\n[bold]{ok_count}/{len(models)} ok[/]" + (f" · [red]{bad} with issues[/]" if bad else ""))
+    if bad:
+        raise typer.Exit(1)
+
+
 @library_app.command("tag")
 def tag_model(
     name: Annotated[str, typer.Argument(help="Library model (full name or bare repo/tag).")],

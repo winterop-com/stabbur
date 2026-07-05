@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from kodo import arch, project
+from kodo import arch, cards, project
 from kodo.config import Settings, get_settings
 from kodo.models import ModelFormat, _human_size
 from kodo.sources import ollama
@@ -242,14 +242,16 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
     """Scan directory-based models anywhere under ``base`` (excluding ollama/ and voice/)."""
     ollama_dir = base / "ollama"
     voice_dir = base / "voice"
+    cache_dir = base / ".cache"  # the redirected HF hub cache (kodo.hfcache) — not library models
+    excluded = (ollama_dir, voice_dir, cache_dir)
     dirs: set[Path] = set()
     for pattern in ("*.gguf", "*.safetensors"):
         for weights in base.rglob(pattern):
             if weights.name.startswith("._"):
                 continue  # macOS AppleDouble junk on exFAT
             parent = weights.parent
-            if parent in (ollama_dir, voice_dir) or ollama_dir in parent.parents or voice_dir in parent.parents:
-                continue  # ollama blobs scanned natively below; voice/ scanned by _scan_voice
+            if parent in excluded or any(d in parent.parents for d in excluded):
+                continue  # ollama blobs scanned natively below; voice/ by _scan_voice; .cache is HF's
             dirs.add(parent)
 
     models: list[LibraryModel] = []
@@ -533,6 +535,64 @@ def apply_migration(actions: list[MigrationAction]) -> tuple[int, int, int]:
         if hf_root.is_dir() and not any(hf_root.iterdir()):
             hf_root.rmdir()
     return moved, deduped, freed
+
+
+class VerifyResult(BaseModel):
+    """Integrity check of one library model against its recorded metadata."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    ok: bool
+    checked: str  # what was verified: "size+files+card", "blobs (N)", "blobs+sha256 (N)", or "—"
+    issues: list[str] = []
+
+
+def _weights_issues(model: LibraryModel) -> list[str]:
+    """Problems with a format model's on-disk weights: missing, empty, or (MLX) no ``.safetensors``."""
+    issues: list[str] = []
+    target = model.load_target
+    if not target.exists():
+        return [f"weights missing ({target.name})"]
+    if target.is_file():
+        if target.stat().st_size == 0:
+            issues.append(f"weight file is empty ({target.name})")
+    else:  # MLX / safetensors: load_target is the model directory
+        weights = [w for w in target.glob("*.safetensors") if not w.name.startswith("._")]
+        if not weights:
+            issues.append("no .safetensors in the model directory")
+        elif any(w.stat().st_size == 0 for w in weights):
+            issues.append("an empty .safetensors file")
+    if model.mmproj is not None and not model.mmproj.exists():
+        issues.append(f"projector missing ({model.mmproj.name})")
+    return issues
+
+
+def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
+    """Check a model on disk is intact.
+
+    Ollama models are content-addressed, so their blobs are checked for existence and — with
+    ``deep`` — re-hashed against their sha256 digests (true integrity). Format-bucket models
+    (GGUF/MLX/safetensors) carry no per-file checksums, so they're checked structurally: the
+    declared weights (and projector) exist and are non-empty, and the recorded card is present.
+    """
+    if model.is_ollama:
+        models_dir = model.library_root / "ollama"
+        issues, n = ollama.verify_manifest(model.path, models_dir, deep=deep)
+        return VerifyResult(
+            name=model.name, ok=not issues, checked=f"blobs+sha256 ({n})" if deep else f"blobs ({n})", issues=issues
+        )
+
+    issues = _weights_issues(model)
+    meta_path = model.path / cards.SIDECAR_DIR / "metadata.json"
+    if meta_path.is_file():
+        try:
+            card = json.loads(meta_path.read_text()).get("card")
+            if isinstance(card, str) and not (model.path / card).is_file():
+                issues.append(f"card {card!r} missing")
+        except (OSError, ValueError):
+            issues.append("unreadable .kodo/metadata.json")
+    return VerifyResult(name=model.name, ok=not issues, checked="weights+card", issues=issues)
 
 
 def find(query: str, root: Path | None = None, model_format: ModelFormat | None = None) -> list[LibraryModel]:

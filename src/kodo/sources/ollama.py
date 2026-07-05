@@ -84,6 +84,29 @@ def _blob_path(models_dir: Path, digest: str) -> Path:
     return models_dir / "blobs" / digest.replace(":", "-")
 
 
+def verify_manifest(manifest_path: Path, models_dir: Path, *, deep: bool = False) -> tuple[list[str], int]:
+    """Check an Ollama model's blobs exist and (with ``deep``) match their content digests.
+
+    Ollama blobs are content-addressed (``sha256:<hex>``), so a ``deep`` check re-hashes each
+    blob and compares — the strongest integrity check kodo can make. Returns ``(issues, n_blobs)``
+    (empty issues = intact).
+    """
+    digests = _blob_digests(manifest_path)
+    issues: list[str] = []
+    for digest in digests:
+        blob = _blob_path(models_dir, digest)
+        if not blob.is_file():
+            issues.append(f"missing blob {digest}")
+            continue
+        if deep:
+            try:
+                if _sha256_hex(blob) != _expected_hex(digest, manifest_path.name):
+                    issues.append(f"blob {digest} failed its sha256 (corrupt)")
+            except ValueError as exc:
+                issues.append(str(exc))
+    return issues, len(digests)
+
+
 def _safe_name(name: str) -> str:
     """Make a ``model:tag`` name safe to use as a directory name."""
     return name.replace(":", "_").replace("/", "_")

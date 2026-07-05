@@ -79,6 +79,20 @@ idempotent and won't clobber a model LM Studio downloaded itself; rescan/restart
 see it. `KODO_LMSTUDIO_MODELS_DIR` overrides the target. To surface **every** model at once
 instead, point LM Studio at the whole `gguf/` (and `mlx/`) bucket as a models directory.
 
+## Checking integrity
+
+`kodo library verify` checks each model on disk is intact — the declared weights (and vision
+projector) exist and are non-empty, and the recorded model card is present:
+
+```bash
+kodo library verify            # all models
+kodo library verify Ornith     # one
+kodo library verify --deep     # also re-hash Ollama blobs against their sha256
+```
+
+Ollama's store is content-addressed, so `--deep` gives true content integrity there. HF/LM Studio
+pulls carry no per-file checksums, so their check is structural (present + non-empty).
+
 ## Model cards & metadata
 
 Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a
