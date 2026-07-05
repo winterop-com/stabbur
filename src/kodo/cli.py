@@ -1257,6 +1257,14 @@ def _scaffold_project(
     else:
         local_lib = target / _LOCAL_LIBRARY
         local_lib.mkdir(parents=True, exist_ok=True)
+        if existing and existing[0].is_ollama:
+            # Ollama models live in a content-addressed store (manifest + shared blobs); they can't
+            # be copied into a loose project-local library. Reject cleanly instead of crashing on copytree.
+            console.print(
+                f"[red]{model!r} is an Ollama model[/] — it can't be copied into a project-local library.\n"
+                "Drop `--local`/`--copy` (use the shared library), or pick a GGUF/MLX model."
+            )
+            raise typer.Exit(1)
         if existing:
             console.print(f"\nCopying [bold]{model}[/] into [bold]{_LOCAL_LIBRARY}/[/] (local-disk copy) …")
             _copy_model_local(existing[0], local_lib)
@@ -1616,6 +1624,10 @@ def speak(
         )
         raise typer.Exit(1)
 
+    if voice is not None and model is not None:
+        console.print(
+            f"[yellow]--voice takes precedence[/] — ignoring `--model {model}` (that's for mlx-audio/OuteTTS)."
+        )
     spec = voice_registry.get(model) if model else None
     spec = spec or (voice_registry.by_repo(model) if model else None)
     try:
@@ -1672,6 +1684,8 @@ def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> Non
         dest = Path(name)
     dest.write_bytes(data)
     console.print(f"[green]Wrote[/] {dest}")
+    if play and output is not None:
+        console.print("[dim](not auto-played — audio was written to your -o file)[/]")
     if play and output is None and shutil.which("afplay"):
         import subprocess  # noqa: PLC0415
 
@@ -1953,6 +1967,9 @@ def serve(
     locked_model = model or (proj.model if proj else None)
     locked_by_project = model is None and locked_model is not None
     if locked_model is not None:
+        # Validate the locked model up front (like `kodo chat`) so a bad name gives a clean message
+        # here, not a uvicorn "Application startup failed" traceback from the app lifespan.
+        _resolve_library_model(locked_model, None)
         os.environ["KODO_SERVE_MODEL"] = locked_model
     if config.runtime_port_override() is not None:
         os.environ["KODO_RUNTIME_PORT"] = str(config.runtime_port_override())
@@ -2064,6 +2081,9 @@ def voice_import(
     Targets the project-local library by default (``--shared`` for the archive). A named model
     not yet in the HF cache is downloaded; ``--all`` imports only what's already cached.
     """
+    if all_ and models:  # like `kodo library pull`, reject the contradictory combination
+        console.print("[red]Give voice model id(s) OR --all, not both.[/]")
+        raise typer.Exit(2)
     root = get_settings().library_root if shared else library_ops.roots()[0]
     if all_:
         _pull_voice_all(root, prune)

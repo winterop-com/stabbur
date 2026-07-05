@@ -126,7 +126,9 @@ def check_library(settings: Settings) -> list[Check]:
             name="Runnable models",
             status=CheckStatus.ok if models else CheckStatus.warn,
             detail=f"{len(models)} ({summary})",
-            hint=None if models else "Pull one with `kodo pull` (or `kodo sources` to see local caches).",
+            hint=None
+            if models
+            else "Pull one with `kodo library pull` (or `kodo library sources` to see local caches).",
         )
     )
     return checks
@@ -160,7 +162,7 @@ def check_project(settings: Settings) -> list[Check]:
                 name="Default model",
                 status=CheckStatus.ok if resolved else CheckStatus.warn,
                 detail=proj.model + ("" if resolved else " (not in library)"),
-                hint=None if resolved else f"Pull it: `kodo pull huggingface {proj.model}`.",
+                hint=None if resolved else f"Pull it: `kodo library pull huggingface {proj.model}`.",
             )
         )
     else:

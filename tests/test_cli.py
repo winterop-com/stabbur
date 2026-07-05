@@ -293,3 +293,10 @@ def test_mcp_list_shows_optional_web_with_install_hint(monkeypatch: pytest.Monke
     result = runner.invoke(cli.app, ["mcp", "list"])
     assert result.exit_code == 0
     assert "web" in result.stdout and "install-web" in result.stdout  # discoverable with a hint
+
+
+def test_voice_import_rejects_all_with_ids() -> None:
+    # C-9: --all combined with explicit ids is a contradiction (like `library pull`) → exit 2.
+    result = runner.invoke(cli.app, ["voice", "import", "--all", "kokoro"])
+    assert result.exit_code == 2, result.output
+    assert "OR --all" in result.output
