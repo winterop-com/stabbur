@@ -5,7 +5,7 @@ servers (the agent loop executes the call and feeds the result back). Tools come
 from two places:
 
 - **Installed plugins** — MCP servers advertised by installed `kodo-mcp-*` packages
-  (`datetime`, `utils`, `memory`, `weather-yr`). (The `benchmark` package is a dev/benchmarking tool and
+  (`datetime`, `utils`, `memory`, `weather-yr`, `files`, `exec`). (The `benchmark` package is a dev/benchmarking tool and
   does *not* advertise itself as an assistant tool.)
 - **A project's `[[mcp]]`** — any MCP server command, listed in `kodo.toml`. This is
   how you attach an external server like DHIS2.
@@ -46,6 +46,12 @@ kodo bundles pure-stdlib/light plugins — always available:
   `weather_forecast_at(lat, lon)` return current conditions + hourly + daily forecast from the
   free met.no (yr.no) API (place names geocoded via OpenStreetMap). No key; fixed endpoints, so
   no arbitrary-fetch surface.
+- **`files`** (`kodo-mcp-files`) — `list_files`, `read_file`, `search_files` under one configured
+  root (`KODO_FILES_ROOT`, default the current directory). Every path is contained to the root
+  (no `..` escapes); reads refuse binary/oversized files. Read-only unless `KODO_FILES_WRITABLE`.
+- **`exec`** (`kodo-mcp-exec`) — `run_python(code, stdin)` runs a snippet in a locked-down Docker
+  sandbox (no network, read-only filesystem, capped memory/CPU/pids, timeout) and returns its
+  output — a calculator / scratchpad. Needs a running Docker daemon.
 
 One heavier first-party server is **optional**:
 

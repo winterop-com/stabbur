@@ -9,9 +9,7 @@ history is the record) — this file is only open threads.
 
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | New MCP server: `kodo-mcp-exec` — sandboxed Python/calc scratchpad | M | High assistant value; reuses the benchmark's Docker sandbox (extract `kodo_benchmark.core.run_code` into a shared `kodo-mcp-sandbox`). Docker-gated. |
-| 2 | New MCP server: `kodo-mcp-files` — read/search files under one root, read-only default | M | Contain every path with `safe_join` (the guard in `sources/base.py`); opt-in writes behind a flag. |
-| 4 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies; the palette, `/`-autocomplete, MCP enable/disable/reconnect, `/export`, and live `/set` sampling all shipped.) |
+| 1 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies; the palette, `/`-autocomplete, MCP enable/disable/reconnect, `/export`, and live `/set` sampling all shipped.) |
 
 ## DHIS2 assistant — near-term
 
@@ -34,30 +32,20 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
   a runtime/projector investigation. (No audio-specialist model is currently in the library to
   reproduce against.)
 
-## Internal MCP servers — the remaining "normal toolset"
+## Internal MCP servers — the "normal toolset" (complete)
 
-`datetime`, `utils`, `search` (bundled) and `web` (optional `--extra web`) have shipped.
-Each new one is its own workspace member following the `kodo-mcp-datetime` template
-(src layout, `__init__`+`__main__`+`app.py`+`plugin.py`), advertises via the `mcp_servers`
-plugin hook (so `kodo mcp list` / `mcp add` / tool pickers pick it up with no hardcoding),
-and gets a `tools-<name>` benchmark suite. Remaining, roughly in priority order:
+All planned bundled servers have shipped, each a workspace member following the
+`kodo-mcp-datetime` template (src layout, advertise-only `mcp_servers` plugin hook so
+`kodo mcp list` / `mcp add` / tool pickers pick it up) with a `tools-<name>` benchmark suite:
+`datetime`, `utils`, `search`, `web` (optional `--extra web`), `memory` (persistent notes),
+`weather-yr` (met.no/yr.no weather), `files` (read-only browse/read/search under a root, writes
+behind `KODO_FILES_WRITABLE`), and `exec` (sandboxed Python via the shared `kodo-sandbox` lib —
+no network, read-only fs, capped mem/cpu/pids, timeout; Docker-gated).
 
-**Shipped:** `kodo-mcp-memory` (persistent notes / key-value memory in the library) and
-`kodo-mcp-weather-yr` (weather via the free met.no/yr.no API — `weather_forecast(place)` +
-coords, geocoded via OpenStreetMap), each with a `tools-<name>` benchmark suite. Remaining:
-
-1. **`kodo-mcp-exec`** — run a Python (later shell) snippet and return stdout: a calculator /
-   scratchpad. **Reuse the benchmark's Docker sandbox** — extract `kodo_benchmark.core
-   .run_code` into a shared `kodo-mcp-sandbox` lib both depend on (no network, capped
-   mem/cpu/pids, timeout). Gated on Docker like the benchmark.
-2. **`kodo-mcp-files`** — list/read/search files under one configured workspace root,
-   read-only by default. **Security:** contain every path with `safe_join` (the guard already
-   in `sources/base.py`); never escape the root; opt-in writes behind a flag.
-
-Cross-cutting: keep each server dependency-light and stdio-only (heavy ones optional behind an
-extra, like `web`); config via `pydantic-settings` (`KODO_*`); pure servers stay plain packages
-(advertise-only plugin, no `PluginContext`); anything that executes or fetches gets a
-sandbox/allowlist before it ships.
+New ones are easy to add on this template — future ideas: a shell variant of `exec`, a
+`kodo-mcp-http` (allowlisted fetch), a git server. Cross-cutting rules still hold: keep each
+dependency-light and stdio-only (heavy ones behind an extra, like `web`); config via
+`pydantic-settings` (`KODO_*`); anything that executes or fetches gets a sandbox/allowlist.
 
 ## Voice follow-ups
 
