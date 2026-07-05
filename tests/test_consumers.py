@@ -105,3 +105,58 @@ def test_install_ollama_surfaces_create_failure(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(consumers.subprocess, "run", lambda *a, **k: _Proc())
     with pytest.raises(RuntimeError, match="boom: bad gguf"):
         consumers.install_ollama(_gguf(tmp_path))
+
+
+# --- LM Studio consumer (zero-copy symlink) ---------------------------------------------------
+
+
+def _model(tmp_path: Path, fmt: ModelFormat, name: str = "pub/Foo-GGUF") -> LibraryModel:
+    libdir = tmp_path / "lib" / name
+    libdir.mkdir(parents=True)
+    weight = libdir / ("m.gguf" if fmt is ModelFormat.gguf else "m.safetensors")
+    weight.write_bytes(b"w")
+    return LibraryModel(name=name, model_format=fmt, path=libdir, load_target=weight)
+
+
+def test_install_lmstudio_symlinks_the_library_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lms = tmp_path / "lmstudio"
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: lms)
+    model = _model(tmp_path, ModelFormat.gguf, "pub/Foo-GGUF")
+
+    result = consumers.install_lmstudio(model)
+    link = lms / "pub" / "Foo-GGUF"
+
+    assert result.runtime == "lmstudio"
+    assert link.is_symlink()
+    assert link.resolve() == model.path.resolve()  # points at the canonical copy (no data copied)
+    assert not (link.resolve() / "m.gguf").is_symlink()  # the weight itself is the real file
+
+
+def test_install_lmstudio_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: tmp_path / "lmstudio")
+    model = _model(tmp_path, ModelFormat.mlx, "mlx-community/Bar-4bit")  # MLX is linkable too
+    consumers.install_lmstudio(model)
+    again = consumers.install_lmstudio(model)
+    assert "already linked" in again.detail
+
+
+def test_install_lmstudio_rejects_ollama_and_safetensors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: tmp_path / "lmstudio")
+    ollama = LibraryModel(
+        name="gemma3", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path, is_ollama=True
+    )
+    with pytest.raises(RuntimeError, match="Ollama"):
+        consumers.install_lmstudio(ollama)
+    st = LibraryModel(name="pub/Full", model_format=ModelFormat.safetensors, path=tmp_path, load_target=tmp_path)
+    with pytest.raises(RuntimeError, match="loose GGUF/MLX"):
+        consumers.install_lmstudio(st)
+
+
+def test_install_lmstudio_refuses_to_clobber_a_real_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lms = tmp_path / "lmstudio"
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: lms)
+    real = lms / "pub" / "Foo-GGUF"  # LM Studio already has its own copy here
+    real.mkdir(parents=True)
+    (real / "existing.gguf").write_bytes(b"x")
+    with pytest.raises(RuntimeError, match="already exists"):
+        consumers.install_lmstudio(_model(tmp_path, ModelFormat.gguf, "pub/Foo-GGUF"))

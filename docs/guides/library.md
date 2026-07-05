@@ -64,6 +64,21 @@ vision projector and an optional `SYSTEM` prompt) and runs `ollama create`. A lo
 Ollama daemon must be running (`ollama serve` or the app). Only GGUF installs into
 Ollama — MLX/safetensors aren't supported there.
 
+**LM Studio** reads loose GGUF/MLX directly, and the library's `gguf/<publisher>/<repo>/`
+and `mlx/<publisher>/<repo>/` buckets already match LM Studio's layout — so it needs no copy,
+just a pointer:
+
+```bash
+kodo library install Qwen3.5-4B-GGUF --to lmstudio      # symlink into LM Studio's models dir
+kodo library install gemma-4-26B-A4B-MLX --to lmstudio  # MLX works too (--format to disambiguate)
+```
+
+This symlinks `<lmstudio_models_dir>/<publisher>/<repo>` to the library copy (the link lives on
+the machine disk, so exFAT's no-symlink limit doesn't apply — **zero bytes copied**). It's
+idempotent and won't clobber a model LM Studio downloaded itself; rescan/restart LM Studio to
+see it. `KODO_LMSTUDIO_MODELS_DIR` overrides the target. To surface **every** model at once
+instead, point LM Studio at the whole `gguf/` (and `mlx/`) bucket as a models directory.
+
 ## Model cards & metadata
 
 Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a

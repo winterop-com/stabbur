@@ -720,34 +720,46 @@ def migrate(
 
 @library_app.command("install")
 def install(
-    model: Annotated[str, typer.Argument(help="Library model name (a GGUF), e.g. Qwen3.5-4B-GGUF.")],
-    to: Annotated[str, typer.Option("--to", help="Target runtime to install into.")] = "ollama",
+    model: Annotated[str, typer.Argument(help="Library model name, e.g. Qwen3.5-4B-GGUF.")],
+    to: Annotated[str, typer.Option("--to", help="Target runtime: ollama | lmstudio.")] = "ollama",
+    model_format: FormatOption = None,
     name: Annotated[
-        str | None, typer.Option("--name", help="Name to register under (default: a sanitized repo tail).")
+        str | None, typer.Option("--name", help="Ollama: name to register under (default: a sanitized repo tail).")
     ] = None,
     system: Annotated[
-        str | None, typer.Option("--system", help="Default system prompt to bake into the model.")
+        str | None, typer.Option("--system", help="Ollama: default system prompt to bake into the model.")
     ] = None,
 ) -> None:
     """Install a canonical library model into a runtime (feed a *consumer*).
 
-    The library keeps one canonical GGUF; some runtimes can't run a loose file in
-    place. ``--to ollama`` imports the GGUF into a running Ollama (``ollama create``)
-    so it's runnable there, while the drive keeps the single source of truth.
+    The library keeps one canonical copy; this points a runtime at it. ``--to ollama``
+    imports the GGUF into a running Ollama (``ollama create``); ``--to lmstudio`` symlinks
+    the GGUF/MLX model into LM Studio's models dir (zero copy). Either way the drive stays
+    the single source of truth.
     """
-    if to != "ollama":
-        console.print(f"[red]Unsupported target {to!r}[/] — currently only [bold]ollama[/] is supported.")
+    if to not in ("ollama", "lmstudio"):
+        console.print(f"[red]Unsupported target {to!r}[/] — use [bold]ollama[/] or [bold]lmstudio[/].")
         raise typer.Exit(1)
-    resolved = _resolve_library_model(model, ModelFormat.gguf)
+    # Ollama only imports GGUF; LM Studio takes GGUF or MLX (use --format to disambiguate).
+    resolved = _resolve_library_model(model, ModelFormat.gguf if to == "ollama" else model_format)
     try:
-        result = consumers.install_ollama(resolved, name=name, system=system)
+        if to == "ollama":
+            result = consumers.install_ollama(resolved, name=name, system=system)
+        else:
+            result = consumers.install_lmstudio(resolved)
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
-    console.print(
-        f"[green]Installed[/] {resolved.name} [dim]→[/] ollama [bold]{result.name}[/].\n"
-        f"[dim]Run it with[/]  ollama run {result.name}"
-    )
+    if to == "ollama":
+        console.print(
+            f"[green]Installed[/] {resolved.name} [dim]→[/] ollama [bold]{result.name}[/].\n"
+            f"[dim]Run it with[/]  ollama run {result.name}"
+        )
+    else:
+        console.print(
+            f"[green]Linked[/] {resolved.name} [dim]→[/] LM Studio [dim]({result.detail}).[/]\n"
+            "[dim]Rescan/restart LM Studio if it doesn't appear.[/]"
+        )
 
 
 @library_app.command("tag")
