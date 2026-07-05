@@ -97,7 +97,9 @@ also went 12/12; `Qwen3.5-4B` (2.6 GB) and `gpt-oss-20b` reached 11/12. Roleplay
 [DHIS2 benchmark report](dhis2-benchmark-report.md).
 
 **DHIS2 (`tools-dhis2-write`, read-write):** driving **writes** (create / rename / delete against a
-local instance) is far harder. Of the read stars, **`gemma-4-12B-it-QAT`** leads at **4/7**, then
-`Qwen3-Coder-30B` (3/7), `gpt-oss-20b` (2/7), and `Ornith-1.0-9B` (1/7); `Qwen3.6-27B` stalled on a
-tool-call loop. The multi-step create→delete→confirm lifecycle trips up small models, so no local
-model is yet trustworthy for unattended DHIS2 writes.
+local instance) is far harder, and **bigger does not help**. The small **`gemma-4-12B-it-QAT`** leads
+at **4/7**; `Qwen3-Coder-30B` and `Qwen3.6-27B` tie at 3/7, `gpt-oss-20b` 2/7, and both `Ornith-1.0-9B`
+and the **biggest** model, the 35B-A3B MoE `Qwen3.6-35B-A3B`, trail at 1/7 (the 35B also left the most
+residue). The multi-step create→delete→confirm lifecycle trips up every model — the largest ones
+over-generate and drop the completion protocol — so no local model is yet trustworthy for unattended
+DHIS2 writes.

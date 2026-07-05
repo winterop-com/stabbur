@@ -27,21 +27,24 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
    `../kodo-projects/dhis2-write`). Results (5 tool-callers that all scored 11-12/12 on the READ
    suite):
 
-   | Model | Write score | Notes |
-   |---|---|---|
-   | gemma-4-12B-it-QAT | **4/7 (57%)** | best writer |
-   | Qwen3-Coder-30B-A3B | 3/7 (43%) | |
-   | gpt-oss-20b | 2/7 (29%) | |
-   | Ornith-1.0-9B | 1/7 (14%) | read winner; weak on writes |
-   | Qwen3.6-27B | n/a | run stalled on a tool-call hang (killed), not scored (see below) |
+   | Model | Write score | Residue left | Notes |
+   |---|---|---|---|
+   | gemma-4-12B-it-QAT | **4/7 (57%)** | 6 | best writer, and a small one |
+   | Qwen3-Coder-30B-A3B | 3/7 (43%) | 7 | |
+   | Qwen3.6-27B | 3/7 (43%) | 5 | re-run after the tool-timeout fix (was a hang, n/a) |
+   | gpt-oss-20b | 2/7 (29%) | 5 | |
+   | Ornith-1.0-9B | 1/7 (14%) | 6 | read winner; weak on writes |
+   | Qwen3.6-35B-A3B | 1/7 (14%) | 8 | biggest model tested — **worst** writer, most residue |
 
    **Headline:** small local models drive DHIS2 **reads** near-perfectly but **writes are much
    harder** — the multi-step create→(rename/link)→delete→confirm lifecycle trips them up, and all
-   left residue (incomplete deletes), swept between models. Scoring is a proxy (`expect_tool` called
-   + a `LIFECYCLE_OK` completion token), cross-checked against the actual DHIS2 state (residue-left
-   as a cleanliness signal). Even the best (gemma-4-12B) is not yet trustworthy for unattended
-   writes; the `dhis2-write` project keeps Ornith as its small default and notes gemma-4-12B as the
-   stronger write driver. Next: stronger write models / a guarded write chokepoint
+   left residue (incomplete deletes), swept between models. And **size does not help**: the best
+   writer is the 12B gemma, while the two biggest (27B dense, 35B-A3B MoE) tie-or-lose and leave the
+   most residue — bigger models over-generate, loop, and drop the completion protocol. Scoring is a
+   proxy (`expect_tool` called + a `LIFECYCLE_OK` completion token), cross-checked against the actual
+   DHIS2 state (residue-left as a cleanliness signal). Even the best (gemma-4-12B) is not yet
+   trustworthy for unattended writes; the `dhis2-write` project keeps Ornith as its small default and
+   notes gemma-4-12B as the stronger write driver. Next: stronger write models / a guarded write chokepoint
    (`dhis2w-mcp-router` read-only-by-default), and richer verification (assert real state, not just
    the completion token).
 

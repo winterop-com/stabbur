@@ -1,0 +1,63 @@
+{
+  "suite": "tools-dhis2-write",
+  "language": "tools",
+  "type": "tool",
+  "model": "lmstudio-community/Qwen3.6-35B-A3B-GGUF",
+  "timestamp": "2026-07-05T20:01:29",
+  "load_s": 34.77923208399443,
+  "outcomes": [
+    {
+      "id": "de-create-delete",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 337.4844506250229,
+      "exec_s": 0.0
+    },
+    {
+      "id": "ig-create-delete",
+      "difficulty": "basics",
+      "passed": false,
+      "gen_s": 218.66458300000522,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-rename-delete",
+      "difficulty": "intermediate",
+      "passed": false,
+      "gen_s": 112.2527282499941,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-create-delete",
+      "difficulty": "intermediate",
+      "passed": true,
+      "gen_s": 226.42608670896152,
+      "exec_s": 0.0
+    },
+    {
+      "id": "de-create-verify-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 161.7078052079887,
+      "exec_s": 0.0
+    },
+    {
+      "id": "deg-add-member-delete",
+      "difficulty": "advanced",
+      "passed": false,
+      "gen_s": 56.16078829194885,
+      "exec_s": 0.0
+    },
+    {
+      "id": "indicator-create-delete",
+      "difficulty": "expert",
+      "passed": false,
+      "gen_s": 181.23197841702495,
+      "exec_s": 0.0
+    }
+  ],
+  "gen_s": 1293.9284205009462,
+  "total": 7,
+  "passed": 1,
+  "score": 0.14285714285714285
+}
