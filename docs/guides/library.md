@@ -79,6 +79,26 @@ idempotent and won't clobber a model LM Studio downloaded itself; rescan/restart
 see it. `KODO_LMSTUDIO_MODELS_DIR` overrides the target. To surface **every** model at once
 instead, point LM Studio at the whole `gguf/` (and `mlx/`) bucket as a models directory.
 
+**mlx_lm** needs no install step at all: `mlx_lm.server` / `mlx_lm.generate` run a loose MLX
+model in place, and the library's `mlx/<publisher>/<repo>/` is exactly that. Point it at the
+model directory — e.g. `mlx_lm.server --model "$KODO_LIBRARY_ROOT/mlx/mlx-community/Qwen3.6-27B-4bit"`
+(kodo itself serves MLX this way). So there's no `--to mlx_lm`: it already reads the canonical copy.
+
+## Which formats to keep
+
+Format is a **per-model choice**, not "keep every format of everything":
+
+- **GGUF** — the portable, cross-runtime backbone (Ollama, LM Studio, llama.cpp; Mac + Linux).
+  Keep for anything you want to run widely. The most shareable tier.
+- **MLX** — Apple-Silicon native and fastest on the Mac. Keep for models you run locally on an
+  M-series machine. (MLX repos are just HF repos, so no separate downloader.)
+- **safetensors** — original full-precision weights, 2–4× the size of a quant. Keep **only** for
+  models you'll re-quantize or fine-tune — not blanket. Pull on demand, drop when done.
+
+Default policy: keep **GGUF + MLX** ready for a model you actually use; fetch safetensors only
+when you need to convert or train. `kodo library rm <model> --format safetensors` reclaims space
+once a conversion is done.
+
 ## Checking integrity
 
 `kodo library verify` checks each model on disk is intact — the declared weights (and vision

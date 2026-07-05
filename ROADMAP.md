@@ -59,11 +59,20 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
 
 ## Open issues
 
-- **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes audio
-  fine, but Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the
-  audio — likely a `llama-server` mmproj-routing issue for their audio-only projectors; needs
-  a runtime/projector investigation. (No audio-specialist model is currently in the library to
-  reproduce against.)
+- **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes audio fine, but
+  Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the audio. **Code
+  investigation (2026-07-05):** kodo's path looks correct — `capabilities()` reads the projector's
+  `clip.has_audio_encoder` flag to detect audio, `build_command` passes `--mmproj <projector>`
+  uniformly (llama-server's mtmd handles vision + audio; installed llama-server is b9870, which has
+  audio support), and the agent sends OpenAI `input_audio` parts. So the fault is most likely
+  **downstream of kodo** — llama.cpp/mtmd support for these specific architectures (Ultravox's
+  Whisper-style encoder, Voxtral) — or a projector-selection edge case (`pick_gguf` finds the mmproj
+  by a `mmproj*` filename; a repo naming it otherwise would be missed → no `--mmproj` → audio fails).
+  **Verification plan (needs a small audio-specialist GGUF in the library — still blocked):**
+  (1) pull one + its projector; (2) confirm `capabilities()` reports `audio=True` and which mmproj;
+  (3) run `llama-server -m <model> --mmproj <audio-proj>` and curl an `input_audio` request to
+  isolate kodo vs llama.cpp; (4) if it fails llama-server-alone → upstream issue; if it works alone
+  → fix kodo's mmproj-pick (match by `clip.has_audio_encoder`, not filename) or the content shape.
 
 ## Internal MCP servers — the "normal toolset" (complete)
 
