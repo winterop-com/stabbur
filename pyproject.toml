@@ -14,6 +14,7 @@ dependencies = [
     "kodo-mcp-datetime",
     "kodo-mcp-memory",
     "kodo-mcp-search",
+    "kodo-mcp-weather-yr",
     "kodo-mcp-utils",
     "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
@@ -87,6 +88,7 @@ kodo-mcp-datetime = { workspace = true }
 kodo-mcp-memory = { workspace = true }
 kodo-benchmark = { workspace = true }
 kodo-mcp-search = { workspace = true }
+kodo-mcp-weather-yr = { workspace = true }
 kodo-mcp-utils = { workspace = true }
 kodo-mcp-web = { workspace = true }  # optional (the `web` extra); heavy Playwright deps
 
@@ -136,7 +138,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_memory", "kodo_benchmark"]
+source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_memory", "kodo_mcp_weather_yr", "kodo_benchmark"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]
