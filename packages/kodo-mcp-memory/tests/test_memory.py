@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from kodo_mcp_memory.core import MemorySettings, MemoryStore
 
 
@@ -48,7 +49,7 @@ def test_corrupt_file_is_tolerated(tmp_path: Path) -> None:
     assert MemoryStore(path).notes() == []  # falls back to empty rather than raising
 
 
-def test_settings_path_resolution(tmp_path: Path) -> None:
+def test_settings_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # explicit KODO_MEMORY_DIR wins
     assert MemorySettings(memory_dir=tmp_path / "mem").notes_path() == tmp_path / "mem" / "notes.json"
     # else derived under the library root
@@ -56,7 +57,10 @@ def test_settings_path_resolution(tmp_path: Path) -> None:
         MemorySettings(library_root=tmp_path / "lib").notes_path()
         == tmp_path / "lib" / ".kodo" / "memory" / "notes.json"
     )
-    # else a project-local fallback
+    # else a project-local fallback — only when nothing in the environment supplies a
+    # library root, so make the unconfigured state explicit rather than ambient.
+    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("KODO_MEMORY_DIR", raising=False)
     assert MemorySettings().notes_path() == Path(".kodo/memory") / "notes.json"
 
 

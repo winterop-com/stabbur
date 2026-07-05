@@ -9,7 +9,15 @@ the Console is constructed, so this must run before that import, not in a fixtur
 """
 
 import os
+import tempfile
 
 for _var in ("FORCE_COLOR", "CLICOLOR_FORCE"):
     os.environ.pop(_var, None)
 os.environ["NO_COLOR"] = "1"
+
+# Point the suite at an empty, throwaway library so it's hermetic. Without this the
+# tests inherit whatever ``KODO_LIBRARY_ROOT`` the developer's ``.env`` supplies —
+# which passes locally but fails on a clean checkout (CI) with ``LibraryNotConfigured``,
+# and silently scans the real drive locally. An env var overrides ``.env``, so this wins
+# everywhere. Tests that need the *unconfigured* state ``monkeypatch.delenv`` it explicitly.
+os.environ.setdefault("KODO_LIBRARY_ROOT", tempfile.mkdtemp(prefix="kodo-test-library-"))
