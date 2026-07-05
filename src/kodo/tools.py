@@ -117,9 +117,14 @@ class MCPToolset:
         return [s["function"]["name"] for s in self.schemas]
 
     def subset(self, names: set[str]) -> "MCPToolset":
-        """A view exposing only ``names`` (call-routing shared with this toolset)."""
+        """A view restricted to ``names`` — for both display *and* execution.
+
+        Routing (``_owner``) is filtered too, not just ``schemas``: a tool the user disabled must
+        not run even if the model calls it from memory/hallucination — ``call()`` returns an
+        "unknown tool" error for anything outside the subset (a real consent control, not display-only).
+        """
         view = MCPToolset()
-        view._owner = self._owner
+        view._owner = {k: v for k, v in self._owner.items() if k in names}
         view.schemas = [s for s in self.schemas if s["function"]["name"] in names]
         return view
 

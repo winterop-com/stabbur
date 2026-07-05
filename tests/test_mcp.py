@@ -195,3 +195,25 @@ async def test_connect_skips_a_failing_server_and_records_it() -> None:
     async with tools.connect([("bogus", ["kodo-nonexistent-server-xyz"])]) as toolset:
         assert toolset.schemas == []  # nothing from the failed server
         assert toolset.errors and toolset.errors[0][0] == "bogus"  # failure recorded with its label
+
+
+async def test_subset_restricts_execution_not_just_display() -> None:
+    # A tool outside the enabled subset must not execute even if the model calls it (V-1).
+    executed: list[str] = []
+
+    class _Client:
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            executed.append(name)
+            return type("R", (), {"data": "ran"})()
+
+    ts = tools.MCPToolset()
+    client = _Client()
+    ts._owner = {"srv__safe": (client, "safe"), "srv__danger": (client, "danger")}  # type: ignore[dict-item]
+    ts.schemas = [{"type": "function", "function": {"name": n}} for n in ("srv__safe", "srv__danger")]
+
+    view = ts.subset({"srv__safe"})
+    assert view.names == ["srv__safe"]  # display restricted
+    assert "unknown tool" in await view.call("srv__danger", {})  # execution refused
+    assert executed == []  # the disabled tool never ran
+    assert await view.call("srv__safe", {}) == "ran"  # the enabled one still works
+    assert executed == ["safe"]

@@ -94,8 +94,14 @@ def run_code(
         name = f"kodo-sandbox-{uuid.uuid4().hex[:12]}"
         cmd = [
             "docker", "run", "--rm", "-i", "--name", name,
-            "--network=none", f"--memory={memory}", f"--cpus={cpus}", "--pids-limit=256",
-            "--read-only", "--tmpfs", "/tmp:rw,exec,size=256m",
+            "--network=none", f"--memory={memory}", f"--memory-swap={memory}", f"--cpus={cpus}",
+            "--pids-limit=256", "--read-only", "--tmpfs", "/tmp:rw,exec,size=256m",
+            # Defense-in-depth: run as an unprivileged user, drop all capabilities, and forbid
+            # privilege escalation — the model's code is adversarial input. HOME=/tmp gives the
+            # non-root user a writable home on the tmpfs (the rootfs is read-only). memory-swap =
+            # memory so the cap can't be sidestepped via swap.
+            "--user", "65534:65534", "-e", "HOME=/tmp",
+            "--cap-drop=ALL", "--security-opt=no-new-privileges",
             "-v", f"{tmp}:/work:ro", "-w", "/work",
             runtime.image, *runtime.command, *(args or []),
         ]  # fmt: skip
