@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -134,7 +134,7 @@ class MCPToolset:
 
 @asynccontextmanager
 async def connect(
-    servers: list[tuple[str | None, list[str]]] | list[tuple[str | None, list[str], dict[str, str]]],
+    servers: Sequence[tuple[str | None, list[str]] | tuple[str | None, list[str], dict[str, str]]],
 ) -> AsyncGenerator[MCPToolset, None]:
     """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset.
 
@@ -149,7 +149,7 @@ async def connect(
     async with AsyncExitStack() as stack:
         for spec in servers:
             name, command = spec[0], spec[1]
-            server_env = spec[2] if len(spec) > 2 else {}  # type: ignore[misc]
+            server_env = spec[2] if len(spec) > 2 else {}
             env = {**base_env, **server_env} if server_env else base_env
             prefix = _server_prefix(name, command)
             # One server failing to start (e.g. an uninstalled optional server, a bad command)
