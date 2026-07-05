@@ -393,6 +393,7 @@ def test_hf_pull_include_sets_allow_patterns(tmp_path: Path, monkeypatch: pytest
         return str(kwargs["local_dir"])
 
     monkeypatch.setattr(huggingface, "snapshot_download", fake_snapshot)
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.gguf)  # no network
 
     huggingface.pull("pub/Repo-GGUF", tmp_path, include=["*Q4_K_M*", "*mmproj*"])
     patterns = captured["allow_patterns"]
@@ -400,6 +401,45 @@ def test_hf_pull_include_sets_allow_patterns(tmp_path: Path, monkeypatch: pytest
 
     huggingface.pull("pub/Repo", tmp_path)  # no include → no filtering
     assert captured["allow_patterns"] is None
+
+
+def _fake_hfapi(files: list[str]) -> object:
+    """An HfApi() stand-in whose list_repo_files returns ``files`` (no network)."""
+
+    class _Api:
+        def list_repo_files(self, repo_id: str, token: str | None = None) -> list[str]:
+            return files
+
+    return _Api()
+
+
+def test_hub_format_detects_from_file_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(huggingface, "HfApi", lambda: _fake_hfapi(["model.gguf", "README.md"]))
+    assert huggingface.hub_format("pub/Foo-GGUF") is ModelFormat.gguf
+
+    monkeypatch.setattr(huggingface, "HfApi", lambda: _fake_hfapi(["model.safetensors", "config.json"]))
+    assert huggingface.hub_format("mlx-community/Foo") is ModelFormat.mlx  # mlx-community publisher
+    assert huggingface.hub_format("lmstudio-community/Foo-MLX-4bit") is ModelFormat.mlx  # "mlx" in name
+    assert huggingface.hub_format("meta/Llama-Foo") is ModelFormat.safetensors  # plain safetensors
+
+    monkeypatch.setattr(huggingface, "HfApi", lambda: _fake_hfapi(["pytorch_model.bin"]))
+    assert huggingface.hub_format("pub/Weightless") is ModelFormat.unknown
+
+
+def test_hf_pull_lands_in_format_bucket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(huggingface, "snapshot_download", lambda **k: str(k["local_dir"]))
+
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.gguf)
+    res = huggingface.pull("unsloth/Qwen3.5-4B-GGUF", tmp_path)
+    assert res.destination.parts[-3:] == ("gguf", "unsloth", "Qwen3.5-4B-GGUF")  # format-centric
+
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.mlx)
+    res_mlx = huggingface.pull("mlx-community/Foo-4bit", tmp_path)
+    assert res_mlx.destination.parts[-3:] == ("mlx", "mlx-community", "Foo-4bit")
+
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.unknown)
+    res_unknown = huggingface.pull("pub/Weightless", tmp_path)  # no weights → source bucket (old layout)
+    assert res_unknown.destination.parts[-3:] == ("huggingface", "pub", "Weightless")
 
 
 def test_scan_skips_incomplete_gguf_dir(tmp_path: Path) -> None:

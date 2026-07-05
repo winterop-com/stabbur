@@ -121,26 +121,59 @@ def list_models() -> list[ModelEntry]:
     return entries
 
 
-def pull(repo_id: str, library_root: Path, token: str | None = None, include: list[str] | None = None) -> PullResult:
-    """Download ``repo_id`` into the backup root.
+def hub_format(repo_id: str, token: str | None = None) -> ModelFormat:
+    """Detect a repo's format from the Hub's file list, *before* downloading it.
+
+    GGUF wins if present; otherwise ``*.safetensors`` is MLX for ``mlx-community`` repos or any
+    repo whose name says ``mlx`` (e.g. ``lmstudio-community/…-MLX-4bit``), else plain safetensors.
+    ``unknown`` (no weights, or the listing failed) falls back to the source bucket.
+    """
+    try:
+        files = HfApi().list_repo_files(repo_id, token=token)
+    except Exception:  # noqa: BLE001 - a missing/gated repo or network error → let the download report it
+        return ModelFormat.unknown
+    suffixes = {Path(f).suffix.lower() for f in files}
+    if ".gguf" in suffixes:
+        return ModelFormat.gguf
+    if ".safetensors" in suffixes:
+        is_mlx = repo_id.startswith("mlx-community/") or "mlx" in repo_id.rsplit("/", 1)[-1].lower()
+        return ModelFormat.mlx if is_mlx else ModelFormat.safetensors
+    return ModelFormat.unknown
+
+
+def pull(
+    repo_id: str,
+    library_root: Path,
+    token: str | None = None,
+    include: list[str] | None = None,
+    model_format: ModelFormat | None = None,
+) -> PullResult:
+    """Download ``repo_id`` into the library, organized by format.
 
     Args:
         repo_id: The Hugging Face repo to download (e.g. ``"meta-llama/Llama-3.2-1B"``).
-        library_root: Destination root; the model lands in
-            ``library_root/huggingface/<repo_id>``.
+        library_root: Destination root; the model lands in the **format-centric** layout
+            ``library_root/<format>/<repo_id>`` (``gguf/…``, ``mlx/…``, ``safetensors/…``) — the
+            same buckets LM Studio pulls into, so a GGUF pulled from either source is one copy.
+            A repo with no recognizable weights falls back to ``library_root/huggingface/<repo_id>``.
         token: Optional access token for gated or private repos.
         include: Optional filename globs to restrict the download (e.g.
             ``["*Q4_K_M*"]`` to pull one GGUF quant from a multi-quant repo).
             Small sidecars (``*.md`` / ``*.json`` / ``*.txt``) are always kept so
             the model card and configs come along.
+        model_format: Skip Hub detection and force the destination bucket (used by the CLI when
+            it already knows the format).
 
     Returns:
         A :class:`PullResult` describing what was written.
     """
+    # Pick the format bucket from the Hub's file list; unknown → the source bucket (old layout).
+    fmt = model_format or hub_format(repo_id, token)
+    bucket = fmt.value if fmt is not ModelFormat.unknown else ModelSource.huggingface.value
     # Validate the (untrusted) repo id keeps the destination under the library root
     # *before* creating any directory — an absolute path or ``..`` would otherwise
     # mkdir outside the library even if the download later fails.
-    dest = safe_join(library_root, f"{ModelSource.huggingface.value}/{repo_id}")
+    dest = safe_join(library_root, f"{bucket}/{repo_id}")
     dest.mkdir(parents=True, exist_ok=True)
     allow_patterns = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
     snapshot_download(
