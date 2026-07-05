@@ -7,55 +7,28 @@ history is the record) — this file is only open threads.
 
 ## Next up (concrete, as of 2026-07-05)
 
-1. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
-   autocomplete, MCP enable/disable/reconnect, `/export` transcript, and live `/set` sampling have
-   shipped. The only remaining web-UI parity gap is **switch model** (a real change — see the polish
-   queue: the TUI would need to own the runtime lifecycle). Changing the speak-replies voice is N/A
-   in the terminal (it does not speak).
-### Near-term polish queue (ranked)
-
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
+| 1 | New MCP server: `kodo-mcp-weather-yr` — weather via yr.no/met.no | S | A clean "real API" exemplar for a fetching server; dependency-light, no key, verifiable live. Follows the `kodo-mcp-memory` template. |
+| 2 | New MCP server: `kodo-mcp-exec` — sandboxed Python/calc scratchpad | M | High assistant value; reuses the benchmark's Docker sandbox (extract `kodo_benchmark.core.run_code` into a shared `kodo-mcp-sandbox`). Docker-gated. |
+| 3 | New MCP server: `kodo-mcp-files` — read/search files under one root, read-only default | M | Contain every path with `safe_join` (the guard in `sources/base.py`); opt-in writes behind a flag. |
+| 4 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies; the palette, `/`-autocomplete, MCP enable/disable/reconnect, `/export`, and live `/set` sampling all shipped.) |
 
 ## DHIS2 assistant — near-term
 
-The north star (bottom of this file) is the local DHIS2 assistant. Concrete next steps:
+The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** the read-only
+`tools-dhis2` benchmark + report (`docs/guides/dhis2-benchmark-report.md`), the
+`kodo project new --template dhis2` starter (self-contained uv project; worked instance at
+`../kodo-projects/dhis2`), and the full DHIS2 docs guide (`docs/guides/dhis2.md`). Remaining:
 
-1. **`tools-dhis2` benchmark suite — pick the best model for the bridge.** A tool-use suite
-   (`packages/kodo-mcp-benchmark/.../suites/tools-dhis2.toml`) that attaches `dhis2w-mcp-bridge`
-   against the **play42** profile and scores whether a model calls `dhis2_cli` and returns the
-   right answer. **Read-only first** (metadata counts, UID/name resolution, version, system name —
-   stable structural facts about the Sierra Leone demo); the ground-truth values are a snapshot of
-   the play42 dev instance and may need a refresh if it's reset. **Then a write suite** (create /
-   update / delete against a throwaway/local instance, `DHIS2_MCP_READONLY` off) to see which
-   models can safely drive mutations. Run with `kodo benchmark run tools-dhis2 --all --save` and
-   fold the winner into the DHIS2 project's `[project].model`. **Status (2026-07-04):** read-only
-   suite shipped and run — see `docs/guides/dhis2-benchmark-report.md`. The write suite is
-   **blocked**: no local writable DHIS2 was reachable (profile `local` at http://localhost:8080 is
-   down) and writes to the shared play demos are refused by design. Start a local DHIS2, then add
-   `tools-dhis2-write.toml`.
-2. **`kodo project new --template dhis2` (a DHIS2 starter).** **Done (2026-07-04):**
-   `kodo project new/init` scaffolds a **self-contained uv project** (`pyproject.toml` pinning
-   kodo + MCP servers; `uv run kodo serve`), and `--template dhis2` reproduces a full DHIS2
-   assistant in one command — Ornith-9B, a DHIS2 system prompt, the read-only bridge `[[mcp]]`,
-   example prompts + a profile template, and printed profile-setup steps
-   (`kodo project new mydhis2 --template dhis2 --copy --git`). A worked instance lives at
-   `../kodo-projects/dhis2`, verified end-to-end. **Remaining:** teach `kodo mcp add` to also add
-   a server's pip dep to `pyproject.toml` (and drop `uvx`) when run inside a uv project.
-3. **Full DHIS2 docs guide.** **Done (2026-07-04):** `docs/guides/dhis2.md` (profiles, bridge
-   tiers, ~30 prompts, official-docs link) + `docs/guides/dhis2-benchmark-report.md`. Remaining:
-   fold in the uv-project run instructions and link the `../kodo-projects/dhis2` example.
+1. **`tools-dhis2` write suite.** Create / update / delete against a throwaway/local instance
+   (`DHIS2_MCP_READONLY` off) to see which models can safely drive mutations, then fold the winner
+   into the project's `[project].model`. **Blocked:** no local writable DHIS2 was reachable (profile
+   `local` at http://localhost:8080 is down) and writes to the shared play demos are refused by
+   design. Start a local DHIS2, then add `tools-dhis2-write.toml`.
 
 ## Open issues
 
-- **MLX vision runtime (mlx-vlm) is broken by a transformers incompatibility.** [High] Serving
-  any MLX model routed to `mlx-vlm` crashes at import time with `AttributeError: 'str' object has
-  no attribute '__module__'` (in `transformers` `AutoTokenizer.register`, via mlx-vlm's bundled
-  `mlx_lm.tokenizer_utils`). Surfaced by the `tools-dhis2` benchmark: all three MLX models
-  (Qwen3.5-4B-MLX, gemma-4-26B-MLX, Qwen3.6-27B-4bit) failed to load and could not be evaluated.
-  Likely a version pin in the `mlx-vlm` uv tool env; pin/upgrade `transformers` there. Blocks
-  serving + benchmarking MLX vision models until fixed.
 - **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes audio
   fine, but Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the
   audio — likely a `llama-server` mmproj-routing issue for their audio-only projectors; needs
