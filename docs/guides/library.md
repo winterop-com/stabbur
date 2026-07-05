@@ -30,6 +30,11 @@ Models are organized by **format**, with the Ollama store kept in its native
 Both Hugging Face and LM Studio pulls land in the **format** bucket (`gguf/`, `mlx/`,
 `safetensors/`), so the same GGUF from either source is one copy on disk.
 
+!!! tip "Migrating an older library"
+    Libraries built before this used `huggingface/<repo>`. Reorganize them into the format
+    buckets with `kodo library migrate` — a dry-run prints the plan; `--apply` performs it (a
+    same-drive rename per model, and it removes any copy already duplicated in a bucket).
+
 The scanner finds runnable models **anywhere** under the root (any directory with
 `*.gguf`/`*.safetensors`, plus the Ollama native store). When a GGUF repo ships
 several quants, a balanced one (`Q4_K_M` first) is picked automatically. macOS

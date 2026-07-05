@@ -101,7 +101,9 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
   half):** make Ollama / LM Studio / mlx_lm *consumers* fed from that canonical library — e.g.
   `ollama create` a stored GGUF into Ollama's blob store, or point LM Studio at the library —
   rather than each keeping its own copy. Plus a per-model format policy (keep GGUF+MLX ready,
-  safetensors on demand) and an optional migrate/dedup pass over an existing `huggingface/` tree.
+  safetensors on demand). **Migrate pass done:** `kodo library migrate` reorganizes an existing
+  `huggingface/` tree into the format buckets (dry-run + `--apply`, dedups copies already in a
+  bucket).
 - Auto-fetch HF model cards for LM Studio models (infer the repo from the path).
 - A "want list" / sync command to (re-)download a declared set of models.
 - Verify/repair: re-check sizes & checksums against metadata.
