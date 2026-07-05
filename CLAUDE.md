@@ -76,9 +76,14 @@ the shared one). There is **no** global `~/.kodo/library` and nothing lives unde
 LM Studio / HF land in a **format-centric** layout; Ollama keeps its native
 (restorable) layout:
 
-- `<root>/gguf/<publisher>/<repo>/…` and `<root>/mlx/<publisher>/<repo>/…` —
-  format-centric (LM Studio pulls; HF too once wired).
-- `<root>/huggingface/<repo_id>/…` — full snapshot (HF pull, current behavior).
+- `<root>/gguf/<publisher>/<repo>/…`, `<root>/mlx/<publisher>/<repo>/…`, and
+  `<root>/safetensors/<publisher>/<repo>/…` — format-centric. **Both** LM Studio and HF
+  pull here now: HF detects a repo's format from its Hub file list (`huggingface.hub_format`)
+  and lands it in the matching bucket, so one canonical copy per `(model, format)` across
+  sources instead of a duplicate under `huggingface/`.
+- `<root>/huggingface/<repo_id>/…` — full snapshot, now only the **fallback** for a repo with
+  no recognizable weights (config/`.bin`-only). The scanner still reads this prefix, so any
+  older HF pulls keep working.
 - `<root>/ollama/manifests/…` + `<root>/ollama/blobs/…` — Ollama's native
   content-addressed layout so it stays **restorable**; shared blobs are
   preserved on `--move`.
@@ -106,10 +111,11 @@ Every pull writes a `.kodo/` sidecar (`metadata.json` + `model-card.md`):
 
 ## Formats, runtimes & the shared library (intended direction)
 
-The current code stores a separate tree per *source* (huggingface/ ollama/
-lmstudio/), which duplicates weights. The intended direction is a **format-
-centric, deduplicated library** keyed by `(model × format)`, sourced from HF,
-with Ollama / LM Studio / mlx_lm as *consumers* fed from it:
+**Storage is now format-centric** (keyed by `(model × format)`): HF and LM Studio pulls both
+land in `gguf/` / `mlx/` / `safetensors/`, so a GGUF from either source is one copy. Ollama keeps
+its own restorable content-addressed store. The remaining, larger direction is to make Ollama /
+LM Studio / mlx_lm *consumers* fed from that canonical library (install a stored GGUF into
+Ollama's blob store, etc.) rather than each keeping its own copy:
 
 - **GGUF** — cross-runtime quant (Ollama, LM Studio, llama.cpp; Mac + Linux).
   The portable backbone; the most shareable tier.

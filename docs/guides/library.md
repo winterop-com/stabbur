@@ -20,11 +20,15 @@ Models are organized by **format**, with the Ollama store kept in its native
 
 ```
 <root>/
-├── gguf/<publisher>/<repo>/…          # *.gguf
+├── gguf/<publisher>/<repo>/…          # *.gguf          (HF + LM Studio pulls)
 ├── mlx/<publisher>/<repo>/…           # *.safetensors + config.json
-├── huggingface/<repo_id>/…            # HF snapshots (classified on scan)
+├── safetensors/<publisher>/<repo>/…   # full-precision weights
+├── huggingface/<repo_id>/…            # fallback for repos with no recognizable weights
 └── ollama/manifests/… + ollama/blobs/ # Ollama's content-addressed store
 ```
+
+Both Hugging Face and LM Studio pulls land in the **format** bucket (`gguf/`, `mlx/`,
+`safetensors/`), so the same GGUF from either source is one copy on disk.
 
 The scanner finds runnable models **anywhere** under the root (any directory with
 `*.gguf`/`*.safetensors`, plus the Ollama native store). When a GGUF repo ships
