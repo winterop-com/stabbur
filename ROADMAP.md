@@ -95,9 +95,13 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
   second registry field to justify it (YAGNI) — derived color covers today's case. Pairs with a
   small color-picker / `kodo library tag --color`. Also: a curated default tag set seeded from
   `docs/guides/models.md`.
-- **Format-centric shared library (the big refactor).** The dedup'd, format-keyed library
-  described in `CLAUDE.md` under "Formats, runtimes & the shared library" — one canonical copy
-  per (model × format), installed into whichever runtime, instead of a tree per source.
+- **Format-centric shared library.** **Storage done:** HF pulls are now format-centric
+  (`gguf/`/`mlx/`/`safetensors/` via `huggingface.hub_format`), matching LM Studio — one copy per
+  `(model, format)` on disk instead of a duplicate under `huggingface/`. **Remaining (the bigger
+  half):** make Ollama / LM Studio / mlx_lm *consumers* fed from that canonical library — e.g.
+  `ollama create` a stored GGUF into Ollama's blob store, or point LM Studio at the library —
+  rather than each keeping its own copy. Plus a per-model format policy (keep GGUF+MLX ready,
+  safetensors on demand) and an optional migrate/dedup pass over an existing `huggingface/` tree.
 - Auto-fetch HF model cards for LM Studio models (infer the repo from the path).
 - A "want list" / sync command to (re-)download a declared set of models.
 - Verify/repair: re-check sizes & checksums against metadata.
