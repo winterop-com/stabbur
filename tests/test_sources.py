@@ -668,7 +668,7 @@ def test_library_migrate_moves_dedups_and_keeps_unknown(tmp_path: Path) -> None:
     plan = {a.repo_id: a.kind for a in library.plan_migration(tmp_path)}
     assert plan == {"unsloth/Foo-GGUF": "move", "mlx-community/Bar-4bit": "dedup"}
 
-    moved, deduped, freed = library.apply_migration(library.plan_migration(tmp_path))
+    moved, deduped, _freed = library.apply_migration(library.plan_migration(tmp_path))
     assert (moved, deduped) == (1, 1)
     assert (tmp_path / "gguf" / "unsloth" / "Foo-GGUF" / "model.gguf").is_file()  # moved to bucket
     assert not (hf / "unsloth" / "Foo-GGUF").exists()  # source gone

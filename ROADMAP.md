@@ -97,11 +97,13 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
   `docs/guides/models.md`.
 - **Format-centric shared library.** **Storage done:** HF pulls are now format-centric
   (`gguf/`/`mlx/`/`safetensors/` via `huggingface.hub_format`), matching LM Studio — one copy per
-  `(model, format)` on disk instead of a duplicate under `huggingface/`. **Remaining (the bigger
-  half):** make Ollama / LM Studio / mlx_lm *consumers* fed from that canonical library — e.g.
-  `ollama create` a stored GGUF into Ollama's blob store, or point LM Studio at the library —
-  rather than each keeping its own copy. Plus a per-model format policy (keep GGUF+MLX ready,
-  safetensors on demand). **Migrate pass done:** `kodo library migrate` reorganizes an existing
+  `(model, format)` on disk instead of a duplicate under `huggingface/`. **Consumers (in
+  progress):** `kodo library install <model> --to ollama` feeds Ollama from the canonical GGUF
+  (generates a Modelfile → `ollama create`), so the drive keeps the single source of truth and
+  the Ollama copy is regenerable. **Remaining:** LM Studio (reads loose GGUF/MLX directly, so it
+  only needs a pointer — a symlink from its models dir into the bucket, or a documented "add this
+  directory" step) and `mlx_lm`; plus a per-model format policy (keep GGUF+MLX ready, safetensors
+  on demand). **Migrate pass done:** `kodo library migrate` reorganizes an existing
   `huggingface/` tree into the format buckets (dry-run + `--apply`, dedups copies already in a
   bucket).
 - Auto-fetch HF model cards for LM Studio models (infer the repo from the path).

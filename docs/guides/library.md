@@ -45,6 +45,25 @@ several quants, a balanced one (`Q4_K_M` first) is picked automatically. macOS
     rather than a single GGUF — those can only run via Ollama itself, not
     llama.cpp, so they won't appear as runnable.
 
+## Installing a model into a runtime
+
+The library keeps **one canonical copy** per `(model, format)`. Some runtimes read
+a loose GGUF/MLX in place (LM Studio, llama.cpp), but **Ollama** keeps a
+content-addressed blob store and needs the GGUF *imported* first. `kodo library
+install` feeds it from the canonical copy, so the drive stays the single source of
+truth and the Ollama copy is regenerable:
+
+```bash
+kodo library install Qwen3.5-4B-GGUF            # → ollama create qwen3.5-4b
+kodo library install Qwen3.5-4B-GGUF --name qwen-fast --system "Be terse."
+ollama run qwen3.5-4b
+```
+
+It generates a Modelfile pointing at the canonical GGUF (`FROM <path>`, plus the
+vision projector and an optional `SYSTEM` prompt) and runs `ollama create`. A local
+Ollama daemon must be running (`ollama serve` or the app). Only GGUF installs into
+Ollama — MLX/safetensors aren't supported there.
+
 ## Model cards & metadata
 
 Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a

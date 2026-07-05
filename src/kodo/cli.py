@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import attach, capabilities, cards, config, doctor, mcp_catalog, project, runtime, tags
+from kodo import attach, capabilities, cards, config, consumers, doctor, mcp_catalog, project, runtime, tags
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
@@ -824,6 +824,38 @@ def migrate(
         )
     else:
         console.print("\n[dim]Dry run.[/] Re-run with [bold]--apply[/] to make these changes.")
+
+
+@library_app.command("install")
+def install(
+    model: Annotated[str, typer.Argument(help="Library model name (a GGUF), e.g. Qwen3.5-4B-GGUF.")],
+    to: Annotated[str, typer.Option("--to", help="Target runtime to install into.")] = "ollama",
+    name: Annotated[
+        str | None, typer.Option("--name", help="Name to register under (default: a sanitized repo tail).")
+    ] = None,
+    system: Annotated[
+        str | None, typer.Option("--system", help="Default system prompt to bake into the model.")
+    ] = None,
+) -> None:
+    """Install a canonical library model into a runtime (feed a *consumer*).
+
+    The library keeps one canonical GGUF; some runtimes can't run a loose file in
+    place. ``--to ollama`` imports the GGUF into a running Ollama (``ollama create``)
+    so it's runnable there, while the drive keeps the single source of truth.
+    """
+    if to != "ollama":
+        console.print(f"[red]Unsupported target {to!r}[/] — currently only [bold]ollama[/] is supported.")
+        raise typer.Exit(1)
+    resolved = _resolve_library_model(model, ModelFormat.gguf)
+    try:
+        result = consumers.install_ollama(resolved, name=name, system=system)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Installed[/] {resolved.name} [dim]→[/] ollama [bold]{result.name}[/].\n"
+        f"[dim]Run it with[/]  ollama run {result.name}"
+    )
 
 
 @library_app.command("tag")
