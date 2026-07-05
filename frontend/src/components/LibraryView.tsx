@@ -374,7 +374,7 @@ function ModelCard({
  * (like `kodo ls`). Clicking a card loads it and drops into chat; the loaded one
  * is marked. Cards carry editable user tags, with a tag filter bar on top.
  */
-export function ModelsView({
+export function LibraryView({
   library,
   loaded,
   status,

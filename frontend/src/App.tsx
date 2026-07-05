@@ -37,7 +37,7 @@ import { IconRail } from "@/components/IconRail";
 import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
-import { ModelsView } from "@/components/ModelsView";
+import { LibraryView } from "@/components/LibraryView";
 import { VoiceView } from "@/components/VoiceView";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
@@ -806,7 +806,7 @@ export function App() {
           </header>
 
           {view === "library" ? (
-            <ModelsView
+            <LibraryView
               library={library}
               loaded={libraryLoaded}
               status={status}
