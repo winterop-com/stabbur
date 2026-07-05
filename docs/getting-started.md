@@ -28,6 +28,18 @@ llama.cpp is the one to install first. The MLX and TTS extras are optional and
 gated — add them only if you want MLX models or multi-voice speech. On first use
 Kokoro downloads its model (~310 MB) into a machine cache (~/.kodo/kokoro).
 
+!!! note "MLX + `transformers` 5.13"
+    `make install-mlx` already caps `transformers<5.13` (5.13 broke `mlx-lm`'s tokenizer
+    registration — MLX models crash at load otherwise). If you instead run kodo as a global
+    `uv tool` and provide the MLX runtimes as standalone tools, apply the same cap:
+
+    ```bash
+    uv tool install mlx-lm  --with 'transformers>=5.5,<5.13'
+    uv tool install mlx-vlm --with 'transformers>=5.5,<5.13'
+    ```
+
+    Drop the cap once `mlx-lm` ships a `transformers` 5.13-compatible release.
+
 ### 3. Web UI (optional)
 
 The browser UI is built from source (**Node / npm** required); it isn't committed:

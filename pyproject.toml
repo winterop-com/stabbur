@@ -32,6 +32,10 @@ dependencies = [
 mlx = [
     "mlx-lm>=0.31.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "mlx-vlm>=0.6.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # transformers 5.13 broke AutoTokenizer.register (now requires a config class, not a
+    # string) — mlx-lm 0.31.3 passes a string and crashes at import, so any MLX model fails
+    # to load. Cap below 5.13 until mlx-lm ships a compatible register call. Remove when it does.
+    "transformers>=5.5,<5.13; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 # Local multi-voice text-to-speech via Kokoro-82M (ONNX). Optional, but unlike
