@@ -5,8 +5,8 @@ servers (the agent loop executes the call and feeds the result back). Tools come
 from two places:
 
 - **Installed plugins** — MCP servers advertised by installed `kodo-mcp-*` packages
-  (`datetime`, `utils`). (The `benchmark` package is a dev/benchmarking tool and does
-  *not* advertise itself as an assistant tool.)
+  (`datetime`, `utils`, `memory`). (The `benchmark` package is a dev/benchmarking tool and
+  does *not* advertise itself as an assistant tool.)
 - **A project's `[[mcp]]`** — any MCP server command, listed in `kodo.toml`. This is
   how you attach an external server like DHIS2.
 
@@ -34,6 +34,10 @@ tools interactively in the `kodo project init` wizard, or write `[[mcp]]` blocks
 kodo bundles pure-stdlib/light plugins — always available:
 
 - **`datetime`**, **`utils`** — date/time/calendar and text/encoding/hashing/math helpers.
+- **`memory`** (`kodo-mcp-memory`) — persistent notes / key-value memory the assistant reads and
+  writes (`memory_set/get/list/search/delete`). Saved as a JSON file in the library
+  (`<KODO_LIBRARY_ROOT>/.kodo/memory/notes.json`), so it travels with the drive and survives across
+  sessions; override the location with `KODO_MEMORY_DIR`.
 - **`search`** (`kodo-mcp-search`) — `search(query)` returns titled web results (title, URL,
   snippet). Zero-config via DuckDuckGo (no key); set `KODO_SEARCH_BRAVE_KEY` /
   `KODO_SEARCH_EXA_KEY` to use the Brave/Exa APIs. Pairs with `web` — search, then read the

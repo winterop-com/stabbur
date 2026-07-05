@@ -19,9 +19,8 @@ history is the record) — this file is only open threads.
 
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
-| 2 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
-| 3 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
+| 1 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+| 2 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
 
 ## DHIS2 assistant — near-term
 
@@ -75,17 +74,18 @@ Each new one is its own workspace member following the `kodo-mcp-datetime` templ
 plugin hook (so `kodo mcp list` / `mcp add` / tool pickers pick it up with no hardcoding),
 and gets a `tools-<name>` benchmark suite. Remaining, roughly in priority order:
 
+**Shipped:** `kodo-mcp-memory` — persistent notes / key-value memory saved in the library
+(`memory_set/get/list/search/delete`, JSON file at `<KODO_LIBRARY_ROOT>/.kodo/memory/`, travels
+with the drive) + a `tools-memory` benchmark suite. Remaining:
+
 1. **`kodo-mcp-exec`** — run a Python (later shell) snippet and return stdout: a calculator /
-   scratchpad. **Reuse the benchmark's Docker sandbox** — extract `kodo_mcp_benchmark.core
+   scratchpad. **Reuse the benchmark's Docker sandbox** — extract `kodo_benchmark.core
    .run_code` into a shared `kodo-mcp-sandbox` lib both depend on (no network, capped
    mem/cpu/pids, timeout). Gated on Docker like the benchmark.
 2. **`kodo-mcp-files`** — list/read/search files under one configured workspace root,
    read-only by default. **Security:** contain every path with `safe_join` (the guard already
    in `sources/base.py`); never escape the root; opt-in writes behind a flag.
-3. **`kodo-mcp-memory`** — a tiny persistent notes / key-value store the assistant can read
-   and write, saved *in the library* (travels with the drive, per the no-`~/.kodo` rule), so it
-   has durable scratch memory across sessions.
-4. **`kodo-mcp-weather-yr`** — weather via yr.no (met.no). A good "real API" exemplar.
+3. **`kodo-mcp-weather-yr`** — weather via yr.no (met.no). A good "real API" exemplar.
 
 Cross-cutting: keep each server dependency-light and stdio-only (heavy ones optional behind an
 extra, like `web`); config via `pydantic-settings` (`KODO_*`); pure servers stay plain packages
