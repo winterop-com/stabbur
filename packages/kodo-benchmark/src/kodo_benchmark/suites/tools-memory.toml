@@ -1,0 +1,24 @@
+name = "tools-memory"
+description = "Tool-use benchmark: store and recall notes via the kodo-mcp-memory server."
+type = "tool"
+language = "tools"
+# Each problem attaches the memory server pointed at a THROWAWAY store (KODO_MEMORY_DIR) so the
+# benchmark never touches a real library's notes. The command's first token is `env`, so the tool
+# is namespaced `env__memory_*`. Memory is stateful, so these are self-contained single-turn tasks
+# (store then confirm / recall within one agent run); scoring stays lenient on exact args.
+
+[[problems]]
+id = "set-note"
+difficulty = "basics"
+prompt = "Remember this for later: my favorite colour is teal. Use the memory tools to store it, then confirm what you stored."
+servers = ["env KODO_MEMORY_DIR=/tmp/kodo-bench-memory kodo-mcp-memory"]
+expect_tool = "env__memory_set"
+expect_answer_contains = "teal"
+
+[[problems]]
+id = "set-and-recall"
+difficulty = "intermediate"
+prompt = "Using the memory tools, store a note under the key 'city' with the value 'Oslo', then read the key 'city' back and tell me its value."
+servers = ["env KODO_MEMORY_DIR=/tmp/kodo-bench-memory kodo-mcp-memory"]
+expect_tool = "env__memory_get"
+expect_answer_contains = "Oslo"

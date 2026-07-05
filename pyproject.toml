@@ -12,6 +12,7 @@ dependencies = [
     "huggingface-hub>=1.21.0",
     "kodo-benchmark",
     "kodo-mcp-datetime",
+    "kodo-mcp-memory",
     "kodo-mcp-search",
     "kodo-mcp-utils",
     "pluginkit>=0.4.7",
@@ -79,6 +80,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 kodo-mcp-datetime = { workspace = true }
+kodo-mcp-memory = { workspace = true }
 kodo-benchmark = { workspace = true }
 kodo-mcp-search = { workspace = true }
 kodo-mcp-utils = { workspace = true }
@@ -130,7 +132,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo", "kodo_mcp_datetime", "kodo_benchmark"]
+source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_memory", "kodo_benchmark"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]
