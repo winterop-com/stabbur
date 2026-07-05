@@ -34,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
 import { IconRail } from "@/components/IconRail";
+import { useIsMobile } from "@/lib/use-mobile";
 import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
@@ -121,13 +122,29 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   // react-resizable-panels animates the panel via inline flex-grow; transition that.
   const railTransition = dragging ? "" : "transition-[flex-grow] duration-200 ease-out";
+  // On phones a resizable rail squeezes the content, so the sidebar becomes an overlay drawer
+  // (see the `isMobile` branches below); on desktop it stays the resizable panel.
+  const isMobile = useIsMobile();
   const toggleSidebar = useCallback(() => {
     const p = leftPanel.current;
     if (!p) return;
     if (p.isCollapsed()) p.expand();
     else p.collapse();
   }, []);
-  const openSidebar = useCallback(() => leftPanel.current?.expand(), []);
+  const openSidebar = useCallback(() => {
+    if (isMobile) setSidebarOpen(true); // open the overlay drawer, don't expand the rail
+    else leftPanel.current?.expand();
+  }, [isMobile]);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  // Entering mobile collapses the rail to 0 (the drawer replaces it); leaving mobile with the
+  // sidebar "open" restores the rail so it doesn't vanish on resize/rotate.
+  useEffect(() => {
+    const p = leftPanel.current;
+    if (!p) return;
+    if (isMobile) p.collapse();
+    else if (sidebarOpen) p.expand();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
   const toggleSettings = useCallback(() => {
     const p = rightPanel.current;
     if (!p) return;
@@ -686,6 +703,40 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
+      {/* Mobile: the sidebar is an overlay drawer (a resizable rail would squeeze the content).
+          The persistent IconRail is the closed-state nav; tapping expand opens this. */}
+      {isMobile && sidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={closeSidebar} aria-hidden />
+          <div className="absolute inset-y-0 left-0 w-[82%] max-w-xs shadow-2xl">
+            <Sidebar
+              conversations={conversations}
+              activeId={activeId}
+              view={view}
+              onNew={() => {
+                startNewChat();
+                closeSidebar();
+              }}
+              onSelect={(id) => {
+                selectConversation(id);
+                closeSidebar();
+              }}
+              onShowLibrary={() => {
+                showLibrary();
+                closeSidebar();
+              }}
+              onShowVoice={() => {
+                showVoice();
+                closeSidebar();
+              }}
+              voiceEnabled={voiceEnabled}
+              onRename={renameConversation}
+              onDelete={deleteConversation}
+              onCollapse={closeSidebar}
+            />
+          </div>
+        </div>
+      )}
       <div className="flex h-full overflow-hidden">
         {/* When the sidebar is collapsed, a thin icon rail keeps new-chat + Models +
             Voice reachable (and usable on mobile) rather than hiding nav entirely. */}

@@ -55,6 +55,9 @@ export function IconRail({
       {item("New chat", <SquarePen className="h-4 w-4" />, onNew, view === "chat")}
       {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
       {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
+      {/* A tiny horizontal wordmark anchored at the bottom — fits the narrow rail (unlike the
+          full "Kodo Studio") and keeps the brand present while collapsed. */}
+      <span className="mt-auto pb-0.5 text-[10px] font-semibold tracking-tight text-muted-foreground">kodo</span>
     </aside>
   );
 }
