@@ -12,10 +12,10 @@ history is the record) — this file is only open threads.
    `failed: … make install-web` instead of silently 0 tools). Also: warn in `kodo project
    init` / `kodo mcp add` when adding `web` without the extra installed.
 2. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
-   autocomplete, and MCP enable/disable/reconnect have shipped. Still keyboard-only-missing vs the
-   web UI: change the **speak-replies (chat) voice**, switch model, adjust sampling
-   (temperature/top-p/top-k/…), export the transcript. Reuse the same `/api`-equivalent logic the
-   web UI calls so behavior stays consistent across surfaces.
+   autocomplete, MCP enable/disable/reconnect, `/export` transcript, and live `/set` sampling have
+   shipped. The only remaining web-UI parity gap is **switch model** (a real change — see the polish
+   queue: the TUI would need to own the runtime lifecycle). Changing the speak-replies voice is N/A
+   in the terminal (it does not speak).
 3. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
    drawer-style sidebar for very narrow mobile widths.
 
@@ -23,10 +23,10 @@ history is the record) — this file is only open threads.
 
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | Finish the TUI palette — voice picker, model switch, sampling knobs, `/export` transcript | M | Natural continuation of the palette we shipped; closes the keyboard-parity gap with the web UI. |
-| 2 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
-| 3 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
-| 4 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+| 1 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
+| 2 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
+| 3 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+| 4 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
 
 ## DHIS2 assistant — near-term
 
@@ -133,9 +133,9 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
 
 ## Other open ideas
 
-- **CLI chat export.** The web UI exports a conversation to Markdown/PDF; the REPL has no
-  transcript to export yet. Needs the REPL to persist transcripts first (a `/export` slash
-  command or `kodo chat --save`).
+- **CLI chat export.** Done for the interactive TUI (`/export [file]` writes the transcript to
+  Markdown). Still open: PDF export (the web UI has it) and a non-interactive `kodo chat --save`
+  for the `-p` one-shot path.
 - **Rich tags via a tag registry (future).** Keep the current key insight: assignments stay
   **string references** (`{model: [tag_names]}` in `tags.json`). To make tags first-class (custom
   color/description/icon/grouping), add a **separate normalized registry** keyed by tag name
