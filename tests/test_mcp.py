@@ -217,3 +217,34 @@ async def test_subset_restricts_execution_not_just_display() -> None:
     assert executed == []  # the disabled tool never ran
     assert await view.call("srv__safe", {}) == "ran"  # the enabled one still works
     assert executed == ["safe"]
+
+
+async def test_agent_rejects_unparseable_tool_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Malformed tool-call JSON must NOT run the tool with empty args (V-7): feed the parse
+    # error back and continue, so the model can resend valid arguments.
+    rounds = iter([("", [{"id": "1", "name": "x__y", "args": "{not valid json"}], None), ("done", [], None)])
+
+    async def staged_stream(
+        http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
+    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+        return next(rounds)
+
+    class _RecordingToolset:
+        schemas: list[dict[str, Any]] = []
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> str:
+            self.calls.append(name)
+            return "ran"
+
+    monkeypatch.setattr(agent, "_stream_turn", staged_stream)
+    toolset = _RecordingToolset()
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+    out = await agent.run("http://runtime", messages, toolset)  # type: ignore[arg-type]
+
+    assert out == "done"
+    assert toolset.calls == []  # the tool was never executed on unparseable args
+    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    assert "could not parse" in tool_msg["content"]

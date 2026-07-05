@@ -169,7 +169,10 @@ async def connect(
                 transport = StdioTransport(
                     command=_resolve_command(command[0]), args=command[1:], env=env, log_file=Path(os.devnull)
                 )
-                client = await stack.enter_async_context(Client(transport))
+                # Bound the MCP initialize handshake: fastmcp's default is None (wait forever), so a
+                # server that starts but never completes init would hang `serve` startup / the TUI
+                # mount indefinitely. 60s tolerates a cold `uvx`/`npx` first run; a hang is caught below.
+                client = await stack.enter_async_context(Client(transport, init_timeout=60))
                 n = used.get(prefix, 0)
                 used[prefix] = n + 1
                 await toolset.add(client, prefix if n == 0 else f"{prefix}{n + 1}")

@@ -184,16 +184,20 @@ async def run(
                 }
             )
             for c in calls:
-                try:
-                    args = json.loads(c["args"] or "{}")
-                except json.JSONDecodeError:
-                    args = {}
                 if on_event:
                     on_event("call", f"{c['name']}({c['args']})")
                 try:
-                    result = await toolset.call(c["name"], args, timeout=tool_timeout)
-                except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) back to the model
-                    result = f"error: {exc}"
+                    args = json.loads(c["args"] or "{}")
+                except json.JSONDecodeError as exc:
+                    # Don't run the tool with empty args on unparseable JSON — for a tool with all
+                    # optional params that silently returns a plausible-but-wrong result. Feed the
+                    # parse error back so the model resends valid arguments.
+                    result = f"error: could not parse tool arguments as JSON ({exc}); resend valid JSON."
+                else:
+                    try:
+                        result = await toolset.call(c["name"], args, timeout=tool_timeout)
+                    except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) to the model
+                        result = f"error: {exc}"
                 if on_event:
                     on_event("result", result)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
