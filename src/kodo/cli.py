@@ -662,11 +662,23 @@ def remove_model(
     if not yes and not typer.confirm("Delete these files?", default=False):
         console.print("[dim]Aborted.[/]")
         raise typer.Exit(0)
-    total_files, total_freed = 0, 0
+    total_files, total_freed, failed = 0, 0, 0
     for m in copies:
         count, freed = library_ops.remove(m)
         total_files += count
         total_freed += freed
+        if count == 0 and m.file_count > 0:  # rmtree couldn't delete it (read-only drive, files in use)
+            failed += 1
+    if failed:
+        console.print(
+            f"[red]Could not remove {failed} of {len(copies)} copies[/] of {model.name} "
+            "(read-only drive, or files held open by a running server?)."
+        )
+        if total_files:
+            console.print(
+                f"[green]Removed[/] the rest — freed [bold]{_human_size(total_freed)}[/] ({total_files} files)"
+            )
+        raise typer.Exit(1)
     console.print(f"[green]Removed[/] {model.name} — freed [bold]{_human_size(total_freed)}[/] ({total_files} files)")
 
 
@@ -990,8 +1002,13 @@ def pull(
     except Exception as exc:  # noqa: BLE001 - a pull can fail many ways (disk, network, HF Hub); surface it cleanly
         typer.secho(f"Pull failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
-    suffix = " (local copy removed)" if move else ""
-    typer.echo(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")
+    if move and not result.source_removed:
+        suffix = " [yellow](local copy KEPT — copy could not be verified)[/]"
+    elif result.source_removed:
+        suffix = " (local copy removed)"
+    else:
+        suffix = ""
+    console.print(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")
 
 
 @library_app.command()

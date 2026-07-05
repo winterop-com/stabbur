@@ -13,7 +13,7 @@ from pathlib import Path
 from kodo import arch, cards
 from kodo.config import get_settings
 from kodo.models import ModelEntry, ModelFormat, ModelSource, PullResult
-from kodo.sources.base import copy_tree, dir_stats, safe_join
+from kodo.sources.base import copy_tree, copy_verified, dir_stats, safe_join
 
 
 def _classify(model_dir: Path) -> ModelFormat:
@@ -93,13 +93,14 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
     if not src.is_dir():
         raise FileNotFoundError(f"No LM Studio model at {src}")
 
-    src_bytes, _ = dir_stats(src)
     model_format = _classify(src)
     dest = safe_join(library_root, f"{model_format.value}/{name}")
     size_bytes, file_count = copy_tree(src, dest)
 
-    # Only remove the source once the destination byte total matches exactly.
-    if move and size_bytes == src_bytes:
+    # Only delete the source after a per-file verified copy (same paths + sizes), not a mere
+    # aggregate-total match — a corrupt/short copy or a different file set must keep the source.
+    source_removed = move and copy_verified(src, dest)
+    if source_removed:
         shutil.rmtree(src)
 
     card_path = cards.find_card(dest)
@@ -123,4 +124,5 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
         file_count=file_count,
         card_path=card_path,
         metadata_path=metadata_path,
+        source_removed=source_removed,
     )

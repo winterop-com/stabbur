@@ -242,8 +242,7 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
     """Scan directory-based models anywhere under ``base`` (excluding ollama/ and voice/)."""
     ollama_dir = base / "ollama"
     voice_dir = base / "voice"
-    cache_dir = base / ".cache"  # the redirected HF hub cache (kodo.hfcache) — not library models
-    excluded = (ollama_dir, voice_dir, cache_dir)
+    excluded = (ollama_dir, voice_dir)
     dirs: set[Path] = set()
     for pattern in ("*.gguf", "*.safetensors"):
         for weights in base.rglob(pattern):
@@ -251,13 +250,20 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
                 continue  # macOS AppleDouble junk on exFAT
             parent = weights.parent
             if parent in excluded or any(d in parent.parents for d in excluded):
-                continue  # ollama blobs scanned natively below; voice/ by _scan_voice; .cache is HF's
+                continue  # ollama blobs scanned natively below; voice/ scanned by _scan_voice
+            rel = parent.relative_to(base)
+            # Skip anything under a dot-dir: the redirected HF cache (.cache), kodo sidecars
+            # (.kodo), and interrupted-pull staging (.kodo-stage-*) are not library models.
+            if any(part.startswith(".") for part in rel.parts):
+                continue
             dirs.add(parent)
 
     models: list[LibraryModel] = []
     for model_dir in sorted(dirs):
-        fmt = _classify_dir(model_dir)
         name = _clean_name(model_dir.relative_to(base))
+        if not name:
+            continue  # a loose weight at a bucket/library root — no model identity; skip (never rm-able)
+        fmt = _classify_dir(model_dir)
         size_bytes, file_count = dir_stats(model_dir)
 
         if fmt is ModelFormat.gguf:
@@ -316,6 +322,10 @@ def _scan_ollama(base: Path) -> list[LibraryModel]:
         model_blob, mmproj_blob = ollama.weight_blobs(manifest, ollama_dir)
         if model_blob is None or not model_blob.is_file():
             continue
+        # A referenced-but-missing projector blob (partial backup / corruption) shouldn't crash the
+        # whole scan — drop it and surface the model text-only rather than raising FileNotFoundError.
+        if mmproj_blob is not None and not mmproj_blob.is_file():
+            mmproj_blob = None
         size_bytes = model_blob.stat().st_size + (mmproj_blob.stat().st_size if mmproj_blob else 0)
         models.append(
             LibraryModel(
@@ -450,6 +460,8 @@ def remove(model: LibraryModel) -> tuple[int, int]:
         return count, freed
 
     shutil.rmtree(model.path, ignore_errors=True)
+    if model.path.exists():
+        return 0, 0  # removal failed (read-only drive, files held open by a running runtime)
     return count, freed
 
 

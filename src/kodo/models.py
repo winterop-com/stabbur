@@ -97,6 +97,9 @@ class PullResult(BaseModel):
     metadata_path: Path | None = None
     """Path to the ``metadata.json`` sidecar written alongside the model."""
 
+    source_removed: bool = False
+    """True only if ``--move`` actually deleted the local source after a verified copy."""
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def size_human(self) -> str:

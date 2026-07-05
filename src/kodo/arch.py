@@ -26,8 +26,10 @@ def architectures_are_generative(architectures: list[str]) -> bool:
 def config_is_generative(config_path: Path) -> bool | None:
     """Classify a HF ``config.json``. Returns None if it can't be read/parsed."""
     try:
-        data = json.loads(config_path.read_text())
+        data = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):  # valid JSON but not an object ([], a bare string) — corruption
         return None
     architectures = [str(a) for a in (data.get("architectures") or [])]
     return architectures_are_generative(architectures)

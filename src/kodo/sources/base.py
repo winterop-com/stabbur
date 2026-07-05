@@ -31,6 +31,30 @@ def safe_join(root: Path, name: str) -> Path:
 _STATS_SKIP_DIRS = frozenset({".cache", ".kodo"})
 
 
+def _real_file_sizes(path: Path) -> dict[str, int]:
+    """``{relative_posix_path: size}`` of a tree's real files (skipping ``.cache``/``.kodo``/``._``)."""
+    out: dict[str, int] = {}
+    for child in path.rglob("*"):
+        if child.name.startswith("._") or _STATS_SKIP_DIRS.intersection(child.parts):
+            continue
+        try:
+            if child.is_file() and not child.is_symlink():
+                out[child.relative_to(path).as_posix()] = child.stat().st_size
+        except OSError:
+            continue
+    return out
+
+
+def copy_verified(src: Path, dest: Path) -> bool:
+    """Whether ``dest`` holds exactly ``src``'s real files (same relative paths and sizes).
+
+    Stronger than an aggregate-byte total — it catches a missing/extra file and a per-file
+    truncation, not just a different grand total. Used to gate ``--move`` before deleting the
+    source on the no-journaling exFAT target (a same-total but different file set won't pass).
+    """
+    return _real_file_sizes(src) == _real_file_sizes(dest)
+
+
 def dir_stats(path: Path) -> tuple[int, int]:
     """Return ``(total_bytes, file_count)`` for a model's real files under ``path``.
 

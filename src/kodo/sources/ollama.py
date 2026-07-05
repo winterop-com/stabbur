@@ -394,7 +394,8 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
     )
 
     # Only remove the local model once every blob copied with a matching size.
-    if move and verified:
+    source_removed = move and verified
+    if source_removed:
         remove(name, root)
 
     return PullResult(
@@ -406,4 +407,5 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
         file_count=file_count,
         card_path=card_path,
         metadata_path=metadata_path,
+        source_removed=source_removed,
     )
