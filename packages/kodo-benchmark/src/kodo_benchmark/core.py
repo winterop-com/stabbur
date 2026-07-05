@@ -518,9 +518,10 @@ def render_leaderboard(records: list[RunRecord]) -> str:
         cells = []
         for suite in suites:
             run = by_model[model].get(suite)
-            cells.append(f"{round(run.score * 100)}% ({run.passed}/{run.total})" if run else "—")
+            # Non-breaking space so "100% (11/11)" stays on one line in a narrow doc column.
+            cells.append(f"{round(run.score * 100)}% ({run.passed}/{run.total})" if run else "—")
         passed, total = totals(model)
-        overall = f"**{round(passed / total * 100) if total else 0}%** ({passed}/{total})"
+        overall = f"**{round(passed / total * 100) if total else 0}%** ({passed}/{total})"
         rows.append(f"| {rank} | `{model}` | " + " | ".join(cells) + f" | {overall} |")
     return "\n".join(rows) + "\n\n" + _render_performance(ranked, by_model)
 
