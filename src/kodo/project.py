@@ -8,7 +8,7 @@ import shlex
 import tomllib
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 
 class ProjectMcp(BaseModel):
@@ -41,26 +41,42 @@ class Project(BaseModel):
     libraries: list[str] = []
 
 
+class ProjectError(RuntimeError):
+    """A ``kodo.toml`` that exists but can't be parsed or validated — surfaced cleanly, not as a traceback."""
+
+
 def load(path: Path = Path("kodo.toml")) -> Project | None:
-    """Load ``kodo.toml`` from ``path``, or ``None`` if it doesn't exist."""
+    """Load ``kodo.toml`` from ``path``, or ``None`` if it doesn't exist.
+
+    Raises :class:`ProjectError` (with a readable message) on malformed TOML or a bad manifest —
+    ``kodo mcp add`` tells users to hand-edit this file, so a typo must not crash every command.
+    """
     if not path.is_file():
         return None
-    data = tomllib.loads(path.read_text())
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ProjectError(f"{path} is not valid TOML: {exc}") from exc
     project = data.get("project", {})
     voice = data.get("voice", {})
     libraries = data.get("libraries", [])
-    return Project(
-        model=project.get("model"),
-        system_prompt=project.get("system_prompt", ""),
-        chat_voice=project.get("chat_voice"),
-        voice_enabled=bool(voice.get("enabled", True)) if isinstance(voice, dict) else True,
-        mcp=[
-            ProjectMcp(
-                command=entry["command"],
-                name=entry.get("name"),
-                env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
-            )
-            for entry in data.get("mcp", [])
-        ],
-        libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
-    )
+    try:
+        return Project(
+            model=project.get("model"),
+            system_prompt=project.get("system_prompt", ""),
+            chat_voice=project.get("chat_voice"),
+            voice_enabled=bool(voice.get("enabled", True)) if isinstance(voice, dict) else True,
+            mcp=[
+                ProjectMcp(
+                    command=entry["command"],
+                    name=entry.get("name"),
+                    env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
+                )
+                for entry in data.get("mcp", [])
+            ],
+            libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
+        )
+    except KeyError as exc:
+        raise ProjectError(f"{path}: an [[mcp]] entry is missing its required 'command' key ({exc}).") from exc
+    except (TypeError, ValidationError) as exc:
+        raise ProjectError(f"{path} has an invalid value: {exc}") from exc

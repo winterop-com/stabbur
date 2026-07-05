@@ -9,11 +9,15 @@ variable; ``.env`` remains an optional low-priority fallback.
 Precedence (high to low): CLI args, ``KODO_*`` env vars, ``kodo.toml``, ``.env``.
 """
 
+import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated, Any
 
+from pydantic import field_validator
 from pydantic_settings import (
     BaseSettings,
+    NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     TomlConfigSettingsSource,
@@ -94,7 +98,21 @@ class Settings(BaseSettings):
     # it needs no CORS, and a permissive default would let any website you visit
     # drive your local models + MCP tools from the browser. Add explicit origins
     # (e.g. the Chrome-extension origin, or a dev server) to allow cross-origin use.
-    cors_origins: list[str] = []
+    # ``NoDecode`` + the validator below accept a plain ``KODO_CORS_ORIGINS=a,b`` (or a single
+    # origin) from the env — not only a JSON array — so following the Chrome-extension allow-list
+    # advice doesn't crash every command (pydantic-settings otherwise JSON-decodes list env vars).
+    cors_origins: Annotated[list[str], NoDecode] = []
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v: Any) -> Any:
+        """Accept a JSON array, a comma/space-separated string, or a native list."""
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                return json.loads(s)
+            return [part.strip() for part in s.replace(",", " ").split() if part.strip()]
+        return v
 
     # Internal port the model runtime (llama-server / mlx_lm.server) listens on;
     # the API proxies /v1 to it so the SPA stays single-origin. ``None`` (the

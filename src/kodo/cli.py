@@ -2171,11 +2171,18 @@ _mount_plugins()
 
 
 def main() -> None:
-    """Console entry point: run the app, turning a missing library into a clean message."""
+    """Console entry point: run the app, turning config problems into clean messages, not tracebacks."""
+    import tomllib  # noqa: PLC0415
+
     try:
         app()
     except library_ops.LibraryNotConfigured as exc:
         console.print(f"[red]{exc}[/]")
+        raise SystemExit(1) from exc
+    except (project.ProjectError, tomllib.TOMLDecodeError) as exc:
+        # A malformed kodo.toml (hand-edited via `kodo mcp add`) is read by project.load and by
+        # get_settings() (TomlConfigSettingsSource) — catch both so one typo doesn't traceback.
+        console.print(f"[red]Config error:[/] {exc}")
         raise SystemExit(1) from exc
 
 

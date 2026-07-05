@@ -69,3 +69,12 @@ def test_project_tables_do_not_break_settings(tmp_path: Path, monkeypatch: pytes
 
     settings = Settings()
     assert settings.library_root == Path("/data/library")
+
+
+def test_cors_origins_accepts_plain_string_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KODO_CORS_ORIGINS", "chrome-extension://abc")
+    assert Settings().cors_origins == ["chrome-extension://abc"]
+    monkeypatch.setenv("KODO_CORS_ORIGINS", "a.com, b.com")
+    assert Settings().cors_origins == ["a.com", "b.com"]
+    monkeypatch.setenv("KODO_CORS_ORIGINS", '["x.com","y.com"]')
+    assert Settings().cors_origins == ["x.com", "y.com"]

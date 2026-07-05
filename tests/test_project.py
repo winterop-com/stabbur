@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from kodo import project
 
 
@@ -42,3 +44,13 @@ def test_voice_defaults_and_toggle(tmp_path: Path) -> None:
     assert proj is not None
     assert proj.chat_voice == "kokoro:af_bella"
     assert proj.voice_enabled is False
+
+
+def test_load_raises_projecterror_on_bad_toml(tmp_path: Path) -> None:
+    p = tmp_path / "kodo.toml"
+    p.write_text("this = = not toml [[[")
+    with pytest.raises(project.ProjectError, match="not valid TOML"):
+        project.load(p)
+    p.write_text('[[mcp]]\nname = "x"\n')  # missing required 'command'
+    with pytest.raises(project.ProjectError, match="command"):
+        project.load(p)
