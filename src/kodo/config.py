@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     # a busy machine. A crashed runtime still fails fast (its process exits).
     runtime_load_timeout: int = 600
 
+    # Max seconds for a single MCP tool call in the agent loop before it's abandoned
+    # (the model gets an error back and the loop continues). Bounds a wedged tool or
+    # server — e.g. one shelling out to a command that never returns — so it can't stall
+    # a chat or benchmark indefinitely. 0 disables the bound (wait forever).
+    tool_timeout: float = 120.0
+
     # The default library — a self-contained, portable model store (models + their
     # own metadata under ``.kodo/``). Point ``KODO_LIBRARY_ROOT`` at it per machine
     # (e.g. an external drive). A project (``kodo.toml``) can compose additional

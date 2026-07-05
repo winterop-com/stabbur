@@ -120,7 +120,7 @@ async def run(
     model: str | None = None,
     max_rounds: int = 8,
     on_usage: UsageSink | None = None,
-    tool_timeout: float | None = 120.0,
+    tool_timeout: float | None = None,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -131,9 +131,13 @@ async def run(
     (prompt/completion/total) after each round. ``model`` is sent as the OpenAI
     ``model`` field — required by mlx-vlm (which 422s without it), ignored by
     llama-server/mlx-lm. Bounded by ``max_rounds``; each tool call is bounded by
-    ``tool_timeout`` seconds (``None`` = no limit) so a hung MCP server can't stall
-    the loop forever.
+    ``tool_timeout`` seconds so a hung MCP server can't stall the loop forever —
+    ``None`` (default) reads ``KODO_TOOL_TIMEOUT`` (120s; set 0 to disable the bound).
     """
+    if tool_timeout is None:
+        from kodo.config import get_settings  # noqa: PLC0415 - lazy to keep agent import light
+
+        tool_timeout = get_settings().tool_timeout or None  # 0 → no bound
     async with httpx.AsyncClient(timeout=600) as http:
         for _ in range(max_rounds):
             body: dict[str, Any] = {"messages": messages, "stream": True}
