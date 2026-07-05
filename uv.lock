@@ -19,6 +19,7 @@ members = [
     "kodo-benchmark",
     "kodo-mcp-datetime",
     "kodo-mcp-exec",
+    "kodo-mcp-files",
     "kodo-mcp-memory",
     "kodo-mcp-search",
     "kodo-mcp-utils",
@@ -1444,6 +1445,7 @@ dependencies = [
     { name = "kodo-benchmark" },
     { name = "kodo-mcp-datetime" },
     { name = "kodo-mcp-exec" },
+    { name = "kodo-mcp-files" },
     { name = "kodo-mcp-memory" },
     { name = "kodo-mcp-search" },
     { name = "kodo-mcp-utils" },
@@ -1499,6 +1501,7 @@ requires-dist = [
     { name = "kodo-benchmark", editable = "packages/kodo-benchmark" },
     { name = "kodo-mcp-datetime", editable = "packages/kodo-mcp-datetime" },
     { name = "kodo-mcp-exec", editable = "packages/kodo-mcp-exec" },
+    { name = "kodo-mcp-files", editable = "packages/kodo-mcp-files" },
     { name = "kodo-mcp-memory", editable = "packages/kodo-mcp-memory" },
     { name = "kodo-mcp-search", editable = "packages/kodo-mcp-search" },
     { name = "kodo-mcp-utils", editable = "packages/kodo-mcp-utils" },
@@ -1586,6 +1589,25 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.2" },
     { name = "kodo-sandbox", editable = "packages/kodo-sandbox" },
     { name = "pluginkit", specifier = ">=0.4.7" },
+]
+
+[[package]]
+name = "kodo-mcp-files"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-files" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "pluginkit" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
 ]
 
 [[package]]
