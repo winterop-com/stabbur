@@ -1,0 +1,22 @@
+name = "tools-exec"
+description = "Tool-use benchmark: compute answers by running Python in the kodo-mcp-exec sandbox."
+type = "tool"
+language = "tools"
+# Needs a running Docker daemon (the exec server sandboxes each snippet). The command's first
+# token is the server, so the tool is namespaced `exec__run_python`.
+
+[[problems]]
+id = "sum-1-100"
+difficulty = "basics"
+prompt = "Use the code tool to compute the sum of the integers from 1 to 100, then tell me the result."
+servers = ["kodo-mcp-exec"]
+expect_tool = "exec__run_python"
+expect_answer_contains = "5050"
+
+[[problems]]
+id = "factorial"
+difficulty = "intermediate"
+prompt = "Using the code tool, compute 20 factorial (20!) and report the exact value."
+servers = ["kodo-mcp-exec"]
+expect_tool = "exec__run_python"
+expect_answer_contains = "2432902008176640000"

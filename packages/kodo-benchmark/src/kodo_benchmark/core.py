@@ -1,54 +1,29 @@
-"""Benchmark core: suites, a Docker code executor, and scoring — no MCP, no kodo deps.
+"""Benchmark core: suites and scoring — no MCP, no kodo deps.
 
 A *suite* is a set of coding *problems*. Each problem gives a prompt plus hidden test
 cases; a candidate solution is a full program that reads stdin / argv and writes stdout.
-We run each candidate in a throwaway Docker container (no network; capped memory, CPU,
-and pids; a wall-clock timeout) and compare its trimmed stdout to the expected output.
-
-Language-agnostic on purpose: Python and Rust score through the same stdin/stdout path,
-so adding a language is one entry in ``_RUNTIMES`` (image + how to build/run the source).
+We run each candidate in a throwaway Docker container (via :mod:`kodo_sandbox`) and compare
+its trimmed stdout to the expected output.
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
-import tempfile
 import tomllib
-import uuid
 from importlib import resources
 from pathlib import Path
 from time import monotonic
 from typing import Any, Literal
 
+# Re-exported (``import X as X``) so callers can keep importing them from ``core`` — kodo's
+# driver, the MCP app, and tests do.
+from kodo_sandbox import RunResult as RunResult
+from kodo_sandbox import docker_available as docker_available
+from kodo_sandbox import run_code as run_code
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 Difficulty = Literal["basics", "intermediate", "advanced", "expert"]
 ProblemType = Literal["code", "tool"]
-
-
-class _Runtime(BaseModel):
-    """How to execute a language: its image and the container argv that runs the source."""
-
-    model_config = ConfigDict(frozen=True)
-
-    image: str
-    filename: str  # where the candidate source is written inside /work
-    command: list[str]  # container argv; trailing args (test argv) are appended
-
-
-# Rust compiles to a tmpfs (rootfs is read-only) then execs, forwarding any test argv via
-# "$@". Python runs the source directly. Both read the source from a read-only /work mount.
-_RUNTIMES: dict[str, _Runtime] = {
-    "python": _Runtime(image="python:3.13-slim", filename="main.py", command=["python", "/work/main.py"]),
-    "rust": _Runtime(
-        image="rust:1-slim",
-        filename="main.rs",
-        command=["sh", "-c", 'rustc -O /work/main.rs -o /tmp/prog && exec /tmp/prog "$@"', "_"],
-    ),
-}
-
-SUPPORTED_LANGUAGES = tuple(_RUNTIMES)
 
 
 # --- suite / result models -------------------------------------------------
@@ -122,18 +97,6 @@ class Suite(BaseModel):
                     problem.setdefault("language", data.get("language"))
                     problem.setdefault("type", data.get("type", "code"))
         return data
-
-
-class RunResult(BaseModel):
-    """The raw outcome of executing a program once."""
-
-    model_config = ConfigDict(frozen=True)
-
-    stdout: str
-    stderr: str
-    exit_code: int
-    timed_out: bool
-    duration_s: float
 
 
 class CaseResult(BaseModel):
@@ -238,75 +201,6 @@ def extract_code(text: str, language: str = "") -> str:
 
 
 # --- execution -------------------------------------------------------------
-
-
-class DockerError(RuntimeError):
-    """Docker is unavailable or failed to start a container."""
-
-
-def docker_available() -> bool:
-    """Whether a working Docker daemon is reachable."""
-    try:
-        subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            timeout=10,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return True
-
-
-def run_code(
-    language: str,
-    code: str,
-    stdin: str = "",
-    args: list[str] | None = None,
-    timeout_s: float = 10.0,
-    memory: str = "512m",
-    cpus: str = "1.0",
-) -> RunResult:
-    """Run ``code`` in a locked-down throwaway container and capture its output.
-
-    The container has no network, a read-only rootfs (source mounted read-only at
-    ``/work``, an exec-able tmpfs at ``/tmp``), capped memory/CPU/pids, and is killed at
-    ``timeout_s``. Returns the program's stdout/stderr, exit code, and whether it timed out.
-    """
-    runtime = _RUNTIMES.get(language)
-    if runtime is None:
-        raise ValueError(f"unsupported language {language!r}; use one of {', '.join(SUPPORTED_LANGUAGES)}")
-    with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / runtime.filename).write_text(code)
-        name = f"kodo-bench-{uuid.uuid4().hex[:12]}"
-        cmd = [
-            "docker", "run", "--rm", "-i", "--name", name,
-            "--network=none", f"--memory={memory}", f"--cpus={cpus}", "--pids-limit=256",
-            "--read-only", "--tmpfs", "/tmp:rw,exec,size=256m",
-            "-v", f"{tmp}:/work:ro", "-w", "/work",
-            runtime.image, *runtime.command, *(args or []),
-        ]  # fmt: skip
-        start = monotonic()
-        try:
-            proc = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=timeout_s)
-        except subprocess.TimeoutExpired as exc:
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True)  # best-effort kill
-            return RunResult(
-                stdout=exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
-                stderr="timed out",
-                exit_code=124,
-                timed_out=True,
-                duration_s=monotonic() - start,
-            )
-        except FileNotFoundError as exc:  # docker binary missing
-            raise DockerError("docker not found on PATH") from exc
-        return RunResult(
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            exit_code=proc.returncode,
-            timed_out=False,
-            duration_s=monotonic() - start,
-        )
 
 
 def _normalize(text: str) -> str:

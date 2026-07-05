@@ -18,11 +18,13 @@ members = [
     "kodo",
     "kodo-benchmark",
     "kodo-mcp-datetime",
+    "kodo-mcp-exec",
     "kodo-mcp-memory",
     "kodo-mcp-search",
     "kodo-mcp-utils",
     "kodo-mcp-weather-yr",
     "kodo-mcp-web",
+    "kodo-sandbox",
 ]
 
 [[package]]
@@ -1441,6 +1443,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "kodo-benchmark" },
     { name = "kodo-mcp-datetime" },
+    { name = "kodo-mcp-exec" },
     { name = "kodo-mcp-memory" },
     { name = "kodo-mcp-search" },
     { name = "kodo-mcp-utils" },
@@ -1495,6 +1498,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=1.21.0" },
     { name = "kodo-benchmark", editable = "packages/kodo-benchmark" },
     { name = "kodo-mcp-datetime", editable = "packages/kodo-mcp-datetime" },
+    { name = "kodo-mcp-exec", editable = "packages/kodo-mcp-exec" },
     { name = "kodo-mcp-memory", editable = "packages/kodo-mcp-memory" },
     { name = "kodo-mcp-search", editable = "packages/kodo-mcp-search" },
     { name = "kodo-mcp-utils", editable = "packages/kodo-mcp-utils" },
@@ -1537,6 +1541,7 @@ version = "0.1.0"
 source = { editable = "packages/kodo-benchmark" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "kodo-sandbox" },
     { name = "pluginkit" },
     { name = "pydantic" },
     { name = "typer" },
@@ -1545,6 +1550,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "kodo-sandbox", editable = "packages/kodo-sandbox" },
     { name = "pluginkit", specifier = ">=0.4.7" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "typer", specifier = ">=0.25.1" },
@@ -1562,6 +1568,23 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+]
+
+[[package]]
+name = "kodo-mcp-exec"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-exec" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "kodo-sandbox" },
+    { name = "pluginkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "kodo-sandbox", editable = "packages/kodo-sandbox" },
     { name = "pluginkit", specifier = ">=0.4.7" },
 ]
 
@@ -1661,6 +1684,17 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "trafilatura", specifier = ">=1.12" },
 ]
+
+[[package]]
+name = "kodo-sandbox"
+version = "0.1.0"
+source = { editable = "packages/kodo-sandbox" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.0" }]
 
 [[package]]
 name = "kokoro-onnx"

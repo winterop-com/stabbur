@@ -12,6 +12,7 @@ dependencies = [
     "huggingface-hub>=1.21.0",
     "kodo-benchmark",
     "kodo-mcp-datetime",
+    "kodo-mcp-exec",
     "kodo-mcp-memory",
     "kodo-mcp-search",
     "kodo-mcp-weather-yr",
@@ -85,8 +86,10 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 kodo-mcp-datetime = { workspace = true }
+kodo-mcp-exec = { workspace = true }
 kodo-mcp-memory = { workspace = true }
 kodo-benchmark = { workspace = true }
+kodo-sandbox = { workspace = true }
 kodo-mcp-search = { workspace = true }
 kodo-mcp-weather-yr = { workspace = true }
 kodo-mcp-utils = { workspace = true }
@@ -138,7 +141,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_memory", "kodo_mcp_weather_yr", "kodo_benchmark"]
+source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_memory", "kodo_mcp_weather_yr", "kodo_mcp_exec", "kodo_benchmark", "kodo_sandbox"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]
