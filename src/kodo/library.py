@@ -457,12 +457,22 @@ def remove(model: LibraryModel) -> tuple[int, int]:
         parts = model.path.parts
         models_dir = Path(*parts[: parts.index("manifests")])
         ollama.remove(model.name, models_dir)
+        _drop_tags(model)
         return count, freed
 
     shutil.rmtree(model.path, ignore_errors=True)
     if model.path.exists():
         return 0, 0  # removal failed (read-only drive, files held open by a running runtime)
+    _drop_tags(model)
     return count, freed
+
+
+def _drop_tags(model: LibraryModel) -> None:
+    """Drop a removed model's tag assignments so a later re-pull doesn't silently inherit them."""
+    from kodo import tags  # noqa: PLC0415 - lazy to keep import order simple
+
+    if tags.tags_for(model.library_root, model.name):
+        tags.set_tags(model.library_root, model.name, [])
 
 
 class MigrationAction(BaseModel):

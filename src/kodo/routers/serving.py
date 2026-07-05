@@ -261,14 +261,15 @@ class TagUpdate(BaseModel):
 
 
 @router.post("/api/tags")
-def set_model_tags(body: TagUpdate, settings: ConfDep) -> TagUpdate:
+def set_model_tags(body: TagUpdate) -> TagUpdate:
     """Replace ``model``'s tags with ``tags`` (normalized + deduped). Returns them.
 
     Tags are written into the library the model lives in, so they travel with it.
     """
     matches = library_ops.find(body.model)
-    root = matches[0].library_root if matches else settings.library_root
-    saved = tags_ops.set_tags(root, body.model, body.tags)
+    if not matches:  # don't write a phantom tag entry for a model that isn't in the library
+        raise HTTPException(status_code=404, detail=f"{body.model!r} is not in the library")
+    saved = tags_ops.set_tags(matches[0].library_root, body.model, body.tags)
     return TagUpdate(model=body.model, tags=saved)
 
 

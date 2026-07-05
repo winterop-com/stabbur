@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kodo import arch, library
+from kodo import arch, library, tags
 from kodo.models import ModelFormat
 from kodo.sources import base
 
@@ -76,3 +76,22 @@ def test_remove_reports_failure_when_dir_survives(tmp_path: Path, monkeypatch: p
     # Simulate rmtree failing silently (ignore_errors=True) — the dir remains.
     monkeypatch.setattr(library.shutil, "rmtree", lambda *a, **k: None)
     assert library.remove(model) == (0, 0)  # honest: nothing removed
+
+
+def test_remove_drops_model_tags(tmp_path: Path) -> None:
+    # C-12: a removed model must not leave stale tags a re-pull would silently inherit.
+    repo = tmp_path / "gguf" / "pub" / "Foo-GGUF"
+    _gguf(repo, "m.gguf", b"weights")
+    tags.set_tags(tmp_path, "pub/Foo-GGUF", ["tested", "fast"])
+    model = library.LibraryModel(
+        name="pub/Foo-GGUF",
+        model_format=ModelFormat.gguf,
+        path=repo,
+        load_target=repo / "m.gguf",
+        library_root=tmp_path,
+        size_bytes=7,
+        file_count=1,
+    )
+    library.remove(model)
+    assert not repo.exists()
+    assert tags.tags_for(tmp_path, "pub/Foo-GGUF") == []  # tags cleaned
