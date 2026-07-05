@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AudioLines, Eye, Info, Loader2, MessageSquare, Play, Plus, Tag, Wrench, X } from "lucide-react";
 
 import { getModelInfo, getVoiceModels, type LibModel, type ModelInfo, type Status, type VoiceModelInfo } from "@/api";
-import { allTagsOf, normalizeTag, tagColor } from "@/lib/tags";
+import { allTagsOf, normalizeTag, tagColor, tagStyle } from "@/lib/tags";
+import type { TagRegistry } from "@/lib/tags";
 import { Markdown } from "@/components/Markdown";
 import { VoiceCard } from "@/components/VoiceCard";
 import {
@@ -153,11 +154,13 @@ function TagRow({
   tags,
   suggestions,
   onChange,
+  tagRegistry,
 }: {
   label: string;
   tags: string[];
   suggestions: string[];
   onChange: (tags: string[]) => void;
+  tagRegistry: TagRegistry;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -168,11 +171,19 @@ function TagRow({
         aria-label="Edit tags"
         className="mt-2 flex flex-wrap items-center gap-1 text-left"
       >
-        {tags.map((t) => (
-          <span key={t} className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", tagColor(t))}>
-            {t}
-          </span>
-        ))}
+        {tags.map((t) => {
+          const s = tagStyle(t, tagRegistry);
+          return (
+            <span
+              key={t}
+              className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", s.className)}
+              style={s.style}
+            >
+              {s.icon && <span className="mr-0.5">{s.icon}</span>}
+              {t}
+            </span>
+          );
+        })}
         <span className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-primary/50 hover:text-foreground">
           <Plus className="h-2.5 w-2.5" />
           {tags.length ? "edit" : "tag"}
@@ -261,6 +272,7 @@ function ModelCard({
   onLoad,
   onChat,
   onSetTags,
+  tagRegistry,
 }: {
   model: LibModel;
   active: boolean;
@@ -270,6 +282,7 @@ function ModelCard({
   onLoad: (name: string) => void;
   onChat: () => void;
   onSetTags: (name: string, tags: string[]) => void;
+  tagRegistry: TagRegistry;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const ctx = ctxLabel(model.context_length);
@@ -320,6 +333,7 @@ function ModelCard({
         tags={model.tags}
         suggestions={suggestions}
         onChange={(t) => onSetTags(model.name, t)}
+        tagRegistry={tagRegistry}
       />
 
       {/* Explicit actions: details (any model) + load/chat (deliberate, never on card click). */}
@@ -382,6 +396,7 @@ export function LibraryView({
   onLoad,
   onChat,
   onSetTags,
+  tagRegistry,
 }: {
   library: LibModel[];
   loaded: boolean;
@@ -390,6 +405,7 @@ export function LibraryView({
   onLoad: (name: string) => void;
   onChat: () => void;
   onSetTags: (name: string, tags: string[]) => void;
+  tagRegistry: TagRegistry;
 }) {
   const locked = status?.locked ?? false;
   const busy = loadingName != null || status?.state === "loading";
@@ -456,18 +472,21 @@ export function LibraryView({
             <Tag className="h-3.5 w-3.5 text-muted-foreground" />
             {allTags.map((t) => {
               const on = activeTags.has(t);
+              const s = tagStyle(t, tagRegistry);
               return (
                 <button
                   key={t}
                   type="button"
                   onClick={() => toggleFilter(t)}
                   aria-pressed={on}
+                  style={s.style}
                   className={cn(
                     "rounded-full border px-2 py-0.5 text-[11px] transition-all",
-                    tagColor(t),
+                    s.className,
                     on ? "font-medium ring-1 ring-inset ring-current" : "opacity-70 hover:opacity-100",
                   )}
                 >
+                  {s.icon && <span className="mr-0.5">{s.icon}</span>}
                   {t}
                 </button>
               );
@@ -534,6 +553,7 @@ export function LibraryView({
                             onLoad={onLoad}
                             onChat={onChat}
                             onSetTags={onSetTags}
+                            tagRegistry={tagRegistry}
                           />
                         ))}
                       </div>

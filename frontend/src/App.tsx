@@ -9,6 +9,7 @@ import {
   getDoctor,
   getLibrary,
   getStatus,
+  getTagRegistry,
   getTools,
   getVoiceModels,
   getVoices,
@@ -35,6 +36,7 @@ import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
 import { IconRail } from "@/components/IconRail";
 import { useIsMobile } from "@/lib/use-mobile";
+import type { TagRegistry } from "@/lib/tags";
 import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
@@ -87,6 +89,7 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [library, setLibrary] = useState<LibModel[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [tagRegistry, setTagRegistry] = useState<TagRegistry>({}); // first-class tag colors/icons
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
@@ -208,6 +211,7 @@ export function App() {
         .catch((e) => setError(`Library: ${e}`))
         .finally(() => setLibraryLoaded(true)); // distinguish "still loading" from "empty"
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
+      getTagRegistry().then(setTagRegistry).catch(() => {}); // tag styles are optional (derived fallback)
       getVoices().then(setVoices).catch(() => {}); // voices are optional (no TTS engine)
       getVoiceModels()
         .then((vm) => setSttAvailable(vm.some((m) => m.kind === "stt")))
@@ -865,6 +869,7 @@ export function App() {
               onLoad={loadModelInPlace}
               onChat={chatWithLoaded}
               onSetTags={setTags}
+              tagRegistry={tagRegistry}
             />
           ) : view === "voice" ? (
             <VoiceView />

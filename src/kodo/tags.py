@@ -11,10 +11,33 @@ import json
 import re
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
+
 _FILENAME = "tags.json"
+_REGISTRY_FILENAME = "tag-registry.json"
 # A tag is a short lowercase slug: letters, digits, dash, underscore.
 _ALLOWED = re.compile(r"[^a-z0-9_-]+")
 _MAX_LEN = 32
+_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+class TagMeta(BaseModel):
+    """First-class style for a tag (separate from the ``{model: [tags]}`` assignments).
+
+    A normalized registry keyed by tag name, so a tag's color/icon is defined once — not
+    duplicated per model. All fields optional; the UI falls back to a name-derived color.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    color: str | None = None  # hex, e.g. "#22c55e"
+    icon: str | None = None  # a short glyph/emoji
+    description: str | None = None
+
+
+def valid_color(color: str) -> bool:
+    """Whether ``color`` is a 3- or 6-digit hex color (``#rgb`` / ``#rrggbb``)."""
+    return bool(_HEX_COLOR.match(color))
 
 
 def normalize(tag: str) -> str:
@@ -77,3 +100,57 @@ def edit_tags(library_root: Path, name: str, add: list[str], remove: list[str]) 
     current |= {normalize(t) for t in add if normalize(t)}
     current -= {normalize(t) for t in remove if normalize(t)}
     return set_tags(library_root, name, sorted(current))
+
+
+# --- tag registry (first-class color/icon per tag) -------------------------------------------
+
+
+def _registry_path(library_root: Path) -> Path:
+    return library_root / ".kodo" / _REGISTRY_FILENAME
+
+
+def load_registry(library_root: Path) -> dict[str, TagMeta]:
+    """Read the ``{tag: TagMeta}`` registry for a library (empty if none/unreadable)."""
+    try:
+        data = json.loads(_registry_path(library_root).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, TagMeta] = {}
+    for tag, meta in data.items():
+        key = normalize(str(tag))
+        if key and isinstance(meta, dict):
+            try:
+                out[key] = TagMeta.model_validate(meta)
+            except ValueError:
+                continue
+    return out
+
+
+def save_registry(library_root: Path, registry: dict[str, TagMeta]) -> None:
+    """Persist the registry (dropping empty entries), atomically."""
+    path = _registry_path(library_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    clean = {tag: m.model_dump(exclude_none=True) for tag, m in registry.items() if m.model_dump(exclude_none=True)}
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(clean, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def set_tag_meta(
+    library_root: Path,
+    tag: str,
+    *,
+    color: str | None = None,
+    icon: str | None = None,
+    description: str | None = None,
+) -> TagMeta:
+    """Merge style fields into a tag's registry entry (only provided fields change). Returns it."""
+    registry = load_registry(library_root)
+    key = normalize(tag)
+    updates = {k: v for k, v in {"color": color, "icon": icon, "description": description}.items() if v is not None}
+    merged = registry.get(key, TagMeta()).model_copy(update=updates)
+    registry[key] = merged
+    save_registry(library_root, registry)
+    return merged

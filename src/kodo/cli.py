@@ -825,6 +825,35 @@ def tag_model(
     console.print(f"[white]{model.name}[/]\n  [dim]tags[/]  {label}")
 
 
+@library_app.command("tag-style")
+def tag_style(
+    tag: Annotated[str, typer.Argument(help="Tag name to style (e.g. tested, coding).")],
+    color: Annotated[str | None, typer.Option("--color", "-c", help="Hex color for the tag, e.g. '#22c55e'.")] = None,
+    icon: Annotated[str | None, typer.Option("--icon", "-i", help="A short glyph/emoji for the tag.")] = None,
+    description: Annotated[str | None, typer.Option("--description", "-d", help="Optional description.")] = None,
+) -> None:
+    """Give a tag a first-class color / icon (a per-library tag registry).
+
+    Assignments stay plain name references (``kodo library tag``); this stores the tag's *style*
+    once, keyed by name, so ``coding`` looks the same on every model. The web UI prefers a
+    registered color over the name-derived one. With no options, prints the tag's current style.
+    """
+    if color is not None and not tags.valid_color(color):
+        console.print(f"[red]{color!r} is not a hex color[/] — use '#rgb' or '#rrggbb' (e.g. '#22c55e').")
+        raise typer.Exit(1)
+    root = library_ops.roots()[0]  # the primary in-scope library (project-local or shared)
+    key = tags.normalize(tag)
+    meta = (
+        tags.set_tag_meta(root, tag, color=color, icon=icon, description=description)
+        if (color is not None or icon is not None or description is not None)
+        else tags.load_registry(root).get(key, tags.TagMeta())
+    )
+    style = "  ".join(
+        f"[dim]{f}[/] {v}" for f, v in (("color", meta.color), ("icon", meta.icon), ("desc", meta.description)) if v
+    )
+    console.print(f"[cyan]{key}[/]\n  {style or '[dim](no style set)[/]'}")
+
+
 def _pull_voice_all(root: Path | None, move: bool) -> None:
     """Import every registry voice model already in the HF cache into the target library.
 

@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 // Shared tag helpers for the Models view and the in-composer model picker.
 
 /** Normalize a free-text tag to a slug (lowercase, dashes, <=32 chars). */
@@ -32,6 +34,33 @@ export function tagColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return TAG_PALETTE[h % TAG_PALETTE.length];
+}
+
+/** A tag's first-class style from the registry (GET /api/tags/registry), keyed by tag name. */
+export interface TagMeta {
+  color?: string;
+  icon?: string;
+  description?: string;
+}
+export type TagRegistry = Record<string, TagMeta>;
+
+/**
+ * How to render a tag: a registered hex color becomes inline styles (border/bg/text derived from
+ * it); otherwise fall back to the name-derived palette classes. `icon` is the registered glyph, if any.
+ */
+export function tagStyle(
+  name: string,
+  registry?: TagRegistry,
+): { className: string; style?: CSSProperties; icon?: string } {
+  const meta = registry?.[name];
+  if (meta?.color) {
+    return {
+      className: "border",
+      style: { borderColor: `${meta.color}55`, backgroundColor: `${meta.color}1a`, color: meta.color },
+      icon: meta.icon,
+    };
+  }
+  return { className: tagColor(name), icon: meta?.icon };
 }
 
 /** The sorted union of all tags across a set of models. */

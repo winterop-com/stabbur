@@ -272,6 +272,19 @@ def set_model_tags(body: TagUpdate, settings: ConfDep) -> TagUpdate:
     return TagUpdate(model=body.model, tags=saved)
 
 
+@router.get("/api/tags/registry")
+def tag_registry() -> dict[str, tags_ops.TagMeta]:
+    """The tag style registry (``{tag: {color, icon, description}}``) merged across libraries.
+
+    First library in scope wins on a conflict. The UI prefers a registered color over the
+    name-derived one, and renders the icon if present.
+    """
+    merged: dict[str, tags_ops.TagMeta] = {}
+    for root in reversed(library_ops.roots()) if library_ops.configured() else []:
+        merged.update(tags_ops.load_registry(root))  # earlier roots override (applied last)
+    return merged
+
+
 class ModelCardInfo(BaseModel):
     """A model's card + metadata for the UI's info panel."""
 

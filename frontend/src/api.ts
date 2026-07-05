@@ -2,6 +2,8 @@
 // loop against /api/chat (kodo's tool-aware endpoint). /api/chat emits its own
 // event envelope (token/tool/error/done), NOT raw OpenAI SSE, so we parse that.
 
+import type { TagRegistry } from "@/lib/tags";
+
 export type Role = "user" | "assistant" | "system";
 
 /** An OpenAI multimodal content part (text, an image data/URL, or audio). */
@@ -155,6 +157,9 @@ export const setModelTags = (model: string, tags: string[]) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model, tags }),
   }).then(json<{ model: string; tags: string[] }>);
+
+/** The tag style registry ({tag: {color, icon, description}}); set via `kodo library tag-style`. */
+export const getTagRegistry = () => fetch("/api/tags/registry").then(json<TagRegistry>);
 
 /** List the MCP tools attached to the server (empty if none configured). */
 export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);
