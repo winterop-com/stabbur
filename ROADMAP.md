@@ -5,28 +5,23 @@ every session's context. `CLAUDE.md` holds the durable project rules, architectu
 and conventions; this file holds what's **next**. Completed work is removed (git
 history is the record) — this file is only open threads.
 
-## Next up (concrete, as of 2026-07-04)
+## Next up (concrete, as of 2026-07-05)
 
-1. **Surface uninstalled optional MCP servers in the web health menu**, mirroring what
-   `kodo project show` now does (a project listing `web` without `--extra web` reports
-   `failed: … make install-web` instead of silently 0 tools). Also: warn in `kodo project
-   init` / `kodo mcp add` when adding `web` without the extra installed.
-2. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
+1. **Extend the Textual TUI command palette further.** The palette (`Ctrl+P`), `/` slash-command
    autocomplete, MCP enable/disable/reconnect, `/export` transcript, and live `/set` sampling have
    shipped. The only remaining web-UI parity gap is **switch model** (a real change — see the polish
    queue: the TUI would need to own the runtime lifecycle). Changing the speak-replies voice is N/A
    in the terminal (it does not speak).
-3. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
+2. Smaller: rename `ModelsView.tsx` → `LibraryView.tsx` (it renders the Library now); a
    drawer-style sidebar for very narrow mobile widths.
 
 ### Near-term polish queue (ranked)
 
 | # | Item | Size | Why now |
 |---|------|------|---------|
-| 1 | Surface uninstalled optional MCP servers in web health + warn in `kodo project init` / `mcp add` | M | Mirrors what `kodo project show` already does; stops `web` silently reporting 0 tools when `--extra web` is missing. |
-| 2 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
-| 3 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
-| 4 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
+| 1 | New MCP server: `kodo-mcp-memory` — persistent notes in the library | M | High assistant value, self-contained, dependency-light. `-exec`/`-files` need a sandbox first. |
+| 2 | Rename `ModelsView.tsx` → `LibraryView.tsx` + mobile drawer sidebar | S | Small frontend tidy-up. |
+| 3 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies. `/export` + live `/set` sampling shipped.) |
 
 ## DHIS2 assistant — near-term
 
