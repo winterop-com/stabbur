@@ -26,7 +26,9 @@ from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widgets import Collapsible, Static, TextArea
 
-from kodo import agent, attach
+from kodo import agent, attach, capabilities
+from kodo import library as library_ops
+from kodo import runtime as runtime_mod
 from kodo import sampling as sampling_mod
 from kodo import tools as mcp_tools
 
@@ -94,6 +96,7 @@ _SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
     ("/mcp off <server>", "/mcp off ", "disable a server's tools"),
     ("/mcp reconnect", "/mcp reconnect", "respawn the MCP servers"),
     ("/copy", "/copy", "copy the last reply"),
+    ("/model", "/model ", "switch the running model (or /model to list)"),
     ("/export", "/export ", "save the transcript to a markdown file"),
     ("/set", "/set ", "adjust sampling (temperature/top_p/top_k/…)"),
     ("/clear", "/clear", "clear the conversation"),
@@ -118,6 +121,7 @@ class _KodoCommands(Provider):
             ("Copy last reply", "copy the last reply to the clipboard", app.action_copy_reply),
             ("Export transcript", "save the conversation to a markdown file (chat.md)", app.action_export),
             ("Sampling settings", "show sampling; change with /set <param> <value>", app.action_show_sampling),
+            ("Switch model", "list the models you can switch to", app.action_show_models),
             ("Clear conversation", "clear the transcript, keep the system prompt", app.action_clear),
             ("Help", "commands + keyboard shortcuts", app.action_help),
         ]
@@ -132,6 +136,16 @@ class _KodoCommands(Provider):
                     lambda s=srv, e=off: app._mcp_toggle(s, e),
                 )
             )
+        # One "switch to" entry per other library model.
+        for model in app._switchable_models():
+            if model.name != app._model_name:
+                items.append(
+                    (
+                        f"Switch model: {model.name}",
+                        f"load {model.name} ({model.model_format.value})",
+                        lambda n=model.name: app.action_switch_model(n),
+                    )
+                )
         return items
 
     async def discover(self) -> Hits:
@@ -228,27 +242,19 @@ class ChatApp(App[None]):
     def __init__(
         self,
         *,
-        model_name: str,
-        model_format: str,
-        model_target: str,
-        base: str,
+        runtime_proc: "runtime_mod.RuntimeProc",
         servers: list[tuple[str | None, list[str], dict[str, str]]],
         system_prompt: str,
         images: list[str],
         audios: list[str],
         max_tokens: int | None,
-        ctx_max: int | None,
-        sampling: "sampling_mod.ModelSampling",
     ) -> None:
         super().__init__()
-        self._model_name = model_name
-        self._model_format = model_format
-        self._model_target = model_target  # OpenAI ``model`` field value (mlx-vlm needs it)
-        self._base = base
+        self._runtime = runtime_proc  # the TUI owns the runtime and can swap it (model switch)
+        self._model = runtime_proc.model
         self._servers = servers
         self._max_tokens = max_tokens
-        self._ctx_max = ctx_max
-        self._sampling = sampling
+        self._apply_model()  # derive _model_name/_format/_target/_base/_sampling/_ctx_max
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
         self._pending_images: list[str] | None = images
         self._pending_audios: list[str] | None = audios
@@ -256,8 +262,23 @@ class ChatApp(App[None]):
         self.toolset = mcp_tools.MCPToolset()  # replaced once MCP servers connect
         self._stack = AsyncExitStack()
         self._busy = False
+        self._switching = False  # true while a model swap is loading
         self._queue: list[str] = []  # prompts submitted while a reply is streaming
         self._disabled: set[str] = set()  # MCP server prefixes the user turned off
+        self._models_cache: list[library_ops.LibraryModel] | None = None  # switchable models (lazy)
+
+    def _apply_model(self) -> None:
+        """Set the per-model fields (name/format/target/base/sampling/context) from the current model."""
+        model = self._model
+        self._model_name = model.name
+        self._model_format = model.model_format.value
+        self._model_target = str(model.load_target)  # OpenAI ``model`` field value (mlx-vlm needs it)
+        self._base = self._runtime.base
+        self._sampling = sampling_mod.recommended(model)
+        try:
+            self._ctx_max = capabilities.capabilities(model).context_length
+        except Exception:  # noqa: BLE001 - detection is best-effort; the footer just omits ctx
+            self._ctx_max = None
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="transcript")
@@ -308,6 +329,8 @@ class ChatApp(App[None]):
 
     def _status_renderable(self) -> Group:
         line1 = Text()
+        if self._switching:
+            line1.append("switching… ", style="#fb7185")
         line1.append(self._model_name, style="grey62")
         if self._ctx_max:
             used = self.ctx_used or 0
@@ -402,6 +425,84 @@ class ChatApp(App[None]):
         self._sampling = self._sampling.model_copy(update={field: num})
         self._post(Text(f"{field} = {num}", style="grey50"))
         self._refresh_status()
+
+    # -- model switch ----------------------------------------------------------
+
+    def _switchable_models(self) -> list[library_ops.LibraryModel]:
+        """Generative library models the session can switch to (scanned once, then cached)."""
+        if self._models_cache is None:
+            try:
+                self._models_cache = [m for m in library_ops.scan() if m.generative]
+            except Exception:  # noqa: BLE001 - a missing/unreadable library just means no switching
+                self._models_cache = []
+        return self._models_cache
+
+    def action_show_models(self) -> None:
+        """List the models the session can switch to (the current one marked), in the transcript."""
+        models = self._switchable_models()
+        if not models:
+            self._post(Text("No switchable models in the library.", style="grey50"))
+            return
+        body = Text("models  ", style="bold #fb7185")
+        body.append(f"· {len(models)}\n", style="grey42")
+        for m in models:
+            current = m.name == self._model_name
+            body.append(f"  {'● ' if current else '  '}{m.name}", style="#fb7185" if current else "grey66")
+            body.append(f"   {m.model_format.value}\n", style="grey42")
+        body.append("\n/model <name>  ·  switch the running model", style="grey42")
+        self._post(body)
+
+    def action_switch_model(self, name: str) -> None:
+        """Switch the runtime to another library model (by full name or bare repo tail)."""
+        if self._busy:
+            self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
+            return
+        if self._switching:
+            self.notify("Already switching models.", severity="warning", timeout=2)
+            return
+        want = name.strip().lower()
+        match = next(
+            (m for m in self._switchable_models() if want in (m.name.lower(), m.name.split("/")[-1].lower())),
+            None,
+        )
+        if match is None:
+            self._post(Text(f"no model matching {name!r} — /model to list", style="grey50"))
+            return
+        if match.name == self._model_name:
+            self._post(Text(f"already running {match.name}", style="grey50"))
+            return
+        self.run_worker(self._do_switch(match), group="switch")
+
+    async def _do_switch(self, model: library_ops.LibraryModel) -> None:
+        """Tear down the current runtime and load ``model`` (off the event loop), then rebind to it."""
+        self._switching = True
+        self._refresh_status()
+        self._post(Text(f"switching to {model.name} … (loading — this can take a moment)", style="grey50"))
+        try:
+            new = await asyncio.to_thread(self._reserve, model)
+        except Exception as exc:  # noqa: BLE001 - surface a failed load instead of hanging
+            self._post(Text(f"switch failed: {exc}", style="red"))
+            self._switching = False
+            self._refresh_status()
+            return
+        self._runtime = new
+        self._model = model
+        self._apply_model()
+        self.ctx_used = None  # new model, fresh context window
+        self._switching = False
+        self._refresh_status()
+        self._post(Text(f"switched to {model.name}", style="grey50"))
+
+    def _reserve(self, model: library_ops.LibraryModel) -> "runtime_mod.RuntimeProc":
+        """(worker thread) Stop the current runtime, then start + wait for the new one."""
+        runtime_mod.stop(self._runtime)  # free memory before loading the next model
+        new = runtime_mod.start(model)
+        try:
+            runtime_mod.wait_ready(new)
+        except BaseException:
+            runtime_mod.stop(new)
+            raise
+        return new
 
     def action_copy_reply(self) -> None:
         """Copy the last assistant reply to the clipboard (works over SSH via OSC 52)."""
@@ -575,6 +676,7 @@ class ChatApp(App[None]):
             ("/mcp on|off <server>", "enable / disable a server's tools"),
             ("/mcp reconnect", "respawn the MCP servers"),
             ("/copy", "copy the last reply"),
+            ("/model [name]", "switch the running model (or list them)"),
             ("/export [file]", "save the transcript to markdown (chat.md)"),
             ("/set <param> <value>", "adjust sampling (temperature/top_p/top_k/min_p/repeat_penalty)"),
             ("/clear", "clear the conversation"),
@@ -610,6 +712,10 @@ class ChatApp(App[None]):
             self._update_suggestions()
             self._run_command(text)
             return
+        if self._switching:
+            self.query_one(ChatInput).text = ""
+            self.notify("Switching models — hold on.", severity="warning", timeout=2)
+            return
         self.query_one(ChatInput).text = ""
         self._update_suggestions()
         # Send now if idle, otherwise queue behind the in-flight reply.
@@ -644,6 +750,11 @@ class ChatApp(App[None]):
                 self._set_sampling(parts[1], parts[2])
             else:
                 self.action_show_sampling()
+        elif name in ("model", "switch"):
+            if len(parts) > 1:
+                self.action_switch_model(parts[1])
+            else:
+                self.action_show_models()
         elif name in ("clear", "reset"):
             self.action_clear()
         else:
@@ -833,29 +944,26 @@ class ChatApp(App[None]):
 
 def run_interactive(
     *,
-    model_name: str,
-    model_format: str,
-    model_target: str,
-    base: str,
+    runtime_proc: "runtime_mod.RuntimeProc",
     servers: list[tuple[str | None, list[str], dict[str, str]]],
     system_prompt: str,
     images: list[str],
     audios: list[str],
     max_tokens: int | None,
-    ctx_max: int | None,
-    sampling: sampling_mod.ModelSampling,
 ) -> None:
-    """Build and run the chat TUI (blocking) against an already-serving model."""
-    ChatApp(
-        model_name=model_name,
-        model_format=model_format,
-        model_target=model_target,
-        base=base,
+    """Build and run the chat TUI (blocking) against ``runtime_proc``.
+
+    The TUI owns the runtime from here — it can switch models — and stops whatever it ends on.
+    """
+    app = ChatApp(
+        runtime_proc=runtime_proc,
         servers=servers,
         system_prompt=system_prompt,
         images=images,
         audios=audios,
         max_tokens=max_tokens,
-        ctx_max=ctx_max,
-        sampling=sampling,
-    ).run()
+    )
+    try:
+        app.run()
+    finally:
+        runtime_mod.stop(app._runtime)  # the current model's runtime (may have been swapped)

@@ -1820,31 +1820,26 @@ def _chat_with_tools(
             _first_output()
             print()  # noqa: T201 - newline after streamed answer
 
-    with runtime._serve(model) as base:
-        if prompt is not None:
-            asyncio.run(_run_oneshot(base))
-            return
-        # Interactive: hand off to the full-screen Textual chat (imported lazily so
-        # `kodo library ls` and friends don't pay textual's import cost).
-        from kodo import chat_tui  # noqa: PLC0415
-
+    rt = runtime.load(model)  # start the runtime (with a load spinner); caller/TUI owns stop()
+    if prompt is not None:
         try:
-            ctx_max = capabilities.capabilities(model).context_length
-        except Exception:  # noqa: BLE001 - detection is best-effort; the footer just omits ctx
-            ctx_max = None
-        chat_tui.run_interactive(
-            model_name=model.name,
-            model_format=model.model_format.value,
-            model_target=str(model.load_target),
-            base=base,
-            servers=servers,
-            system_prompt=system_prompt,
-            images=images or [],
-            audios=audios or [],
-            max_tokens=max_tokens,
-            ctx_max=ctx_max,
-            sampling=rec,
-        )
+            asyncio.run(_run_oneshot(rt.base))
+        finally:
+            runtime.stop(rt)
+        return
+    # Interactive: hand the runtime to the full-screen Textual chat (imported lazily so
+    # `kodo library ls` and friends don't pay textual's import cost). The TUI owns the runtime
+    # from here — it can switch models — and stops it on exit.
+    from kodo import chat_tui  # noqa: PLC0415
+
+    chat_tui.run_interactive(
+        runtime_proc=rt,
+        servers=servers,
+        system_prompt=system_prompt,
+        images=images or [],
+        audios=audios or [],
+        max_tokens=max_tokens,
+    )
 
 
 @app.command()

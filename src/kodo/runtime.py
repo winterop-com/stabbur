@@ -121,15 +121,41 @@ def _early_exit_error(cmd: list[str], code: int | None, log_dir: Path | None, po
     return RuntimeError(msg)
 
 
-@contextmanager
-def _serve(model: LibraryModel) -> Generator[str, None, None]:
-    """Start the model's runtime server, yield its base URL, and stop it after.
+class RuntimeProc:
+    """A running model-runtime server: its process, base URL, and log location.
+
+    A resource handle (like ``MCPToolset``), not a data record — it holds the live ``Popen`` and
+    file handles. Own one, then :func:`stop` it. :func:`start` + :func:`wait_ready` split spawning
+    from the (blocking) readiness poll so a caller can render its own progress — the chat TUI drives
+    these to switch models without the Rich spinner :func:`_serve` uses.
+    """
+
+    def __init__(
+        self,
+        proc: "subprocess.Popen[bytes]",
+        base: str,
+        model: LibraryModel,
+        cmd: list[str],
+        port: int,
+        log_dir: Path | None,
+        log_fh: IO[bytes] | None,
+    ) -> None:
+        self.proc = proc
+        self.base = base
+        self.model = model  # the model this runtime is serving (so the owner can read its metadata)
+        self._cmd = cmd
+        self._port = port
+        self.log_dir = log_dir
+        self.log_fh = log_fh
+
+
+def start(model: LibraryModel) -> RuntimeProc:
+    """Spawn the model's runtime server and return a handle — does NOT wait for readiness.
 
     Raises:
-        RuntimeError: If the runtime binary is missing or never becomes ready.
+        RuntimeError: If the runtime binary is missing.
     """
-    # Auto-pick a free port unless one is pinned, so concurrent kodo sessions
-    # don't fight over a fixed port.
+    # Auto-pick a free port unless one is pinned, so concurrent kodo sessions don't fight over one.
     port = pinned_runtime_port() or find_free_port()
     cmd = build_command(model, "127.0.0.1", port)
     if shutil.which(cmd[0]) is None:
@@ -138,11 +164,10 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
     base = f"http://127.0.0.1:{port}"
     # In --debug, stream the runtime's logs live (inherit stderr); otherwise capture
     # them to a temp file (never DEVNULL) so an early exit can report the real cause.
-    debug = debug_enabled()
     log_dir: Path | None = None
     log_fh: IO[bytes] | None = None
     stderr_target: IO[bytes] | None = None  # None → inherit (live to terminal)
-    if debug:
+    if debug_enabled():
         _status_console.print(f"[dim]runtime →[/] {' '.join(cmd)}")
     else:
         log_dir = Path(tempfile.mkdtemp(prefix="kodo-runtime-"))
@@ -150,12 +175,55 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
         stderr_target = log_fh
 
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=stderr_target)
+    return RuntimeProc(proc, base, model, cmd, port, log_dir, log_fh)
+
+
+def wait_ready(rt: RuntimeProc, timeout: float | None = None) -> None:
+    """Block until the runtime answers ``/v1/models``, or raise on early exit / timeout.
+
+    Readiness is binary (poll ``/v1/models``), so a caller shows elapsed time, not a percentage.
+
+    Raises:
+        RuntimeError: If the process exits early or never becomes ready in time.
+    """
+    deadline = time.time() + (timeout if timeout is not None else get_settings().runtime_load_timeout)
+    while time.time() < deadline:
+        if rt.proc.poll() is not None:
+            raise _early_exit_error(rt._cmd, rt.proc.returncode, rt.log_dir, rt._port)
+        try:
+            if httpx.get(f"{rt.base}/v1/models", timeout=2).status_code < 500:
+                return
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.4)
+    raise RuntimeError("runtime did not become ready in time")
+
+
+def stop(rt: RuntimeProc) -> None:
+    """Terminate the runtime server (SIGKILL after 15s) and clean up its logs."""
+    rt.proc.terminate()
+    try:
+        rt.proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        rt.proc.kill()
+        rt.proc.wait()
+    if rt.log_fh is not None:
+        rt.log_fh.close()
+    if rt.log_dir is not None:
+        shutil.rmtree(rt.log_dir, ignore_errors=True)
+
+
+def load(model: LibraryModel) -> RuntimeProc:
+    """Start the runtime and wait (with a CLI load spinner) until it's ready. The caller owns stop().
+
+    Raises:
+        RuntimeError: If the runtime binary is missing or never becomes ready.
+    """
+    rt = start(model)
     try:
         size = f" ({_human_size(model.size_bytes)})" if model.size_bytes else ""
-        # Spinner + elapsed time while the runtime loads the weights (seconds to
-        # minutes for big models). Readiness is binary (poll /v1/models), so there's
-        # no honest percentage to show — elapsed time is the truthful signal. Non-TTY
-        # (piped) output degrades quietly; it's on stderr anyway.
+        # Spinner + elapsed time while the runtime loads the weights (seconds to minutes for big
+        # models). Non-TTY (piped) output degrades quietly; it's on stderr anyway.
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -164,30 +232,25 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
             transient=True,
         ) as progress:
             progress.add_task(f"Loading {model.name}{size} …", total=None)
-            deadline = time.time() + get_settings().runtime_load_timeout
-            while time.time() < deadline:
-                if proc.poll() is not None:
-                    raise _early_exit_error(cmd, proc.returncode, log_dir, port)
-                try:
-                    if httpx.get(f"{base}/v1/models", timeout=2).status_code < 500:
-                        break
-                except httpx.HTTPError:
-                    pass
-                time.sleep(0.4)
-            else:
-                raise RuntimeError("runtime did not become ready in time")
-        yield base
+            wait_ready(rt)
+    except BaseException:
+        stop(rt)
+        raise
+    return rt
+
+
+@contextmanager
+def _serve(model: LibraryModel) -> Generator[str, None, None]:
+    """Start the model's runtime server, yield its base URL, and stop it after.
+
+    Raises:
+        RuntimeError: If the runtime binary is missing or never becomes ready.
+    """
+    rt = load(model)
+    try:
+        yield rt.base
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-        if log_fh is not None:
-            log_fh.close()
-        if log_dir is not None:
-            shutil.rmtree(log_dir, ignore_errors=True)
+        stop(rt)
 
 
 def generate(

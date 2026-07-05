@@ -1,27 +1,50 @@
 """Headless pilot tests for the Textual chat app."""
 
 import asyncio
-from typing import Any
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 
-from kodo import chat_tui
+from kodo import chat_tui, runtime
+from kodo.library import LibraryModel
+from kodo.models import ModelFormat
 from kodo.sampling import ModelSampling
 
 
+@pytest.fixture(autouse=True)
+def _stub_model_probes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # _apply_model reads the model's config/files; stub those so the app builds fast + hermetic.
+    monkeypatch.setattr(chat_tui.sampling_mod, "recommended", lambda _m: ModelSampling(repeat_penalty=1.1))
+    monkeypatch.setattr(chat_tui.capabilities, "capabilities", lambda _m: SimpleNamespace(context_length=1024))
+
+
 def _app() -> chat_tui.ChatApp:
-    return chat_tui.ChatApp(
-        model_name="pub/Foo-GGUF",
-        model_format="gguf",
-        model_target="/lib/gguf/pub/Foo-GGUF/model.gguf",
+    model = LibraryModel(
+        name="pub/Foo-GGUF",
+        model_format=ModelFormat.gguf,
+        path=Path("/lib/gguf/pub/Foo-GGUF"),
+        load_target=Path("/lib/gguf/pub/Foo-GGUF/model.gguf"),
+    )
+    rt = runtime.RuntimeProc(
+        proc=cast("subprocess.Popen[bytes]", MagicMock()),
         base="http://127.0.0.1:9",
+        model=model,
+        cmd=["llama-server"],
+        port=9,
+        log_dir=None,
+        log_fh=None,
+    )
+    return chat_tui.ChatApp(
+        runtime_proc=rt,
         servers=[],
         system_prompt="",
         images=[],
         audios=[],
         max_tokens=None,
-        ctx_max=1024,
-        sampling=ModelSampling(repeat_penalty=1.1),
     )
 
 
@@ -148,6 +171,47 @@ async def test_trailing_backslash_inserts_newline_instead_of_sending(monkeypatch
         await pilot.pause()
         assert sent == []
         assert "\n" in app.query_one(chat_tui.ChatInput).text
+
+
+async def test_model_switch_swaps_the_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    model_b = LibraryModel(
+        name="pub/Bar-GGUF",
+        model_format=ModelFormat.gguf,
+        path=Path("/lib/gguf/pub/Bar-GGUF"),
+        load_target=Path("/lib/gguf/pub/Bar-GGUF/model.gguf"),
+    )
+    app = _app()
+    model_a = app._model  # the starting model (pub/Foo-GGUF)
+    # Both models are "in the library"; the runtime is faked so nothing actually serves.
+    monkeypatch.setattr(chat_tui.library_ops, "scan", lambda: [model_a, model_b])
+    stopped: list[Any] = []
+    monkeypatch.setattr(chat_tui.runtime_mod, "stop", lambda rt: stopped.append(rt.model.name))
+    monkeypatch.setattr(chat_tui.runtime_mod, "wait_ready", lambda rt, timeout=None: None)
+    monkeypatch.setattr(
+        chat_tui.runtime_mod,
+        "start",
+        lambda m: runtime.RuntimeProc(
+            proc=cast("subprocess.Popen[bytes]", MagicMock()),
+            base="http://127.0.0.1:5555",
+            model=m,
+            cmd=["llama-server"],
+            port=5555,
+            log_dir=None,
+            log_fh=None,
+        ),
+    )
+
+    async with app.run_test() as pilot:
+        app.action_switch_model("Bar-GGUF")  # by bare repo tail
+        for _ in range(200):
+            await pilot.pause()
+            if not app._switching:
+                break
+
+    assert app._model.name == "pub/Bar-GGUF"  # rebound to the new model
+    assert app._base == "http://127.0.0.1:5555"  # and its new runtime URL
+    assert app._model_name == "pub/Bar-GGUF"  # derived fields refreshed
+    assert stopped == ["pub/Foo-GGUF"]  # the old runtime was torn down
 
 
 async def test_ctrl_y_copies_last_reply(monkeypatch: pytest.MonkeyPatch) -> None:
