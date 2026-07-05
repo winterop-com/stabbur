@@ -753,6 +753,11 @@ def install(
         console.print(f"[red]Unsupported target {to!r}[/] — use [bold]ollama[/] or [bold]lmstudio[/].")
         raise typer.Exit(1)
     # Ollama only imports GGUF; LM Studio takes GGUF or MLX (use --format to disambiguate).
+    if to == "ollama" and model_format is not None and model_format is not ModelFormat.gguf:
+        console.print(
+            f"[red]Ollama imports GGUF only[/] — drop `--format {model_format.value}` or use `--to lmstudio`."
+        )
+        raise typer.Exit(1)
     resolved = _resolve_library_model(model, ModelFormat.gguf if to == "ollama" else model_format)
     try:
         if to == "ollama":
@@ -1507,7 +1512,8 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
                 f"kodo library pull {hit.source.value} {hit.name}"
             )
         else:
-            console.print(f"[red]{name!r} is not in the library[/] ([dim]{get_settings().library_root}[/]).")
+            roots = ", ".join(str(r) for r in library_ops.roots())  # the libraries actually searched
+            console.print(f"[red]{name!r} is not in the library[/] ([dim]searched: {roots}[/]).")
         raise typer.Exit(1)
     if len(matches) > 1:
         console.print(f"[yellow]{name!r} is ambiguous; narrow with --format:[/]")
