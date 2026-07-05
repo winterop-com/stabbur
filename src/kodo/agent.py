@@ -120,6 +120,7 @@ async def run(
     model: str | None = None,
     max_rounds: int = 8,
     on_usage: UsageSink | None = None,
+    tool_timeout: float | None = 120.0,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -129,7 +130,9 @@ async def run(
     tokens (separate channel); ``on_usage`` receives the server's token accounting
     (prompt/completion/total) after each round. ``model`` is sent as the OpenAI
     ``model`` field — required by mlx-vlm (which 422s without it), ignored by
-    llama-server/mlx-lm. Bounded by ``max_rounds``.
+    llama-server/mlx-lm. Bounded by ``max_rounds``; each tool call is bounded by
+    ``tool_timeout`` seconds (``None`` = no limit) so a hung MCP server can't stall
+    the loop forever.
     """
     async with httpx.AsyncClient(timeout=600) as http:
         for _ in range(max_rounds):
@@ -184,8 +187,8 @@ async def run(
                 if on_event:
                     on_event("call", f"{c['name']}({c['args']})")
                 try:
-                    result = await toolset.call(c["name"], args)
-                except Exception as exc:  # noqa: BLE001 - report tool failures back to the model
+                    result = await toolset.call(c["name"], args, timeout=tool_timeout)
+                except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) back to the model
                     result = f"error: {exc}"
                 if on_event:
                     on_event("result", result)

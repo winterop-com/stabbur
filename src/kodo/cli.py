@@ -2032,9 +2032,9 @@ class _HostContext:
                 # toolset (and its type) for agent.run; args here are already parsed dicts.
                 original = toolset.call
 
-                async def _recording_call(name: str, args: dict[str, object]) -> str:
+                async def _recording_call(name: str, args: dict[str, object], timeout: float | None = None) -> str:
                     calls.append((name, args))
-                    return await original(name, args)
+                    return await original(name, args, timeout=timeout)
 
                 toolset.call = _recording_call  # type: ignore[assignment]
                 return await agent.run(

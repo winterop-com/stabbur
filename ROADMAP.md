@@ -33,7 +33,7 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
    | Qwen3-Coder-30B-A3B | 3/7 (43%) | |
    | gpt-oss-20b | 2/7 (29%) | |
    | Ornith-1.0-9B | 1/7 (14%) | read winner; weak on writes |
-   | Qwen3.6-27B | n/a | run stalled on a tool-call hang (killed), not scored |
+   | Qwen3.6-27B | n/a | run stalled on a tool-call hang (killed), not scored (see below) |
 
    **Headline:** small local models drive DHIS2 **reads** near-perfectly but **writes are much
    harder** — the multi-step create→(rename/link)→delete→confirm lifecycle trips them up, and all
@@ -44,6 +44,15 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
    stronger write driver. Next: stronger write models / a guarded write chokepoint
    (`dhis2w-mcp-router` read-only-by-default), and richer verification (assert real state, not just
    the completion token).
+
+   **Tool-call hang — root-caused + fixed.** The Qwen3.6-27B stall (and the earlier gemma-31B one)
+   was not the model: the agent loop ran MCP tool calls with **no timeout**, so a wedged tool (the
+   DHIS2 bridge shelling out to `d2w`, which stalled on a request) blocked the loop indefinitely —
+   llama-server sat idle at 0% CPU. The 600s httpx timeout only covered the model request, not tool
+   execution. Fixed by bounding each tool call (`agent.run` `tool_timeout`, default 120s, passed to
+   fastmcp's `call_tool(timeout=…)`): a timed-out tool now returns an error to the model and the
+   loop continues. Big/MoE models just surfaced it more (slower, more elaborate tool calls). Large
+   models weren't re-benchmarked for writes after the fix.
 
 ## Open issues
 

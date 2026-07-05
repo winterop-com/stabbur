@@ -134,6 +134,62 @@ async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.Monk
     assert messages[-1] == {"role": "assistant", "content": stopped}  # recorded in history
 
 
+async def test_agent_recovers_from_a_hung_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A tool call that hangs (surfaced as a timeout) must NOT stall the loop: the error is
+    # fed back to the model and the loop continues to a final answer. Regression for a
+    # 40-min benchmark hang where a wedged MCP tool blocked the loop indefinitely.
+    rounds = iter(
+        [
+            ("", [{"id": "1", "name": "x__y", "args": "{}"}], None),  # round 1: a tool call
+            ("recovered", [], None),  # round 2: a plain answer
+        ]
+    )
+
+    async def staged_stream(
+        http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
+    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+        return next(rounds)
+
+    class _HangingToolset:
+        schemas: list[dict[str, Any]] = []
+
+        def __init__(self) -> None:
+            self.timeouts: list[float | None] = []
+
+        async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> str:
+            self.timeouts.append(timeout)
+            raise TimeoutError("Timed out")
+
+    monkeypatch.setattr(agent, "_stream_turn", staged_stream)
+    toolset = _HangingToolset()
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+    out = await agent.run("http://runtime", messages, toolset)  # type: ignore[arg-type]
+
+    assert out == "recovered"  # loop continued past the hung tool
+    assert toolset.timeouts == [120.0]  # default per-call timeout was applied
+    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    assert "error:" in tool_msg["content"] and "Timed out" in tool_msg["content"]
+
+
+async def test_toolset_call_forwards_timeout_to_client() -> None:
+    # MCPToolset.call must pass the per-call timeout down to fastmcp so a wedged server is bounded.
+    class _RecordingClient:
+        def __init__(self) -> None:
+            self.timeouts: list[float | None] = []
+
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            self.timeouts.append(timeout)
+            return type("R", (), {"data": "ok"})()
+
+    toolset = tools.MCPToolset()
+    client = _RecordingClient()
+    toolset._owner["srv__t"] = (client, "t")  # type: ignore[assignment]
+    result = await toolset.call("srv__t", {}, timeout=7.5)
+
+    assert result == "ok"
+    assert client.timeouts == [7.5]
+
+
 async def test_connect_skips_a_failing_server_and_records_it() -> None:
     # An uninstalled/bad server must not abort the others: it's skipped and recorded in errors.
     async with tools.connect([("bogus", ["kodo-nonexistent-server-xyz"])]) as toolset:

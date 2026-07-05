@@ -123,13 +123,18 @@ class MCPToolset:
         view.schemas = [s for s in self.schemas if s["function"]["name"] in names]
         return view
 
-    async def call(self, name: str, arguments: dict[str, Any]) -> str:
-        """Execute a namespaced tool on its owning server and return its result as text."""
+    async def call(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> str:
+        """Execute a namespaced tool on its owning server and return its result as text.
+
+        ``timeout`` (seconds) bounds the call so a hung server (e.g. an MCP tool that shells
+        out to a command that never returns) can't stall the agent loop indefinitely — fastmcp
+        raises on timeout, which the loop turns into an error fed back to the model.
+        """
         entry = self._owner.get(name)
         if entry is None:
             return f"error: unknown tool {name!r}"
         client, tool_name = entry
-        return _result_text(await client.call_tool(tool_name, arguments))
+        return _result_text(await client.call_tool(tool_name, arguments, timeout=timeout))
 
 
 @asynccontextmanager
