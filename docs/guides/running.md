@@ -38,6 +38,11 @@ The `-p/--prompt` one-shot mirrors `claude -p` — clean stdout for scripting:
 kodo chat gemma-4-12B-it-QAT-GGUF -p "Say hi" 2>/dev/null | tee out.txt
 ```
 
+The interactive REPL is a full Textual TUI. Press **Ctrl+P** for the command palette or type
+`/help`: switch the running model without leaving chat (`/model <name>`, or "Switch model" in the
+palette — the conversation carries over), toggle/reconnect MCP servers (`/mcp`), adjust sampling
+live (`/set temperature 0.7`), `/export` the transcript, and more.
+
 ## Picking a model name
 
 Use the full `<publisher>/<repo>` name or just the final part; add `--format` to

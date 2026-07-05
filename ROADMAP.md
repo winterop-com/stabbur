@@ -7,9 +7,10 @@ history is the record) — this file is only open threads.
 
 ## Next up (concrete, as of 2026-07-05)
 
-| # | Item | Size | Why now |
-|---|------|------|---------|
-| 1 | TUI model switch (needs the TUI to own the runtime lifecycle) | M | The last piece of TUI palette parity. Deferred: the TUI is handed a running `llama-server` it does not own, so switching models means the TUI must spawn/tear down the runtime itself. (Voice picker is N/A — the terminal TUI does not speak replies; the palette, `/`-autocomplete, MCP enable/disable/reconnect, `/export`, and live `/set` sampling all shipped.) |
+The near-term polish queue is clear — the Textual TUI now has full web-UI parity (palette,
+`/`-autocomplete, MCP enable/disable/reconnect, `/export`, live `/set` sampling, and model
+switching via `/model` / the palette), the frontend rename + mobile drawer shipped, and the
+bundled MCP toolset is complete. What's left is the longer-horizon threads below.
 
 ## DHIS2 assistant — near-term
 
