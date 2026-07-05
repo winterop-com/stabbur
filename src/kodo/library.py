@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from kodo import arch, project
 from kodo.config import Settings, get_settings
@@ -449,6 +449,90 @@ def remove(model: LibraryModel) -> tuple[int, int]:
 
     shutil.rmtree(model.path, ignore_errors=True)
     return count, freed
+
+
+class MigrationAction(BaseModel):
+    """One planned step of reorganizing an old ``huggingface/`` pull into a format bucket."""
+
+    model_config = ConfigDict(frozen=True)
+
+    repo_id: str  # e.g. "unsloth/Llama-3.2-1B-Instruct-GGUF"
+    src: Path  # the current huggingface/<repo_id> directory
+    dest: Path  # the target <format>/<repo_id> directory
+    model_format: ModelFormat
+    kind: str  # "move" (relocate to the bucket) or "dedup" (bucket copy exists → remove src)
+    size_bytes: int = 0
+
+
+def _hf_model_dirs(hf_dir: Path) -> list[Path]:
+    """Directories directly holding weights under ``huggingface/`` (each an old-layout model)."""
+    dirs: set[Path] = set()
+    for pattern in ("*.gguf", "*.safetensors"):
+        for weights in hf_dir.rglob(pattern):
+            if not weights.name.startswith("._"):
+                dirs.add(weights.parent)
+    return sorted(dirs)
+
+
+def plan_migration(root: Path) -> list[MigrationAction]:
+    """Plan moving each old ``huggingface/<repo>`` pull into its format bucket (``gguf/`` etc.).
+
+    A repo whose format is classifiable becomes a ``move`` — or a ``dedup`` if the same
+    ``<format>/<repo>`` already exists (the ``huggingface/`` copy is then redundant). Repos with
+    no recognizable weights are left in ``huggingface/`` (its legitimate fallback role). Nothing
+    is touched here — see :func:`apply_migration`.
+    """
+    hf_dir = root / "huggingface"
+    if not hf_dir.is_dir():
+        return []
+    actions: list[MigrationAction] = []
+    for src in _hf_model_dirs(hf_dir):
+        fmt = _classify_dir(src)
+        if fmt is ModelFormat.unknown:
+            continue
+        repo_id = str(src.relative_to(hf_dir))
+        dest = root / fmt.value / repo_id
+        actions.append(
+            MigrationAction(
+                repo_id=repo_id,
+                src=src,
+                dest=dest,
+                model_format=fmt,
+                kind="dedup" if dest.exists() else "move",
+                size_bytes=dir_stats(src)[0],
+            )
+        )
+    return actions
+
+
+def apply_migration(actions: list[MigrationAction]) -> tuple[int, int, int]:
+    """Execute a plan: relocate ``move`` dirs, delete redundant ``dedup`` dirs.
+
+    Moves are same-drive renames (instant, no copy). Returns ``(moved, deduped, bytes_freed)``.
+    Prunes any ``huggingface/`` subdirectories left empty afterwards.
+    """
+    moved = deduped = freed = 0
+    hf_roots: set[Path] = set()
+    for action in actions:
+        parts = action.src.parts
+        if "huggingface" in parts:
+            hf_roots.add(Path(*parts[: parts.index("huggingface") + 1]))
+        if action.kind == "move":
+            action.dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(action.src), str(action.dest))
+            moved += 1
+        else:  # dedup: the bucket already has this model, so the huggingface/ copy is redundant
+            shutil.rmtree(action.src, ignore_errors=True)
+            deduped += 1
+            freed += action.size_bytes
+    # Tidy up now-empty publisher dirs (and huggingface/ itself) left behind by the moves.
+    for hf_root in hf_roots:
+        for empty in sorted((p for p in hf_root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+            if not any(empty.iterdir()):
+                empty.rmdir()
+        if hf_root.is_dir() and not any(hf_root.iterdir()):
+            hf_root.rmdir()
+    return moved, deduped, freed
 
 
 def find(query: str, root: Path | None = None, model_format: ModelFormat | None = None) -> list[LibraryModel]:

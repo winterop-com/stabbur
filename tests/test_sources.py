@@ -648,3 +648,32 @@ def test_lmstudio_pull_rejects_traversal_name(tmp_path: Path) -> None:
     (store / "pub" / "Real-GGUF").mkdir(parents=True)
     with pytest.raises(ValueError):
         lmstudio.pull("../../../../etc", tmp_path / "lib", models_dir=store)
+
+
+def _mk(path: Path, *files: str) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        (path / f).write_bytes(b"x" * 100)
+    return path
+
+
+def test_library_migrate_moves_dedups_and_keeps_unknown(tmp_path: Path) -> None:
+    hf = tmp_path / "huggingface"
+    # a GGUF pull to move; an MLX pull already duplicated in mlx/; a weightless repo to leave alone
+    _mk(hf / "unsloth" / "Foo-GGUF", "model.gguf", "README.md")
+    _mk(hf / "mlx-community" / "Bar-4bit", "model.safetensors", "config.json")
+    _mk(tmp_path / "mlx" / "mlx-community" / "Bar-4bit", "model.safetensors", "config.json")  # already in bucket
+    _mk(hf / "some" / "Docs", "notes.txt")  # no weights → left in huggingface/
+
+    plan = {a.repo_id: a.kind for a in library.plan_migration(tmp_path)}
+    assert plan == {"unsloth/Foo-GGUF": "move", "mlx-community/Bar-4bit": "dedup"}
+
+    moved, deduped, freed = library.apply_migration(library.plan_migration(tmp_path))
+    assert (moved, deduped) == (1, 1)
+    assert (tmp_path / "gguf" / "unsloth" / "Foo-GGUF" / "model.gguf").is_file()  # moved to bucket
+    assert not (hf / "unsloth" / "Foo-GGUF").exists()  # source gone
+    assert not (hf / "mlx-community").exists()  # dedup removed + empty publisher pruned
+    assert (hf / "some" / "Docs" / "notes.txt").is_file()  # weightless repo untouched
+    # the migrated GGUF now scans from its format bucket with a clean name
+    names = {(m.name, m.model_format.value) for m in library.scan(root=tmp_path)}
+    assert ("unsloth/Foo-GGUF", "gguf") in names

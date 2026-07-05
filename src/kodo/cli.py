@@ -778,6 +778,54 @@ def remove_model(
     console.print(f"[green]Removed[/] {model.name} — freed [bold]{_human_size(total_freed)}[/] ({total_files} files)")
 
 
+@library_app.command("migrate")
+def migrate(
+    apply: Annotated[
+        bool, typer.Option("--apply", help="Actually reorganize (default: a dry-run showing the plan).")
+    ] = False,
+) -> None:
+    """Reorganize old ``huggingface/`` pulls into the format-centric layout (gguf/mlx/safetensors).
+
+    Older Hugging Face pulls landed in ``huggingface/<repo>``; kodo now stores by format. This
+    moves each into its bucket (a same-drive rename), and removes any that are already duplicated
+    in a bucket. Dry-run by default — pass ``--apply`` to make the changes.
+    """
+    any_plan = False
+    total_moved = total_deduped = total_freed = 0
+    for root in library_ops.roots():
+        actions = library_ops.plan_migration(root)
+        if not actions:
+            continue
+        any_plan = True
+        console.print(f"\n[bold]{root}[/]")
+        for a in actions:
+            if a.kind == "move":
+                console.print(
+                    f"  [cyan]move[/]  huggingface/{a.repo_id}  [dim]→[/]  {a.model_format.value}/{a.repo_id}"
+                )
+            else:
+                console.print(
+                    f"  [yellow]dedup[/] huggingface/{a.repo_id}  [dim]— already in {a.model_format.value}/,"
+                    f" remove ({_human_size(a.size_bytes)})[/]"
+                )
+        if apply:
+            moved, deduped, freed = library_ops.apply_migration(actions)
+            total_moved += moved
+            total_deduped += deduped
+            total_freed += freed
+
+    if not any_plan:
+        console.print("[green]Nothing to migrate[/] — no old huggingface/ pulls with recognizable weights.")
+        return
+    if apply:
+        console.print(
+            f"\n[green]Done[/] — moved [bold]{total_moved}[/], deduped [bold]{total_deduped}[/] "
+            f"(freed {_human_size(total_freed)})."
+        )
+    else:
+        console.print("\n[dim]Dry run.[/] Re-run with [bold]--apply[/] to make these changes.")
+
+
 @library_app.command("tag")
 def tag_model(
     name: Annotated[str, typer.Argument(help="Library model (full name or bare repo/tag).")],
