@@ -15,6 +15,13 @@ for _var in ("FORCE_COLOR", "CLICOLOR_FORCE"):
     os.environ.pop(_var, None)
 os.environ["NO_COLOR"] = "1"
 
+# Pin a wide console so Rich doesn't wrap CLI output mid-string. Without a TTY (CI, pytest
+# capture) Rich falls back to 80 columns and honors ``COLUMNS`` — a narrow width breaks
+# substring assertions when a hint line is long enough to wrap between two asserted words
+# (e.g. a copy-paste ``ollama run`` command straddling the fold). Set before ``kodo.cli``'s
+# module-level Console is constructed, same as the color vars above.
+os.environ["COLUMNS"] = "200"
+
 # Point the suite at an empty, throwaway library so it's hermetic. Without this the
 # tests inherit whatever ``KODO_LIBRARY_ROOT`` the developer's ``.env`` supplies —
 # which passes locally but fails on a clean checkout (CI) with ``LibraryNotConfigured``,
