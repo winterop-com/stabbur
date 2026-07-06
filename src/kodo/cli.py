@@ -599,6 +599,73 @@ def install(
         )
 
 
+@library_app.command("uninstall")
+def uninstall(
+    model: Annotated[str, typer.Argument(help="Library model name (or the Ollama name, for --from ollama).")],
+    from_: Annotated[str, typer.Option("--from", help="Runtime to remove it from: ollama | lmstudio.")] = "ollama",
+    model_format: FormatOption = None,
+    name: Annotated[
+        str | None, typer.Option("--name", help="Ollama: the registered name to remove (default: derived from model).")
+    ] = None,
+) -> None:
+    """Remove a model from a runtime (undo `kodo library install`). The library copy is kept.
+
+    ``--from lmstudio`` removes only kodo's symlink (never a real LM Studio download); ``--from
+    ollama`` runs ``ollama rm`` on the registered name (derived from the model, or ``--name``).
+    """
+    if from_ not in ("ollama", "lmstudio"):
+        console.print(f"[red]Unsupported runtime {from_!r}[/] — use [bold]ollama[/] or [bold]lmstudio[/].")
+        raise typer.Exit(1)
+    try:
+        if from_ == "ollama":
+            # Don't require the model to still be in the library — you may want to drop the Ollama
+            # copy of a model you've already removed from the drive.
+            result = consumers.uninstall_ollama(name or consumers.ollama_name(model))
+        else:
+            resolved = _resolve_library_model(model, model_format)
+            result = consumers.uninstall_lmstudio(resolved)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Removed[/] [bold]{result.name}[/] from {from_} [dim]({result.detail}); library copy kept.[/]"
+    )
+
+
+@library_app.command("installed")
+def installed() -> None:
+    """Show which runtimes each library model is currently installed into (Ollama / LM Studio).
+
+    A read-only cross-reference: for each model on the drive, whether Ollama holds an import of it
+    and whether LM Studio has a kodo symlink to it. Undo any of these with `kodo library uninstall`.
+    """
+    library_ops.roots()  # fail fast + clean if no library is configured
+    models = library_ops.scan()
+    ollama_names = consumers.ollama_installed_names()
+    linked = consumers.lmstudio_linked_names(library_ops.roots())
+
+    lines: list[str] = []
+    for m in sorted(models, key=lambda x: x.name.lower()):
+        targets = []
+        # Ollama imports GGUF only; a match is our deterministic install name being present.
+        if m.model_format is ModelFormat.gguf and not m.is_ollama and consumers.ollama_name(m.name) in ollama_names:
+            targets.append(f"ollama [dim]({consumers.ollama_name(m.name)})[/]")
+        if m.name in linked:
+            targets.append("lmstudio")
+        if targets:
+            lines.append(f"  [cyan]{m.name}[/] [dim]→[/] {', '.join(targets)}")
+
+    if not lines:
+        console.print(
+            "No library models are installed into a runtime yet.\n"
+            "[dim]Feed one to a runtime with[/] kodo library install <model> --to ollama|lmstudio"
+        )
+        return
+    console.print("[bold]Installed into runtimes[/] [dim](library keeps the canonical copy)[/]")
+    for line in lines:
+        console.print(line)
+
+
 @library_app.command("verify")
 def verify_library(
     query: Annotated[str | None, typer.Argument(help="Model to verify (full name or bare tail); omit for all.")] = None,

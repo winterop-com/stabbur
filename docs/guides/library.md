@@ -84,6 +84,22 @@ model in place, and the library's `mlx/<publisher>/<repo>/` is exactly that. Poi
 model directory — e.g. `mlx_lm.server --model "$KODO_LIBRARY_ROOT/mlx/mlx-community/Qwen3.6-27B-4bit"`
 (kodo itself serves MLX this way). So there's no `--to mlx_lm`: it already reads the canonical copy.
 
+### Seeing and undoing installs
+
+The install is reversible, and you can see what's fed where — the library always keeps the
+canonical copy:
+
+```bash
+kodo library installed                            # which runtimes each model is installed into
+kodo library uninstall Qwen3.5-4B-GGUF --from lmstudio   # remove kodo's LM Studio symlink
+kodo library uninstall Qwen3.5-4B-GGUF --from ollama     # ollama rm the imported copy
+```
+
+`installed` cross-references the drive against LM Studio (a kodo symlink pointing into the
+library) and Ollama (a model whose deterministic install name is present). `uninstall` removes
+only what kodo put there — it never deletes a real LM Studio download, and never touches the
+library copy.
+
 ## Which formats to keep
 
 Format is a **per-model choice**, not "keep every format of everything":

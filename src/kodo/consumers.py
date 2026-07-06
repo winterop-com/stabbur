@@ -174,3 +174,91 @@ def install_lmstudio(model: LibraryModel) -> InstallResult:
     except OSError as exc:
         raise RuntimeError(f"couldn't symlink into LM Studio ({link}): {exc}") from exc
     return InstallResult(runtime="lmstudio", name=model.name, detail=f"{link} -> {target}")
+
+
+# --- uninstall (reverse an install; the library's canonical copy is always left untouched) ---
+
+
+def uninstall_lmstudio(model: LibraryModel) -> InstallResult:
+    """Remove LM Studio's link to a library model. Leaves the library copy untouched.
+
+    Only removes a *symlink* pointing at the library — never a real model directory LM Studio
+    downloaded itself.
+
+    Raises:
+        RuntimeError: nothing kodo-linked is there to remove (absent, or a real LM Studio copy).
+    """
+    link = lmstudio_models_dir() / model.name  # <base>/<publisher>/<repo>
+    if not link.is_symlink():
+        if link.exists():
+            raise RuntimeError(f"{link} is a real LM Studio download, not a kodo link — leaving it alone.")
+        raise RuntimeError(f"{model.name!r} isn't linked into LM Studio.")
+    link.unlink()
+    return InstallResult(runtime="lmstudio", name=model.name, detail=f"unlinked {link}")
+
+
+def uninstall_ollama(name: str) -> InstallResult:
+    """Remove a model from Ollama's store (``ollama rm``). The library's canonical copy is untouched.
+
+    Raises:
+        RuntimeError: Ollama isn't installed/running, or ``ollama rm`` fails (e.g. no such model).
+    """
+    if not ollama_available():
+        raise RuntimeError("Ollama is not installed — get it from https://ollama.com (or `brew install ollama`).")
+    if not ollama_daemon_up():
+        raise RuntimeError("Ollama daemon is not running — start it with `ollama serve` (or launch the Ollama app).")
+    proc = subprocess.run(["ollama", "rm", name], capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"`ollama rm {name}` failed: {err}")
+    return InstallResult(runtime="ollama", name=name, detail="removed from Ollama")
+
+
+# --- installed? (which runtimes a library model is currently fed into) ---
+
+
+def ollama_installed_names() -> set[str]:
+    """Base names (``:tag`` stripped) of the models currently in Ollama; empty if Ollama is down.
+
+    Ollama copies a GGUF into its own blob store on ``ollama create``, so it doesn't retain the
+    library path — a library model is considered "installed into Ollama" when Ollama holds a model
+    named :func:`ollama_name` for it (the deterministic default name).
+    """
+    if not ollama_daemon_up():
+        return set()
+    try:
+        proc = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    names: set[str] = set()
+    for line in proc.stdout.splitlines()[1:]:  # skip the NAME/ID/SIZE/MODIFIED header
+        token = line.split()
+        if token:
+            names.add(token[0].split(":")[0])  # drop the :latest tag
+    return names
+
+
+def lmstudio_linked_names(library_roots: list[Path]) -> set[str]:
+    """``<publisher>/<repo>`` names whose LM Studio entry is a symlink into one of ``library_roots``.
+
+    That's exactly a kodo install (:func:`install_lmstudio` symlinks the library copy in); a real
+    LM Studio download is a directory, not a link, so it's not counted.
+    """
+    base = lmstudio_models_dir()
+    if not base.is_dir():
+        return set()
+    roots = [r.resolve() for r in library_roots]
+    linked: set[str] = set()
+    for publisher in base.iterdir():
+        if not publisher.is_dir():
+            continue
+        for repo in publisher.iterdir():
+            if not repo.is_symlink():
+                continue
+            try:
+                target = repo.resolve()
+            except OSError:
+                continue
+            if any(target == root or root in target.parents for root in roots):
+                linked.add(f"{publisher.name}/{repo.name}")
+    return linked

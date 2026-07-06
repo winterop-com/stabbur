@@ -167,3 +167,99 @@ def test_build_modelfile_multiline_system_uses_triple_quotes(tmp_path: Path) -> 
     model = _gguf(tmp_path)
     mf = consumers.build_modelfile(model, system="line one\nline two")
     assert 'SYSTEM """line one\nline two"""' in mf
+
+
+# --- uninstall + installed? (the consumer lifecycle: install → installed → uninstall) ---
+
+
+def _lms_model(root: Path, name: str = "unsloth/Qwen3.5-4B-GGUF") -> LibraryModel:
+    d = root / "gguf" / name
+    d.mkdir(parents=True)
+    (d / "model.gguf").write_bytes(b"gguf")
+    return LibraryModel(
+        name=name, model_format=ModelFormat.gguf, path=d, load_target=d / "model.gguf", library_root=root
+    )
+
+
+def test_lmstudio_install_then_uninstall_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lms = tmp_path / "lmstudio"
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: lms)
+    root = tmp_path / "lib"
+    model = _lms_model(root)
+
+    consumers.install_lmstudio(model)  # symlink into LM Studio
+    link = lms / model.name
+    assert link.is_symlink() and link.resolve() == model.path.resolve()
+    assert consumers.lmstudio_linked_names([root]) == {model.name}  # detected as kodo-linked
+
+    consumers.uninstall_lmstudio(model)
+    assert not link.exists()  # link gone
+    assert model.path.exists()  # library copy untouched
+    assert consumers.lmstudio_linked_names([root]) == set()
+
+
+def test_uninstall_lmstudio_refuses_a_real_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lms = tmp_path / "lmstudio"
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: lms)
+    model = _lms_model(tmp_path / "lib")
+    real = lms / model.name  # a real LM Studio download (a dir, not our symlink)
+    real.mkdir(parents=True)
+    (real / "model.gguf").write_bytes(b"lmstudio-own")
+    with pytest.raises(RuntimeError, match="real LM Studio download"):
+        consumers.uninstall_lmstudio(model)
+    assert real.is_dir()  # left alone
+
+
+def test_uninstall_lmstudio_errors_when_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: tmp_path / "lmstudio")
+    with pytest.raises(RuntimeError, match="isn't linked"):
+        consumers.uninstall_lmstudio(_lms_model(tmp_path / "lib"))
+
+
+def test_lmstudio_linked_names_ignores_real_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lms = tmp_path / "lmstudio"
+    monkeypatch.setattr(consumers, "lmstudio_models_dir", lambda: lms)
+    (lms / "pub" / "real-download").mkdir(parents=True)  # a real dir, not a link → not counted
+    assert consumers.lmstudio_linked_names([tmp_path / "lib"]) == set()
+
+
+class _FakeProc:
+    def __init__(self, stdout: str = "", returncode: int = 0) -> None:
+        self.stdout = stdout
+        self.stderr = ""
+        self.returncode = returncode
+
+
+def test_ollama_installed_names_parses_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "ollama_daemon_up", lambda: True)
+    out = "NAME               ID   SIZE     MODIFIED\nqwen3.5-4b:latest  a    2.6 GB   1h\ngemma3:12b  b  8 GB  now\n"
+    monkeypatch.setattr(consumers.subprocess, "run", lambda *a, **k: _FakeProc(stdout=out))
+    assert consumers.ollama_installed_names() == {"qwen3.5-4b", "gemma3"}  # tags stripped, header skipped
+
+
+def test_ollama_installed_names_empty_when_daemon_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "ollama_daemon_up", lambda: False)
+    assert consumers.ollama_installed_names() == set()
+
+
+def test_uninstall_ollama_runs_rm(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "ollama_available", lambda: True)
+    monkeypatch.setattr(consumers, "ollama_daemon_up", lambda: True)
+    calls: list[list[str]] = []
+
+    def _run(cmd: list[str], **kwargs: object) -> _FakeProc:
+        calls.append(cmd)
+        return _FakeProc()
+
+    monkeypatch.setattr(consumers.subprocess, "run", _run)
+    result = consumers.uninstall_ollama("qwen3.5-4b")
+    assert calls == [["ollama", "rm", "qwen3.5-4b"]]
+    assert result.runtime == "ollama" and result.name == "qwen3.5-4b"
+
+
+def test_uninstall_ollama_surfaces_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consumers, "ollama_available", lambda: True)
+    monkeypatch.setattr(consumers, "ollama_daemon_up", lambda: True)
+    monkeypatch.setattr(consumers.subprocess, "run", lambda *a, **k: _FakeProc(returncode=1))
+    with pytest.raises(RuntimeError, match="ollama rm"):
+        consumers.uninstall_ollama("ghost")
