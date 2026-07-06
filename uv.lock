@@ -1473,6 +1473,7 @@ voice = [
     { name = "misaki", extra = ["en"] },
     { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "soundfile" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
 ]
 web = [
     { name = "kodo-mcp-web" },
@@ -1520,6 +1521,7 @@ requires-dist = [
     { name = "soundfile", marker = "extra == 'voice'", specifier = ">=0.13.1" },
     { name = "textual", specifier = ">=0.85" },
     { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=5.5,<5.13" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'voice'", specifier = ">=5.5,<5.13" },
     { name = "typer", specifier = ">=0.25.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
 ]

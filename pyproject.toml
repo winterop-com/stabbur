@@ -67,6 +67,11 @@ voice = [
     "mlx-audio>=0.4.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "misaki[en]>=0.9.4",  # grapheme->phoneme for Kokoro (English backend)
     "soundfile>=0.13.1",
+    # mlx-audio pulls in mlx-lm, which crashes at import on transformers 5.13 (the
+    # AutoTokenizer.register break — see the `mlx` extra). A project using [voice] without
+    # [mlx] would otherwise resolve an unbounded transformers and Whisper STT dies. Cap here
+    # too so [voice] alone is self-consistent. Keep in lockstep with the `mlx` extra.
+    "transformers>=5.5,<5.13; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 # Web reader MCP server (kodo-mcp-web): reads a page in a headless browser and returns
