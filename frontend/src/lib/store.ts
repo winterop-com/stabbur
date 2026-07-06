@@ -65,11 +65,39 @@ export function loadConversations(): Conversation[] {
   }
 }
 
-export function saveConversations(convs: Conversation[]): void {
+/** Outcome of a persistence attempt, so the UI can warn instead of silently losing data.
+ *  "ok" = fully saved; "degraded" = quota hit, saved without inline media (attachments won't
+ *  survive a reload, but the transcript + older chats did); "failed" = nothing could be saved. */
+export type SaveResult = "ok" | "degraded" | "failed";
+
+/** Drop inline image/audio data URLs (the multi-MB base64 that blows the ~5 MB quota) while
+ *  keeping the text transcript and a marker so the message still renders sensibly on reload. */
+function stripInlineMedia(convs: Conversation[]): Conversation[] {
+  return convs.map((c) => ({
+    ...c,
+    messages: c.messages.map((m) =>
+      m.images || m.audios
+        ? { ...m, images: undefined, audios: undefined, mediaDropped: (m.images?.length ?? 0) + (m.audios?.length ?? 0) }
+        : m,
+    ),
+  }));
+}
+
+export function saveConversations(convs: Conversation[]): SaveResult {
   try {
     localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
+    return "ok";
   } catch {
-    // storage full / unavailable — best-effort
+    // Quota exceeded (usually one pasted image/audio data URL). Rather than lose every
+    // conversation silently, retry with inline media stripped so the transcript and older
+    // chats still persist — and report "degraded" so the UI can tell the user attachments
+    // won't survive a reload.
+    try {
+      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(stripInlineMedia(convs)));
+      return "degraded";
+    } catch {
+      return "failed";
+    }
   }
 }
 

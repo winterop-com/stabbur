@@ -80,6 +80,7 @@ function metaFields(meta: Record<string, unknown> | null): [string, string][] {
 export function SettingsPanel({
   status,
   library,
+  activeId,
   settings,
   onChange,
   onCollapse,
@@ -91,6 +92,7 @@ export function SettingsPanel({
 }: {
   status: Status | null;
   library: LibModel[];
+  activeId: string | null;
   settings: Settings;
   onChange: (s: Settings) => void;
   onCollapse: () => void;
@@ -115,6 +117,18 @@ export function SettingsPanel({
   const [context, setContext] = useState(settings.contextLength != null ? String(settings.contextLength) : "");
   // "Custom…" selected in the context dropdown → reveal a free-form token input.
   const [customCtx, setCustomCtx] = useState(false);
+
+  // The panel stays mounted across conversation switches, so re-seed the local input text from
+  // the new conversation's settings when the active conversation changes (F-3). Keyed on
+  // activeId only — not on `settings` — so a keystroke (which updates settings) doesn't clobber
+  // an in-progress partial edit like "0.".
+  useEffect(() => {
+    setMaxTokens(settings.maxTokens != null ? String(settings.maxTokens) : "");
+    setTemperature(settings.temperature != null ? String(settings.temperature) : "");
+    setTopP(settings.topP != null ? String(settings.topP) : "");
+    setContext(settings.contextLength != null ? String(settings.contextLength) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
   // Fetch the card whenever the panel model changes (panel is only mounted when
   // effectively open; App unmounts/keeps width, but we guard on modelName).

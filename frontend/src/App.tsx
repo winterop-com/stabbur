@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, PanelRight, Sun, Moon } from "lucide-react";
+import { ArrowDown, Download, PanelRight, Sun, Moon, X } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -162,7 +162,20 @@ export function App() {
   const abortRef = useRef<AbortController | null>(null);
 
   // --- persistence ---
-  useEffect(() => saveConversations(conversations), [conversations]);
+  // Surface a save failure instead of silently losing chats: a large pasted image/audio can
+  // blow the ~5 MB localStorage quota. "degraded" means the transcript persisted but inline
+  // media won't survive a reload; "failed" means nothing saved.
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  useEffect(() => {
+    const result = saveConversations(conversations);
+    setStorageWarning(
+      result === "degraded"
+        ? "Storage is full — your chats are saved, but attached images/audio won't survive a reload. Delete old conversations to free space."
+        : result === "failed"
+          ? "Storage is full — new messages can't be saved and will be lost on reload. Delete old conversations to free space."
+          : null,
+    );
+  }, [conversations]);
 
   // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
   // so a reload / bookmark / back-button lands on the same chat. ---
@@ -174,6 +187,10 @@ export function App() {
       else history.replaceState(null, "", window.location.pathname + window.location.search);
     }
   }, [view, activeId]);
+  // The hashchange handler is mount-only, so read the latest conversations via a ref
+  // rather than a stale closure.
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
   useEffect(() => {
     const onHash = () => {
       if (window.location.hash === "#/library") {
@@ -185,7 +202,10 @@ export function App() {
         return;
       }
       const id = conversationIdFromHash();
-      if (id) {
+      // Validate the id against live conversations (as the initial-load path does): a hash
+      // pointing at a deleted chat (e.g. delete then browser Back) must not become the active
+      // id, or the next send streams into a conversation that no longer renders.
+      if (id && conversationsRef.current.some((c) => c.id === id)) {
         setActiveId(id);
         setView("chat");
       }
@@ -860,10 +880,27 @@ export function App() {
             </div>
           </header>
 
+          {storageWarning && (
+            <div className="mx-auto mt-1 w-full max-w-4xl px-4">
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <span className="flex-1">{storageWarning}</span>
+                <button
+                  type="button"
+                  onClick={() => setStorageWarning(null)}
+                  className="shrink-0 opacity-70 hover:opacity-100"
+                  aria-label="Dismiss storage warning"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {view === "library" ? (
             <LibraryView
               library={library}
               loaded={libraryLoaded}
+              error={error && error.startsWith("Library: ") ? error.slice("Library: ".length) : null}
               status={status}
               loadingName={loadingName}
               onLoad={loadModelInPlace}
@@ -998,6 +1035,7 @@ export function App() {
             <SettingsPanel
               status={status}
               library={library}
+              activeId={activeId}
               settings={settings}
               onChange={updateSettings}
               onCollapse={toggleSettings}

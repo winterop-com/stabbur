@@ -243,16 +243,22 @@ export function Composer({
         dragOver && canAttach && "border-primary ring-2 ring-primary/40",
       )}
       onDragOver={(e) => {
-        if (!canAttach) return;
+        // Always preventDefault for a file drag, even with no model loaded — otherwise the
+        // browser's default drop action navigates away and destroys in-flight state (F-6).
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
-        setDragOver(true);
+        if (canAttach) setDragOver(true);
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault(); // prevent the browser from opening the dropped file
         setDragOver(false);
-        if (!canAttach || !e.dataTransfer.files.length) return;
-        e.preventDefault();
-        void addFiles(e.dataTransfer.files);
+        if (!canAttach) {
+          showHint("Load a model first, then drop files to attach them.");
+          return;
+        }
+        if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
       }}
     >
       {/* Attachment previews: images as thumbnails, audio as a player, text as a chip */}

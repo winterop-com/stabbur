@@ -391,6 +391,7 @@ function ModelCard({
 export function LibraryView({
   library,
   loaded,
+  error,
   status,
   loadingName,
   onLoad,
@@ -400,6 +401,7 @@ export function LibraryView({
 }: {
   library: LibModel[];
   loaded: boolean;
+  error?: string | null;
   status: Status | null;
   loadingName: string | null;
   onLoad: (name: string) => void;
@@ -515,8 +517,10 @@ export function LibraryView({
                 <div className="flex items-baseline gap-2">
                   <h2 className="text-sm font-semibold tracking-tight">Chat</h2>
                   <span className="text-[11px] text-muted-foreground">
-                    {models.length} model{models.length === 1 ? "" : "s"}
-                    {models.length > 0 && ` · ${totalHuman}`}
+                    {/* Count + size both track the tag filter, so they never disagree (F-13). */}
+                    {filtered.length} model{filtered.length === 1 ? "" : "s"}
+                    {filtered.length !== models.length && ` of ${models.length}`}
+                    {filtered.length > 0 && ` · ${totalHuman}`}
                   </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
@@ -526,6 +530,11 @@ export function LibraryView({
               {!loaded ? (
                 <div className="flex items-center gap-2 px-1 py-4 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </div>
+              ) : models.length === 0 && error ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-6 text-sm text-destructive">
+                  Couldn't read the library: {error}. Check the drive is mounted and{" "}
+                  <code className="font-mono">KODO_LIBRARY_ROOT</code> is set, then retry.
                 </div>
               ) : models.length === 0 ? (
                 <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
