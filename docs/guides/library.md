@@ -45,6 +45,20 @@ several quants, a balanced one (`Q4_K_M` first) is picked automatically. macOS
     rather than a single GGUF — those can only run via Ollama itself, not
     llama.cpp, so they won't appear as runnable.
 
+## Model cards
+
+Each model's card (its README) is what the UI/CLI info panel shows. Hugging Face pulls ship one;
+some LM Studio downloads (and older pulls) don't. Backfill the missing ones:
+
+```bash
+kodo library cards            # fetch a missing README from HF into each model's .kodo/ sidecar
+kodo library cards --refresh  # re-fetch even models that already have a card
+```
+
+It infers the HF repo from the model's `<publisher>/<repo>` name, is idempotent (skips models that
+already have a card), and never fails on a model that isn't on the Hub. Ollama models keep their
+generated card (built from the manifest).
+
 ## Installing a model into a runtime
 
 The library keeps **one canonical copy** per `(model, format)`. Some runtimes read

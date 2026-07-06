@@ -48,3 +48,25 @@ def find_card(model_dir: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def has_card(model_dir: Path) -> bool:
+    """Whether ``model_dir`` already has a card — a top-level README/… or a written sidecar."""
+    return find_card(model_dir) is not None or (model_dir / SIDECAR_DIR / "model-card.md").is_file()
+
+
+def fetch_hf_readme(repo_id: str, token: str | None = None) -> str | None:
+    """Fetch a repo's ``README.md`` (its model card) from the Hugging Face Hub, or ``None``.
+
+    Backfills a card for a library model that shipped without one — some LM Studio downloads and
+    older pulls have no README. The library model's ``<publisher>/<repo>`` name is the HF repo id.
+    Best-effort: a repo that isn't on HF, has no README, or being offline all yield ``None`` rather
+    than raising.
+    """
+    try:
+        from huggingface_hub import hf_hub_download  # noqa: PLC0415 - heavy import; only when fetching
+
+        path = hf_hub_download(repo_id=repo_id, filename="README.md", token=token)
+        return Path(path).read_text(errors="replace")
+    except Exception:  # noqa: BLE001 - missing repo/README, network error, etc. → no card
+        return None

@@ -666,6 +666,37 @@ def installed() -> None:
         console.print(line)
 
 
+@library_app.command("cards")
+def cards_backfill(
+    refresh: Annotated[bool, typer.Option("--refresh", help="Re-fetch even models that already have a card.")] = False,
+) -> None:
+    """Backfill missing Hugging Face model cards into library models' ``.kodo/`` sidecars.
+
+    A model's card is its README — the docs the UI/CLI info panel shows. Some LM Studio downloads
+    (and older pulls) ship without one; this infers the HF repo from each model's
+    ``<publisher>/<repo>`` name and fetches its README. Ollama models are skipped (their card is
+    generated from the manifest). Best-effort: a model that isn't on HF is reported, not fatal.
+    """
+    library_ops.roots()  # fail fast + clean if no library is configured
+    token = get_settings().hf_token
+    fetched = skipped = unavailable = 0
+    for m in library_ops.scan():
+        if m.is_ollama:
+            continue  # Ollama cards are generated from the manifest, not fetched
+        if not refresh and cards.has_card(m.path):
+            skipped += 1
+            continue
+        text = cards.fetch_hf_readme(m.name, token)
+        if text is None:
+            console.print(f"  [yellow]no card[/] {m.name} [dim](not on HF, or no README)[/]")
+            unavailable += 1
+            continue
+        cards.write_card(m.path / cards.SIDECAR_DIR, text)
+        console.print(f"  [green]card[/] {m.name}")
+        fetched += 1
+    console.print(f"\n[bold]{fetched}[/] fetched, [dim]{skipped} already had one, {unavailable} unavailable.[/]")
+
+
 @library_app.command("verify")
 def verify_library(
     query: Annotated[str | None, typer.Argument(help="Model to verify (full name or bare tail); omit for all.")] = None,
