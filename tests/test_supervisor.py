@@ -57,6 +57,20 @@ def _reap(pid: int) -> None:
         pass
 
 
+def _wait_established(pid: int, port: int, timeout: float = 5.0) -> None:
+    """Wait until ps reports the process's full command (with its port).
+
+    A freshly spawned process — especially macOS's framework-Python launcher — isn't yet visible
+    to ps with its full argv the instant Popen returns. Production never hits this (the sweep runs
+    against long-established orphans), so the test waits to match that reality.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if str(port) in supervisor._process_command(pid):
+            return
+        time.sleep(0.05)
+
+
 def test_spawn_binds_then_stop_terminates() -> None:
     handle = supervisor.spawn(_bind_cmd, name="test")
     try:
@@ -160,12 +174,10 @@ def test_sweep_reaps_orphan_of_a_dead_owner(tmp_path: Path, monkeypatch: pytest.
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
     try:
+        _wait_established(sleeper.pid, port)  # the orphan is a settled process when a real sweep runs
         entry = _write_meta(root, owner_pid=_DEAD_OWNER, proc=sleeper, port=port)
         reaped = supervisor.sweep_orphans()
-        if sleeper.pid not in reaped:  # diagnostic on failure — helps pin a ps/platform quirk
-            ps_out = supervisor._process_command(sleeper.pid)
-            match = supervisor._cmd_matches(sleeper.pid, {"cmd": _bind_cmd(port), "port": port})
-            raise AssertionError(f"not reaped: pid={sleeper.pid} port={port} match={match} ps={ps_out!r}")
+        assert sleeper.pid in reaped
         # The test owns the sleeper, so reap the zombie the signal left behind before checking
         # (in production the orphan is init's child and auto-reaped).
         sleeper.wait(timeout=2)
@@ -195,6 +207,7 @@ def test_sweep_leaves_a_reused_pid_alone(tmp_path: Path, monkeypatch: pytest.Mon
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
     try:
+        _wait_established(sleeper.pid, port)
         # Dead owner, but the recorded cmd/port don't match the live pid → treat as a reused pid.
         d = root / f"entry-{sleeper.pid}"
         d.mkdir(parents=True)
