@@ -2226,6 +2226,15 @@ def main() -> None:
     """Console entry point: run the app, turning config problems into clean messages, not tracebacks."""
     import tomllib  # noqa: PLC0415
 
+    from kodo import supervisor  # noqa: PLC0415
+
+    # Reclaim any runtime a previously-crashed kodo left orphaned (holding memory) before doing
+    # anything else. Best-effort and safe — only reaps runtimes whose owning kodo is gone (A4).
+    try:
+        supervisor.sweep_orphans()
+    except Exception:  # noqa: BLE001 - a sweep failure must never block the command
+        pass
+
     try:
         app()
     except library_ops.LibraryNotConfigured as exc:

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from kodo import config, project, runtime
+from kodo import config, project, runtime, supervisor
 from kodo import library as library_ops
 from kodo import tools as mcp_tools
 from kodo.config import Settings, get_settings
@@ -89,6 +89,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Start a shared HTTP client, runtime manager, and MCP tools; clean up after."""
     settings: Settings = app.state.settings
     manager: ServerManager = app.state.manager
+
+    # Reclaim any runtime orphaned by a previously-crashed kodo before we start ours (A4).
+    try:
+        supervisor.sweep_orphans()
+    except Exception:  # noqa: BLE001 - a sweep failure must never block startup
+        pass
 
     if settings.serve_model:
         matches = library_ops.find(settings.serve_model)

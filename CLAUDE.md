@@ -67,9 +67,14 @@ Two distinct, composable concepts (see `kodo.library.roots`):
 model records its `library_root` so tags read/write against the right library.
 `kodo project init` scaffolds `kodo.toml` + a `models/` project-local library;
 `kodo library pull` targets the project-local library by default (`--shared` for
-the shared one). There is **no** global `~/.kodo/library` and nothing lives under
-`~/.kodo` — everything, including runtime assets like the Kokoro TTS model
-(`<library_root>/tts/kokoro`), lives in a library so it travels with the drive.
+the shared one). There is **no** global `~/.kodo/library`: all **portable data** —
+models, tags, and runtime assets like the Kokoro TTS model (`<library_root>/tts/kokoro`)
+— lives in a library so it travels with the drive. The one thing under `~/.kodo` is
+**ephemeral machine-local runtime state** (`~/.kodo/runtimes/`: a pidfile-ish `meta.json`
++ captured log per spawned runtime, used by `kodo.supervisor` to reap runtimes orphaned
+by a crashed kodo). That's deliberately *not* in a library — a pid means nothing on
+another machine, so it must not travel. Keep the split: portable → library; transient
+machine state → `~/.kodo`.
 
 ## Library organization
 
