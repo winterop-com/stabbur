@@ -144,14 +144,23 @@ def _write_meta(root: Path, *, owner_pid: int, proc: subprocess.Popen[bytes], po
     return d
 
 
-def test_sweep_reaps_orphan_of_a_dead_owner(tmp_path: Path) -> None:
+# A sentinel owner pid the tests treat as a crashed (dead) kodo. Using a real just-exited pid is
+# racy — a busy CI runner reuses it, so the owner then looks alive and the orphan is skipped.
+_DEAD_OWNER = 999_999_999
+
+
+def _owner_dead(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = supervisor._pid_alive
+    monkeypatch.setattr(supervisor, "_pid_alive", lambda p: False if p == _DEAD_OWNER else real(p))
+
+
+def test_sweep_reaps_orphan_of_a_dead_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "runtimes"
-    dead = subprocess.Popen([sys.executable, "-c", "pass"])
-    dead.wait()  # its pid is now dead → marks the runtime an orphan
+    _owner_dead(monkeypatch)  # the recorded owner is treated as a crashed kodo
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
     try:
-        entry = _write_meta(root, owner_pid=dead.pid, proc=sleeper, port=port)
+        entry = _write_meta(root, owner_pid=_DEAD_OWNER, proc=sleeper, port=port)
         reaped = supervisor.sweep_orphans()
         assert sleeper.pid in reaped
         # The test owns the sleeper, so reap the zombie the signal left behind before checking
@@ -177,10 +186,9 @@ def test_sweep_skips_runtime_of_a_live_owner(tmp_path: Path) -> None:
         _reap(sleeper.pid)
 
 
-def test_sweep_leaves_a_reused_pid_alone(tmp_path: Path) -> None:
+def test_sweep_leaves_a_reused_pid_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "runtimes"
-    dead = subprocess.Popen([sys.executable, "-c", "pass"])
-    dead.wait()
+    _owner_dead(monkeypatch)
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
     try:
@@ -190,7 +198,7 @@ def test_sweep_leaves_a_reused_pid_alone(tmp_path: Path) -> None:
         (d / "meta.json").write_text(
             json.dumps(
                 {
-                    "owner_pid": dead.pid,
+                    "owner_pid": _DEAD_OWNER,
                     "pid": sleeper.pid,
                     "pgid": os.getpgid(sleeper.pid),
                     "cmd": ["/some/other-binary", "--port", "1"],
