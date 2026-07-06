@@ -2,6 +2,7 @@
 
 import json
 import os
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
@@ -1982,16 +1983,39 @@ def serve(
     bind_host = host or settings.host
     bind_port = port or settings.port or runtime.find_free_port()
     base = f"http://{bind_host}:{bind_port}"
+
+    # Binding a non-loopback address exposes model control + MCP tool execution (arbitrary code
+    # via kodo-mcp-exec) to the LAN. Never leave that unauthenticated: auto-generate a bearer
+    # token if one isn't configured, so a client must present it (V-14). An explicitly-set
+    # KODO_AUTH_TOKEN is honored as-is (and enforced even on loopback, for deliberate opt-in).
+    loopback = bind_host in ("127.0.0.1", "localhost", "::1", "")
+    auth_token = settings.auth_token
+    if not loopback and not auth_token:
+        auth_token = secrets.token_urlsafe(24)
+        os.environ["KODO_AUTH_TOKEN"] = auth_token  # inherited by the app (and uvicorn reloader subprocess)
+        get_settings.cache_clear()
+
     console.print("\n[bold]kodo[/]")
+    if not loopback:
+        console.print(
+            f"  [yellow]Exposed on {bind_host}[/] — anyone who can reach this host can control models and run tools."
+        )
+    if auth_token:
+        console.print("  Auth:     [bold]bearer token required[/] [dim](Authorization: Bearer <token>)[/]")
     if locked_model is not None:
         console.print(f"  Locked:   [bold]{locked_model}[/] [dim]· {'project' if locked_by_project else '--model'}[/]")
+    # A tokenized URL lets the user just open the SPA: it captures ?token= into the browser and
+    # sends it as a bearer header thereafter (like Jupyter). Non-browser clients send the header.
+    ui_url = f"{base}/?token={auth_token}" if auth_token else base
     if ui:
         if settings.frontend_dir.is_dir():
-            console.print(f"  UI:       [link={base}]{base}[/]")
+            console.print(f"  UI:       [link={ui_url}]{ui_url}[/]")
         else:
             console.print(f"  [yellow]UI not built[/] — expected at [dim]{settings.frontend_dir}[/]; serving API only")
     console.print(f"  API:      [link={base}]{base}[/]")
     console.print(f"  Docs:     [link={base}/docs]{base}/docs[/]")
+    if auth_token:
+        console.print(f"  [dim]Token:[/]    [dim]{auth_token}[/]")
     console.print("  [dim]Ctrl-C to stop[/]\n")
     uvicorn.run(
         "kodo.app:app",

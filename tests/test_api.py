@@ -96,6 +96,35 @@ async def test_wildcard_cors_does_not_bypass_cross_site_guard() -> None:
         assert r.status_code == 403
 
 
+async def test_missing_sec_fetch_falls_back_to_origin(client: AsyncClient) -> None:
+    # Old Safari / embedded WebViews omit Sec-Fetch-Site. Fall back to Origin so a cross-host
+    # POST is still blocked, while genuine non-browser clients (no Origin) pass (V-13). The test
+    # client's Host is "test".
+    blocked = await client.post("/api/load/ghost", headers={"origin": "http://evil.example"})
+    assert blocked.status_code == 403  # cross-host Origin, no Sec-Fetch-Site
+    same = await client.post("/api/load/ghost", headers={"origin": "http://test"})
+    assert same.status_code != 403  # same-host Origin (the served SPA on old Safari)
+    assert (await client.post("/api/load/ghost")).status_code != 403  # no Origin → non-browser client
+
+
+async def test_auth_token_required_when_set() -> None:
+    # With auth_token set, every guarded route (any method) needs Authorization: Bearer <token>,
+    # so a LAN-exposed server isn't unauthenticated (V-14).
+    app = create_app(Settings(serve_model=None, auth_token="s3cret"))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        assert (await inner.get("/api/status")).status_code == 401  # no token
+        assert (await inner.get("/api/status", headers={"authorization": "Bearer nope"})).status_code == 401  # wrong
+        assert (await inner.get("/api/status", headers={"authorization": "Bearer s3cret"})).status_code != 401  # right
+        assert (await inner.get("/health")).status_code != 401  # health is unauthenticated (readiness probes)
+        assert (await inner.options("/api/status")).status_code != 401  # CORS preflight carries no Authorization
+
+
+async def test_no_auth_required_by_default(client: AsyncClient) -> None:
+    # Empty auth_token (the loopback default) → no bearer required; the guard is a no-op.
+    assert (await client.get("/api/status")).status_code != 401
+
+
 async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
     # ServerManager has no internal lock, so two /api/load calls must not run
     # manager.load() at the same time (interleaving corrupts its process state).
@@ -245,14 +274,16 @@ async def test_api_chat_streams_tokens_and_tool_events(
         messages: list[dict[str, Any]],
         toolset: Any,
         max_tokens: int | None,
-        on_event: Callable[[str, str], None],
-        on_token: Callable[[str], None],
+        on_event: Callable[[str, str], Any],
+        on_token: Callable[[str], Any],
         **_: Any,
     ) -> str:
-        on_token("Hel")
-        on_event("call", "today()")
-        on_event("result", "Wednesday")
-        on_token("lo")
+        # The /api/chat sinks are async (bounded-queue backpressure, V-12); await them like
+        # the real agent loop does.
+        await on_token("Hel")
+        await on_event("call", "today()")
+        await on_event("result", "Wednesday")
+        await on_token("lo")
         return "Hello"
 
     monkeypatch.setattr(agent, "run", fake_run)

@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -448,17 +448,20 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         messages = [{"role": "system", "content": system_prompt}, *messages]
 
     async def events() -> AsyncGenerator[str, None]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        # Bounded queue = backpressure: when a slow SSE consumer (browser) lets it fill, the
+        # async sinks below block on `put`, which pauses agent.run's read from the runtime
+        # (TCP backpressure to llama-server) instead of buffering the whole reply in RAM (V-12).
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=512)
         done = {"type": "done"}
 
-        def on_event(kind: str, detail: str) -> None:
-            queue.put_nowait({"type": "tool", "kind": kind, "detail": detail[:2000]})
+        async def on_event(kind: str, detail: str) -> None:
+            await queue.put({"type": "tool", "kind": kind, "detail": detail[:2000]})
 
-        def on_token(text: str) -> None:
-            queue.put_nowait({"type": "token", "text": text})
+        async def on_token(text: str) -> None:
+            await queue.put({"type": "token", "text": text})
 
-        def on_reasoning(text: str) -> None:
-            queue.put_nowait({"type": "reasoning", "text": text})
+        async def on_reasoning(text: str) -> None:
+            await queue.put({"type": "reasoning", "text": text})
 
         # Reserve the runtime for the whole stream so a load/unload can't swap or kill
         # it mid-generation; read the current model/URL *inside* the reservation.
@@ -495,9 +498,9 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         model=str(model_target) if model_target else None,
                     )
                 except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
-                    queue.put_nowait({"type": "error", "detail": str(exc)})
+                    await queue.put({"type": "error", "detail": str(exc)})
                 finally:
-                    queue.put_nowait(done)
+                    await queue.put(done)
 
             task = asyncio.create_task(produce())
             try:
@@ -510,6 +513,11 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
             finally:
                 if not task.done():
                     task.cancel()  # client disconnected → cancel the in-flight generation
+                # Wait for the producer to actually finish before the reservation is released
+                # (on `_reserve_runtime` exit) — otherwise it can still be touching a runtime
+                # that a load/unload then swaps out from under it (V-11).
+                with suppress(asyncio.CancelledError):
+                    await task
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
@@ -824,7 +832,11 @@ async def proxy_v1(path: str, request: Request, manager: ManagerDep, client: Htt
             async for chunk in upstream.aiter_raw():
                 yield chunk
         finally:
-            await upstream.aclose()
-            _release_runtime(request)
+            # Release even if aclose() raises — otherwise the reservation leaks and every
+            # subsequent load/unload 409s permanently (V-10).
+            try:
+                await upstream.aclose()
+            finally:
+                _release_runtime(request)
 
     return StreamingResponse(relay(), status_code=upstream.status_code, headers=resp_headers)

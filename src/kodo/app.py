@@ -1,8 +1,10 @@
 """FastAPI application factory."""
 
 import asyncio
+import secrets
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -48,8 +50,38 @@ def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
         return False
     site = request.headers.get("sec-fetch-site")
     if site is None:
-        return False  # non-browser client (no Sec-Fetch metadata)
+        # No Sec-Fetch metadata: either a genuine non-browser client (curl/CLI/tests — which
+        # also send no Origin) or an old browser / embedded WebView that omits Sec-Fetch-Site
+        # (Safari <16.4). Fall back to the Origin header so the latter aren't a blanket bypass:
+        # a cross-site browser POST still carries Origin, so an Origin whose host differs from
+        # this server's (and isn't allow-listed, checked above) is a cross-site call → block.
+        # No Origin at all → a non-browser client → allow (V-13).
+        if not origin:
+            return False
+        return urlsplit(origin).netloc != (request.headers.get("host") or "")
     return site not in ("same-origin", "none")
+
+
+def _auth_failed(request: Request, token: str) -> bool:
+    """Whether a request to a guarded route lacks the required bearer token.
+
+    No-op when ``token`` is empty (auth disabled — the loopback default). Otherwise every
+    ``/api``, ``/v1``, ``/models`` call (any method) must carry ``Authorization: Bearer <token>``;
+    this is what keeps model control + MCP tool execution from being open to the LAN when the
+    server binds a non-loopback address (V-14). The SPA shell, favicon, and ``/health`` stay
+    unauthenticated so a browser can still load the page (then supply the token per request).
+    """
+    if not token:
+        return False
+    if request.method == "OPTIONS":
+        return False  # CORS preflight carries no Authorization; let CORS handle it
+    if not request.url.path.startswith(_GUARDED_PREFIXES):
+        return False
+    header = request.headers.get("authorization", "")
+    scheme, _, provided = header.partition(" ")
+    if scheme.lower() != "bearer":
+        return True
+    return not secrets.compare_digest(provided.strip(), token)  # constant-time compare
 
 
 @asynccontextmanager
@@ -140,6 +172,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # allow-listed origins, and non-browser clients are unaffected.
     @app.middleware("http")
     async def _cross_site_guard(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if _auth_failed(request, settings.auth_token):
+            return JSONResponse(
+                {"detail": "authentication required"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if _cross_site_blocked(request, settings.cors_origins):
             return JSONResponse({"detail": "cross-site request blocked"}, status_code=403)
         return await call_next(request)

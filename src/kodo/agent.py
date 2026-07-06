@@ -5,7 +5,8 @@ the results back, and repeats until the model answers with plain text.
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from inspect import isawaitable
 from typing import Any
 
 import httpx
@@ -13,11 +14,23 @@ import httpx
 from kodo.tools import MCPToolset
 
 # Callbacks: on_event(kind, detail) for tool activity; on_token(text) for streamed reply.
-ToolEvent = Callable[[str, str], None]
-TokenSink = Callable[[str], None]
+# Sinks may be sync (TUI/CLI append to a buffer) or async (the /api/chat SSE path uses an
+# async sink so a full, bounded queue back-pressures generation instead of buffering the
+# whole reply in memory). ``_emit`` awaits the result only when it's awaitable.
+ToolEvent = Callable[[str, str], None | Awaitable[None]]
+TokenSink = Callable[[str], None | Awaitable[None]]
 # on_usage(usage) receives the server's token accounting for a turn (OpenAI `usage`:
 # prompt_tokens / completion_tokens / total_tokens) so a REPL can show context used.
 UsageSink = Callable[[dict[str, Any]], None]
+
+
+async def _emit(sink: Callable[..., None | Awaitable[None]] | None, *args: Any) -> None:
+    """Call an optional sync-or-async sink, awaiting it when it returns an awaitable."""
+    if sink is None:
+        return
+    result = sink(*args)
+    if isawaitable(result):
+        await result
 
 
 def _audio_part(data_url: str) -> dict[str, Any]:
@@ -93,12 +106,11 @@ async def _stream_turn(
             delta = chunk["choices"][0]["delta"]
             if delta.get("content"):
                 content += delta["content"]
-                if on_token:
-                    on_token(delta["content"])
+                await _emit(on_token, delta["content"])
             # Reasoning models (gemma-4, Qwen3.5, …) stream their thinking here, not in
             # content; surface it separately instead of dropping it (→ blank replies).
             if delta.get("reasoning_content") and on_reasoning:
-                on_reasoning(delta["reasoning_content"])
+                await _emit(on_reasoning, delta["reasoning_content"])
             for tc in delta.get("tool_calls") or []:
                 slot = calls.setdefault(tc["index"], {"id": "", "name": "", "args": ""})
                 if tc.get("id"):
@@ -192,8 +204,7 @@ async def run(
                 }
             )
             for c in calls:
-                if on_event:
-                    on_event("call", f"{c['name']}({c['args']})")
+                await _emit(on_event, "call", f"{c['name']}({c['args']})")
                 try:
                     args = json.loads(c["args"] or "{}")
                 except json.JSONDecodeError as exc:
@@ -206,8 +217,7 @@ async def run(
                         result = await toolset.call(c["name"], args, timeout=tool_timeout)
                     except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) to the model
                         result = f"error: {exc}"
-                if on_event:
-                    on_event("result", result)
+                await _emit(on_event, "result", result)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
 
     # Ran out of tool rounds: surface a terminal message the same way a normal

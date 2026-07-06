@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     # backend. Empty means free model switching.
     serve_model: str | None = None
 
+    # Bearer token required on the API (``/api``, ``/v1``, ``/models``) when set. Empty (the
+    # default) disables auth — safe for the loopback-only default bind. ``kodo serve`` auto-fills
+    # a random one when it binds a non-loopback address, so exposing the server to the LAN never
+    # leaves model control + tool execution unauthenticated (V-14). Clients send it as
+    # ``Authorization: Bearer <token>``; the SPA also accepts it via a ``?token=`` URL param.
+    auth_token: str = ""
+
     # Cross-origin origins allowed to call the API. Default is **same-origin only**
     # (empty list → no CORS middleware): the web UI is served by this same app, so
     # it needs no CORS, and a permissive default would let any website you visit
