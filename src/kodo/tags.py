@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from kodo import locking
+
 _FILENAME = "tags.json"
 _REGISTRY_FILENAME = "tag-registry.json"
 # A tag is a short lowercase slug: letters, digits, dash, underscore.
@@ -104,22 +106,33 @@ def tags_for(library_root: Path, name: str) -> list[str]:
 
 def set_tags(library_root: Path, name: str, tags: list[str]) -> list[str]:
     """Replace a model's tags with ``tags`` (normalized, deduped). Returns them."""
-    mapping = load(library_root)
     norm = sorted({normalize(t) for t in tags if normalize(t)})
-    if norm:
-        mapping[name] = norm
-    else:
-        mapping.pop(name, None)
-    save(library_root, mapping)
+    # Lock the read-modify-write so a concurrent CLI/serve tag edit can't clobber this one (A5).
+    with locking.library_lock(library_root):
+        mapping = load(library_root)
+        if norm:
+            mapping[name] = norm
+        else:
+            mapping.pop(name, None)
+        save(library_root, mapping)
     return norm
 
 
 def edit_tags(library_root: Path, name: str, add: list[str], remove: list[str]) -> list[str]:
     """Add and/or remove tags on a model. Returns the resulting tag list."""
-    current = set(tags_for(library_root, name))
-    current |= {normalize(t) for t in add if normalize(t)}
-    current -= {normalize(t) for t in remove if normalize(t)}
-    return set_tags(library_root, name, sorted(current))
+    add_n = {normalize(t) for t in add if normalize(t)}
+    remove_n = {normalize(t) for t in remove if normalize(t)}
+    # Hold the lock across the whole read-modify-write (not just the save) so two concurrent
+    # add/remove edits can't lose each other's change (A5).
+    with locking.library_lock(library_root):
+        mapping = load(library_root)
+        current = sorted((set(mapping.get(name, [])) | add_n) - remove_n)
+        if current:
+            mapping[name] = current
+        else:
+            mapping.pop(name, None)
+        save(library_root, mapping)
+    return current
 
 
 # --- tag registry (first-class color/icon per tag) -------------------------------------------
@@ -163,10 +176,12 @@ def set_tag_meta(
     description: str | None = None,
 ) -> TagMeta:
     """Merge style fields into a tag's registry entry (only provided fields change). Returns it."""
-    registry = load_registry(library_root)
     key = normalize(tag)
     updates = {k: v for k, v in {"color": color, "icon": icon, "description": description}.items() if v is not None}
-    merged = registry.get(key, TagMeta()).model_copy(update=updates)
-    registry[key] = merged
-    save_registry(library_root, registry)
+    # Lock the read-modify-write so a concurrent registry edit isn't lost (A5).
+    with locking.library_lock(library_root):
+        registry = load_registry(library_root)
+        merged = registry.get(key, TagMeta()).model_copy(update=updates)
+        registry[key] = merged
+        save_registry(library_root, registry)
     return merged

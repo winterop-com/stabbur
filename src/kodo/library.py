@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from kodo import arch, cards, project
+from kodo import arch, cards, locking, project
 from kodo.config import Settings, get_settings
 from kodo.models import ModelFormat, _human_size
 from kodo.sources import ollama
@@ -470,29 +470,37 @@ def remove(model: LibraryModel) -> tuple[int, int]:
     blobs still shared with other installed Ollama models.
     """
     freed, count = model.size_bytes, model.file_count
-    if model.is_ollama:
-        # The Ollama store root is the manifest's ancestor before ``manifests/``;
-        # ollama.remove handles shared-blob safety (it may keep shared layers, so
-        # ``freed`` is the model's own weight size — a close upper bound).
-        parts = model.path.parts
-        models_dir = Path(*parts[: parts.index("manifests")])
-        ollama.remove(model.name, models_dir)
+    # Serialize the whole delete-and-drop-tags against a concurrent CLI/serve mutation on the
+    # same library (A5). We hold the lock across ``_drop_tags``, so it writes unlocked (below)
+    # rather than call the self-locking ``tags.set_tags`` (which would deadlock a second flock).
+    with locking.library_lock(model.library_root):
+        if model.is_ollama:
+            # The Ollama store root is the manifest's ancestor before ``manifests/``;
+            # ollama.remove handles shared-blob safety (it may keep shared layers, so
+            # ``freed`` is the model's own weight size — a close upper bound).
+            parts = model.path.parts
+            models_dir = Path(*parts[: parts.index("manifests")])
+            ollama.remove(model.name, models_dir)
+            _drop_tags(model)
+            return count, freed
+
+        shutil.rmtree(model.path, ignore_errors=True)
+        if model.path.exists():
+            return 0, 0  # removal failed (read-only drive, files held open by a running runtime)
         _drop_tags(model)
         return count, freed
 
-    shutil.rmtree(model.path, ignore_errors=True)
-    if model.path.exists():
-        return 0, 0  # removal failed (read-only drive, files held open by a running runtime)
-    _drop_tags(model)
-    return count, freed
-
 
 def _drop_tags(model: LibraryModel) -> None:
-    """Drop a removed model's tag assignments so a later re-pull doesn't silently inherit them."""
+    """Drop a removed model's tag assignments so a later re-pull doesn't silently inherit them.
+
+    Writes without acquiring the library lock — callers (``remove``) already hold it.
+    """
     from kodo import tags  # noqa: PLC0415 - lazy to keep import order simple
 
-    if tags.tags_for(model.library_root, model.name):
-        tags.set_tags(model.library_root, model.name, [])
+    mapping = tags.load(model.library_root)
+    if mapping.pop(model.name, None) is not None:
+        tags.save(model.library_root, mapping)
 
 
 class MigrationAction(BaseModel):
