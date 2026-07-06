@@ -231,7 +231,7 @@ Forward-looking plans — the north-star DHIS2 assistant, the phased build order
 and open/next ideas — live in `ROADMAP.md`, not here, so they don't load into
 every session's context. Update `ROADMAP.md` when plans change.
 
-## Current state & key decisions (as of 2026-07-03)
+## Current state & key decisions (as of 2026-07-06)
 
 What's built + non-obvious decisions (so a fresh session has context; details in git + `ROADMAP.md`).
 
@@ -261,7 +261,21 @@ What's built + non-obvious decisions (so a fresh session has context; details in
 - **Capabilities:** tool detection needs a tool-*calling* marker (`tool_call`/`function_call`/
   `available_tools`), not a bare "tools" (which false-flagged audio specialists).
 - **MCP:** installed plugins advertise servers (`datetime`, `utils`); `benchmark` does **not**
-  (it's dev-only). Free-play doesn't spawn them yet (see ROADMAP "Next up").
+  advertise a server (it's a dev/eval tool). It is now the opt-in `benchmark` **extra**, not a
+  base dep (`kodo install -e ".[…,benchmark]"`), so `kodo benchmark` needs that extra.
+- **Foundation & hardening (this pass; details in git + `REVIEW.md`).** CI gate
+  (`.github/workflows/ci.yml`: `make check` on ubuntu+macos + a frontend tsc/build job).
+  **Process supervisor** (`supervisor.py`): both spawn paths (CLI `runtime.start`,
+  `ServerManager`) go through it — process-group kill, a `~/.kodo/runtimes/` pidfile, and
+  `sweep_orphans()` at every startup so a crashed kodo never leaves a runtime holding memory.
+  **Per-library `flock`** (`locking.py`) around tag/remove mutations (CLI + serve run
+  concurrently). **`kodo.toml` has one parser + one writer** — `project.read_raw` is the single
+  parse (config's settings source uses it too); `project.render_manifest`/`add_mcp` own writes
+  (validated, never a broken file). `library_root` has **no default** — `library.default_root()`
+  is the guarded accessor. **Auth:** a bearer token guards `/api`·`/v1`·`/models` when set, and
+  `kodo serve` auto-generates one on any non-loopback bind (LAN never unauthenticated). The
+  import-time HF-cache redirect (`hfcache`) must stay at import (hf_hub freezes its cache there);
+  serve→worker config is one documented env API (`_export_serve_env`).
 
 ## Dev workflow
 

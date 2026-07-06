@@ -1,5 +1,28 @@
 # Full project review — 2026-07-05
 
+> **Remediation status (updated 2026-07-06).** Most of this review has been addressed; the
+> findings below are the original audit, kept as the record. Summary of what's **done**:
+>
+> - **CI**: `.github/workflows/ci.yml` runs `make check` on ubuntu + macos and a frontend
+>   tsc/build job on every push/PR — the gate that now enforces the rest.
+> - **Serving (V-10..V-16)**: reservation-leak, backpressure, SSE flush, sampling, log-fd, and a
+>   **bearer-token auth** + Origin-fallback CSRF guard (V-13/V-14).
+> - **Frontend (F-1..F-13)**: all thirteen — persistence, routing, streaming isolation, mic/blob
+>   leaks — verified against the running UI (Playwright).
+> - **Packages / sandbox (P-M2, P-M3, P-L\*)**: Docker hardening proven live; exec/files/utils/
+>   memory/weather fixes.
+> - **Architecture**: **A2** (no `./data` default; one guarded `library.default_root()`), **A5**
+>   (per-library `flock`), **A4** (process supervisor: group kill + pidfile + orphan sweep,
+>   live-proven), **A1** (one `kodo.toml` parser + one validated writer), **A8** (import-time HF
+>   constraint documented; serve env-API centralized). **I-8** (benchmark is now an extra).
+> - Plus the earlier batches (S-\*, C-\*, N-\*, VO-\*) — see git history.
+>
+> **Remaining (deliberately deferred):** **A3** (one scanner + `ModelRef` identity — the big,
+> high-risk lever), **A6** (generalize enforce-at-choke-point beyond the fixed instances), **A7**
+> (split the 2.2k-line `cli.py`), **P-H1** (SSRF/DNS-rebinding — only matters if exposing beyond a
+> trusted LAN, which isn't the model), and the audio-specialist bug (blocked on a small audio GGUF
+> + likely an upstream llama.cpp issue). See `docs/architecture.md` for the current design.
+
 A cross-cutting audit of the codebase: bugs, gaps, missing features, and infrastructure
 issues, grouped by subsystem and ranked most severe first within each section.
 Findings reference `file:line` as of commit `2275545`.
