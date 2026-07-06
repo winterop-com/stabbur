@@ -1504,6 +1504,11 @@ def speak(
         )
     spec = voice_registry.get(model) if model else None
     spec = spec or (voice_registry.by_repo(model) if model else None)
+    # Enforce the registry's supported flag at the action (A6/VO-M3): reject an unsupported model
+    # (e.g. Qwen3-TTS) upfront with a clear reason instead of loading it and failing on empty audio.
+    if spec is not None and not spec.supported:
+        typer.secho(f"{spec.display_name} isn't supported for synthesis in kodo yet.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
     try:
         if voice is not None:  # Kokoro (ONNX) — the lightweight preset engine
             if not kokoro.available():

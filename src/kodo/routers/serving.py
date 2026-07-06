@@ -707,6 +707,11 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
         raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
 
     spec = voice_registry.get(req.model) or voice_registry.by_repo(req.model)
+    # Enforce the registry's supported flag here, at the action, not only in the UI (A6/VO-M3):
+    # a model marked unsupported (e.g. Qwen3-TTS — mlx-audio can't load its speech tokenizer) would
+    # otherwise be attempted and fail as a slow, opaque 502. Reject it upfront with a clear reason.
+    if spec is not None and not spec.supported:
+        raise HTTPException(status_code=422, detail=f"{req.model!r} isn't supported for synthesis in kodo yet.")
     backend = spec.backend if spec else Backend.kokoro_onnx  # unknown -> the safe ONNX chat voice
 
     if backend == Backend.kokoro_onnx:

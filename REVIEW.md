@@ -11,11 +11,14 @@
 >   leaks — verified against the running UI (Playwright).
 > - **Packages / sandbox (P-M2, P-M3, P-L\*)**: Docker hardening proven live; exec/files/utils/
 >   memory/weather fixes.
-> - **Architecture**: **A2** (no `./data` default; one guarded `library.default_root()`), **A5**
->   (per-library `flock`), **A4** (process supervisor: group kill + pidfile + orphan sweep,
->   live-proven), **A1** (one `kodo.toml` parser + one validated writer), **A8** (import-time HF
->   constraint documented; serve env-API centralized), **A3** (bounded — see below). **I-8**
->   (benchmark is now an extra).
+> - **Architecture (A1–A8 all addressed)**: **A2** (no `./data` default; one guarded
+>   `library.default_root()`), **A5** (per-library `flock`), **A4** (process supervisor: group kill
+>   + pidfile + orphan sweep, live-proven), **A1** (one `kodo.toml` parser + one validated writer),
+>   **A8** (import-time HF constraint documented; serve env-API centralized), **A3** (bounded — see
+>   below), **A6** (enforce-at-choke-point: the remaining instance, voice `supported`, is now
+>   rejected at the /v1/audio/speech endpoint + `voice speak` CLI, not only in React — VO-M3),
+>   **A7** (project scaffolding extracted to a testable `kodo.scaffold`; `cli.py` down ~200 lines).
+>   **I-8** (benchmark is now an extra).
 > - Plus the earlier batches (S-\*, C-\*, N-\*, VO-\*) — see git history.
 >
 > **A3 (done, bounded).** A3's concrete sub-bugs (C-6/C-12/S-N1/S-H2/N-H1/VO-M2/S-N5) were already
@@ -34,10 +37,10 @@
 > remaining split (e.g. the scripted agent loop, splitting `serving.py` by resource) is lower-value
 > churn, done opportunistically when those areas are touched.
 >
-> **Remaining (deliberately deferred):** **A6** (generalize enforce-at-choke-point beyond the fixed
-> instances), **P-H1** (SSRF/DNS-rebinding — only matters if exposing beyond a trusted LAN, which
-> isn't the model), and the audio-specialist bug (blocked on a small audio GGUF + likely an upstream
-> llama.cpp issue). See `docs/architecture.md`.
+> **Remaining (deliberately deferred):** **P-H1** (SSRF/DNS-rebinding — only matters if exposing
+> beyond a trusted LAN, which isn't the model), and the audio-specialist bug (blocked on a small
+> audio GGUF + likely an upstream llama.cpp issue). The architecture set (A1–A8) is done; further
+> `cli.py`/`serving.py` splitting (A7's tail) is opportunistic. See `docs/architecture.md`.
 
 A cross-cutting audit of the codebase: bugs, gaps, missing features, and infrastructure
 issues, grouped by subsystem and ranked most severe first within each section.
