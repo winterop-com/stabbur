@@ -156,6 +156,12 @@ class Settings(BaseSettings):
     # standard HF_TOKEN / huggingface-cli login if unset.
     hf_token: str | None = None
 
+    # Ephemeral, machine-local runtime state (one dir per spawned runtime: its pidfile-ish
+    # ``meta.json`` + captured log). NOT library data — a pid means nothing on another machine,
+    # so this deliberately lives under ``~/.kodo`` rather than travelling with the drive. The
+    # supervisor uses it to reap runtimes orphaned by a crashed kodo (see :mod:`kodo.supervisor`).
+    runtime_state_dir: Path = Path.home() / ".kodo" / "runtimes"
+
 
 @lru_cache
 def get_settings() -> Settings:
