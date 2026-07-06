@@ -27,10 +27,17 @@
 > on-drive library scanning) that shouldn't merge, and the per-bucket decomposition is sound — a
 > ground-up merge would be high-risk churn for marginal, already-patched bug-prevention.
 >
+> **A7 (in progress).** `cli.py`'s biggest trapped-in-command-bodies logic is now extracted to
+> testable core modules: `project.py` owns the `kodo.toml` manifest (A1), and `kodo.scaffold` owns
+> `kodo project new/init`'s pure logic (pyproject rendering, MCP-command parsing, model copy, git
+> init) — previously reachable only through Typer. `cli.py` is down from ~2.2k to ~2.0k lines. The
+> remaining split (e.g. the scripted agent loop, splitting `serving.py` by resource) is lower-value
+> churn, done opportunistically when those areas are touched.
+>
 > **Remaining (deliberately deferred):** **A6** (generalize enforce-at-choke-point beyond the fixed
-> instances), **A7** (split the 2.2k-line `cli.py`), **P-H1** (SSRF/DNS-rebinding — only matters if
-> exposing beyond a trusted LAN, which isn't the model), and the audio-specialist bug (blocked on a
-> small audio GGUF + likely an upstream llama.cpp issue). See `docs/architecture.md`.
+> instances), **P-H1** (SSRF/DNS-rebinding — only matters if exposing beyond a trusted LAN, which
+> isn't the model), and the audio-specialist bug (blocked on a small audio GGUF + likely an upstream
+> llama.cpp issue). See `docs/architecture.md`.
 
 A cross-cutting audit of the codebase: bugs, gaps, missing features, and infrastructure
 issues, grouped by subsystem and ranked most severe first within each section.

@@ -1,6 +1,5 @@
 """Command-line interface for browsing, pulling, and running local models."""
 
-import json
 import os
 import secrets
 import shutil
@@ -14,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import attach, capabilities, cards, config, consumers, doctor, mcp_catalog, project, runtime, tags
+from kodo import attach, capabilities, cards, config, consumers, doctor, mcp_catalog, project, runtime, scaffold, tags
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
@@ -188,7 +187,7 @@ def mcp_add(
     # runtime `uvx` fetch from the command and add the package to pyproject.toml.
     pyproject = Path("pyproject.toml")
     uv_project = pyproject.is_file()
-    cmd, env = _split_env_prefix(_strip_uvx(command) if uv_project else command)
+    cmd, env = scaffold.split_env_prefix(scaffold.strip_uvx(command) if uv_project else command)
 
     # project.add_mcp owns the write: it validates the resulting TOML before touching the file,
     # so a bad edit is reported cleanly and never corrupts kodo.toml (A1).
@@ -200,8 +199,8 @@ def mcp_add(
     console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
 
     if uv_project:
-        for pkg in _pip_deps_from_mcp([(entry_name, command)]):  # original (uvx) command -> pip pkg
-            if _add_pyproject_dep(pyproject, pkg):
+        for pkg in scaffold.pip_deps_from_mcp([(entry_name, command)]):  # original (uvx) command -> pip pkg
+            if scaffold.add_pyproject_dep(pyproject, pkg):
                 console.print(f"  [dim]uv:[/] pinned [cyan]{pkg}[/] in pyproject.toml — run [bold]uv sync[/]")
     if uninstalled_optional:
         console.print(f"  [yellow]not installed[/] — reports 0 tools until you {setup}")
@@ -313,8 +312,8 @@ def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) ->
     )
 
 
-#: The project-local library directory that `kodo project init` scaffolds.
-_LOCAL_LIBRARY = "library"
+#: The project-local library directory that `kodo project init` scaffolds (owned by kodo.scaffold).
+_LOCAL_LIBRARY = scaffold.LOCAL_LIBRARY
 
 
 def _to_project_mcp(name: str, command: str) -> project.ProjectMcp:
@@ -323,139 +322,8 @@ def _to_project_mcp(name: str, command: str) -> project.ProjectMcp:
     Splits a leading ``env VAR=val …`` prefix out of the command into the entry's ``env`` table,
     so ``kodo.project`` serializes it (rendering/writes are owned there — A1).
     """
-    cmd, env = _split_env_prefix(command)
+    cmd, env = scaffold.split_env_prefix(command)
     return project.ProjectMcp(name=name, command=cmd, env=env)
-
-
-def _kodo_repo_root() -> Path:
-    """The kodo source checkout (repo root), for pinning kodo in a project's pyproject."""
-    return Path(__file__).resolve().parents[2]
-
-
-def _pip_deps_from_mcp(mcp: list[tuple[str, str]]) -> list[str]:
-    """Pip packages a uv project must install for its MCP servers.
-
-    Maps each ``[[mcp]]`` command to a PyPI package where possible: ``uvx <pkg>`` -> ``<pkg>``
-    (the server the project pins so it need not be fetched at runtime). Skips node servers
-    (``bunx``/``npx``) and kodo's own bundled ``kodo-mcp-*`` (they ship with the ``kodo`` dep).
-    """
-    import shlex  # noqa: PLC0415
-
-    deps: set[str] = set()
-    for _name, command in mcp:
-        toks = shlex.split(command)
-        i = 0
-        if toks and toks[0] == "env":  # skip a leading `env VAR=val ...` prefix
-            i = 1
-            while i < len(toks) and "=" in toks[i]:
-                i += 1
-        rest = toks[i:]
-        if len(rest) >= 2 and rest[0] == "uvx":
-            deps.add(rest[1].split("==")[0].split("@")[0])
-    return sorted(deps)
-
-
-def _strip_uvx(command: str) -> str:
-    """Drop a ``uvx `` runner from an MCP command — in a uv project the server is an installed dep."""
-    return command.replace("uvx ", "", 1) if "uvx " in command else command
-
-
-def _split_env_prefix(command: str) -> tuple[str, dict[str, str]]:
-    """Lift a leading ``env VAR=val …`` prefix out of a command into structured env.
-
-    ``env DHIS2_PROFILE=play42 dhis2w-mcp-bridge`` -> ``("dhis2w-mcp-bridge", {"DHIS2_PROFILE": "play42"})``.
-    Lets a ``[[mcp]]`` block carry a clean ``command`` plus a readable ``env`` table.
-    """
-    import shlex  # noqa: PLC0415
-
-    toks = shlex.split(command)
-    env: dict[str, str] = {}
-    i = 0
-    if toks and toks[0] == "env":
-        i = 1
-        while i < len(toks) and "=" in toks[i] and not toks[i].startswith("-"):
-            key, val = toks[i].split("=", 1)
-            env[key] = val
-            i += 1
-    return shlex.join(toks[i:]), env
-
-
-def _add_pyproject_dep(path: Path, pkg: str) -> bool:
-    """Add ``pkg`` to a pyproject's ``[project].dependencies``. Returns True if it was inserted.
-
-    A light text edit (no TOML round-trip, so comments/formatting survive): inserts into a
-    multiline ``dependencies = [`` list, or expands an empty ``dependencies = []``. Idempotent —
-    a dep already present (any version/extras form) is left alone.
-    """
-    import re  # noqa: PLC0415
-
-    text = path.read_text()
-    if re.search(rf'["\']{re.escape(pkg)}(?:["\'\[]|==|>=|<=|~=|!=|>|<|@|;|\s)', text):
-        return False
-    lines = text.splitlines(keepends=True)
-    for i, line in enumerate(lines):
-        if re.match(r"\s*dependencies\s*=\s*\[\s*\]\s*$", line):  # empty inline list
-            lines[i] = line.replace("[]", f'[\n    "{pkg}",\n]')
-            path.write_text("".join(lines))
-            return True
-        if re.match(r"\s*dependencies\s*=\s*\[\s*$", line):  # start of a multiline list
-            lines.insert(i + 1, f'    "{pkg}",\n')
-            path.write_text("".join(lines))
-            return True
-    return False
-
-
-def _project_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: list[str] | None = None) -> str:
-    """Render a project ``pyproject.toml`` that makes the project a self-contained uv project.
-
-    Pins ``kodo`` (a local path source until kodo is on PyPI) plus any pip-installable MCP
-    servers, so ``uv run kodo serve`` uses this project's own environment — no global kodo,
-    no runtime ``uvx`` fetches. ``extras`` are kodo extras the project needs (e.g. ``voice``,
-    ``web``); ``mlx`` adds the MLX runtime extra when the bound model is MLX.
-    """
-    import re  # noqa: PLC0415
-
-    pkg_name = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-._") or "kodo-project"
-    all_extras: set[str] = set(extras or [])
-    if mlx:
-        all_extras.add("mlx")
-    extras_spec = f"[{','.join(sorted(all_extras))}]" if all_extras else ""
-    deps = [f"kodo{extras_spec}", *_pip_deps_from_mcp(mcp)]
-    dep_lines = "".join(f"    {json.dumps(d)},\n" for d in deps)
-    kodo_root = json.dumps(str(_kodo_repo_root()))
-    return (
-        "[project]\n"
-        f"name = {json.dumps(pkg_name)}\n"
-        'version = "0.0.0"\n'
-        'description = "A kodo assistant project."\n'
-        'requires-python = ">=3.13"\n'
-        "dependencies = [\n"
-        f"{dep_lines}"
-        "]\n\n"
-        "[tool.uv.sources]\n"
-        "# kodo is not yet on PyPI; pin the local checkout (editable). This line is\n"
-        "# machine-specific -- replace it with a version once kodo publishes.\n"
-        f"kodo = {{ path = {kodo_root}, editable = true }}\n"
-    )
-
-
-_PROJECT_README = """\
-# {name} -- a kodo assistant
-
-A self-contained [kodo](https://github.com/winterop-com/kodo) project: its own uv
-environment, model library, and assistant definition (`kodo.toml`).
-
-## Run
-
-```bash
-uv sync                     # build the project's environment (kodo + its MCP servers)
-uv run kodo serve --ui      # browser UI
-uv run kodo chat            # terminal chat
-```
-
-The assistant (model, system prompt, tools) is defined in `kodo.toml`. The model lives in
-`{library}/` (not committed). Machine secrets go in `.env` (not committed).
-"""
 
 
 def _library_names() -> set[str]:
@@ -1076,62 +944,6 @@ def _pull_or_exit(model: str, library_root: Path | None) -> None:
         raise typer.Exit(1) from exc
 
 
-# A project-local library holds multi-GB weights, and `.env` holds machine secrets —
-# neither belongs in git. Keep the rest (kodo.toml, pyproject.toml, uv.lock) committable.
-_GITIGNORE = f"""\
-# kodo project — the local model library holds large weights; don't commit them.
-/{_LOCAL_LIBRARY}/
-
-# Machine-specific config / secrets.
-.env
-
-# uv project environment (rebuilt with `uv sync`; keep uv.lock).
-.venv/
-
-# Python / OS noise.
-__pycache__/
-*.py[cod]
-.DS_Store
-"""
-
-
-def _git_init_project(target: Path) -> None:
-    """`git init` the project and write a `.gitignore` (ignoring the local library + secrets).
-
-    Best-effort: an existing repo is left alone, and a missing/failing ``git`` warns
-    rather than aborting — the project itself is already written.
-    """
-    import subprocess  # noqa: PLC0415
-
-    gitignore = target / ".gitignore"
-    if not gitignore.exists():
-        gitignore.write_text(_GITIGNORE)
-    if (target / ".git").exists():
-        console.print(f"  [dim]git:[/] already a repo — wrote {gitignore.name}")
-        return
-    try:
-        subprocess.run(
-            ["git", "init", "-q"],  # noqa: S607 - git on PATH; fixed args
-            cwd=target,
-            check=True,
-            capture_output=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:  # git missing or failed
-        console.print(f"  [yellow]git:[/] init skipped ({exc}); wrote {gitignore.name}")
-        return
-    console.print(f"  [dim]git:[/] initialized repo + {gitignore.name}")
-
-
-def _copy_model_local(model: library_ops.LibraryModel, dest_root: Path) -> None:
-    """Copy a library model's directory into a project-local library, preserving its layout."""
-    rel = model.path.relative_to(model.library_root)
-    dest = dest_root / rel
-    if dest.exists():
-        return
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(model.path, dest)
-
-
 def _scaffold_project(
     target: Path,
     model: str | None,
@@ -1219,7 +1031,7 @@ def _scaffold_project(
             raise typer.Exit(1)
         if existing:
             console.print(f"\nCopying [bold]{model}[/] into [bold]{_LOCAL_LIBRARY}/[/] (local-disk copy) …")
-            _copy_model_local(existing[0], local_lib)
+            scaffold.copy_model_local(existing[0], local_lib)
         else:
             if not shared:
                 console.print(
@@ -1231,7 +1043,7 @@ def _scaffold_project(
 
     # In a uv project the MCP servers are pinned deps, so they run straight off PATH — drop
     # the runtime `uvx ` fetch from each command that has one.
-    toml_mcp = [(name, _strip_uvx(command)) for name, command in mcp] if uv else mcp
+    toml_mcp = [(name, scaffold.strip_uvx(command)) for name, command in mcp] if uv else mcp
     mcp_models = [_to_project_mcp(name, command) for name, command in toml_mcp]
     proj.write_text(
         project.render_manifest(
@@ -1247,8 +1059,8 @@ def _scaffold_project(
         mlx = "mlx" in model.lower() or bool(existing and existing[0].model_format == "mlx")
         # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
         tmpl_extras = tmpl.extras if tmpl is not None else []
-        (target / "pyproject.toml").write_text(_project_pyproject(target.resolve().name, mcp, mlx, tmpl_extras))
-        (target / "README.md").write_text(_PROJECT_README.format(name=target.resolve().name, library=_LOCAL_LIBRARY))
+        (target / "pyproject.toml").write_text(scaffold.render_pyproject(target.resolve().name, mcp, mlx, tmpl_extras))
+        (target / "README.md").write_text(scaffold.render_readme(target.resolve().name))
 
     if tmpl is not None:
         for rel, content in tmpl.files.items():
@@ -1263,7 +1075,8 @@ def _scaffold_project(
     if uv:
         console.print("  [dim]uv:[/] pyproject.toml (run [bold]uv sync[/] to build the environment)")
     if git:
-        _git_init_project(target)
+        ok, status = scaffold.git_init(target)
+        console.print(f"  [{'dim' if ok else 'yellow'}]git:[/] {status}")
     if tmpl is not None and tmpl.next_steps:
         console.print(f"\n[bold]Next steps[/]\n{tmpl.next_steps}")
 

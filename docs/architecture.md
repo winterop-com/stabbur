@@ -10,6 +10,7 @@ and every data type is a `BaseModel` (no `@dataclass`).
 src/kodo/
 ├── config.py    # Settings (machine config from kodo.toml + KODO_* env vars)
 ├── project.py   # the kodo.toml project manifest — the one parser + writer for it
+├── scaffold.py  # pure `kodo project new/init` logic (pyproject, model copy, git) — testable
 ├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
 ├── catalog.py   # list/pull across the source stores
 ├── library.py   # scan the on-drive library → LibraryModel; roots()/default_root() guards
