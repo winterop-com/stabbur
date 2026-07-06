@@ -83,19 +83,26 @@ def _process_command(pid: int) -> str:
 
     ``-ww`` disables ps's column-width truncation (it defaults to the terminal width — 80 with
     no TTY), so the full argv is returned and the ``--port`` at the end of a long runtime command
-    isn't dropped from the PID-reuse match.
+    isn't dropped from the PID-reuse match. Retries on an empty result: macOS's framework-Python
+    launcher (which is how the MLX runtimes run) can intermittently report a blank command to ps,
+    and a spurious blank would make the PID-reuse guard skip a real orphan.
     """
-    try:
-        out = subprocess.run(
-            ["ps", "-ww", "-p", str(pid), "-o", "command="],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    return out.stdout.strip()
+    for _ in range(5):
+        try:
+            out = subprocess.run(
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        text = out.stdout.strip()
+        if text:
+            return text
+        time.sleep(0.05)
+    return ""
 
 
 def _killpg(pgid: int, sig: int) -> None:
