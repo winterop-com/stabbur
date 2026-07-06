@@ -1892,6 +1892,26 @@ def _chat_with_tools(
     )
 
 
+def _export_serve_env(*, ui: bool, model: str | None, runtime_port: int | None, debug: bool) -> None:
+    """The one place ``serve`` hands its config to the app — the deliberate env-as-API (A8).
+
+    With ``--reload``, uvicorn imports the app in a *fresh subprocess*, where the CLI callback's
+    in-process overrides (``--runtime-port``, ``--debug``) and the resolved locked model don't
+    exist — so these ``KODO_*`` env vars are that subprocess's config channel. Centralized here so
+    it's a single documented surface instead of scattered ``os.environ`` writes; without
+    ``--reload`` it's harmless (the same process already has the overrides). The auth token is
+    exported alongside these in ``serve`` once it's known.
+    """
+    if ui:
+        os.environ["KODO_SERVE_UI"] = "true"
+    if model is not None:
+        os.environ["KODO_SERVE_MODEL"] = model
+    if runtime_port is not None:
+        os.environ["KODO_RUNTIME_PORT"] = str(runtime_port)
+    if debug:
+        os.environ["KODO_DEBUG"] = "true"
+
+
 @app.command()
 def serve(
     ui: Annotated[bool, typer.Option("--ui", help="Also serve the browser UI (single-page app).")] = False,
@@ -1918,11 +1938,6 @@ def serve(
 
     library_ops.roots()  # fail fast + clean if no library is configured (rather than 500ing per request)
 
-    # Propagate to the (possibly reloaded) worker process via env vars — with
-    # --reload, uvicorn imports the app in a fresh process where the CLI callback's
-    # in-memory overrides (--runtime-port, --debug) don't exist.
-    if ui:
-        os.environ["KODO_SERVE_UI"] = "true"
     # A project is a locked, purpose-built assistant: it binds the server to its model
     # (no picker, like --model), so `kodo serve` in a project == serve --model <project.model>.
     # An explicit --model overrides. No project (or a project without a model) => free-play.
@@ -1933,11 +1948,13 @@ def serve(
         # Validate the locked model up front (like `kodo chat`) so a bad name gives a clean message
         # here, not a uvicorn "Application startup failed" traceback from the app lifespan.
         _resolve_library_model(locked_model, None)
-        os.environ["KODO_SERVE_MODEL"] = locked_model
-    if config.runtime_port_override() is not None:
-        os.environ["KODO_RUNTIME_PORT"] = str(config.runtime_port_override())
-    if config.debug_enabled():
-        os.environ["KODO_DEBUG"] = "true"
+    # Hand the serve config to the (possibly reloaded) worker process — one documented env API.
+    _export_serve_env(
+        ui=ui,
+        model=locked_model,
+        runtime_port=config.runtime_port_override(),
+        debug=config.debug_enabled(),
+    )
 
     get_settings.cache_clear()
     settings = get_settings()
@@ -1954,7 +1971,7 @@ def serve(
     auth_token = settings.auth_token
     if not loopback and not auth_token:
         auth_token = secrets.token_urlsafe(24)
-        os.environ["KODO_AUTH_TOKEN"] = auth_token  # inherited by the app (and uvicorn reloader subprocess)
+        os.environ["KODO_AUTH_TOKEN"] = auth_token  # part of the serve→worker env API (_export_serve_env)
         get_settings.cache_clear()
 
     console.print("\n[bold]kodo[/]")
