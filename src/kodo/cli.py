@@ -190,11 +190,13 @@ def mcp_add(
     uv_project = pyproject.is_file()
     cmd, env = _split_env_prefix(_strip_uvx(command) if uv_project else command)
 
-    block = f"\n[[mcp]]\nname = {json.dumps(entry_name)}\ncommand = {json.dumps(cmd)}\n"
-    if env:
-        block += f"env = {_toml_inline_env(env)}\n"
-    with path.open("a", encoding="utf-8") as f:
-        f.write(block)
+    # project.add_mcp owns the write: it validates the resulting TOML before touching the file,
+    # so a bad edit is reported cleanly and never corrupts kodo.toml (A1).
+    try:
+        project.add_mcp(path, project.ProjectMcp(name=entry_name, command=cmd, env=env))
+    except project.ProjectError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
     console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
 
     if uv_project:
@@ -315,60 +317,14 @@ def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) ->
 _LOCAL_LIBRARY = "library"
 
 
-def _project_toml(
-    model: str,
-    system_prompt: str = "",
-    mcp: list[tuple[str, str]] | None = None,
-    local_library: bool = False,
-    chat_voice: str | None = None,
-) -> str:
-    """Render a kodo.toml: the libraries this project uses + its assistant.
+def _to_project_mcp(name: str, command: str) -> project.ProjectMcp:
+    """Turn a CLI ``(name, command)`` pair into a manifest :class:`kodo.project.ProjectMcp`.
 
-    Portable and git-committable — no machine-specific paths. ``libraries`` lists a
-    project-local store (created alongside this file) plus ``@shared``, the token
-    for the machine's default library (``KODO_LIBRARY_ROOT``). ``[project]`` /
-    ``[[mcp]]`` define the assistant. Override anything per machine with ``KODO_*``.
+    Splits a leading ``env VAR=val …`` prefix out of the command into the entry's ``env`` table,
+    so ``kodo.project`` serializes it (rendering/writes are owned there — A1).
     """
-    if mcp:
-        blocks = []
-        for name, command in mcp:
-            cmd, env = _split_env_prefix(command)
-            block = f"[[mcp]]\nname = {json.dumps(name)}\ncommand = {json.dumps(cmd)}\n"
-            if env:
-                block += f"env = {_toml_inline_env(env)}\n"
-            blocks.append(block)
-        tools_block = "# Tools via MCP — the assistant's toolset.\n" + "\n".join(blocks) + "\n"
-    else:
-        tools_block = (
-            "# Tools via MCP (repeatable; add a server to give the assistant tools):\n"
-            "# [[mcp]]\n"
-            '# name = "datetime"\n'
-            '# command = "kodo-mcp-datetime"\n'
-        )
-    if local_library:
-        libraries_block = (
-            f'# This project ships its own "{_LOCAL_LIBRARY}/" store (the model was downloaded there);\n'
-            "# @shared is the machine default library (KODO_LIBRARY_ROOT) if you set one.\n"
-            f'libraries = ["{_LOCAL_LIBRARY}", "@shared"]\n\n'
-        )
-    else:
-        libraries_block = (
-            "# Uses your machine library (KODO_LIBRARY_ROOT). To also read a project-local\n"
-            f'# store, add:  libraries = ["{_LOCAL_LIBRARY}", "@shared"]  (relative to this file).\n\n'
-        )
-    # Kokoro (tiny) is the default speak-replies voice for every project, so any assistant
-    # can talk back without loading a second multi-GB model.
-    voice_line = f"chat_voice = {json.dumps(chat_voice)}  # spoken-reply voice (Kokoro)\n" if chat_voice else ""
-    return (
-        "# kodo project — a purpose-built assistant (model + system prompt + tools).\n"
-        "# Portable + committable: no machine-specific paths.\n\n"
-        f"{libraries_block}"
-        "[project]\n"
-        f"model = {json.dumps(model)}\n"
-        f"system_prompt = {json.dumps(system_prompt)}\n"
-        f"{voice_line}\n"
-        f"{tools_block}"
-    )
+    cmd, env = _split_env_prefix(command)
+    return project.ProjectMcp(name=name, command=cmd, env=env)
 
 
 def _kodo_repo_root() -> Path:
@@ -422,11 +378,6 @@ def _split_env_prefix(command: str) -> tuple[str, dict[str, str]]:
             env[key] = val
             i += 1
     return shlex.join(toks[i:]), env
-
-
-def _toml_inline_env(env: dict[str, str]) -> str:
-    """Render an env dict as a TOML inline table: ``{ K = "V", … }``."""
-    return "{ " + ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items()) + " }"
 
 
 def _add_pyproject_dep(path: Path, pkg: str) -> bool:
@@ -1281,7 +1232,16 @@ def _scaffold_project(
     # In a uv project the MCP servers are pinned deps, so they run straight off PATH — drop
     # the runtime `uvx ` fetch from each command that has one.
     toml_mcp = [(name, _strip_uvx(command)) for name, command in mcp] if uv else mcp
-    proj.write_text(_project_toml(model, system_prompt, toml_mcp, local_library=use_local, chat_voice=chat_voice))
+    mcp_models = [_to_project_mcp(name, command) for name, command in toml_mcp]
+    proj.write_text(
+        project.render_manifest(
+            model=model,
+            system_prompt=system_prompt,
+            mcp=mcp_models or None,
+            local_library_dir=_LOCAL_LIBRARY if use_local else None,
+            chat_voice=chat_voice,
+        )
+    )
 
     if uv:
         mlx = "mlx" in model.lower() or bool(existing and existing[0].model_format == "mlx")

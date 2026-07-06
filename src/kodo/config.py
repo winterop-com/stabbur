@@ -20,8 +20,27 @@ from pydantic_settings import (
     NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
-    TomlConfigSettingsSource,
 )
+
+
+class _KodoTomlSource(PydanticBaseSettingsSource):
+    """Feed machine settings from the shared ``kodo.toml`` parse (:func:`kodo.project.read_raw`).
+
+    ``kodo.toml`` holds both machine settings (these) and the portable project manifest
+    (``[project]`` etc., read by :mod:`kodo.project`). Routing this source through the same
+    ``read_raw`` parser the manifest uses means the file is parsed by **one** code path, so a
+    malformed file raises a single, clean ``ProjectError`` rather than crashing differently in
+    each reader (A1). Top-level scalar/list keys map to :class:`Settings` fields; the manifest
+    tables (``project``/``mcp``/``voice``/``libraries``) are ignored here (``extra="ignore"``).
+    """
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:  # noqa: ARG002
+        return None, field_name, False  # unused: __call__ returns the whole dict below
+
+    def __call__(self) -> dict[str, Any]:
+        from kodo import project  # noqa: PLC0415 - lazy: avoid an import cycle at module load
+
+        return project.read_raw()
 
 
 def _default_lmstudio_dir() -> Path:
@@ -48,8 +67,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="KODO_",
         env_file=".env",
-        toml_file="kodo.toml",
-        extra="ignore",
+        extra="ignore",  # manifest tables ([project]/[[mcp]]/…) coexist in kodo.toml; ignore them here
     )
 
     @classmethod
@@ -69,7 +87,7 @@ class Settings(BaseSettings):
         return (
             init_settings,
             env_settings,
-            TomlConfigSettingsSource(settings_cls),
+            _KodoTomlSource(settings_cls),
             dotenv_settings,
             file_secret_settings,
         )

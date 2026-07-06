@@ -54,3 +54,61 @@ def test_load_raises_projecterror_on_bad_toml(tmp_path: Path) -> None:
     p.write_text('[[mcp]]\nname = "x"\n')  # missing required 'command'
     with pytest.raises(project.ProjectError, match="command"):
         project.load(p)
+
+
+def test_render_manifest_round_trips(tmp_path: Path) -> None:
+    # What render_manifest writes, load reads back — the writer and reader agree (A1).
+    text = project.render_manifest(
+        model="pub/Foo-GGUF",
+        system_prompt="You are helpful.",
+        mcp=[project.ProjectMcp(name="datetime", command="kodo-mcp-datetime", env={"TZ": "UTC"})],
+        local_library_dir="library",
+        chat_voice="kokoro:af_heart",
+    )
+    p = tmp_path / "kodo.toml"
+    p.write_text(text)
+    loaded = project.load(p)
+    assert loaded is not None
+    assert loaded.model == "pub/Foo-GGUF"
+    assert loaded.system_prompt == "You are helpful."
+    assert loaded.chat_voice == "kokoro:af_heart"
+    assert loaded.libraries == ["library", "@shared"]
+    assert [m.name for m in loaded.mcp] == ["datetime"]
+    assert loaded.mcp[0].env == {"TZ": "UTC"}
+
+
+def test_add_mcp_appends_and_is_readable(tmp_path: Path) -> None:
+    p = tmp_path / "kodo.toml"
+    p.write_text(project.render_manifest(model="pub/Foo"))
+    project.add_mcp(p, project.ProjectMcp(name="utils", command="kodo-mcp-utils"))
+    project.add_mcp(p, project.ProjectMcp(name="files", command="kodo-mcp-files"))
+    loaded = project.load(p)
+    assert loaded is not None and [m.name for m in loaded.mcp] == ["utils", "files"]  # both appended, valid
+
+
+def test_add_mcp_missing_file_raises(tmp_path: Path) -> None:
+    with pytest.raises(project.ProjectError, match="does not exist"):
+        project.add_mcp(tmp_path / "nope.toml", project.ProjectMcp(name="x", command="x"))
+
+
+def test_add_mcp_leaves_a_malformed_file_untouched(tmp_path: Path) -> None:
+    # If appending would yield invalid TOML (here the existing file is already broken), the write
+    # is refused and the file is left exactly as it was — never half-written (A1).
+    p = tmp_path / "kodo.toml"
+    broken = "this = = broken [[["
+    p.write_text(broken)
+    with pytest.raises(project.ProjectError, match="invalid TOML"):
+        project.add_mcp(p, project.ProjectMcp(name="x", command="x"))
+    assert p.read_text() == broken  # untouched
+
+
+def test_read_raw_is_the_single_parser(tmp_path: Path) -> None:
+    # read_raw underlies both the manifest (load) and the machine settings (kodo.config), so a
+    # malformed file raises one clean ProjectError rather than crashing differently in each.
+    assert project.read_raw(tmp_path / "absent.toml") == {}
+    p = tmp_path / "kodo.toml"
+    p.write_text('library_root = "/x"\n[project]\nmodel = "m"\n')
+    assert project.read_raw(p)["library_root"] == "/x"  # machine key + manifest table in one parse
+    p.write_text("nope = = [[[")
+    with pytest.raises(project.ProjectError, match="not valid TOML"):
+        project.read_raw(p)
