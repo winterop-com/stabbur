@@ -1,4 +1,4 @@
-"""Regression tests for scan/removal robustness (REVIEW.md batch 1)."""
+"""Regression tests for scan/removal robustness (S-H2/S-N1/N-H1 hardening batch)."""
 
 from __future__ import annotations
 

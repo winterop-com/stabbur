@@ -74,6 +74,17 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
   isolate kodo vs llama.cpp; (4) if it fails llama-server-alone → upstream issue; if it works alone
   → fix kodo's mmproj-pick (match by `clip.has_audio_encoder`, not filename) or the content shape.
 
+- **`kodo-mcp-web` SSRF guard is bypassable by DNS rebinding.** [deferred — only matters if
+  exposing kodo beyond a trusted LAN, which isn't the current model] `_guard_url` resolves via
+  `getaddrinfo` and rejects blocked IPs, but `httpx.AsyncClient.get` then does its *own* DNS
+  resolution to connect (`kodo-mcp-web/.../app.py:82-111,224-240`) — a hostname that resolves
+  public for the guard and `127.0.0.1`/`169.254.169.254` for the fetch reaches internal services.
+  The browser path (`_route_is_blocked`, `:114-130`) has the same shape (Chromium re-resolves).
+  Fix: resolve once and connect to the pinned IP. Related hardening from the same audit:
+  the IP blocklist misses CGNAT `100.64.0.0/10` (use `not is_global`); the exec sandbox runs as
+  root-in-container (add `--user`/`--cap-drop=ALL`/`--security-opt=no-new-privileges`); `run_python`
+  accepts an unbounded model-supplied `timeout_s` and buffers full stdout in host memory.
+
 ## Internal MCP servers — the "normal toolset" (complete)
 
 All planned bundled servers have shipped, each a workspace member following the
@@ -170,6 +181,10 @@ Chrome extension (side panel, shadcn chat)
   → kodo (serve --ui --model X): runs the model + MCP client + agent loop
       → MCP server from ../dhis2w-utils  → DHIS2 instance
 ```
+
+The Chrome/browser-extension design — side-panel client vs cookie relay, the `/api/chat`
+contract + 409 handling, CORS vs cross-site-guard mechanics, the live-session SameSite
+analysis, and screenshot/Playwright context — is detailed in [`CHROME.md`](CHROME.md).
 
 The DHIS2 MCP side is built in `~/dev/local/dhis2w-utils` (uv workspace):
 
