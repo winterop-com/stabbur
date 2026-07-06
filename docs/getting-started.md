@@ -10,8 +10,15 @@ Requires **Python 3.13** and [uv](https://docs.astral.sh/uv/).
 uv sync
 ```
 
-This installs the **`kodo`** command (with a hidden `ls` alias for `list`). Run
-it via `uv run kodo …`, or activate the venv and call `kodo` directly.
+This installs the **`kodo`** command (with a hidden `ls` alias for `list`) plus the
+bundled first-party MCP tool servers (`datetime`, `files`, `memory`, …), so tools work
+out of the box. Run it via `uv run kodo …`, or activate the venv and call `kodo` directly.
+Use `make install` (= `uv sync --extra benchmark`) if you also want the `kodo benchmark`
+eval command.
+
+kodo is installed **from this workspace**, not as a standalone PyPI wheel — the bundled
+`kodo-mcp-*` servers are unpublished workspace members that resolve as editable siblings, so
+a loose `pip install kodo` off PyPI is not a supported path.
 
 ### 2. Runtimes (to actually run models)
 

@@ -45,12 +45,18 @@ it, library commands fail with a clear message instead of silently using `./data
 **Install globally** (run `kodo` from any directory):
 
 ```bash
-uv tool install --editable ".[mlx,voice,tts]"     # kodo on your PATH, code edits live
+uv tool install --editable ".[mlx,voice,tts,benchmark]"   # kodo on your PATH, code edits live
 # then put KODO_LIBRARY_ROOT in your shell profile (~/.zshrc) so it applies everywhere
 ```
 
 Only `uv sync` + llama.cpp are needed to run GGUF models; the rest are optional.
+The `benchmark` extra adds the `kodo benchmark` eval command; drop it if you don't need it.
 See [getting started](docs/getting-started.md) for details.
+
+kodo is installed **from this workspace** (`uv sync` / `uv tool install -e .`), not as a
+standalone PyPI wheel: the bundled first-party MCP servers (`kodo-mcp-*`) are unpublished
+workspace members that resolve as editable siblings, so a loose `pip install kodo` off PyPI
+is not a supported install path.
 
 ## CLI
 

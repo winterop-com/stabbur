@@ -23,7 +23,7 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  install     Install dependencies"
+	@echo "  install     Install dependencies (incl. the benchmark/eval harness)"
 	@echo "  install-mlx Install deps + MLX runtimes (Apple Silicon only)"
 	@echo "  install-tts Install deps + Kokoro TTS (multi-voice; macOS + Linux)"
 	@echo "  install-web Install deps + web reader (Playwright) + Chromium browser"
@@ -37,21 +37,25 @@ help:
 	@echo "  docs-build  Build the docs site"
 	@echo "  clean       Clean up temporary files"
 
+# The `benchmark` extra rides along in every install target: it's a dev/eval tier
+# (its tests live under packages/kodo-benchmark and are collected by `make check`), and
+# `uv sync --extra X` prunes anything not selected — so each target names it to keep the
+# benchmark plugin present rather than have one runtime extra evict it.
 install:
-	@echo ">>> Installing dependencies"
-	@$(UV) sync
+	@echo ">>> Installing dependencies (incl. benchmark/eval harness)"
+	@$(UV) sync --extra benchmark
 
 install-mlx:
 	@echo ">>> Installing dependencies + MLX runtimes (Apple Silicon only)"
-	@$(UV) sync --extra mlx
+	@$(UV) sync --extra benchmark --extra mlx
 
 install-tts:
 	@echo ">>> Installing dependencies + Kokoro TTS (multi-voice; macOS + Linux)"
-	@$(UV) sync --extra tts
+	@$(UV) sync --extra benchmark --extra tts
 
 install-web:
 	@echo ">>> Installing dependencies + web reader (Playwright) + Chromium"
-	@$(UV) sync --extra web
+	@$(UV) sync --extra benchmark --extra web
 	@$(UV) run playwright install chromium
 
 lint:

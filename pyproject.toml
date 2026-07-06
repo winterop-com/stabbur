@@ -10,7 +10,13 @@ dependencies = [
     "hf-xet>=1.5.1",
     "httpx>=0.28.1",
     "huggingface-hub>=1.21.0",
-    "kodo-benchmark",
+    # Bundled first-party MCP tool servers (pure-stdlib / light) — kodo ships with a
+    # working tool set out of the box, so these are base deps, not extras. They're
+    # workspace members (see [tool.uv.sources]); a plain PyPI `pip install kodo` can't
+    # resolve them because they're unpublished. That's by design: kodo is installed from
+    # this workspace (`uv sync` / `uv tool install -e .`), where they resolve as editable
+    # siblings — a standalone PyPI wheel is not a supported install path. The heavier
+    # `kodo-mcp-web` (Playwright) and the dev-only `kodo-benchmark` are extras instead.
     "kodo-mcp-datetime",
     "kodo-mcp-exec",
     "kodo-mcp-files",
@@ -70,6 +76,16 @@ voice = [
 # stdlib/light servers stay bundled in [project.dependencies]; this one is opt-in.
 web = [
     "kodo-mcp-web",
+]
+
+# Benchmarking / eval harness (kodo-benchmark): contributes the `kodo benchmark` command
+# for measuring model quality across a suite. It's a dev/eval tool, not part of the runtime
+# an end user needs to chat or serve, so it's opt-in rather than a base dependency (which
+# also keeps it out of the app's wheel Requires-Dist). Install with `uv sync --extra benchmark`
+# (or add `benchmark` to the `uv tool install -e .[...]` extras to expose `kodo benchmark`
+# on the global command).
+benchmark = [
+    "kodo-benchmark",
 ]
 
 [project.scripts]
