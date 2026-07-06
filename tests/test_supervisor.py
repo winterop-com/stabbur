@@ -162,7 +162,12 @@ def test_sweep_reaps_orphan_of_a_dead_owner(tmp_path: Path, monkeypatch: pytest.
     try:
         entry = _write_meta(root, owner_pid=_DEAD_OWNER, proc=sleeper, port=port)
         reaped = supervisor.sweep_orphans()
-        assert sleeper.pid in reaped
+        # Diagnostic context if the reap didn't happen (helps pin down a ps/platform quirk).
+        diag = (
+            f"reaped={reaped} sleeper.pid={sleeper.pid} port={port} alive={supervisor._pid_alive(sleeper.pid)} "
+            f"ps={supervisor._process_command(sleeper.pid)!r} matches={supervisor._cmd_matches(sleeper.pid, {'cmd': _bind_cmd(port), 'port': port})}"
+        )
+        assert sleeper.pid in reaped, diag
         # The test owns the sleeper, so reap the zombie the signal left behind before checking
         # (in production the orphan is init's child and auto-reaped).
         sleeper.wait(timeout=2)
