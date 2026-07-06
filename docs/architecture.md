@@ -33,6 +33,14 @@ src/kodo/
   runnable set. `LibraryModel` carries `load_target` (the exact file/dir to hand
   the runtime) and `mmproj` (multimodal projector, if any).
 
+A library is scanned per bucket — `voice/`, the format dirs (`gguf/` / `mlx/` / …), and Ollama's
+native store each have their own layout — but a model's **identity** is a `ModelRef` (name +
+format), not a bare name string: that's what `scan()` dedups on (the same model+format in two
+libraries is one entry; a GGUF and an MLX build of the same repo are distinct and both survive).
+Every bucket scanner funnels its per-item construction through one fault-isolation helper, so a
+single corrupt or half-written model on disk is skipped rather than crashing the whole listing —
+`scan()` returns the healthy models and never raises on a bad one.
+
 ## Serving
 
 `serve` runs FastAPI. A `ServerManager` owns at most one runtime child process

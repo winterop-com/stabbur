@@ -14,14 +14,23 @@
 > - **Architecture**: **A2** (no `./data` default; one guarded `library.default_root()`), **A5**
 >   (per-library `flock`), **A4** (process supervisor: group kill + pidfile + orphan sweep,
 >   live-proven), **A1** (one `kodo.toml` parser + one validated writer), **A8** (import-time HF
->   constraint documented; serve env-API centralized). **I-8** (benchmark is now an extra).
+>   constraint documented; serve env-API centralized), **A3** (bounded — see below). **I-8**
+>   (benchmark is now an extra).
 > - Plus the earlier batches (S-\*, C-\*, N-\*, VO-\*) — see git history.
 >
-> **Remaining (deliberately deferred):** **A3** (one scanner + `ModelRef` identity — the big,
-> high-risk lever), **A6** (generalize enforce-at-choke-point beyond the fixed instances), **A7**
-> (split the 2.2k-line `cli.py`), **P-H1** (SSRF/DNS-rebinding — only matters if exposing beyond a
-> trusted LAN, which isn't the model), and the audio-specialist bug (blocked on a small audio GGUF
-> + likely an upstream llama.cpp issue). See `docs/architecture.md` for the current design.
+> **A3 (done, bounded).** A3's concrete sub-bugs (C-6/C-12/S-N1/S-H2/N-H1/VO-M2/S-N5) were already
+> fixed as instances in earlier batches, so A3's remaining value was structural. Delivered: a
+> formal `ModelRef` (name+format) identity that `scan()` dedups on, and a single shared
+> fault-isolation helper all bucket scanners funnel through, so one corrupt model on disk is
+> skipped, never crashing the listing. The literal "merge all seven scanners into one" was
+> deliberately **not** done: the list conflates distinct concerns (source-listing for pull vs
+> on-drive library scanning) that shouldn't merge, and the per-bucket decomposition is sound — a
+> ground-up merge would be high-risk churn for marginal, already-patched bug-prevention.
+>
+> **Remaining (deliberately deferred):** **A6** (generalize enforce-at-choke-point beyond the fixed
+> instances), **A7** (split the 2.2k-line `cli.py`), **P-H1** (SSRF/DNS-rebinding — only matters if
+> exposing beyond a trusted LAN, which isn't the model), and the audio-specialist bug (blocked on a
+> small audio GGUF + likely an upstream llama.cpp issue). See `docs/architecture.md`.
 
 A cross-cutting audit of the codebase: bugs, gaps, missing features, and infrastructure
 issues, grouped by subsystem and ranked most severe first within each section.

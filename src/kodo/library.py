@@ -12,8 +12,9 @@ stores that models are pulled *from*.
 
 import json
 import shutil
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -55,6 +56,21 @@ class LibraryNotConfigured(RuntimeError):
 
 # Preferred GGUF quant when a repo ships several, most-preferred first.
 _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
+
+
+class ModelRef(BaseModel):
+    """The identity of a library model: its ``name`` and ``model_format``.
+
+    A model is identified by *what it is* (a name + a format), not by a bare name string. Two
+    copies of the same model+format in different libraries are the *same* model (deduped to one
+    on scan); a GGUF and an MLX build of the same repo are *distinct* runnable artifacts (both
+    survive so ``--format`` can pick between them). Frozen + hashable so it can key a set/dict.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    model_format: ModelFormat
 
 
 class LibraryModel(BaseModel):
@@ -100,6 +116,11 @@ class LibraryModel(BaseModel):
     def size_human(self) -> str:
         """Human-readable size of the model on disk."""
         return _human_size(self.size_bytes)
+
+    @property
+    def ref(self) -> ModelRef:
+        """This model's identity (name + format) — the key for dedup/matching (see :class:`ModelRef`)."""
+        return ModelRef(name=self.name, model_format=self.model_format)
 
 
 def _weights(model_dir: Path, suffix: str) -> list[Path]:
@@ -201,6 +222,28 @@ def _voice_spec(name: str) -> "VoiceModel | None":
     return registry.by_repo(name)
 
 
+_T = TypeVar("_T")
+
+
+def _isolated(build: Callable[[_T], LibraryModel | None], items: Iterable[_T]) -> list[LibraryModel]:
+    """Build a :class:`LibraryModel` per item, isolating failures so one bad model can't crash a scan.
+
+    The three bucket scanners (``voice/``, format dirs, ``ollama/``) all funnel their per-item
+    construction through here (A3): a model whose files are corrupt/half-written/unreadable is
+    **skipped** (a per-item exception or a ``None`` return), never propagated — so ``scan()`` always
+    returns the *healthy* models rather than raising and taking down the whole library listing.
+    """
+    out: list[LibraryModel] = []
+    for item in items:
+        try:
+            model = build(item)
+        except Exception:  # noqa: BLE001 - fault isolation: a single unreadable model must not crash scan()
+            continue
+        if model is not None:
+            out.append(model)
+    return out
+
+
 def _scan_voice(base: Path) -> list[LibraryModel]:
     """Scan the ``voice/`` bucket at the repo level (``voice/<publisher>/<repo>``).
 
@@ -215,27 +258,27 @@ def _scan_voice(base: Path) -> list[LibraryModel]:
     def _dirs(parent: Path) -> list[Path]:
         return sorted(p for p in parent.iterdir() if p.is_dir() and not p.name.startswith("._"))
 
-    models: list[LibraryModel] = []
-    for publisher in _dirs(voice_bucket):
-        for repo in _dirs(publisher):
-            name = f"{publisher.name}/{repo.name}"
-            spec = _voice_spec(name)
-            kind = spec.kind.value if spec else "tts"
-            size_bytes, file_count = dir_stats(repo)
-            models.append(
-                LibraryModel(
-                    name=name,
-                    model_format=_classify_dir(repo),
-                    generative=False,
-                    tts=kind == "tts",
-                    voice_kind=kind,
-                    path=repo,
-                    load_target=repo,
-                    size_bytes=size_bytes,
-                    file_count=file_count,
-                )
-            )
-    return models
+    repos = [repo for publisher in _dirs(voice_bucket) for repo in _dirs(publisher)]
+    return _isolated(_voice_model, repos)
+
+
+def _voice_model(repo: Path) -> LibraryModel:
+    """Build a voice-bucket model from its ``voice/<publisher>/<repo>`` dir."""
+    name = f"{repo.parent.name}/{repo.name}"
+    spec = _voice_spec(name)
+    kind = spec.kind.value if spec else "tts"
+    size_bytes, file_count = dir_stats(repo)
+    return LibraryModel(
+        name=name,
+        model_format=_classify_dir(repo),
+        generative=False,
+        tts=kind == "tts",
+        voice_kind=kind,
+        path=repo,
+        load_target=repo,
+        size_bytes=size_bytes,
+        file_count=file_count,
+    )
 
 
 def _scan_dirs(base: Path) -> list[LibraryModel]:
@@ -258,88 +301,86 @@ def _scan_dirs(base: Path) -> list[LibraryModel]:
                 continue
             dirs.add(parent)
 
-    models: list[LibraryModel] = []
-    for model_dir in sorted(dirs):
-        name = _clean_name(model_dir.relative_to(base))
-        if not name:
-            continue  # a loose weight at a bucket/library root — no model identity; skip (never rm-able)
-        fmt = _classify_dir(model_dir)
-        size_bytes, file_count = dir_stats(model_dir)
+    return _isolated(lambda d: _model_from_dir(d, base), sorted(dirs))
 
-        if fmt is ModelFormat.gguf:
-            ggufs = sorted(_weights(model_dir, ".gguf"))
-            vocoder = _find_vocoder(ggufs)
-            if vocoder is not None:
-                # TTS setup: a model GGUF paired with a vocoder. The vocoder alone
-                # isn't a runnable model, so a dir with only a vocoder is skipped.
-                mains = [g for g in ggufs if g != vocoder and not g.name.lower().startswith("mmproj")]
-                if not mains:
-                    continue
-                models.append(
-                    LibraryModel(
-                        name=name,
-                        model_format=fmt,
-                        generative=False,  # not a chat model — served via llama-tts
-                        tts=True,
-                        path=model_dir,
-                        load_target=_pick_weight(mains),
-                        vocoder=vocoder,
-                        languages=_tts_languages(name),
-                        size_bytes=size_bytes,
-                        file_count=file_count,
-                    )
-                )
-                continue
-            try:
-                load_target, mmproj = pick_gguf(model_dir)
-            except FileNotFoundError:
-                # No usable weight yet — an in-progress download (only an mmproj or
-                # .incomplete files present) or a broken dir. Skip until it's whole.
-                continue
-        else:
-            load_target, mmproj = model_dir, None
 
-        models.append(
-            LibraryModel(
+def _model_from_dir(model_dir: Path, base: Path) -> LibraryModel | None:
+    """Build a directory-based model (GGUF / MLX / safetensors), or ``None`` to skip the dir."""
+    name = _clean_name(model_dir.relative_to(base))
+    if not name:
+        return None  # a loose weight at a bucket/library root — no model identity; skip (never rm-able)
+    fmt = _classify_dir(model_dir)
+    size_bytes, file_count = dir_stats(model_dir)
+
+    if fmt is ModelFormat.gguf:
+        ggufs = sorted(_weights(model_dir, ".gguf"))
+        vocoder = _find_vocoder(ggufs)
+        if vocoder is not None:
+            # TTS setup: a model GGUF paired with a vocoder. The vocoder alone
+            # isn't a runnable model, so a dir with only a vocoder is skipped.
+            mains = [g for g in ggufs if g != vocoder and not g.name.lower().startswith("mmproj")]
+            if not mains:
+                return None
+            return LibraryModel(
                 name=name,
                 model_format=fmt,
-                generative=arch.is_generative(fmt, model_dir),
+                generative=False,  # not a chat model — served via llama-tts
+                tts=True,
                 path=model_dir,
-                load_target=load_target,
-                mmproj=mmproj,
+                load_target=_pick_weight(mains),
+                vocoder=vocoder,
+                languages=_tts_languages(name),
                 size_bytes=size_bytes,
                 file_count=file_count,
             )
-        )
-    return models
+        try:
+            load_target, mmproj = pick_gguf(model_dir)
+        except FileNotFoundError:
+            # No usable weight yet — an in-progress download (only an mmproj or
+            # .incomplete files present) or a broken dir. Skip until it's whole.
+            return None
+    else:
+        load_target, mmproj = model_dir, None
+
+    return LibraryModel(
+        name=name,
+        model_format=fmt,
+        generative=arch.is_generative(fmt, model_dir),
+        path=model_dir,
+        load_target=load_target,
+        mmproj=mmproj,
+        size_bytes=size_bytes,
+        file_count=file_count,
+    )
 
 
 def _scan_ollama(base: Path) -> list[LibraryModel]:
     """Surface Ollama models from their native store as runnable GGUF entries."""
     ollama_dir = base / "ollama"
-    models: list[LibraryModel] = []
-    for name, manifest in ollama.manifest_names(ollama_dir):
-        model_blob, mmproj_blob = ollama.weight_blobs(manifest, ollama_dir)
-        if model_blob is None or not model_blob.is_file():
-            continue
-        # A referenced-but-missing projector blob (partial backup / corruption) shouldn't crash the
-        # whole scan — drop it and surface the model text-only rather than raising FileNotFoundError.
-        if mmproj_blob is not None and not mmproj_blob.is_file():
-            mmproj_blob = None
-        size_bytes = model_blob.stat().st_size + (mmproj_blob.stat().st_size if mmproj_blob else 0)
-        models.append(
-            LibraryModel(
-                name=name,
-                model_format=ModelFormat.gguf,
-                is_ollama=True,
-                path=manifest,
-                load_target=model_blob,
-                mmproj=mmproj_blob,
-                size_bytes=size_bytes,
-                file_count=1 + (1 if mmproj_blob else 0),
-            )
-        )
-    return models
+    return _isolated(lambda nm: _ollama_model(nm, ollama_dir), ollama.manifest_names(ollama_dir))
+
+
+def _ollama_model(name_manifest: tuple[str, Path], ollama_dir: Path) -> LibraryModel | None:
+    """Build a runnable GGUF entry for one Ollama manifest, or ``None`` if its weight is missing."""
+    name, manifest = name_manifest
+    model_blob, mmproj_blob = ollama.weight_blobs(manifest, ollama_dir)
+    if model_blob is None or not model_blob.is_file():
+        return None
+    # A referenced-but-missing projector blob (partial backup / corruption) shouldn't crash the
+    # scan — drop it and surface the model text-only rather than raising FileNotFoundError.
+    if mmproj_blob is not None and not mmproj_blob.is_file():
+        mmproj_blob = None
+    size_bytes = model_blob.stat().st_size + (mmproj_blob.stat().st_size if mmproj_blob else 0)
+    return LibraryModel(
+        name=name,
+        model_format=ModelFormat.gguf,
+        is_ollama=True,
+        path=manifest,
+        load_target=model_blob,
+        mmproj=mmproj_blob,
+        size_bytes=size_bytes,
+        file_count=1 + (1 if mmproj_blob else 0),
+    )
 
 
 def _scan_root(base: Path) -> list[LibraryModel]:
@@ -419,22 +460,22 @@ def configured(settings: Settings | None = None) -> bool:
 def scan(root: Path | None = None) -> list[LibraryModel]:
     """Return every runnable model across the resolved libraries (see :func:`roots`).
 
-    Scanned in priority order and deduped by (name, format): a project-local copy
-    wins over the shared one on a tie (so loads come from the closer library), while
-    a GGUF in one library and an MLX build in another both survive (distinct
-    artifacts). A single ``root`` is honored as-is (used by tests).
+    Scanned in priority order and deduped by :class:`ModelRef` (name + format): a project-local
+    copy wins over the shared one on a tie (so loads come from the closer library), while a GGUF
+    in one library and an MLX build in another both survive (distinct artifacts). Per-model faults
+    are isolated (:func:`_isolated`), so a corrupt model on disk is skipped, never raised. A single
+    ``root`` is honored as-is (used by tests).
     """
     bases = [root] if root is not None else roots()
     models: list[LibraryModel] = []
-    seen: set[tuple[str, ModelFormat]] = set()
+    seen: set[ModelRef] = set()
     for base in bases:
         for m in _scan_root(base):
-            # Key on (name, format): the same model+format in two libraries is one
-            # entry (first/closer wins), but a GGUF vs an MLX copy are distinct
-            # runnable artifacts and must both survive for --format to disambiguate.
-            key = (m.name, m.model_format)
-            if key not in seen:
-                seen.add(key)
+            # Key on the model's ModelRef (name + format): the same model+format in two libraries
+            # is one entry (first/closer wins), but a GGUF vs an MLX copy are distinct runnable
+            # artifacts and must both survive for --format to disambiguate.
+            if m.ref not in seen:
+                seen.add(m.ref)
                 models.append(m)
     return models
 

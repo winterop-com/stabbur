@@ -119,3 +119,54 @@ def test_migrate_move_does_not_nest_into_a_racing_dest(tmp_path: Path) -> None:
     library.apply_migration(plan)
     assert not (tmp_path / "gguf" / "pub" / "Bar-GGUF" / "Bar-GGUF").exists()  # no nesting
     assert (hf / "m.gguf").exists()  # conflict → hf copy left untouched
+
+
+# --- A3: ModelRef identity + per-item fault isolation in scan ---
+
+
+def test_modelref_is_a_hashable_identity() -> None:
+    # A model is identified by (name, format): same name+format are equal + hash together; a GGUF
+    # vs an MLX build of the same repo are distinct. Frozen/hashable so it can key the scan dedup.
+    a = library.ModelRef(name="pub/x", model_format=ModelFormat.gguf)
+    b = library.ModelRef(name="pub/x", model_format=ModelFormat.gguf)
+    c = library.ModelRef(name="pub/x", model_format=ModelFormat.mlx)
+    assert a == b and hash(a) == hash(b)
+    assert a != c
+    seen: set[library.ModelRef] = set()  # as scan() keys its dedup
+    for ref in (a, b, c):
+        seen.add(ref)
+    assert len(seen) == 2  # dedups by identity (a==b collapse; c distinct)
+    m = library.LibraryModel(name="pub/x", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x"))
+    assert m.ref == a  # LibraryModel exposes its own identity
+
+
+def test_isolated_skips_failing_and_none_items() -> None:
+    def build(n: int) -> library.LibraryModel | None:
+        if n == 2:
+            raise ValueError("corrupt")  # a per-item failure must not propagate
+        if n == 3:
+            return None  # a deliberate skip
+        return library.LibraryModel(
+            name=f"m{n}", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x")
+        )
+
+    out = library._isolated(build, [1, 2, 3, 4])
+    assert [m.name for m in out] == ["m1", "m4"]  # 2 (raised) and 3 (None) both dropped, rest survive
+
+
+def test_scan_survives_a_corrupt_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # One unreadable model on disk must not crash the whole library listing (A3): scan returns the
+    # healthy models and silently skips the broken one.
+    _gguf(tmp_path / "gguf" / "pub" / "good")
+    _gguf(tmp_path / "gguf" / "pub" / "bad")
+    real = library._model_from_dir
+
+    def faulty(model_dir: Path, base: Path) -> library.LibraryModel | None:
+        if model_dir.name == "bad":
+            raise ValueError("simulated corruption")
+        return real(model_dir, base)
+
+    monkeypatch.setattr(library, "_model_from_dir", faulty)
+    names = {m.name for m in library.scan(root=tmp_path)}
+    assert "pub/good" in names  # healthy model survives
+    assert "pub/bad" not in names  # corrupt one skipped, no exception
