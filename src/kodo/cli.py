@@ -880,7 +880,7 @@ def _pull_voice_all(root: Path | None, move: bool) -> None:
     """
     from kodo.voice import importer as voice_importer  # noqa: PLC0415
 
-    target = root or get_settings().library_root
+    target = root or library_ops.default_root()
     ids = voice_importer.cached_voice_ids(target)
     if not ids:
         console.print("No cached voice models to import. Pull one by name, e.g. kodo library pull voice kokoro.")
@@ -991,7 +991,7 @@ def pull(
     """
     # Default target: the first library in scope (project-local if any, else the
     # default). --shared forces the machine's default (shared) library.
-    root = get_settings().library_root if shared else library_ops.roots()[0]
+    root = library_ops.default_root() if shared else library_ops.roots()[0]
     if all_ == (name is not None):
         console.print("[red]Provide either a model name or --all, not both.[/]")
         raise typer.Exit(2)
@@ -1543,7 +1543,9 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
         raise typer.Exit(1)
     if model.is_ollama:
         # Ollama's GGUFs (e.g. gemma3) don't load in stock llama.cpp — run via Ollama.
-        store = get_settings().library_root / "ollama"
+        # The store is in the model's own library (where it was scanned from), not necessarily
+        # the shared default.
+        store = model.library_root / "ollama"
         console.print(f"[red]{model.name!r} is an Ollama model[/] — kodo runs GGUF/MLX, not Ollama's format.")
         console.print(f"[yellow]Run it with Ollama:[/]  OLLAMA_MODELS={store} ollama run {model.name}")
         raise typer.Exit(1)
@@ -2108,7 +2110,7 @@ def voice_import(
     if all_ and models:  # like `kodo library pull`, reject the contradictory combination
         console.print("[red]Give voice model id(s) OR --all, not both.[/]")
         raise typer.Exit(2)
-    root = get_settings().library_root if shared else library_ops.roots()[0]
+    root = library_ops.default_root() if shared else library_ops.roots()[0]
     if all_:
         _pull_voice_all(root, prune)
         return

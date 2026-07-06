@@ -143,8 +143,10 @@ class Settings(BaseSettings):
     # (e.g. an external drive). A project (``kodo.toml``) can compose additional
     # libraries in front of this one (``libraries = [".kodo/library", "@shared"]``),
     # where ``@shared`` resolves to this default; outside a project this is the only
-    # library. See :func:`kodo.library.roots`.
-    library_root: Path = Path("data")
+    # library. **No default**: ``None`` means "not configured", and every consumer must
+    # route through :func:`kodo.library.roots` / :func:`kodo.library.default_root`, which
+    # raise ``LibraryNotConfigured`` rather than silently falling back to a ``./data`` dir.
+    library_root: Path | None = None
 
     # Source stores to scan and back up from.
     ollama_models_dir: Path = Path.home() / ".ollama" / "models"

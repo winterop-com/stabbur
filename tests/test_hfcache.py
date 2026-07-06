@@ -17,12 +17,12 @@ def _clean_hf_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HF_HUB_CACHE", raising=False)
 
 
-def _fake_settings(monkeypatch: pytest.MonkeyPatch, library_root: Path) -> None:
+def _fake_settings(monkeypatch: pytest.MonkeyPatch, library_root: Path | None) -> None:
     monkeypatch.setattr("kodo.config.get_settings", lambda: SimpleNamespace(library_root=library_root, hf_token=None))
 
 
 def test_drive_cache_dir_none_for_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_settings(monkeypatch, Path("data"))  # the relative default sentinel
+    _fake_settings(monkeypatch, None)  # library_root is None when unconfigured (no ./data fallback)
     assert hfcache.drive_cache_dir() is None
 
 
@@ -59,7 +59,7 @@ def test_configure_respects_user_hf_hub_cache(monkeypatch: pytest.MonkeyPatch, t
 
 
 def test_configure_noop_without_library(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_settings(monkeypatch, Path("data"))
+    _fake_settings(monkeypatch, None)
     assert hfcache.configure() is None
 
 

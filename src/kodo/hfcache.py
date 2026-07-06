@@ -18,15 +18,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# The unconfigured library default (a relative "data" dir) — not a real drive to cache onto.
-_UNCONFIGURED_ROOT = Path("data")
-
 
 def drive_cache_dir() -> Path | None:
     """The on-drive HF cache dir, or ``None`` if there's no real configured library.
 
-    Only a configured library that exists on disk (a mounted drive) is used; the
-    default relative ``data`` sentinel and a missing path fall back to the machine cache.
+    Only a configured library that exists on disk (a mounted drive) is used; an unconfigured
+    library (``library_root is None``) and a missing path fall back to the machine cache.
     """
     try:
         from kodo.config import get_settings  # noqa: PLC0415 - avoid import cycle at module load
@@ -34,7 +31,7 @@ def drive_cache_dir() -> Path | None:
         root = get_settings().library_root
     except Exception:  # noqa: BLE001 - never let config errors break importing kodo
         return None
-    if root == _UNCONFIGURED_ROOT or not root.is_dir():
+    if root is None or not root.is_dir():
         return None
     return root / ".cache" / "huggingface"
 

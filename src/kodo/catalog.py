@@ -56,7 +56,9 @@ def pull(
             support it yet.
         ValueError: If ``include`` is given for a source that does not support it.
     """
-    root = library_root or get_settings().library_root
+    from kodo import library  # noqa: PLC0415 - lazy to avoid an import cycle
+
+    root = library_root or library.default_root()
     if include and source is not ModelSource.huggingface:
         raise ValueError("--include is only supported for the huggingface source")
     if vocoder and source is not ModelSource.huggingface:

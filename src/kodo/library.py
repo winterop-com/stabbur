@@ -367,11 +367,13 @@ def roots(settings: Settings | None = None) -> list[Path]:
     proj = project.load()
     entries = proj.libraries if proj and proj.libraries else [SHARED_TOKEN]
     # @shared resolves to the machine default library (KODO_LIBRARY_ROOT), which must be set
-    # explicitly — not the ./data fallback. If a project also ships its own (project-relative)
-    # libraries, a missing @shared simply drops out and the project runs from its own store
-    # (this is what makes a `--local` project self-contained). @shared only hard-fails when
-    # it's the *only* source of models — i.e. free-play, or a project listing nothing local.
-    if SHARED_TOKEN in entries and "library_root" not in settings.model_fields_set:
+    # explicitly (``library_root is None`` means unconfigured — there is no ./data fallback). If
+    # a project also ships its own (project-relative) libraries, a missing @shared simply drops
+    # out and the project runs from its own store (this is what makes a `--local` project
+    # self-contained). @shared only hard-fails when it's the *only* source of models — i.e.
+    # free-play, or a project listing nothing local.
+    shared = settings.library_root
+    if SHARED_TOKEN in entries and shared is None:
         local_entries = [e for e in entries if e != SHARED_TOKEN]
         if not local_entries:
             raise LibraryNotConfigured
@@ -379,12 +381,30 @@ def roots(settings: Settings | None = None) -> list[Path]:
     out: list[Path] = []
     seen: set[Path] = set()
     for entry in entries:
-        base = settings.library_root if entry == SHARED_TOKEN else (Path.cwd() / entry).expanduser()
+        if entry == SHARED_TOKEN:
+            assert shared is not None  # guaranteed: @shared only survives the guard above when set
+            base = shared
+        else:
+            base = (Path.cwd() / entry).expanduser()
         resolved = base.resolve()
         if resolved not in seen:
             seen.add(resolved)
             out.append(resolved)
     return out
+
+
+def default_root(settings: Settings | None = None) -> Path:
+    """The machine's default library (``KODO_LIBRARY_ROOT`` / ``@shared``), or raise.
+
+    This is the single shared store — where pulls land by default and where runtime assets
+    (the Kokoro TTS model, the HF cache) live so they travel with the drive. It ignores any
+    project ``libraries`` (those are :func:`roots`); it's specifically the ``@shared`` location.
+    Raises :class:`LibraryNotConfigured` when unset, so no consumer silently uses ``./data``.
+    """
+    settings = settings or get_settings()
+    if settings.library_root is None:
+        raise LibraryNotConfigured
+    return settings.library_root
 
 
 def configured(settings: Settings | None = None) -> bool:

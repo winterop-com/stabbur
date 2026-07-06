@@ -19,8 +19,6 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from kodo.config import get_settings
-
 # Pinned kokoro-onnx "model-files" release: the fp32 model + combined voices .npz.
 # fp32 is used over int8 because on CPU it is both faster and higher quality here
 # (int8 quant ops aren't accelerated); it's a one-time ~310 MB fetch.
@@ -137,8 +135,13 @@ def voices() -> list[KokoroVoice]:
 
 
 def _assets_dir() -> Path:
-    """Where the Kokoro model + voices live — inside the library, so they travel with it."""
-    return get_settings().library_root / "tts" / "kokoro"
+    """Where the Kokoro model + voices live — inside the library, so they travel with it.
+
+    Raises ``LibraryNotConfigured`` when no library is set (rather than using ``./data``).
+    """
+    from kodo import library  # noqa: PLC0415 - lazy to avoid an import cycle
+
+    return library.default_root() / "tts" / "kokoro"
 
 
 def assets_present() -> bool:

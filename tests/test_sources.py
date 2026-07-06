@@ -630,6 +630,15 @@ def test_roots_shared_token_strictness(tmp_path: Path, monkeypatch: pytest.Monke
     assert library.roots(settings) == [(tmp_path / "library").resolve()]
 
 
+def test_default_root_guards_the_shared_library(tmp_path: Path) -> None:
+    # default_root() is the one guarded accessor for the machine's @shared library: it raises
+    # when unset (no ./data fallback, A2) and returns the configured path otherwise, ignoring
+    # any project `libraries`.
+    with pytest.raises(library.LibraryNotConfigured):
+        library.default_root(Settings(library_root=None))
+    assert library.default_root(Settings(library_root=tmp_path)) == tmp_path
+
+
 def test_safe_join_allows_normal_names(tmp_path: Path) -> None:
     assert base.safe_join(tmp_path, "pub/repo") == (tmp_path / "pub/repo").resolve()
     assert base.safe_join(tmp_path, "gguf/pub/repo") == (tmp_path / "gguf/pub/repo").resolve()
