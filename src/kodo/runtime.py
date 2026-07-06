@@ -9,30 +9,24 @@ identically for GGUF and MLX.
 """
 
 import shutil
-import socket
-import subprocess
-import tempfile
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, Any
+from typing import Any
 
 import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from kodo import capabilities
+from kodo import capabilities, supervisor
 from kodo.config import debug_enabled, get_settings, pinned_runtime_port
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat, _human_size
 
-
-def find_free_port() -> int:
-    """Ask the OS for a free localhost TCP port (best-effort; small TOCTOU window)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+# The serve command reuses this to pick its own API port; runtime spawning goes through the
+# supervisor (which retries on a bind collision), so there's one implementation.
+find_free_port = supervisor.find_free_port
 
 
 # Progress/spinner goes to stderr so one-shot stdout (piped output) stays clean.
@@ -98,16 +92,16 @@ def runnable_error(model: LibraryModel) -> str | None:
     return None
 
 
-def _early_exit_error(cmd: list[str], code: int | None, log_dir: Path | None, port: int) -> RuntimeError:
+def _early_exit_error(cmd: list[str], code: int | None, log_path: Path | None, port: int) -> RuntimeError:
     """Build a RuntimeError explaining why the runtime exited during startup.
 
     Includes the tail of the captured runtime log (when not in --debug) and a
     port-in-use hint, so "exited before becoming ready" is actually diagnosable.
     """
     tail = ""
-    if log_dir is not None:
+    if log_path is not None:
         try:
-            tail = (log_dir / f"{cmd[0]}.log").read_text(errors="replace").strip()[-2000:]
+            tail = log_path.read_text(errors="replace").strip()[-2000:]
         except OSError:
             pass
     msg = f"{cmd[0]} exited before becoming ready (exit {code})"
@@ -116,73 +110,41 @@ def _early_exit_error(cmd: list[str], code: int | None, log_dir: Path | None, po
         msg += f"; port {port} is already in use — another kodo runtime may be running"
     if tail:
         msg += f"\n--- runtime log ---\n{tail}"
-    elif log_dir is None:
+    elif log_path is None:
         msg += " — see the runtime output above"
     return RuntimeError(msg)
 
 
-class RuntimeProc:
-    """A running model-runtime server: its process, base URL, and log location.
-
-    A resource handle (like ``MCPToolset``), not a data record — it holds the live ``Popen`` and
-    file handles. Own one, then :func:`stop` it. :func:`start` + :func:`wait_ready` split spawning
-    from the (blocking) readiness poll so a caller can render its own progress — the chat TUI drives
-    these to switch models without the Rich spinner :func:`_serve` uses.
-    """
-
-    def __init__(
-        self,
-        proc: "subprocess.Popen[bytes]",
-        base: str,
-        model: LibraryModel,
-        cmd: list[str],
-        port: int,
-        log_dir: Path | None,
-        log_fh: IO[bytes] | None,
-    ) -> None:
-        self.proc = proc
-        self.base = base
-        self.model = model  # the model this runtime is serving (so the owner can read its metadata)
-        self._cmd = cmd
-        self._port = port
-        self.log_dir = log_dir
-        self.log_fh = log_fh
+# A runtime handle is a supervised process (:class:`kodo.supervisor.RuntimeHandle`) — the CLI holds
+# one, drives :func:`start` + :func:`wait_ready` (spawning split from the blocking readiness poll so
+# the chat TUI can switch models without the Rich spinner :func:`_serve` uses), then :func:`stop`s it.
+RuntimeProc = supervisor.RuntimeHandle
 
 
 def start(model: LibraryModel) -> RuntimeProc:
     """Spawn the model's runtime server and return a handle — does NOT wait for readiness.
 
+    Spawning (process group, pidfile, port-retry, orphan tracking) is owned by the supervisor;
+    this adds the model-specific bits: the command, the missing-binary hint, and --debug streaming.
+
     Raises:
         RuntimeError: If the runtime binary is missing.
     """
-    # Auto-pick a free port unless one is pinned, so concurrent kodo sessions don't fight over one.
-    port = pinned_runtime_port() or find_free_port()
-    cmd = build_command(model, "127.0.0.1", port)
-    if shutil.which(cmd[0]) is None:
-        raise RuntimeError(f"{cmd[0]!r} not found on PATH. {_INSTALL_HINTS.get(cmd[0], '')}".strip())
-
-    base = f"http://127.0.0.1:{port}"
-    # In --debug, stream the runtime's logs live (inherit stderr); otherwise capture
-    # them to a temp file (never DEVNULL) so an early exit can report the real cause.
-    log_dir: Path | None = None
-    log_fh: IO[bytes] | None = None
-    stderr_target: IO[bytes] | None = None  # None → inherit (live to terminal)
-    if debug_enabled():
-        _status_console.print(f"[dim]runtime →[/] {' '.join(cmd)}")
-    else:
-        log_dir = Path(tempfile.mkdtemp(prefix="kodo-runtime-"))
-        log_fh = (log_dir / f"{cmd[0]}.log").open("wb")
-        stderr_target = log_fh
-
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=stderr_target)
-    except OSError:  # spawn failed after we opened the log fd + tempdir — don't leak them
-        if log_fh is not None:
-            log_fh.close()
-        if log_dir is not None:
-            shutil.rmtree(log_dir, ignore_errors=True)
-        raise
-    return RuntimeProc(proc, base, model, cmd, port, log_dir, log_fh)
+    binary = build_command(model, "127.0.0.1", 0)[0]
+    if shutil.which(binary) is None:
+        raise RuntimeError(f"{binary!r} not found on PATH. {_INSTALL_HINTS.get(binary, '')}".strip())
+    debug = debug_enabled()
+    if debug:
+        _status_console.print(f"[dim]runtime →[/] {' '.join(build_command(model, '127.0.0.1', 0))}")
+    # Pinned port (if any) is honored; otherwise the supervisor auto-picks and retries on collision.
+    handle = supervisor.spawn(
+        lambda port: build_command(model, "127.0.0.1", port),
+        port=pinned_runtime_port(),
+        stream_logs=debug,  # --debug: inherit stderr (live to terminal) instead of a log file
+        name=model.name,
+    )
+    handle.model = model
+    return handle
 
 
 def wait_ready(rt: RuntimeProc, timeout: float | None = None) -> None:
@@ -196,7 +158,7 @@ def wait_ready(rt: RuntimeProc, timeout: float | None = None) -> None:
     deadline = time.time() + (timeout if timeout is not None else get_settings().runtime_load_timeout)
     while time.time() < deadline:
         if rt.proc.poll() is not None:
-            raise _early_exit_error(rt._cmd, rt.proc.returncode, rt.log_dir, rt._port)
+            raise _early_exit_error(rt.cmd, rt.proc.returncode, rt.log_path, rt.port)
         try:
             if httpx.get(f"{rt.base}/v1/models", timeout=2).status_code < 500:
                 return
@@ -207,17 +169,8 @@ def wait_ready(rt: RuntimeProc, timeout: float | None = None) -> None:
 
 
 def stop(rt: RuntimeProc) -> None:
-    """Terminate the runtime server (SIGKILL after 15s) and clean up its logs."""
-    rt.proc.terminate()
-    try:
-        rt.proc.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        rt.proc.kill()
-        rt.proc.wait()
-    if rt.log_fh is not None:
-        rt.log_fh.close()
-    if rt.log_dir is not None:
-        shutil.rmtree(rt.log_dir, ignore_errors=True)
+    """Terminate the runtime (its whole process group; SIGKILL after a grace) and clean up logs."""
+    rt.stop()
 
 
 def load(model: LibraryModel) -> RuntimeProc:

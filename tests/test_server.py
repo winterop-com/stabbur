@@ -1,12 +1,14 @@
 """Tests for the runtime process manager (no real model runtime needed)."""
 
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 import pytest
 
+from kodo import supervisor
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
 from kodo.server import ServerManager
@@ -23,12 +25,12 @@ def test_current_reaps_dead_runtime(tmp_path: Path) -> None:
     manager = ServerManager()
     proc = subprocess.Popen(["true"])
     proc.wait()  # child has exited
-    manager._proc = proc
+    manager._handle = supervisor.RuntimeHandle(proc, "http://127.0.0.1:1", 1, ["true"], tmp_path / "state", None)
     manager._model = _model(tmp_path)
 
     assert manager.current is None
     assert manager._model is None
-    assert manager._proc is None
+    assert manager._handle is None
 
 
 def test_manager_autopicks_free_port_when_unset() -> None:
@@ -55,7 +57,7 @@ def test_load_is_serialized_across_threads(tmp_path: Path, monkeypatch: pytest.M
         time.sleep(0.1)  # hold the locked section open long enough to observe overlap
         with guard:
             active -= 1
-        return ["true"]  # a real, instantly-exiting binary
+        return [sys.executable, "-c", "import time; time.sleep(30)"]  # long-lived so spawn succeeds
 
     monkeypatch.setattr("kodo.server.runtime.build_command", slow_build)
     m1 = LibraryModel(name="pub/A", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "a")

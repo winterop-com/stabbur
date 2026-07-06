@@ -22,6 +22,20 @@ def _stub_model_probes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_tui.capabilities, "capabilities", lambda _m: SimpleNamespace(context_length=1024))
 
 
+def _fake_runtime(model: LibraryModel, base: str = "http://127.0.0.1:9", port: int = 9) -> runtime.RuntimeProc:
+    """A supervised-runtime handle whose process is a mock (nothing actually serves)."""
+    rt = runtime.RuntimeProc(
+        proc=cast("subprocess.Popen[bytes]", MagicMock()),
+        base=base,
+        port=port,
+        cmd=["llama-server"],
+        state_dir=Path("/tmp/kodo-fake-runtime"),
+        log_fh=None,
+    )
+    rt.model = model
+    return rt
+
+
 def _app() -> chat_tui.ChatApp:
     model = LibraryModel(
         name="pub/Foo-GGUF",
@@ -29,15 +43,7 @@ def _app() -> chat_tui.ChatApp:
         path=Path("/lib/gguf/pub/Foo-GGUF"),
         load_target=Path("/lib/gguf/pub/Foo-GGUF/model.gguf"),
     )
-    rt = runtime.RuntimeProc(
-        proc=cast("subprocess.Popen[bytes]", MagicMock()),
-        base="http://127.0.0.1:9",
-        model=model,
-        cmd=["llama-server"],
-        port=9,
-        log_dir=None,
-        log_fh=None,
-    )
+    rt = _fake_runtime(model)
     return chat_tui.ChatApp(
         runtime_proc=rt,
         servers=[],
@@ -236,15 +242,7 @@ async def test_model_switch_swaps_the_runtime(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         chat_tui.runtime_mod,
         "start",
-        lambda m: runtime.RuntimeProc(
-            proc=cast("subprocess.Popen[bytes]", MagicMock()),
-            base="http://127.0.0.1:5555",
-            model=m,
-            cmd=["llama-server"],
-            port=5555,
-            log_dir=None,
-            log_fh=None,
-        ),
+        lambda m: _fake_runtime(m, base="http://127.0.0.1:5555", port=5555),
     )
 
     async with app.run_test() as pilot:

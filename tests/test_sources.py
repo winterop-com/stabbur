@@ -202,11 +202,10 @@ def test_copy_tree_preserves_old_backup_and_cleans_staging_on_failure(
 def test_runtime_early_exit_error_reports_cause(tmp_path: Path) -> None:
     # An early runtime exit surfaces the captured log tail and a port-in-use hint,
     # instead of the old opaque "exited before becoming ready".
-    log_dir = tmp_path / "log"
-    log_dir.mkdir()
-    (log_dir / "llama-server.log").write_text("E srv start: couldn't bind HTTP server socket, port: 8090\n")
+    log_path = tmp_path / "runtime.log"
+    log_path.write_text("E srv start: couldn't bind HTTP server socket, port: 8090\n")
 
-    err = runtime._early_exit_error(["llama-server"], 1, log_dir, 8090)
+    err = runtime._early_exit_error(["llama-server"], 1, log_path, 8090)
     msg = str(err)
     assert "already in use" in msg  # friendly port hint
     assert "couldn't bind" in msg  # includes the runtime log tail

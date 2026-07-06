@@ -6,16 +6,12 @@ underlying ``llama-server`` / ``mlx_lm.server`` process is swapped underneath.
 """
 
 import shutil
-import subprocess
-import tempfile
 import threading
 from enum import StrEnum
-from pathlib import Path
-from typing import IO
 
 import httpx
 
-from kodo import runtime
+from kodo import runtime, supervisor
 from kodo.library import LibraryModel
 
 
@@ -35,13 +31,10 @@ class ServerManager:
         # None → auto-pick a free port (chosen once, up front, so base_url is stable
         # for the proxy); pin it by passing an explicit port.
         self._port = port if port is not None else runtime.find_free_port()
-        self._proc: subprocess.Popen[bytes] | None = None
+        # The supervised runtime (its process group, pidfile, captured log), or None when stopped.
+        self._handle: supervisor.RuntimeHandle | None = None
         self._model: LibraryModel | None = None
         self._n_ctx: int | None = None
-        # Runtime stderr is captured to a temp log so a crash/bad-model failure is
-        # diagnosable (unlike DEVNULL); the tail is retained as ``last_error``.
-        self._log_dir: Path | None = None
-        self._log_fh: IO[bytes] | None = None
         self._last_error: str | None = None
         # Serializes the process-mutating lifecycle ops (load/stop) at the thread
         # level. The route-layer asyncio lock can be released early if a request is
@@ -73,7 +66,7 @@ class ServerManager:
         return self._model
 
     def _alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+        return self._handle is not None and self._handle.poll() is None
 
     @property
     def last_error(self) -> str | None:
@@ -82,23 +75,20 @@ class ServerManager:
 
     def _read_log_tail(self, limit: int = 2000) -> str | None:
         """Return the tail of the current runtime log, if any."""
-        if self._log_dir is None:
+        log_path = self._handle.log_path if self._handle is not None else None
+        if log_path is None:
             return None
         try:
-            text = (self._log_dir / "runtime.log").read_text(errors="replace").strip()
+            text = log_path.read_text(errors="replace").strip()
         except OSError:
             return None
         return text[-limit:] or None
 
     def _reset_proc(self) -> None:
-        """Drop the process handle and clean up its captured log."""
-        self._proc = None
-        if self._log_fh is not None:
-            self._log_fh.close()
-            self._log_fh = None
-        if self._log_dir is not None:
-            shutil.rmtree(self._log_dir, ignore_errors=True)
-            self._log_dir = None
+        """Drop the runtime handle and clean up its process group + captured log."""
+        if self._handle is not None:
+            self._handle.stop()  # no-op kill if already dead; closes the log + removes state
+            self._handle = None
 
     async def ready(self) -> bool:
         """Whether the runtime is up and answering requests."""
@@ -137,30 +127,27 @@ class ServerManager:
                 return
             self.stop()
 
-            cmd = runtime.build_command(model, self._host, self._port, n_ctx)
-            if shutil.which(cmd[0]) is None:
-                hint = runtime._INSTALL_HINTS.get(cmd[0], "")
-                raise RuntimeError(f"{cmd[0]!r} not found on PATH. {hint}".strip())
+            binary = runtime.build_command(model, self._host, self._port, n_ctx)[0]
+            if shutil.which(binary) is None:
+                hint = runtime._INSTALL_HINTS.get(binary, "")
+                raise RuntimeError(f"{binary!r} not found on PATH. {hint}".strip())
             self._last_error = None
-            self._log_dir = Path(tempfile.mkdtemp(prefix="kodo-runtime-"))
-            self._log_fh = (self._log_dir / "runtime.log").open("wb")
-            self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=self._log_fh)
+            # Pin the runtime to this manager's port so base_url (the proxy target) stays stable.
+            self._handle = supervisor.spawn(
+                lambda p: runtime.build_command(model, self._host, p, n_ctx),
+                host=self._host,
+                port=self._port,
+                name=model.name,
+            )
+            self._handle.model = model
             self._model = model
             self._n_ctx = n_ctx
 
     def stop(self) -> None:
-        """Terminate the runtime process if running (no zombies)."""
+        """Terminate the runtime's process group if running (no zombies, no orphans)."""
         with self._lifecycle:
             # Clear the loaded-model fields first so a concurrent status read sees
             # "stopped" and doesn't try to reap the process we're already stopping.
             self._model = None
             self._n_ctx = None
-            if self._alive():
-                assert self._proc is not None
-                self._proc.terminate()
-                try:
-                    self._proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    self._proc.kill()
-                    self._proc.wait()
-            self._reset_proc()
+            self._reset_proc()  # killpg + wait + clean up the captured log/state (no-op if stopped)

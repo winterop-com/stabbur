@@ -33,7 +33,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 from kodo.config import get_settings
 
@@ -123,7 +123,7 @@ class RuntimeHandle:
         self.cmd = cmd
         self.state_dir = state_dir
         self.log_fh = log_fh
-        self.model: object | None = None  # set by the owner (LibraryModel); supervisor ignores it
+        self.model: Any = None  # set by the owner (a LibraryModel); supervisor treats it as opaque
 
     @property
     def log_path(self) -> Path | None:
@@ -133,21 +133,6 @@ class RuntimeHandle:
     def poll(self) -> int | None:
         """The runtime's exit code, or ``None`` if still running."""
         return self.proc.poll()
-
-    def wait_ready(self, base_ready: Callable[[], bool], timeout: float) -> None:
-        """Block until ``base_ready()`` is true, or raise on early exit / timeout.
-
-        ``base_ready`` is injected (typically an HTTP poll of ``/v1/models``) so the supervisor
-        stays transport-agnostic.
-        """
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.proc.poll() is not None:
-                raise RuntimeError(f"runtime exited early (code {self.proc.returncode}); see {self.log_path}")
-            if base_ready():
-                return
-            time.sleep(0.4)
-        raise RuntimeError("runtime did not become ready in time")
 
     def stop(self) -> None:
         """Terminate the whole process group (SIGKILL after a grace period) and clean up state."""
