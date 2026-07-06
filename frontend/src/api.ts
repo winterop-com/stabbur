@@ -335,30 +335,40 @@ export async function* streamChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  // Parse one complete SSE line into at most one event. Kept as a generator so both the
+  // per-chunk loop and the final-flush path below share identical parsing.
+  function* parseLine(line: string): Generator<ChatEvent> {
+    const s = line.trim();
+    if (!s.startsWith("data:")) return; // ignore keepalives / blank lines
+    const payload = s.slice(5).trim();
+    if (!payload || payload === "[DONE]") {
+      if (payload === "[DONE]") yield { type: "done" };
+      return;
+    }
+    let evt: unknown;
+    try {
+      evt = JSON.parse(payload);
+    } catch {
+      return; // unparseable line — skip it
+    }
+    const parsed = parseEvent(evt);
+    if (parsed) yield parsed;
+  }
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      const s = line.trim();
-      if (!s.startsWith("data:")) continue; // ignore keepalives / blank lines
-      const payload = s.slice(5).trim();
-      if (!payload || payload === "[DONE]") {
-        if (payload === "[DONE]") yield { type: "done" };
-        continue;
-      }
-      let evt: unknown;
-      try {
-        evt = JSON.parse(payload);
-      } catch {
-        continue; // partial chunk split across reads — skip
-      }
-      const parsed = parseEvent(evt);
-      if (parsed) yield parsed;
-    }
+    buffer = lines.pop() ?? ""; // keep the trailing partial line for the next read
+    for (const line of lines) yield* parseLine(line);
   }
+  // Flush the decoder (release any buffered multibyte char) and process the leftover buffer:
+  // a terminal `error`/`done` event or `[DONE]` that arrives without a trailing newline lands
+  // here, and on a truncated connection that terminal event is exactly the one that matters.
+  buffer += decoder.decode();
+  if (buffer.trim()) yield* parseLine(buffer);
 }
 
 function parseEvent(evt: unknown): ChatEvent | null {

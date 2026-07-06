@@ -158,7 +158,12 @@ export function App() {
   // Chat state.
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]); // pending image/audio attachments
-  const [streaming, setStreaming] = useState(false);
+  // Which conversation is currently streaming (null = none). Tracked by id rather than a
+  // global boolean so streaming UI (cursor, Stop) only shows on the conversation actually
+  // streaming — switching away no longer makes another chat look like it's streaming, nor
+  // lets its Stop button abort the real one (F-7).
+  const [streamingConvId, setStreamingConvId] = useState<string | null>(null);
+  const isStreaming = streamingConvId !== null; // any stream in flight (one at a time)
   const abortRef = useRef<AbortController | null>(null);
 
   // --- persistence ---
@@ -277,6 +282,9 @@ export function App() {
     [conversations, activeId],
   );
   const messages = activeConv?.messages ?? [];
+  // True only when the conversation on screen is the one streaming — drives the cursor and the
+  // composer's Stop, so neither bleeds onto a different chat the user switched to (F-7).
+  const activeStreaming = isStreaming && streamingConvId === activeId;
 
   // Effective settings = the active conversation's own settings, or the draft
   // when no conversation is active yet. Editing writes back to whichever applies.
@@ -441,7 +449,7 @@ export function App() {
   // --- core: run a chat completion into an assistant turn ---
   const runCompletion = useCallback(
     async (convId: string, priorMessages: ChatMessage[], assistantId: string) => {
-      setStreaming(true);
+      setStreamingConvId(convId);
       const ctrl = new AbortController();
       abortRef.current = ctrl;
 
@@ -517,7 +525,7 @@ export function App() {
           }));
         }
       } finally {
-        setStreaming(false);
+        setStreamingConvId(null);
         abortRef.current = null;
       }
     },
@@ -532,7 +540,7 @@ export function App() {
     const files = attachments
       .filter((a) => a.kind === "text")
       .map((a) => ({ name: a.name ?? "file", text: a.text ?? "" }));
-    if ((!text && attachments.length === 0) || streaming || !ready) return;
+    if ((!text && attachments.length === 0) || isStreaming || !ready) return;
 
     let convId = activeId;
     if (!convId) convId = newConversation(draftSettings); // carry empty-state config into the first chat
@@ -565,11 +573,11 @@ export function App() {
     setAttachments([]);
 
     await runCompletion(convId, prior, assistantMsg.id);
-  }, [input, attachments, streaming, ready, status?.model, activeId, conversations, newConversation, upsertConv, runCompletion]);
+  }, [input, attachments, isStreaming, ready, status?.model, activeId, conversations, newConversation, upsertConv, runCompletion]);
 
   // --- regenerate: drop last assistant turn, re-run the last user turn ---
   const regenerate = useCallback(async () => {
-    if (streaming || !ready || !activeConv) return;
+    if (isStreaming || !ready || !activeConv) return;
     const msgs = activeConv.messages;
     // Find last assistant message and the user prefix that precedes it.
     let lastAssistant = -1;
@@ -580,9 +588,11 @@ export function App() {
       }
     }
     if (lastAssistant < 0) return;
-    const prior = msgs.slice(0, lastAssistant).filter((m) => m.role !== "assistant" || m.content);
-    // Everything up to (not including) the old assistant turn, plus a fresh one.
-    const kept = msgs.slice(0, lastAssistant);
+    // Everything up to (not including) the old assistant turn, minus assistant turns that are
+    // empty (aborted "..." ghosts) or error banners — so they're neither persisted as permanent
+    // ghosts nor replayed to the model (F-8). This filtered list is both what we keep and what
+    // we resend, so the two can't diverge.
+    const kept = msgs.slice(0, lastAssistant).filter((m) => m.role !== "assistant" || (!!m.content && !m.error));
     const assistantMsg: ChatMessage = {
       id: uid(),
       role: "assistant",
@@ -594,8 +604,8 @@ export function App() {
       updatedAt: Date.now(),
       messages: [...kept, assistantMsg],
     }));
-    await runCompletion(activeConv.id, kept.length ? kept : prior, assistantMsg.id);
-  }, [streaming, ready, status?.model, activeConv, upsertConv, runCompletion]);
+    await runCompletion(activeConv.id, kept, assistantMsg.id);
+  }, [isStreaming, ready, status?.model, activeConv, upsertConv, runCompletion]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
@@ -620,7 +630,7 @@ export function App() {
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages, streaming]);
+  }, [messages, activeStreaming]);
   // On conversation switch, jump to bottom.
   useEffect(() => {
     stick.current = true;
@@ -943,7 +953,7 @@ export function App() {
                   onChange={setInput}
                   onSend={send}
                   onStop={stop}
-                  streaming={streaming}
+                  streaming={activeStreaming}
                   ready={ready}
                   autoFocus
                   leftSlot={composerControls}
@@ -963,8 +973,8 @@ export function App() {
                     <MessageItem
                       key={m.id}
                       message={m}
-                      streaming={streaming && i === messages.length - 1 && m.role === "assistant"}
-                      canRegenerate={!streaming && i === lastAssistantIndex}
+                      streaming={activeStreaming && i === messages.length - 1 && m.role === "assistant"}
+                      canRegenerate={!activeStreaming && i === lastAssistantIndex}
                       onRegenerate={regenerate}
                       ttsVoice={effectiveTtsVoice}
                     />
@@ -989,7 +999,7 @@ export function App() {
                     onChange={setInput}
                     onSend={send}
                     onStop={stop}
-                    streaming={streaming}
+                    streaming={activeStreaming}
                     ready={ready}
                     leftSlot={composerControls}
                     attachments={attachments}

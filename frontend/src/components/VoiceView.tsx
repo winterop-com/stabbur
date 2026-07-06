@@ -102,6 +102,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // The live blob URL, mirrored in a ref so we revoke the OLD one outside the setState updater.
+  // createObjectURL/revokeObjectURL inside an updater run twice under StrictMode (updaters must
+  // be pure), leaking a URL each time; keeping the revoke here makes the updaters side-effect-free
+  // and lets the unmount cleanup revoke the final clip (F-10).
+  const audioUrlRef = useRef<string | null>(null);
+  const setClipUrl = (next: string | null) => {
+    if (audioUrlRef.current && audioUrlRef.current !== next) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = next;
+    setAudioUrl(next);
+  };
   const [peaks, setPeaks] = useState<number[]>([]); // waveform of the last clip (for the scrubber)
   const dialogueRef = useRef<HTMLTextAreaElement>(null);
 
@@ -167,12 +177,10 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     setText((prev) => (prev === prevDefault ? next : prev));
     // Reset the player on a model switch — the last clip belonged to the old model, so the
     // button should read "Generate" (not "Generate again") for the newly selected voice.
-    setAudioUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
+    setClipUrl(null);
     setPeaks([]);
     setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model]);
 
   // Just drop a fresh random seed into the field — the user generates when ready.
@@ -211,8 +219,12 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     cloneRec.current = null;
     setCloneRecording(false);
     setCloneStream(null);
-    const wavUrl = await rec.stop();
-    await useClip(await (await fetch(wavUrl)).blob(), "recording.wav");
+    try {
+      const wavUrl = await rec.stop();
+      await useClip(await (await fetch(wavUrl)).blob(), "recording.wav");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "recording failed"); // decode/permission error — surface it
+    }
   };
   const toggleCloneRecording = async () => {
     if (cloneRecording) return void stopCloneRecording();
@@ -225,6 +237,16 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       setCloneStream(null);
     }
   };
+
+  // On unmount (leaving the Voice studio mid-record), cancel any in-flight reference recording so
+  // the mic/VAD don't leak (F-2), and revoke the last synthesized clip's blob URL (F-10).
+  useEffect(
+    () => () => {
+      cloneRec.current?.cancel();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    },
+    [],
+  );
 
   const speak = async (seedOverride?: number) => {
     if (!model || !text.trim()) return;
@@ -239,20 +261,17 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         responseFormat: format,
         refAudioB64: refB64 ?? undefined,
         refText: refB64 ? refText : undefined,
-        seed: seedOverride ?? (seed.trim() ? Number(seed) : undefined),
+        // A non-numeric seed field must become "no seed" (undefined), not NaN — NaN serializes
+        // to `"seed": null` in JSON, which the server reads as an explicit null, not "unset" (F-12).
+        seed: seedOverride ?? (Number.isFinite(Number(seed)) && seed.trim() ? Number(seed) : undefined),
       });
-      setAudioUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(blob);
-      });
+      setClipUrl(URL.createObjectURL(blob));
       setPeaks([]); // clear the old waveform, then fill it once the clip is decoded
       void audioPeaks(blob).then(setPeaks).catch(() => setPeaks([]));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setAudioUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev); // drop the stale player so a failure isn't masked by old audio
-        return null;
-      });
+      setClipUrl(null); // drop the stale player so a failure isn't masked by old audio
+      setPeaks([]);
     } finally {
       setBusy(false);
     }
@@ -599,8 +618,12 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
     recRef.current = null;
     setRecording(false);
     setRecStream(null);
-    const wavUrl = await rec.stop();
-    void run(await (await fetch(wavUrl)).blob(), "recording.wav");
+    try {
+      const wavUrl = await rec.stop();
+      void run(await (await fetch(wavUrl)).blob(), "recording.wav");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "recording failed"); // decode/permission error — surface it
+    }
   };
   const toggleRecord = async () => {
     if (recording) return void stopRec();
@@ -612,6 +635,10 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
       setError(e instanceof Error ? e.message : "microphone unavailable");
     }
   };
+
+  // Tear down an in-flight dictation recording if the panel unmounts mid-capture so the
+  // mic/VAD don't leak (F-2).
+  useEffect(() => () => recRef.current?.cancel(), []);
 
   if (sttModels.length === 0) {
     return (

@@ -206,6 +206,18 @@ export function Composer({
   // models); this turns speech into a text prompt that any model can read.
   const dictRef = useRef<Recording | null>(null);
   const [dictState, setDictState] = useState<"idle" | "recording" | "transcribing">("idle");
+
+  // Tear down any in-flight capture if the composer unmounts mid-recording (F-2): the
+  // empty-state composer unmounts after the first send, and navigating away unmounts it
+  // too — without this the MediaRecorder, VAD AudioContext, and mic tracks keep running
+  // (the recording indicator vanishes but the mic stays live) until a page reload.
+  useEffect(
+    () => () => {
+      recRef.current?.cancel();
+      dictRef.current?.cancel();
+    },
+    [],
+  );
   const finishDictation = async () => {
     const rec = dictRef.current;
     if (!rec) return;
