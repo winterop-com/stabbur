@@ -79,10 +79,15 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _process_command(pid: int) -> str:
-    """The live command line for ``pid`` (``ps``), or ``""`` if it can't be read."""
+    """The live command line for ``pid`` (``ps``), or ``""`` if it can't be read.
+
+    ``-ww`` disables ps's column-width truncation (it defaults to the terminal width — 80 with
+    no TTY), so the full argv is returned and the ``--port`` at the end of a long runtime command
+    isn't dropped from the PID-reuse match.
+    """
     try:
         out = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "command="],
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
             capture_output=True,
             text=True,
             timeout=5,
