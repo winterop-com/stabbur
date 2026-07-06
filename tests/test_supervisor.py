@@ -57,18 +57,15 @@ def _reap(pid: int) -> None:
         pass
 
 
-def _wait_established(pid: int, port: int, timeout: float = 5.0) -> None:
-    """Wait until ps reports the process's full command (with its port).
+def _stub_ps(monkeypatch: pytest.MonkeyPatch, pid: int, command: str) -> None:
+    """Make the cmdline read deterministic for one pid.
 
-    A freshly spawned process — especially macOS's framework-Python launcher — isn't yet visible
-    to ps with its full argv the instant Popen returns. Production never hits this (the sweep runs
-    against long-established orphans), so the test waits to match that reality.
+    The sweep *decision* (owner-dead + pid-alive + cmdline match) is what these tests exercise;
+    the real ps read is covered separately by ``test_process_command_reads_an_established_process``.
+    Stubbing it avoids a macOS-only flake where a *freshly spawned* framework-Python launcher
+    intermittently reports a blank command to ps (a real orphan has long since settled).
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if str(port) in supervisor._process_command(pid):
-            return
-        time.sleep(0.05)
+    monkeypatch.setattr(supervisor, "_process_command", lambda p: command if p == pid else "")
 
 
 def test_spawn_binds_then_stop_terminates() -> None:
@@ -173,14 +170,11 @@ def test_sweep_reaps_orphan_of_a_dead_owner(tmp_path: Path, monkeypatch: pytest.
     _owner_dead(monkeypatch)  # the recorded owner is treated as a crashed kodo
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
+    _stub_ps(monkeypatch, sleeper.pid, " ".join(_bind_cmd(port)))  # live cmdline matches the meta
     try:
-        _wait_established(sleeper.pid, port)  # the orphan is a settled process when a real sweep runs
         entry = _write_meta(root, owner_pid=_DEAD_OWNER, proc=sleeper, port=port)
         reaped = supervisor.sweep_orphans()
-        if sleeper.pid not in reaped:  # platform-sensitive; surface why on failure
-            ps_out = supervisor._process_command(sleeper.pid)
-            alive = supervisor._pid_alive(sleeper.pid)
-            raise AssertionError(f"not reaped: pid={sleeper.pid} port={port} alive={alive} ps={ps_out!r}")
+        assert sleeper.pid in reaped  # owner dead + pid alive + cmdline match → real killpg
         # The test owns the sleeper, so reap the zombie the signal left behind before checking
         # (in production the orphan is init's child and auto-reaped).
         sleeper.wait(timeout=2)
@@ -209,8 +203,9 @@ def test_sweep_leaves_a_reused_pid_alone(tmp_path: Path, monkeypatch: pytest.Mon
     _owner_dead(monkeypatch)
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
+    # The live process really is the sleeper; its cmdline won't match the (other-binary) meta below.
+    _stub_ps(monkeypatch, sleeper.pid, " ".join(_bind_cmd(port)))
     try:
-        _wait_established(sleeper.pid, port)
         # Dead owner, but the recorded cmd/port don't match the live pid → treat as a reused pid.
         d = root / f"entry-{sleeper.pid}"
         d.mkdir(parents=True)
@@ -230,3 +225,10 @@ def test_sweep_leaves_a_reused_pid_alone(tmp_path: Path, monkeypatch: pytest.Mon
         assert not d.exists()  # stale entry still cleaned up
     finally:
         _reap(sleeper.pid)
+
+
+def test_process_command_reads_an_established_process() -> None:
+    # The real ps read (used by the PID-reuse guard) returns a non-empty command line for a
+    # long-established process — here the test suite's own, which is stable unlike a just-spawned
+    # framework-Python launcher. This is the real-ps coverage the stubbed sweep tests don't give.
+    assert supervisor._process_command(os.getpid())
