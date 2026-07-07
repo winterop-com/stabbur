@@ -54,7 +54,7 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
     # A configured shared library holding the model → init uses it (no pull, no local store).
     monkeypatch.setattr(library_ops, "configured", lambda *a, **k: True)
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
-    monkeypatch.setattr(cli, "_pick_tools_interactive", lambda: [])
+    monkeypatch.setattr(cli.project, "_pick_tools_interactive", lambda: [])
     with runner.isolated_filesystem():
         # input = blank lines accepting the defaults for the kind + system-prompt questions
         first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
@@ -75,7 +75,7 @@ def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch)
     def _abort() -> str:
         raise typer.Abort
 
-    monkeypatch.setattr(cli, "_pick_model_interactive", _abort)
+    monkeypatch.setattr(cli.project, "_pick_model_interactive", _abort)
     with runner.isolated_filesystem():
         # answer the kind question, then the (mocked) model step aborts
         result = runner.invoke(cli.app, ["project", "new", "hello"], input="1\n")
@@ -97,7 +97,7 @@ def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.Monk
         mcpservers, "resolve", lambda *a, **k: [mcpservers.McpServer(name="datetime", command="kodo-mcp-datetime")]
     )
     monkeypatch.setattr(
-        cli, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None, [])
+        cli.project, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None, [])
     )
     result = runner.invoke(cli.app, ["project", "show"])
     assert result.exit_code == 0, result.output
