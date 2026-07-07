@@ -84,6 +84,7 @@ async def test_tailscale_status_trims_self_and_peers(monkeypatch: pytest.MonkeyP
     assert status["self"]["hostname"] == "msai" and status["self"]["dns_name"] == "msai.tail1234.ts.net"
     assert [p["hostname"] for p in status["peers"]] == ["laptop"]
     assert await _call("tailscale_ip") == ["100.64.0.1"]
+    assert await _call("tailscale_host") == "msai.tail1234.ts.net"  # full MagicDNS FQDN, trailing dot stripped
 
 
 async def test_tailscale_errors_when_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:

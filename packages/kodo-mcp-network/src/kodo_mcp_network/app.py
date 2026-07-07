@@ -117,6 +117,18 @@ def tailscale_ip() -> list[str]:
 
 
 @mcp.tool
+def tailscale_host() -> str:
+    """This machine's full Tailscale (MagicDNS) hostname, e.g. ``msai.tail1234.ts.net``.
+
+    The FQDN you can reach this node at on the tailnet — the short hostname plus the tailnet's
+    MagicDNS suffix. Prefer this over the bare hostname when asked for the "Tailscale host". Empty
+    if Tailscale isn't connected.
+    """
+    self_node = _tailscale_json().get("Self") or {}
+    return (self_node.get("DNSName") or "").rstrip(".")
+
+
+@mcp.tool
 def tailscale_status() -> dict[str, Any]:
     """This machine's Tailscale status: its own node plus the peer devices on the tailnet.
 
