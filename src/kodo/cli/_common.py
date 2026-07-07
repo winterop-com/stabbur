@@ -15,11 +15,11 @@ from kodo import (
     capabilities,
     mcp_catalog,
     mcpservers,
-    scaffold,
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.models import CuratedModel, ModelFormat, ModelSource
+from kodo.project import scaffold
 
 console = Console()
 

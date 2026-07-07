@@ -11,7 +11,6 @@ from kodo import (
     cards,
     mcpservers,
     project,
-    scaffold,
     tags,
 )
 from kodo import catalog as catalog_ops
@@ -31,7 +30,8 @@ from kodo.cli._common import (
     console,
 )
 from kodo.models import ModelSource, ProjectTemplate
-from kodo.templates import TEMPLATES
+from kodo.project import scaffold
+from kodo.project.templates import TEMPLATES
 
 
 def _pick_model_interactive() -> str:

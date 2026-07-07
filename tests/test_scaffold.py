@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kodo import scaffold
+from kodo.project import scaffold
 
 
 def test_strip_uvx() -> None:

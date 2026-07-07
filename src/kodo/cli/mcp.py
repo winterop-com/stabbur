@@ -9,7 +9,6 @@ from rich.table import Table
 
 from kodo import (
     mcpservers,
-    scaffold,
 )
 from kodo.cli._app import mcp_app
 from kodo.cli._common import (
@@ -19,6 +18,7 @@ from kodo.cli._common import (
     _uninstalled_optional,
     console,
 )
+from kodo.project import scaffold
 
 # Project templates now live in kodo.templates (TEMPLATES).
 
