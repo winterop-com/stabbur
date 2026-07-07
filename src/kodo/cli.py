@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
+import httpx
 import typer
 from rich import box
 from rich.console import Console
@@ -354,6 +355,20 @@ def _to_mcp_server(name: str, command: str) -> mcpservers.McpServer:
     return mcpservers.McpServer(name=name, command=argv[0], args=argv[1:], env=env)
 
 
+def _normalize_server_url(url: str | None) -> str | None:
+    """Normalize a ``--server`` value to the base URL the runtime expects (or None).
+
+    Strips a trailing slash and a trailing ``/v1`` (the client appends ``/v1/chat/completions``),
+    so ``http://host:8000``, ``http://host:8000/`` and ``http://host:8000/v1`` all resolve the same.
+    """
+    if not url or not url.strip():
+        return None
+    base = url.strip().rstrip("/")
+    if base.endswith("/v1"):
+        base = base[: -len("/v1")]
+    return base
+
+
 def _cli_mcp_spec(value: str) -> tuple[str | None, list[str], dict[str, str]]:
     """Resolve a ``--mcp`` value to the ``(name, argv, env)`` spec :func:`kodo.tools.connect` wants.
 
@@ -586,6 +601,7 @@ def config_show() -> None:
     console.print("\n[bold]Effective[/] [dim](after env / project / .env override)[/]")
     console.print(f"  library-root  {settings.library_root or '[yellow](not set)[/]'}")
     console.print(f"  model         {settings.default_model or '[dim](none — free-play)[/]'}")
+    console.print(f"  server        {settings.chat_server or '[dim](none — kodo chat loads per call)[/]'}")
 
 
 @config_app.command("set")
@@ -1866,6 +1882,14 @@ def chat(
         list[Path],
         typer.Option("--audio", "-a", help="Attach audio file(s) for an audio model (repeatable)."),
     ] = [],
+    server: Annotated[
+        str | None,
+        typer.Option(
+            "--server",
+            help="Attach to a running `kodo serve` (e.g. http://127.0.0.1:8000) instead of loading the "
+            "model per call; the model stays loaded. Default from KODO_CHAT_SERVER / `kodo config set server`.",
+        ),
+    ] = None,
 ) -> None:
     """Chat with a library model: full-screen TUI, one-shot with ``-p``, tools with ``--mcp``.
 
@@ -1897,15 +1921,26 @@ def chat(
     caps = capabilities.capabilities(model)
     images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision)
     audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio)
+
+    # Attach to a running kodo serve (--server > KODO_CHAT_SERVER / machine config) instead of
+    # spawning a per-call runtime. Supported for the one-shot (-p) path; the interactive TUI owns
+    # its own runtime (and can switch models), so --server doesn't apply there yet.
+    base_url = _normalize_server_url(server or get_settings().chat_server)
+    if base_url is not None and prompt is None:
+        console.print(
+            f"[yellow]--server[/] applies to one-shot (-p) only; the TUI loads its own model. Ignoring {base_url}."
+        )
+        base_url = None
+
     try:
         if prompt is not None and not mcp_servers:
             # Scripted one-shot, no tools: print only the reply to stdout (clean for
             # piping); errors go to stderr. Everything else goes through the one
             # interactive/agent path below (tools optional, empty list = plain chat).
-            print(runtime.generate(model, prompt, max_tokens, system_prompt, images, audios))  # noqa: T201
+            print(runtime.generate(model, prompt, max_tokens, system_prompt, images, audios, base_url))  # noqa: T201
         else:
-            _chat_with_tools(model, mcp_servers, prompt, max_tokens, system_prompt, images, audios)
-    except RuntimeError as exc:
+            _chat_with_tools(model, mcp_servers, prompt, max_tokens, system_prompt, images, audios, base_url)
+    except (RuntimeError, httpx.HTTPError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
@@ -1918,11 +1953,14 @@ def _chat_with_tools(
     system_prompt: str = "",
     images: list[str] | None = None,
     audios: list[str] | None = None,
+    base_url: str | None = None,
 ) -> None:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
     With ``prompt`` set (``-p``) this streams a single answer to stdout (tools still
-    run); otherwise it hands off to the full-screen Textual chat.
+    run); otherwise it hands off to the full-screen Textual chat. With ``base_url`` set
+    (a running ``kodo serve``), the one-shot path attaches to that server — reusing its
+    loaded model instead of spawning a runtime.
     """
     import asyncio  # noqa: PLC0415
 
@@ -2023,6 +2061,11 @@ def _chat_with_tools(
             )
             _first_output()
             print()  # noqa: T201 - newline after streamed answer
+
+    # Attach to a running kodo serve for the one-shot path: reuse its loaded model, no spawn/stop.
+    if base_url is not None and prompt is not None:
+        asyncio.run(_run_oneshot(base_url))
+        return
 
     rt = runtime.load(model)  # start the runtime (with a load spinner); caller/TUI owns stop()
     if prompt is not None:

@@ -213,6 +213,12 @@ class Settings(BaseSettings):
     # without a project or an explicit name. Set it with ``kodo config set model <name>``.
     default_model: str | None = None
 
+    # A running ``kodo serve`` for ``kodo chat`` to attach to instead of spawning its own runtime
+    # per call — so the model stays loaded across invocations (no multi-second reload each time).
+    # An OpenAI ``/v1`` base URL, e.g. ``http://127.0.0.1:8000``. ``kodo chat --server`` overrides;
+    # set a default with ``kodo config set server <url>`` (or ``KODO_CHAT_SERVER``).
+    chat_server: str | None = None
+
     # Source stores to scan and back up from.
     ollama_models_dir: Path = Path.home() / ".ollama" / "models"
     lmstudio_models_dir: Path = _default_lmstudio_dir()

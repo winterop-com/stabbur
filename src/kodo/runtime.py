@@ -218,14 +218,20 @@ def generate(
     system_prompt: str = "",
     images: list[str] | None = None,
     audios: list[str] | None = None,
+    base_url: str | None = None,
 ) -> str:
     """One-shot chat completion; returns just the reply text (clean for scripting).
 
-    ``images`` / ``audios`` are data-URL strings sent to a multimodal model.
+    ``images`` / ``audios`` are data-URL strings sent to a multimodal model. With ``base_url`` set
+    (a running ``kodo serve``), attach to that server's ``/v1`` instead of spawning a per-call
+    runtime — the model stays loaded, so there's no reload latency.
     """
+    from contextlib import nullcontext  # noqa: PLC0415
+
     from kodo import agent  # noqa: PLC0415 - avoid import cycle at module load
 
-    with _serve(model) as base:
+    served = nullcontext(base_url) if base_url is not None else _serve(model)
+    with served as base:
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})

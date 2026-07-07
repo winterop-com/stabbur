@@ -335,3 +335,49 @@ def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: py
     assert stored["default_model"] == "pub/M"
     assert Path(stored["library_root"]) == lib.resolve()
     assert lib.is_dir()  # setup created it
+
+
+def test_normalize_server_url() -> None:
+    assert cli._normalize_server_url("http://h:8000") == "http://h:8000"
+    assert cli._normalize_server_url("http://h:8000/") == "http://h:8000"
+    assert cli._normalize_server_url("http://h:8000/v1") == "http://h:8000"
+    assert cli._normalize_server_url("  http://h:8000/v1/  ") == "http://h:8000"
+    assert cli._normalize_server_url(None) is None
+    assert cli._normalize_server_url("  ") is None
+
+
+def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With base_url set, generate() must NOT spawn a runtime (_serve); it POSTs to the given base.
+    from kodo import runtime
+
+    def _boom(_model: object) -> object:
+        raise AssertionError("_serve must not be called when base_url is provided")
+
+    seen: dict[str, object] = {}
+
+    def _fake_chat(base: str, model: object, messages: object, max_tokens: object = None) -> str:
+        seen["base"] = base
+        return "attached reply"
+
+    monkeypatch.setattr(runtime, "_serve", _boom)
+    monkeypatch.setattr(runtime, "_chat", _fake_chat)
+    out = runtime.generate(_lib_model("pub/X"), "hi", base_url="http://127.0.0.1:8000")
+    assert out == "attached reply"
+    assert seen["base"] == "http://127.0.0.1:8000"
+
+
+def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import capabilities, runtime
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    captured: dict[str, object] = {}
+
+    def _fake_generate(model: object, prompt: str, *a: object) -> str:
+        captured["base_url"] = a[-1]  # base_url is the last positional
+        return "ok"
+
+    monkeypatch.setattr(runtime, "generate", _fake_generate)
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000/v1"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] == "http://127.0.0.1:8000"  # normalized (trailing /v1 stripped)

@@ -23,6 +23,7 @@ from typing import Any
 WRITABLE: dict[str, str] = {
     "library-root": "library_root",
     "model": "default_model",
+    "server": "chat_server",
 }
 
 
