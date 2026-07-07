@@ -16,8 +16,10 @@ kodo_mcp_datetime``). Point kodo at it with ``kodo chat --mcp``.
 
 import asyncio
 import calendar
+import os
 import re
 from datetime import MAXYEAR, MINYEAR, date, datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from fastmcp import FastMCP
@@ -72,6 +74,41 @@ def _now(name: str = "local") -> datetime:
     """The current aware datetime in timezone ``name`` (DST-correct — it's now)."""
     tz = _tz(name)
     return datetime.now(tz) if tz else datetime.now().astimezone()
+
+
+def _local_timezone_name() -> str | None:
+    """Best-effort IANA name for the host's local timezone (e.g. ``Europe/Oslo``), or None.
+
+    stdlib can't name the local zone directly (``astimezone()`` yields a fixed-offset tzinfo, and
+    an offset like ``+02:00`` maps to many zones), so probe the usual sources in order: the ``TZ``
+    env var, ``/etc/timezone`` (Debian/Ubuntu), then the ``/etc/localtime`` symlink target (Linux
+    and macOS point it into ``.../zoneinfo/<Area>/<City>``). Each candidate is validated as a real
+    IANA zone before it's returned.
+    """
+    candidates: list[str] = []
+    env_tz = os.environ.get("TZ")
+    if env_tz:
+        candidates.append(env_tz)
+    try:
+        etc = Path("/etc/timezone")
+        if etc.is_file():
+            candidates.append(etc.read_text(encoding="utf-8").strip())
+    except OSError:
+        pass
+    try:
+        target = str(Path("/etc/localtime").resolve())
+        if "zoneinfo/" in target:
+            candidates.append(target.split("zoneinfo/", 1)[1])
+    except OSError:
+        pass
+    for name in candidates:
+        if name and name.lower() != "local":
+            try:
+                ZoneInfo(name)
+                return name
+            except (ZoneInfoNotFoundError, ValueError):
+                continue
+    return None
 
 
 def _parse_dt(value: str) -> datetime:
@@ -171,6 +208,21 @@ def time_in(timezones: list[str]) -> dict[str, str]:
 
 
 # --- timezones -------------------------------------------------------------
+
+
+@mcp.tool
+def local_timezone() -> str:
+    """The host's own IANA timezone and current offset, e.g. ``Europe/Oslo (+02:00)``.
+
+    Use this to answer "what's my timezone / my local time" — the other tools take a timezone but
+    can't name the machine's own, and an offset alone (``+02:00``) doesn't identify a unique zone.
+    Falls back to the offset + abbreviation if the IANA name can't be determined.
+    """
+    now = _now("local")
+    offset = now.strftime("%z")
+    pretty = f"{offset[:3]}:{offset[3:]}" if offset else "+00:00"
+    name = _local_timezone_name()
+    return f"{name} ({pretty})" if name else f"unknown IANA name — local offset {pretty} ({now.tzname()})"
 
 
 @mcp.tool

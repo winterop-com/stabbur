@@ -130,3 +130,21 @@ async def test_list_timezones_matches_human_spelling() -> None:
     # "New York" / "new-york" should find America/New_York (spaces/hyphens -> underscore).
     assert "America/New_York" in await _call("list_timezones", contains="new york")
     assert "America/New_York" in await _call("list_timezones", contains="New-York")
+
+
+async def test_local_timezone_reports_iana_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A valid TZ env var is used verbatim; the result names the zone and carries an offset.
+    monkeypatch.setenv("TZ", "Europe/Oslo")
+    result = await _call("local_timezone")
+    assert result.startswith("Europe/Oslo (") and result.endswith(")")
+
+
+async def test_local_timezone_ignores_bogus_tz(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A TZ that isn't a real IANA zone is skipped (falls through to the file probes / offset).
+    from kodo_mcp_datetime import app
+
+    monkeypatch.setenv("TZ", "Not/AZone")
+    monkeypatch.setattr(app.Path, "is_file", lambda self: False)  # ignore /etc/timezone
+    monkeypatch.setattr(app.Path, "resolve", lambda self: app.Path("/no/zoneinfo/here"))  # no marker
+    result = await _call("local_timezone")
+    assert "Not/AZone" not in result  # the invalid name never leaks
