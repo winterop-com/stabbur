@@ -28,3 +28,9 @@ os.environ["COLUMNS"] = "200"
 # and silently scans the real drive locally. An env var overrides ``.env``, so this wins
 # everywhere. Tests that need the *unconfigured* state ``monkeypatch.delenv`` it explicitly.
 os.environ.setdefault("KODO_LIBRARY_ROOT", tempfile.mkdtemp(prefix="kodo-test-library-"))
+
+# Point the machine config (kodo.userconfig, read as the lowest-priority Settings source) at a
+# throwaway XDG dir so the suite never reads the developer's real ~/.config/kodo/config.toml —
+# which would leak a default_model / library_root into tests and make them non-hermetic. Tests
+# that exercise the machine config set XDG_CONFIG_HOME to their own tmp_path.
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="kodo-test-config-")

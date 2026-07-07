@@ -115,6 +115,18 @@ def load(path: Path = _DEFAULT_PATH) -> Project | None:
         raise ProjectError(f"{path} has an invalid value: {exc}") from exc
 
 
+def resolve_model(explicit: str | None, proj: "Project | None") -> str | None:
+    """The model to use: explicit CLI name > project model > machine default.
+
+    Outside a project (free-play), the machine default (``settings.default_model``, set via
+    ``kodo config set model``) supplies a model so ``kodo chat`` / ``serve --ui`` have one to
+    load without a project or an explicit argument. In a project, its ``model`` still wins.
+    """
+    from kodo.config import get_settings  # noqa: PLC0415 - lazy: config imports project
+
+    return explicit or (proj.model if proj else None) or get_settings().default_model
+
+
 # --- writing (owned here so a write never leaves a broken kodo.toml) -------------------------
 
 SHARED_LIBRARY_TOKEN = "@shared"

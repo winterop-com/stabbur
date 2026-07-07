@@ -25,6 +25,7 @@ from kodo import (
     runtime,
     scaffold,
     tags,
+    userconfig,
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
@@ -62,10 +63,15 @@ mcp_app = typer.Typer(
     no_args_is_help=True,
 )
 voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
+config_app = typer.Typer(
+    help="Machine-level defaults (~/.config/kodo/config.toml): library location + default model.",
+    no_args_is_help=True,
+)
 app.add_typer(library_app, name="library")
 app.add_typer(project_app, name="project")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(voice_app, name="voice")
+app.add_typer(config_app, name="config")
 
 
 # The MCP catalog (curated + optional first-party servers) lives in `kodo.mcp_catalog` so the
@@ -383,6 +389,48 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
         console.print("\n[yellow]All essentials present[/], with warnings above.")
     else:
         console.print("\n[green]All good.[/]")
+
+
+@config_app.command("path")
+def config_path() -> None:
+    """Print the machine config file path."""
+    console.print(str(userconfig.config_path()))
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Show the machine config file and the effective (resolved) defaults."""
+    path = userconfig.config_path()
+    stored = userconfig.read()
+    console.print(f"[bold]Machine config[/]  {path}" + ("" if path.is_file() else "  [dim](not created yet)[/]"))
+    if stored:
+        for key, field in userconfig.WRITABLE.items():
+            if field in stored:
+                console.print(f"  {key} = {stored[field]!r}")
+    # The effective values fold in env vars / project kodo.toml / .env that outrank this file.
+    settings = config.Settings()
+    console.print("\n[bold]Effective[/] [dim](after env / project / .env override)[/]")
+    console.print(f"  library-root  {settings.library_root or '[yellow](not set)[/]'}")
+    console.print(f"  model         {settings.default_model or '[dim](none — free-play)[/]'}")
+
+
+@config_app.command("set")
+def config_set(
+    key: Annotated[str, typer.Argument(help=f"Config key: {', '.join(userconfig.WRITABLE)}.")],
+    value: Annotated[str, typer.Argument(help="The value to store.")],
+) -> None:
+    """Set a machine default (persisted to the config file), e.g. `kodo config set model <name>`."""
+    field = userconfig.WRITABLE.get(key)
+    if field is None:
+        typer.secho(
+            f"Unknown key {key!r}. Known keys: {', '.join(userconfig.WRITABLE)}.", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(1)
+    stored = value
+    if field == "library_root":  # persist an absolute, ~-expanded path so it resolves from any cwd
+        stored = str(Path(value).expanduser().resolve())
+    written = userconfig.set_value(field, stored)
+    console.print(f"[green]Set[/] {key} = {stored}\n[dim]{written}[/]")
 
 
 @library_app.command("ls")
@@ -1654,11 +1702,12 @@ def chat(
     tool schema instead of calling it).
     """
     proj = project.load()
-    model_name = name or (proj.model if proj else None)
+    model_name = project.resolve_model(name, proj)
     if model_name is None:
         console.print(
             "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
-            "or define a default model in a project ([cyan]kodo project init[/])."
+            "set a machine default ([cyan]kodo config set model <name>[/]), "
+            "or define one in a project ([cyan]kodo project init[/])."
         )
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
@@ -2053,11 +2102,12 @@ class _HostContext:
 
     def resolve_model(self, name: str | None, model_format: str | None = None) -> library_ops.LibraryModel:
         proj = project.load()
-        model_name = name or (proj.model if proj else None)
+        model_name = project.resolve_model(name, proj)
         if model_name is None:
             console.print(
                 "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
-                "or define a default model in a project ([cyan]kodo project init[/])."
+                "set a machine default ([cyan]kodo config set model <name>[/]), "
+                "or define one in a project ([cyan]kodo project init[/])."
             )
             raise typer.Exit(1)
         return _resolve_library_model(model_name, ModelFormat(model_format) if model_format else None)

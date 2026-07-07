@@ -4,9 +4,13 @@
 both the library location (``library_root``) and the project/assistant manifest
 (``[project]`` / ``[[mcp]]``, read separately by :mod:`kodo.project`). Every
 value can still be overridden per machine with a ``KODO_*`` environment
-variable; ``.env`` remains an optional low-priority fallback.
+variable; ``.env`` remains an optional low-priority fallback. Below that sits the
+durable **machine config** (:mod:`kodo.userconfig`, ``~/.config/kodo/config.toml``),
+written by ``kodo config`` / ``kodo setup`` — the persistent per-machine default
+(library location, default model) so a fresh box needs no shell export.
 
-Precedence (high to low): CLI args, ``KODO_*`` env vars, ``kodo.toml``, ``.env``.
+Precedence (high to low): CLI args, ``KODO_*`` env vars, ``kodo.toml``, ``.env``,
+machine config.
 """
 
 import json
@@ -41,6 +45,23 @@ class _KodoTomlSource(PydanticBaseSettingsSource):
         from kodo import project  # noqa: PLC0415 - lazy: avoid an import cycle at module load
 
         return project.read_raw()
+
+
+class _MachineConfigSource(PydanticBaseSettingsSource):
+    """Feed settings from the durable machine config (:func:`kodo.userconfig.read`).
+
+    The lowest-priority real source: per-machine defaults (library location, default model)
+    written by ``kodo config`` / ``kodo setup``. Its TOML keys are already :class:`Settings`
+    field names, so the parsed dict maps directly; unknown keys are ignored (``extra="ignore"``).
+    """
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:  # noqa: ARG002
+        return None, field_name, False  # unused: __call__ returns the whole dict below
+
+    def __call__(self) -> dict[str, Any]:
+        from kodo import userconfig  # noqa: PLC0415 - lazy, symmetry with _KodoTomlSource
+
+        return userconfig.read()
 
 
 def _default_lmstudio_dir() -> Path:
@@ -79,16 +100,19 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Order the sources: init args > env vars > kodo.toml > .env > secrets.
+        """Order the sources: init args > env vars > kodo.toml > .env > machine config > secrets.
 
         ``kodo.toml`` is the primary config file, so it outranks ``.env``; real
-        environment variables still win for genuine per-machine overrides.
+        environment variables still win for genuine per-machine overrides. The machine
+        config (:mod:`kodo.userconfig`) sits at the bottom as the durable default a project
+        or env var can override.
         """
         return (
             init_settings,
             env_settings,
             _KodoTomlSource(settings_cls),
             dotenv_settings,
+            _MachineConfigSource(settings_cls),
             file_secret_settings,
         )
 
@@ -165,6 +189,12 @@ class Settings(BaseSettings):
     # route through :func:`kodo.library.roots` / :func:`kodo.library.default_root`, which
     # raise ``LibraryNotConfigured`` rather than silently falling back to a ``./data`` dir.
     library_root: Path | None = None
+
+    # Machine-default model, used outside a project (free-play) when no model is named on the
+    # CLI. In a project, ``kodo.toml``'s ``[project].model`` outranks this (a project pins its
+    # own model); this is the fallback so ``kodo chat`` / ``serve --ui`` have a model to load
+    # without a project or an explicit name. Set it with ``kodo config set model <name>``.
+    default_model: str | None = None
 
     # Source stores to scan and back up from.
     ollama_models_dir: Path = Path.home() / ".ollama" / "models"

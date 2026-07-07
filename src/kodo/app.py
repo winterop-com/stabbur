@@ -113,9 +113,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncExitStack() as mcp_stack:
         proj = project.load()
         app.state.system_prompt = proj.system_prompt if proj else ""
-        # The project's bound model, surfaced in /api/status so the UI auto-loads
-        # it on open (a project is a reproducible assistant: model + prompt + tools).
-        app.state.project_model = proj.model if proj else None
+        # The model the UI auto-loads on open: the project's bound model (a project is a
+        # reproducible assistant: model + prompt + tools), or — outside a project — the machine
+        # default (`kodo config set model`), so free-play serve --ui still opens on a model.
+        app.state.project_model = project.resolve_model(None, proj)
         # The project's spoken-reply voice + whether the Voice surface is enabled, surfaced in
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
