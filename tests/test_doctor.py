@@ -115,6 +115,28 @@ def test_check_project_missing_model_warns(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # No project is a valid free-play mode, so it should surface no project checks at all.
+    # No project and no machine default is plain free-play — surface no checks at all.
+    from kodo import config
+
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-xdg"))  # no machine config
+    config.get_settings.cache_clear()
     assert doctor.check_project(_settings(tmp_path)) == []
+    config.get_settings.cache_clear()
+
+
+def test_check_project_shows_machine_default_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Outside a project, the machine default model (kodo config set model) is surfaced.
+    from kodo import config, library
+
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    monkeypatch.setattr(library, "find", lambda *_a, **_k: [object()])  # resolves in the library
+    cfg = tmp_path / "kodo" / "config.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('default_model = "pub/Def"\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    config.get_settings.cache_clear()
+    row = next(c for c in doctor.check_project(_settings(tmp_path)) if c.name == "Default model")
+    assert row.status is doctor.CheckStatus.ok
+    assert "pub/Def" in row.detail and "machine default" in row.detail
+    config.get_settings.cache_clear()

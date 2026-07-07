@@ -38,6 +38,19 @@ def config_path() -> Path:
     return config_dir() / "config.toml"
 
 
+def default_library_dir() -> Path:
+    """The fallback library location when no drive is configured.
+
+    The XDG data dir (``$XDG_DATA_HOME/kodo/library``, else ``~/.local/share/kodo/library``).
+    Only a fallback that ``kodo setup`` offers — the intended home is an external drive set via
+    ``kodo config set library-root``; the library is portable data, distinct from the config
+    dir (here) and the ephemeral ``~/.kodo`` runtime state.
+    """
+    base = os.environ.get("XDG_DATA_HOME")
+    root = Path(base) if base else Path.home() / ".local" / "share"
+    return root / "kodo" / "library"
+
+
 def read() -> dict[str, Any]:
     """Parse the machine config into a dict — ``{}`` if the file doesn't exist.
 

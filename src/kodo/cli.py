@@ -400,12 +400,13 @@ def _setup_library_root(explicit: Path | None, yes: bool) -> None:
     if explicit is None and current is not None:
         console.print(f"[green]Library[/]  already configured -> {current}")
         return
+    fallback = userconfig.default_library_dir()
     if explicit is not None:
         root = explicit.expanduser().resolve()
     elif yes:
-        root = (Path.home() / "kodo-library").resolve()
+        root = fallback.resolve()
     else:
-        raw = typer.prompt("Where should your library live?", default=str(Path.home() / "kodo-library"))
+        raw = typer.prompt("Where should your library live?", default=str(fallback))
         root = Path(raw).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     userconfig.set_value("library_root", str(root))

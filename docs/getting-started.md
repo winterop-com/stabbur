@@ -68,6 +68,8 @@ kodo doctor          # or just check runtimes, library, and the current project
 defaults (see below), builds the browser UI if [Bun](https://bun.sh) is present, and
 prints an OS-specific hint for anything it can't install (the llama.cpp binary). It's
 safe to re-run. Prefer to do it by hand? Everything it writes is a `kodo config` call.
+With no drive mounted, its fallback library location is the XDG data dir
+(`~/.local/share/kodo/library`); point it at your external drive when you have one.
 
 Optional model *sources* (not required to run kodo): **Ollama** and **LM Studio**
 — kodo reads their local caches if present, so you can pull models from them.

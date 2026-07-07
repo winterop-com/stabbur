@@ -325,11 +325,9 @@ def test_config_set_rejects_unknown_key(tmp_path: Path, monkeypatch: pytest.Monk
 def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
-    monkeypatch.setattr(library_ops, "scan", lambda: [])  # no models -> no picker
+    monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # empty library (find() passes args through)
     lib = tmp_path / "lib"
-    res = runner.invoke(
-        cli.app, ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui"]
-    )
+    res = runner.invoke(cli.app, ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui"])
     assert res.exit_code == 0, res.output
     from kodo import userconfig
 
