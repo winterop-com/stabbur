@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
+from pydantic import BaseModel, ConfigDict
 from rich.panel import Panel
 
 from kodo import (
@@ -15,7 +16,7 @@ from kodo import (
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
-from kodo.models import ModelSource
+from kodo.models import ModelSource, ProjectTemplate
 from kodo.templates import TEMPLATES
 
 if TYPE_CHECKING:
@@ -91,6 +92,145 @@ def _pull_or_exit(model: str, library_root: Path | None) -> None:
         raise typer.Exit(1) from exc
 
 
+class _WizardChoices(BaseModel):
+    """The choices that define a scaffolded project — from a template preset or the wizard."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    mcp: list[tuple[str, str]]  # (name, command) MCP servers to write into .mcp.json
+    system_prompt: str
+    chat_voice: str
+    template: ProjectTemplate | None = None
+
+
+def _gather_choices(model: str | None, template: str | None) -> _WizardChoices:
+    """Resolve the scaffolding choices: a named template preset, or walk the interactive wizard.
+
+    Gathered up front so canceling the wizard (Ctrl-C) leaves nothing behind — the caller creates
+    the project directory only after this returns.
+    """
+    if template is not None:
+        tmpl = TEMPLATES.get(template)
+        if tmpl is None:
+            console.print(f"[red]Unknown template {template!r}[/] — available: {', '.join(sorted(TEMPLATES))}")
+            raise typer.Exit(1)
+        # A template presets the whole wizard, so scaffolding is reproducible in one command.
+        console.print(f"\nUsing the [bold]{template}[/] template.")
+        return _WizardChoices(
+            model=model or tmpl.model,
+            mcp=list(tmpl.mcp),
+            system_prompt=tmpl.system_prompt,
+            chat_voice=tmpl.chat_voice or "kokoro:af_heart",
+            template=tmpl,
+        )
+    console.print("\n[bold]0. Kind[/] [dim]— tailors the defaults[/]")
+    console.print("  1. Chat  [dim]— text conversation (replies can still be spoken)[/]")
+    console.print("  2. Voice  [dim]— talk to it: mic dictation in, spoken replies out[/]")
+    voice_project = typer.prompt("Number", default="1").strip() == "2"
+    default_prompt = (
+        "You are a friendly voice assistant. Keep replies short and natural for speech."
+        if voice_project
+        else "You are a concise, helpful assistant."
+    )
+    return _WizardChoices(
+        model=model or _pick_model_interactive(),
+        mcp=_pick_tools_interactive(),
+        system_prompt=typer.prompt("\n3. System prompt", default=default_prompt),
+        # Kokoro is tiny, so every project can speak replies; a voice project picks which voice.
+        chat_voice=(
+            typer.prompt("\n4. Spoken-reply voice (Kokoro)", default="kokoro:af_heart")
+            if voice_project
+            else "kokoro:af_heart"
+        ),
+    )
+
+
+def _provision_model(target: Path, model: str, local: bool) -> tuple[bool, list[library_ops.LibraryModel]]:
+    """Make ``model`` available: use the shared library, or build a project-local ``library/``.
+
+    Returns ``(use_local, existing)`` — whether the project ships its own library and the matching
+    library models found (empty if none). Pulls (or local-copies) the model as needed.
+    """
+    shared = library_ops.configured()
+    existing = library_ops.find(model) if shared else []
+    use_local = local or not shared  # --local/--copy forces it; no KODO_LIBRARY_ROOT falls back to it
+    if not use_local:
+        if existing:
+            console.print(f"\n[green]✓[/] {model} is in your library")
+        else:
+            console.print(f"\nPulling [bold]{model}[/] into your library …")
+            _pull_or_exit(model, None)
+        return use_local, existing
+    local_lib = target / _LOCAL_LIBRARY
+    local_lib.mkdir(parents=True, exist_ok=True)
+    if existing and existing[0].is_ollama:
+        # Ollama models live in a content-addressed store (manifest + shared blobs); they can't be
+        # copied into a loose project-local library. Reject cleanly instead of crashing on copytree.
+        console.print(
+            f"[red]{model!r} is an Ollama model[/] — it can't be copied into a project-local library.\n"
+            "Drop `--local`/`--copy` (use the shared library), or pick a GGUF/MLX model."
+        )
+        raise typer.Exit(1)
+    if existing:
+        console.print(f"\nCopying [bold]{model}[/] into [bold]{_LOCAL_LIBRARY}/[/] (local-disk copy) …")
+        scaffold.copy_model_local(existing[0], local_lib)
+    elif not shared:
+        console.print(f"\n[yellow]No KODO_LIBRARY_ROOT set[/] — downloading [bold]{model}[/] into {_LOCAL_LIBRARY}/.")
+        _pull_or_exit(model, local_lib)
+    else:
+        console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
+        _pull_or_exit(model, local_lib)
+    return use_local, existing
+
+
+def _write_project(
+    target: Path, choices: _WizardChoices, *, use_local: bool, existing: list[library_ops.LibraryModel], uv: bool
+) -> None:
+    """Write ``kodo.toml`` + ``.mcp.json`` (and, for a uv project, pyproject/README + template files)."""
+    (target / "kodo.toml").write_text(
+        project.render_manifest(
+            model=choices.model,
+            system_prompt=choices.system_prompt,
+            local_library_dir=_LOCAL_LIBRARY if use_local else None,
+            chat_voice=choices.chat_voice,
+        )
+    )
+    # Tools go in the standard .mcp.json (not kodo.toml). In a uv project the servers are pinned
+    # deps that run straight off PATH, so drop the runtime `uvx ` fetch from each command.
+    scaffold_mcp = [(name, scaffold.strip_uvx(command)) for name, command in choices.mcp] if uv else choices.mcp
+    for entry_name, command in scaffold_mcp:
+        mcpservers.add(_to_mcp_server(entry_name, command), glob=False, project_dir=target)
+    if uv:
+        mlx = "mlx" in choices.model.lower() or bool(existing and existing[0].model_format == "mlx")
+        # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
+        extras = choices.template.extras if choices.template is not None else []
+        (target / "pyproject.toml").write_text(
+            scaffold.render_pyproject(target.resolve().name, choices.mcp, mlx, extras)
+        )
+        (target / "README.md").write_text(scaffold.render_readme(target.resolve().name))
+    if choices.template is not None:
+        for rel, content in choices.template.files.items():
+            dest = target / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content)
+
+
+def _print_scaffold_summary(proj: Path, choices: _WizardChoices, *, uv: bool, git: bool, target: Path) -> None:
+    """Print the post-scaffold summary (model/tools/voice + uv/git status + template next-steps)."""
+    console.print(f"\n[green]Created[/] {proj}")
+    console.print(f"  [dim]model:[/] {choices.model}")
+    console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in choices.mcp) if choices.mcp else 'none'}")
+    console.print(f"  [dim]voice:[/] {choices.chat_voice}")
+    if uv:
+        console.print("  [dim]uv:[/] pyproject.toml (run [bold]uv sync[/] to build the environment)")
+    if git:
+        ok, status = scaffold.git_init(target)
+        console.print(f"  [{'dim' if ok else 'yellow'}]git:[/] {status}")
+    if choices.template is not None and choices.template.next_steps:
+        console.print(f"\n[bold]Next steps[/]\n{choices.template.next_steps}")
+
+
 def _scaffold_project(
     target: Path,
     model: str | None,
@@ -117,115 +257,11 @@ def _scaffold_project(
     if proj.exists() and not force:
         console.print(f"[red]{proj} already exists[/] — use --force to overwrite.")
         raise typer.Exit(1)
-
-    tmpl = None
-    if template is not None:
-        tmpl = TEMPLATES.get(template)
-        if tmpl is None:
-            console.print(f"[red]Unknown template {template!r}[/] — available: {', '.join(sorted(TEMPLATES))}")
-            raise typer.Exit(1)
-
-    if tmpl is not None:
-        # A template presets the whole wizard, so scaffolding is reproducible in one command.
-        console.print(f"\nUsing the [bold]{template}[/] template.")
-        model = model or tmpl.model
-        mcp = list(tmpl.mcp)
-        system_prompt = tmpl.system_prompt
-        chat_voice = tmpl.chat_voice or "kokoro:af_heart"
-    else:
-        # Gather every choice first, so canceling the wizard (Ctrl-C) leaves nothing behind —
-        # the directory is created only once we're committing to writing the project below.
-        console.print("\n[bold]0. Kind[/] [dim]— tailors the defaults[/]")
-        console.print("  1. Chat  [dim]— text conversation (replies can still be spoken)[/]")
-        console.print("  2. Voice  [dim]— talk to it: mic dictation in, spoken replies out[/]")
-        voice_project = typer.prompt("Number", default="1").strip() == "2"
-
-        model = model or _pick_model_interactive()
-        mcp = _pick_tools_interactive()
-        default_prompt = (
-            "You are a friendly voice assistant. Keep replies short and natural for speech."
-            if voice_project
-            else "You are a concise, helpful assistant."
-        )
-        system_prompt = typer.prompt("\n3. System prompt", default=default_prompt)
-        # Kokoro is tiny, so every project can speak replies; a voice project lets you pick which voice.
-        chat_voice = (
-            typer.prompt("\n4. Spoken-reply voice (Kokoro)", default="kokoro:af_heart")
-            if voice_project
-            else "kokoro:af_heart"
-        )
-
+    choices = _gather_choices(model, template)
     target.mkdir(parents=True, exist_ok=True)
-    shared = library_ops.configured()
-    existing = library_ops.find(model) if shared else []
-    use_local = local or not shared  # --local/--copy forces it; no KODO_LIBRARY_ROOT falls back to it
-    if not use_local:
-        if existing:
-            console.print(f"\n[green]✓[/] {model} is in your library")
-        else:
-            console.print(f"\nPulling [bold]{model}[/] into your library …")
-            _pull_or_exit(model, None)
-    else:
-        local_lib = target / _LOCAL_LIBRARY
-        local_lib.mkdir(parents=True, exist_ok=True)
-        if existing and existing[0].is_ollama:
-            # Ollama models live in a content-addressed store (manifest + shared blobs); they can't
-            # be copied into a loose project-local library. Reject cleanly instead of crashing on copytree.
-            console.print(
-                f"[red]{model!r} is an Ollama model[/] — it can't be copied into a project-local library.\n"
-                "Drop `--local`/`--copy` (use the shared library), or pick a GGUF/MLX model."
-            )
-            raise typer.Exit(1)
-        if existing:
-            console.print(f"\nCopying [bold]{model}[/] into [bold]{_LOCAL_LIBRARY}/[/] (local-disk copy) …")
-            scaffold.copy_model_local(existing[0], local_lib)
-        else:
-            if not shared:
-                console.print(
-                    f"\n[yellow]No KODO_LIBRARY_ROOT set[/] — downloading [bold]{model}[/] into {_LOCAL_LIBRARY}/."
-                )
-            else:
-                console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
-            _pull_or_exit(model, local_lib)
-
-    proj.write_text(
-        project.render_manifest(
-            model=model,
-            system_prompt=system_prompt,
-            local_library_dir=_LOCAL_LIBRARY if use_local else None,
-            chat_voice=chat_voice,
-        )
-    )
-    # Tools go in the standard .mcp.json (not kodo.toml). In a uv project the servers are pinned
-    # deps that run straight off PATH, so drop the runtime `uvx ` fetch from each command.
-    scaffold_mcp = [(name, scaffold.strip_uvx(command)) for name, command in mcp] if uv else mcp
-    for entry_name, command in scaffold_mcp:
-        mcpservers.add(_to_mcp_server(entry_name, command), glob=False, project_dir=target)
-
-    if uv:
-        mlx = "mlx" in model.lower() or bool(existing and existing[0].model_format == "mlx")
-        # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
-        tmpl_extras = tmpl.extras if tmpl is not None else []
-        (target / "pyproject.toml").write_text(scaffold.render_pyproject(target.resolve().name, mcp, mlx, tmpl_extras))
-        (target / "README.md").write_text(scaffold.render_readme(target.resolve().name))
-
-    if tmpl is not None:
-        for rel, content in tmpl.files.items():
-            dest = target / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content)
-
-    console.print(f"\n[green]Created[/] {proj}")
-    console.print(f"  [dim]model:[/] {model}")
-    console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in mcp) if mcp else 'none'}")
-    console.print(f"  [dim]voice:[/] {chat_voice}")
-    if uv:
-        console.print("  [dim]uv:[/] pyproject.toml (run [bold]uv sync[/] to build the environment)")
-    if git:
-        ok, status = scaffold.git_init(target)
-        console.print(f"  [{'dim' if ok else 'yellow'}]git:[/] {status}")
-    if tmpl is not None and tmpl.next_steps:
-        console.print(f"\n[bold]Next steps[/]\n{tmpl.next_steps}")
+    use_local, existing = _provision_model(target, choices.model, local)
+    _write_project(target, choices, use_local=use_local, existing=existing, uv=uv)
+    _print_scaffold_summary(proj, choices, uv=uv, git=git, target=target)
 
 
 @project_app.command("init")
