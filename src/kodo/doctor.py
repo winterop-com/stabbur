@@ -13,7 +13,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from kodo import host, runtime
+from kodo import host, mcpservers, runtime
 from kodo import library as library_ops
 from kodo import project as project_ops
 from kodo.config import Settings, get_settings
@@ -186,9 +186,11 @@ def check_project(settings: Settings) -> list[Check]:
             )
         )
 
-    if proj is not None and proj.mcp:
-        names = ", ".join(m.name or m.command.split()[0] for m in proj.mcp)
-        checks.append(Check(name="Project tools (MCP)", status=CheckStatus.ok, detail=f"{len(proj.mcp)} ({names})"))
+    # Effective tools: the resolved mcp.json servers (global + project). Shown whenever any exist.
+    servers = mcpservers.resolve()
+    if servers:
+        names = ", ".join(s.name for s in servers)
+        checks.append(Check(name="Tools (MCP)", status=CheckStatus.ok, detail=f"{len(servers)} ({names})"))
     return checks
 
 

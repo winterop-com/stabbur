@@ -11,24 +11,14 @@ def test_load_missing_returns_none(tmp_path: Path) -> None:
     assert project.load(tmp_path / "kodo.toml") is None
 
 
-def test_load_parses_model_prompt_and_mcp(tmp_path: Path) -> None:
+def test_load_parses_model_and_prompt(tmp_path: Path) -> None:
+    # Tools are no longer in kodo.toml (they live in .mcp.json); the manifest is model+prompt+libs.
     manifest = tmp_path / "kodo.toml"
-    manifest.write_text(
-        "[project]\n"
-        'model = "gemma-4-12B-it-QAT-GGUF"\n'
-        'system_prompt = "Be terse."\n\n'
-        "[[mcp]]\n"
-        'name = "datetime"\n'
-        'command = "kodo-mcp-datetime"\n\n'
-        "[[mcp]]\n"
-        'command = "dhis2w-mcp-bridge"\n'
-    )
+    manifest.write_text('[project]\nmodel = "gemma-4-12B-it-QAT-GGUF"\nsystem_prompt = "Be terse."\n')
     proj = project.load(manifest)
     assert proj is not None
     assert proj.model == "gemma-4-12B-it-QAT-GGUF"
     assert proj.system_prompt == "Be terse."
-    assert [m.command for m in proj.mcp] == ["kodo-mcp-datetime", "dhis2w-mcp-bridge"]
-    assert proj.mcp[0].name == "datetime"
 
 
 def test_voice_defaults_and_toggle(tmp_path: Path) -> None:
@@ -51,9 +41,6 @@ def test_load_raises_projecterror_on_bad_toml(tmp_path: Path) -> None:
     p.write_text("this = = not toml [[[")
     with pytest.raises(project.ProjectError, match="not valid TOML"):
         project.load(p)
-    p.write_text('[[mcp]]\nname = "x"\n')  # missing required 'command'
-    with pytest.raises(project.ProjectError, match="command"):
-        project.load(p)
 
 
 def test_render_manifest_round_trips(tmp_path: Path) -> None:
@@ -61,7 +48,6 @@ def test_render_manifest_round_trips(tmp_path: Path) -> None:
     text = project.render_manifest(
         model="pub/Foo-GGUF",
         system_prompt="You are helpful.",
-        mcp=[project.ProjectMcp(name="datetime", command="kodo-mcp-datetime", env={"TZ": "UTC"})],
         local_library_dir="library",
         chat_voice="kokoro:af_heart",
     )
@@ -73,33 +59,6 @@ def test_render_manifest_round_trips(tmp_path: Path) -> None:
     assert loaded.system_prompt == "You are helpful."
     assert loaded.chat_voice == "kokoro:af_heart"
     assert loaded.libraries == ["library", "@shared"]
-    assert [m.name for m in loaded.mcp] == ["datetime"]
-    assert loaded.mcp[0].env == {"TZ": "UTC"}
-
-
-def test_add_mcp_appends_and_is_readable(tmp_path: Path) -> None:
-    p = tmp_path / "kodo.toml"
-    p.write_text(project.render_manifest(model="pub/Foo"))
-    project.add_mcp(p, project.ProjectMcp(name="utils", command="kodo-mcp-utils"))
-    project.add_mcp(p, project.ProjectMcp(name="files", command="kodo-mcp-files"))
-    loaded = project.load(p)
-    assert loaded is not None and [m.name for m in loaded.mcp] == ["utils", "files"]  # both appended, valid
-
-
-def test_add_mcp_missing_file_raises(tmp_path: Path) -> None:
-    with pytest.raises(project.ProjectError, match="does not exist"):
-        project.add_mcp(tmp_path / "nope.toml", project.ProjectMcp(name="x", command="x"))
-
-
-def test_add_mcp_leaves_a_malformed_file_untouched(tmp_path: Path) -> None:
-    # If appending would yield invalid TOML (here the existing file is already broken), the write
-    # is refused and the file is left exactly as it was — never half-written (A1).
-    p = tmp_path / "kodo.toml"
-    broken = "this = = broken [[["
-    p.write_text(broken)
-    with pytest.raises(project.ProjectError, match="invalid TOML"):
-        project.add_mcp(p, project.ProjectMcp(name="x", command="x"))
-    assert p.read_text() == broken  # untouched
 
 
 def test_read_raw_is_the_single_parser(tmp_path: Path) -> None:

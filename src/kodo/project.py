@@ -1,7 +1,8 @@
 """The project manifest (``kodo.toml``) — read *and* write in one place.
 
-A project declares which model to use, MCP servers for tools, a system prompt, and which
-libraries it composes, so ``kodo chat`` in a project directory picks them up without flags.
+A project declares which model to use, a system prompt, and which libraries it composes, so
+``kodo chat`` in a project directory picks them up without flags. Tools are **not** here: MCP
+servers live in the standard ``mcpServers`` JSON (:mod:`kodo.mcpservers`, ``./.mcp.json``).
 
 This module is the **single owner** of the project side of ``kodo.toml`` (A1):
 
@@ -9,45 +10,28 @@ This module is the **single owner** of the project side of ``kodo.toml`` (A1):
   the *machine* settings, e.g. ``library_root``, from the same file) go through it, so a malformed
   file fails one way (a clean :class:`ProjectError`), not two.
 * :func:`load` turns the parse into a validated :class:`Project` model.
-* :func:`render_manifest` and :func:`add_mcp` **own writes** — a fresh file is rendered from
-  values, and an edit is validated (re-parsed) before it's written, so a write never leaves a
-  broken ``kodo.toml`` behind.
+* :func:`render_manifest` **owns writes** — a fresh file is rendered from values.
 
 ``kodo.toml`` has two readers by design: *machine* settings (env-overridable, per-machine) live in
-:class:`kodo.config.Settings`; the *portable* assistant manifest (``[project]`` / ``[[mcp]]`` /
-``[voice]`` / ``libraries``) lives here. Same file, two purposes, one parser.
+:class:`kodo.config.Settings`; the *portable* assistant manifest (``[project]`` / ``[voice]`` /
+``libraries``) lives here. Same file, two purposes, one parser.
 """
 
 import json
-import shlex
 import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 _DEFAULT_PATH = Path("kodo.toml")
 
 
-class ProjectMcp(BaseModel):
-    """One MCP server the project uses for tools."""
-
-    command: str
-    name: str | None = None
-    env: dict[str, str] = Field(default_factory=dict)
-    """Environment variables for this server (``[[mcp]].env``), merged over kodo's base env."""
-
-    def to_spec(self) -> tuple[str | None, list[str], dict[str, str]]:
-        """The ``(name, argv, env)`` spec :func:`kodo.tools.connect` expects."""
-        return self.name, shlex.split(self.command), self.env
-
-
 class Project(BaseModel):
-    """A kodo project (assistant) manifest."""
+    """A kodo project (assistant) manifest. Tools live in ``.mcp.json`` (:mod:`kodo.mcpservers`)."""
 
     model: str | None = None
     system_prompt: str = ""
-    mcp: list[ProjectMcp] = []
     chat_voice: str | None = None
     """Voice for spoken replies in chat (e.g. ``kokoro:af_heart``); ``None`` = the UI default."""
     voice_enabled: bool = True
@@ -85,7 +69,7 @@ def load(path: Path = _DEFAULT_PATH) -> Project | None:
     """Load the project manifest from ``path``, or ``None`` if the file doesn't exist.
 
     Raises :class:`ProjectError` (with a readable message) on malformed TOML or a bad manifest —
-    ``kodo mcp add`` tells users to hand-edit this file, so a typo must not crash every command.
+    users hand-edit this file, so a typo must not crash every command.
     """
     if not path.is_file():
         return None
@@ -99,18 +83,8 @@ def load(path: Path = _DEFAULT_PATH) -> Project | None:
             system_prompt=project.get("system_prompt", ""),
             chat_voice=project.get("chat_voice"),
             voice_enabled=bool(voice.get("enabled", True)) if isinstance(voice, dict) else True,
-            mcp=[
-                ProjectMcp(
-                    command=entry["command"],
-                    name=entry.get("name"),
-                    env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
-                )
-                for entry in data.get("mcp", [])
-            ],
             libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
         )
-    except KeyError as exc:
-        raise ProjectError(f"{path}: an [[mcp]] entry is missing its required 'command' key ({exc}).") from exc
     except (TypeError, ValidationError) as exc:
         raise ProjectError(f"{path} has an invalid value: {exc}") from exc
 
@@ -132,24 +106,10 @@ def resolve_model(explicit: str | None, proj: "Project | None") -> str | None:
 SHARED_LIBRARY_TOKEN = "@shared"
 
 
-def _inline_env(env: dict[str, str]) -> str:
-    """Render an env dict as a TOML inline table: ``{ K = "V", … }``."""
-    return "{ " + ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items()) + " }"
-
-
-def _mcp_block(mcp: ProjectMcp) -> str:
-    """Serialize one ``[[mcp]]`` array-of-tables entry (name/command/env)."""
-    block = f"[[mcp]]\nname = {json.dumps(mcp.name)}\ncommand = {json.dumps(mcp.command)}\n"
-    if mcp.env:
-        block += f"env = {_inline_env(mcp.env)}\n"
-    return block
-
-
 def render_manifest(
     *,
     model: str,
     system_prompt: str = "",
-    mcp: list[ProjectMcp] | None = None,
     local_library_dir: str | None = None,
     chat_voice: str | None = None,
 ) -> str:
@@ -158,19 +118,9 @@ def render_manifest(
     Portable and git-committable — no machine-specific paths. ``libraries`` lists a project-local
     store (``local_library_dir``, created alongside this file) plus ``@shared``, the token for the
     machine's default library (``KODO_LIBRARY_ROOT``); ``None`` means the project uses only the
-    shared library. ``[project]`` / ``[[mcp]]`` define the assistant. Override anything per machine
-    with ``KODO_*``.
+    shared library. ``[project]`` defines the assistant; tools live in ``.mcp.json``. Override
+    anything per machine with ``KODO_*``.
     """
-    if mcp:
-        blocks = [_mcp_block(m) for m in mcp]
-        tools_block = "# Tools via MCP — the assistant's toolset.\n" + "\n".join(blocks) + "\n"
-    else:
-        tools_block = (
-            "# Tools via MCP (repeatable; add a server to give the assistant tools):\n"
-            "# [[mcp]]\n"
-            '# name = "datetime"\n'
-            '# command = "kodo-mcp-datetime"\n'
-        )
     if local_library_dir:
         libraries_block = (
             f'# This project ships its own "{local_library_dir}/" store (the model was downloaded there);\n'
@@ -186,35 +136,11 @@ def render_manifest(
     # can talk back without loading a second multi-GB model.
     voice_line = f"chat_voice = {json.dumps(chat_voice)}  # spoken-reply voice (Kokoro)\n" if chat_voice else ""
     return (
-        "# kodo project — a purpose-built assistant (model + system prompt + tools).\n"
-        "# Portable + committable: no machine-specific paths.\n\n"
+        "# kodo project — a purpose-built assistant (model + system prompt).\n"
+        "# Portable + committable: no machine-specific paths. Tools live in .mcp.json.\n\n"
         f"{libraries_block}"
         "[project]\n"
         f"model = {json.dumps(model)}\n"
         f"system_prompt = {json.dumps(system_prompt)}\n"
-        f"{voice_line}\n"
-        f"{tools_block}"
+        f"{voice_line}"
     )
-
-
-def add_mcp(path: Path, mcp: ProjectMcp) -> None:
-    """Append one ``[[mcp]]`` server to an existing ``kodo.toml``, validating before it writes.
-
-    Appending is the least destructive edit (it preserves the user's comments and formatting),
-    but a blind append can produce broken TOML if the file ends oddly. So this normalizes the
-    separator, builds the new text in memory, **re-parses it to validate**, and only then writes —
-    a malformed result raises :class:`ProjectError` and leaves the file untouched (A1).
-
-    Raises:
-        ProjectError: The file is missing, or the resulting TOML would be invalid.
-    """
-    if not path.is_file():
-        raise ProjectError(f"{path} does not exist — run `kodo project init` first.")
-    current = path.read_text(encoding="utf-8")
-    separator = "" if current.endswith("\n\n") else ("\n" if current.endswith("\n") else "\n\n")
-    new_text = f"{current}{separator}{_mcp_block(mcp)}"
-    try:
-        tomllib.loads(new_text)  # validate the *result* before touching the file
-    except tomllib.TOMLDecodeError as exc:
-        raise ProjectError(f"adding the MCP server would make {path} invalid TOML: {exc}") from exc
-    path.write_text(new_text, encoding="utf-8")

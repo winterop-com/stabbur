@@ -2,6 +2,7 @@
 
 import os
 import secrets
+import shlex
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -21,6 +22,7 @@ from kodo import (
     doctor,
     host,
     mcp_catalog,
+    mcpservers,
     project,
     runtime,
     scaffold,
@@ -84,15 +86,9 @@ _uninstalled_optional = mcp_catalog.uninstalled_optional
 # Project templates now live in kodo.templates (TEMPLATES).
 
 
-def _project_mcp_keys(path: Path = Path("kodo.toml")) -> set[str]:
-    """Names + commands of MCP servers already listed in the local ``kodo.toml`` (empty if none)."""
-    proj = project.load(path)
-    keys: set[str] = set()
-    for m in proj.mcp if proj else []:
-        keys.add(m.command)
-        if m.name:
-            keys.add(m.name)
-    return keys
+def _project_mcp_keys() -> set[str]:
+    """Names of MCP servers already in the local ``.mcp.json`` (empty if none)."""
+    return {s.name for s in mcpservers.read_project()}
 
 
 @mcp_app.command("list")
@@ -166,19 +162,21 @@ def mcp_list() -> None:
 @mcp_app.command("add")
 def mcp_add(
     name: Annotated[str, typer.Argument(help="An installed plugin or external-catalog name (see `kodo mcp list`).")],
+    to_global: Annotated[
+        bool,
+        typer.Option(
+            "--global", "-g", help="Add to the machine-global ~/.config/kodo/mcp.json instead of this project."
+        ),
+    ] = False,
 ) -> None:
-    """Add an MCP server to this directory's ``kodo.toml`` (idempotent).
+    """Add an MCP server to the standard ``mcpServers`` JSON (idempotent — replaces by name).
 
-    Resolves ``name`` against installed first-party plugins first, then the external
-    catalog. Appends a ``[[mcp]]`` block; edit the command afterwards if it has a
-    placeholder (path/profile).
+    Targets this directory's ``.mcp.json`` by default, or the machine-global
+    ``~/.config/kodo/mcp.json`` with ``--global`` (tools every free-play chat gets). Resolves
+    ``name`` against installed first-party plugins first, then the external catalog; edit the
+    entry afterwards if its command has a placeholder (path/profile).
     """
     from kodo import plugins  # noqa: PLC0415
-
-    path = Path("kodo.toml")
-    if not path.is_file():
-        console.print("[red]No kodo.toml here.[/] Run [bold]kodo project init[/] first (or cd into a project).")
-        raise typer.Exit(1)
 
     # First-party plugins win a name clash — kodo controls them, so prefer them over external.
     server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == name), None)
@@ -197,24 +195,18 @@ def mcp_add(
         entry_name, command, setup = chosen.name, chosen.command, chosen.setup
         uninstalled_optional = chosen in _OPTIONAL_FIRST_PARTY
 
-    if entry_name in _project_mcp_keys(path) or command in _project_mcp_keys(path):
-        console.print(f"[yellow]{entry_name}[/] is already in {path}.")
+    target = mcpservers.global_path() if to_global else mcpservers.project_path()
+    existing = mcpservers.read_global() if to_global else mcpservers.read_project()
+    if any(s.name == entry_name for s in existing):
+        console.print(f"[yellow]{entry_name}[/] is already in {target}.")
         return
 
-    # In a uv project (pyproject.toml present) the server is a pinned dependency, so drop the
-    # runtime `uvx` fetch from the command and add the package to pyproject.toml.
+    # In a uv *project* (pyproject.toml present, not --global) the server is a pinned dependency,
+    # so drop the runtime `uvx` fetch from the command and add the package to pyproject.toml.
     pyproject = Path("pyproject.toml")
-    uv_project = pyproject.is_file()
-    cmd, env = scaffold.split_env_prefix(scaffold.strip_uvx(command) if uv_project else command)
-
-    # project.add_mcp owns the write: it validates the resulting TOML before touching the file,
-    # so a bad edit is reported cleanly and never corrupts kodo.toml (A1).
-    try:
-        project.add_mcp(path, project.ProjectMcp(name=entry_name, command=cmd, env=env))
-    except project.ProjectError as exc:
-        console.print(f"[red]{exc}[/]")
-        raise typer.Exit(1) from exc
-    console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
+    uv_project = not to_global and pyproject.is_file()
+    mcpservers.add(_to_mcp_server(entry_name, scaffold.strip_uvx(command) if uv_project else command), glob=to_global)
+    console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {target}")
 
     if uv_project:
         for pkg in scaffold.pip_deps_from_mcp([(entry_name, command)]):  # original (uvx) command -> pip pkg
@@ -225,6 +217,23 @@ def mcp_add(
     elif setup:
         console.print(f"  [yellow]setup:[/] {setup}")
     console.print("[dim]Check it:[/] kodo project show")
+
+
+@mcp_app.command("remove")
+@mcp_app.command("rm", hidden=True)
+def mcp_remove(
+    name: Annotated[str, typer.Argument(help="The server name to remove (see `kodo project show`).")],
+    from_global: Annotated[
+        bool, typer.Option("--global", "-g", help="Remove from the machine-global mcp.json instead of this project.")
+    ] = False,
+) -> None:
+    """Remove an MCP server from this project's ``.mcp.json`` or the global ``mcp.json`` (``--global``)."""
+    written = mcpservers.remove(name, glob=from_global)
+    target = mcpservers.global_path() if from_global else mcpservers.project_path()
+    if written is None:
+        console.print(f"[yellow]{name}[/] is not in {target}.")
+        raise typer.Exit(1)
+    console.print(f"[green]Removed[/] [cyan]{name}[/] from {target}")
 
 
 @app.callback()
@@ -334,14 +343,28 @@ def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) ->
 _LOCAL_LIBRARY = scaffold.LOCAL_LIBRARY
 
 
-def _to_project_mcp(name: str, command: str) -> project.ProjectMcp:
-    """Turn a CLI ``(name, command)`` pair into a manifest :class:`kodo.project.ProjectMcp`.
+def _to_mcp_server(name: str, command: str) -> mcpservers.McpServer:
+    """Turn a CLI ``(name, command)`` pair into a standard :class:`kodo.mcpservers.McpServer`.
 
-    Splits a leading ``env VAR=val …`` prefix out of the command into the entry's ``env`` table,
-    so ``kodo.project`` serializes it (rendering/writes are owned there — A1).
+    Splits a leading ``env VAR=val …`` prefix into the entry's ``env`` table, then the remaining
+    command into ``command`` + ``args`` (the ``mcpServers`` JSON shape).
     """
     cmd, env = scaffold.split_env_prefix(command)
-    return project.ProjectMcp(name=name, command=cmd, env=env)
+    argv = shlex.split(cmd)
+    return mcpservers.McpServer(name=name, command=argv[0], args=argv[1:], env=env)
+
+
+def _cli_mcp_spec(value: str) -> tuple[str | None, list[str], dict[str, str]]:
+    """Resolve a ``--mcp`` value to the ``(name, argv, env)`` spec :func:`kodo.tools.connect` wants.
+
+    An advertised server *name* (or *command*) resolves to that server; anything else is used
+    verbatim as a command. A leading ``env VAR=val`` prefix is lifted into ``env``.
+    """
+    from kodo import plugins  # noqa: PLC0415
+
+    name, command = plugins.resolve_mcp(value)
+    cmd, env = scaffold.split_env_prefix(command)
+    return name, shlex.split(cmd), env
 
 
 def _library_names() -> set[str]:
@@ -488,6 +511,26 @@ def _setup_ui(build_ui: bool | None, yes: bool) -> None:
         console.print("[red]Web UI[/]  build failed — run `make frontend` to see the error.")
 
 
+def _setup_default_tools(yes: bool) -> None:
+    """Seed the global mcp.json with a minimal default toolset (datetime) if it has none."""
+    existing = mcpservers.read_global()
+    if existing:
+        console.print(f"[green]Tools[/]  global default -> {', '.join(s.name for s in existing)}")
+        return
+    from kodo import plugins  # noqa: PLC0415
+
+    # Minimal, safe default: datetime — models otherwise don't know the current date/time. More
+    # via `kodo mcp add --global <name>` (see `kodo mcp list`).
+    server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == "datetime"), None)
+    if server is None:
+        return
+    if not yes and not typer.confirm("Enable the default 'datetime' tool for chats?", default=True):
+        console.print("[dim]Tools[/]  none — add with `kodo mcp add --global <name>`.")
+        return
+    mcpservers.add(_to_mcp_server(server.name, server.command), glob=True)
+    console.print(f"[green]Set[/]  default tools -> {server.name}  [dim](kodo mcp add --global <name> for more)[/]")
+
+
 @app.command()
 def setup(
     library_root: Annotated[
@@ -511,6 +554,7 @@ def setup(
     console.rule("[bold]kodo setup")
     _setup_library_root(library_root, yes)
     _setup_default_model(model, yes)
+    _setup_default_tools(yes)
     _setup_ui(build_ui, yes)
     console.print()
     report = doctor.run_checks()
@@ -1329,19 +1373,19 @@ def _scaffold_project(
                 console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
             _pull_or_exit(model, local_lib)
 
-    # In a uv project the MCP servers are pinned deps, so they run straight off PATH — drop
-    # the runtime `uvx ` fetch from each command that has one.
-    toml_mcp = [(name, scaffold.strip_uvx(command)) for name, command in mcp] if uv else mcp
-    mcp_models = [_to_project_mcp(name, command) for name, command in toml_mcp]
     proj.write_text(
         project.render_manifest(
             model=model,
             system_prompt=system_prompt,
-            mcp=mcp_models or None,
             local_library_dir=_LOCAL_LIBRARY if use_local else None,
             chat_voice=chat_voice,
         )
     )
+    # Tools go in the standard .mcp.json (not kodo.toml). In a uv project the servers are pinned
+    # deps that run straight off PATH, so drop the runtime `uvx ` fetch from each command.
+    scaffold_mcp = [(name, scaffold.strip_uvx(command)) for name, command in mcp] if uv else mcp
+    for entry_name, command in scaffold_mcp:
+        mcpservers.add(_to_mcp_server(entry_name, command), glob=False, project_dir=target)
 
     if uv:
         mlx = "mlx" in model.lower() or bool(existing and existing[0].model_format == "mlx")
@@ -1429,9 +1473,9 @@ def new(
 
 
 def _connect_project_tools(
-    mcp: list[project.ProjectMcp],
+    mcp: list[mcpservers.McpServer],
 ) -> tuple[dict[str, list[tuple[str, str]]], str | None, list[tuple[str, str]]]:
-    """Spawn the project's MCP servers and return their real tools, grouped by server.
+    """Spawn the given MCP servers and return their real tools, grouped by server.
 
     Returns ``({server: [(tool, description), ...]}, error, failures)``: ``error`` is a message
     if the whole connect failed, else ``None``; ``failures`` is per-server ``(label, reason)``
@@ -1496,27 +1540,28 @@ def project_(
     console.print("[bold]System prompt[/]")
     console.print(Panel(sp, border_style="grey37", padding=(0, 1)) if sp else "  [dim]none[/]")
 
-    # Tools — connect to the MCP servers and list the tools they actually expose.
-    console.print("\n[bold]Tools[/]")
-    if not proj.mcp:
+    # Tools — the effective MCP servers (global + project .mcp.json), with their live tools.
+    console.print("\n[bold]Tools[/] [dim](global + project .mcp.json)[/]")
+    servers = mcpservers.resolve()
+    if not servers:
         console.print("  [dim]none[/]")
     else:
-        console.print(f"  [dim]connecting to {len(proj.mcp)} MCP server(s) …[/]")
-        grouped, error, failures = _connect_project_tools(proj.mcp)
+        console.print(f"  [dim]connecting to {len(servers)} MCP server(s) …[/]")
+        grouped, error, failures = _connect_project_tools(servers)
         if error:
             console.print(f"  [red]could not connect:[/] [dim]{error}[/]")
         failed = {label: reason for label, reason in failures}
-        for m in proj.mcp:
-            server = m.name or m.command.split()[0]
-            if server in failed:  # this one couldn't start; the others still work
-                console.print(f"  [yellow]{server}[/] [dim]({m.command})[/] — [red]failed:[/] [dim]{failed[server]}[/]")
+        for m in servers:
+            command = " ".join([m.command, *m.args])
+            if m.name in failed:  # this one couldn't start; the others still work
+                console.print(f"  [yellow]{m.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{failed[m.name]}[/]")
                 if m.command.startswith("kodo-mcp-web"):
                     console.print(
                         "    [dim]hint:[/] the web reader is optional — install it with [bold]make install-web[/]"
                     )
                 continue
-            tools_here = grouped.get(server, [])
-            console.print(f"  [cyan]{server}[/] [dim]({m.command})[/] — [bold]{len(tools_here)}[/] tool(s)")
+            tools_here = grouped.get(m.name, [])
+            console.print(f"  [cyan]{m.name}[/] [dim]({command})[/] — [bold]{len(tools_here)}[/] tool(s)")
             for tool, desc in tools_here:
                 summary = desc.splitlines()[0][:80] if desc else ""
                 console.print(f"    [white]{tool}[/]{f'  [dim]{summary}[/]' if summary else ''}")
@@ -1841,15 +1886,12 @@ def chat(
         )
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
-    from kodo import plugins  # noqa: PLC0415
 
-    # (name, command) per server. A bare --mcp value is resolved against advertised
-    # servers (so `--mcp datetime` finds kodo-mcp-datetime), else used verbatim as a
-    # command; project [[mcp]] entries carry their own manifest name (the tool namespace).
-    mcp_servers: list[tuple[str | None, str, dict[str, str]]] = (
-        [(*plugins.resolve_mcp(c), {}) for c in mcp] + [(m.name, m.command, m.env) for m in (proj.mcp if proj else [])]
-        if tools
-        else []
+    # (name, argv, env) per server. A bare --mcp value resolves against advertised servers
+    # (so `--mcp datetime` finds kodo-mcp-datetime), else it's used verbatim as a command;
+    # the rest come from the resolved mcp.json layers (global + project, see kodo.mcpservers).
+    mcp_servers: list[tuple[str | None, list[str], dict[str, str]]] = (
+        [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in mcpservers.resolve()] if tools else []
     )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     caps = capabilities.capabilities(model)
@@ -1870,7 +1912,7 @@ def chat(
 
 def _chat_with_tools(
     model: library_ops.LibraryModel,
-    mcp_servers: list[tuple[str | None, str, dict[str, str]]],
+    mcp_servers: list[tuple[str | None, list[str], dict[str, str]]],
     prompt: str | None,
     max_tokens: int | None,
     system_prompt: str = "",
@@ -1883,7 +1925,6 @@ def _chat_with_tools(
     run); otherwise it hands off to the full-screen Textual chat.
     """
     import asyncio  # noqa: PLC0415
-    import shlex  # noqa: PLC0415
 
     from rich.progress import Progress  # noqa: PLC0415
 
@@ -1894,7 +1935,7 @@ def _chat_with_tools(
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
-    servers = [(name, shlex.split(cmd), env) for name, cmd, env in mcp_servers]
+    servers = mcp_servers  # already (name, argv, env) specs
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied
     # to every CLI chat turn just like the web path does.
     rec = sampling.recommended(model)

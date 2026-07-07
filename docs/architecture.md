@@ -76,13 +76,14 @@ Command names are pinned to current upstream (verified mid-2026). See the
 - **Machine config** (`config.py`) — `library_root`, `host`/`port`, `cors_origins`,
   `auth_token`, and other per-machine settings. These are `pydantic-settings` fields, so any
   value can be overridden per machine with a `KODO_*` env var (precedence: CLI args > `KODO_*`
-  env > `kodo.toml` > `.env`). `library_root` has **no default** — it is `None` when unset, and
-  every consumer routes through `library.roots()` / `library.default_root()`, which raise
-  `LibraryNotConfigured` rather than silently using a `./data` folder.
+  env > `kodo.toml` > `.env` > `~/.config/kodo/config.toml`). `library_root` has **no default** —
+  it is `None` when unset, and every consumer routes through `library.roots()` /
+  `library.default_root()`, which raise `LibraryNotConfigured` rather than silently using `./data`.
 - **The project manifest** (`project.py`) — the *portable, committable* assistant definition:
-  `[project]` (model + system prompt), `[[mcp]]` (tool servers), `[voice]`, and `libraries`
-  (which stores this project composes, in priority order). No machine-specific paths, so a
-  project directory is git-committable and moves between machines.
+  `[project]` (model + system prompt), `[voice]`, and `libraries` (which stores this project
+  composes, in priority order). Tools are separate — the standard `mcpServers` JSON in `.mcp.json`
+  (`mcpservers.py`), merged with the machine-global `~/.config/kodo/mcp.json`. No machine-specific
+  paths, so a project directory is git-committable and moves between machines.
 
 Despite the two readers, the file has **one parser and one writer** (`project.py`):
 

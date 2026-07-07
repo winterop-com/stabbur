@@ -86,16 +86,16 @@ def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch)
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     # `project show` must surface the bound model, the system prompt, and the *actual*
     # tools (from connecting to the MCP servers) — not just server names.
+    from kodo import mcpservers
     from kodo import project as project_mod
 
-    proj = project_mod.Project(
-        model="unsloth/X-GGUF",
-        system_prompt="Be concise.",
-        mcp=[project_mod.ProjectMcp(name="datetime", command="kodo-mcp-datetime")],
-    )
+    proj = project_mod.Project(model="unsloth/X-GGUF", system_prompt="Be concise.")
     monkeypatch.setattr(project_mod, "load", lambda *a, **k: proj)
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
-    # Stub the (network/subprocess) MCP connect so the test stays hermetic.
+    # Tools now come from the resolved mcp.json layers; stub resolve + the connect so it's hermetic.
+    monkeypatch.setattr(
+        mcpservers, "resolve", lambda *a, **k: [mcpservers.McpServer(name="datetime", command="kodo-mcp-datetime")]
+    )
     monkeypatch.setattr(
         cli, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None, [])
     )

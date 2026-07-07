@@ -2,7 +2,8 @@
 
 ``kodo.toml`` in the working directory is the primary config source: it holds
 both the library location (``library_root``) and the project/assistant manifest
-(``[project]`` / ``[[mcp]]``, read separately by :mod:`kodo.project`). Every
+(``[project]`` / ``[voice]``, read separately by :mod:`kodo.project`; tools live in
+``.mcp.json``, see :mod:`kodo.mcpservers`). Every
 value can still be overridden per machine with a ``KODO_*`` environment
 variable; ``.env`` remains an optional low-priority fallback. Below that sits the
 durable **machine config** (:mod:`kodo.userconfig`, ``~/.config/kodo/config.toml``),
@@ -80,7 +81,7 @@ class Settings(BaseSettings):
     """Application settings — read from ``kodo.toml`` first, then env vars.
 
     Top-level keys in ``kodo.toml`` (e.g. ``library_root = "/path/to/your/library"``)
-    map directly to these fields; the ``[project]`` / ``[[mcp]]`` tables are
+    map directly to these fields; the ``[project]`` / ``[voice]`` tables are
     ignored here and read by :mod:`kodo.project`. A ``KODO_*`` environment
     variable (e.g. ``KODO_LIBRARY_ROOT``) overrides the file per machine.
     """
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="KODO_",
         env_file=".env",
-        extra="ignore",  # manifest tables ([project]/[[mcp]]/…) coexist in kodo.toml; ignore them here
+        extra="ignore",  # manifest tables ([project]/[voice]/…) coexist in kodo.toml; ignore them here
     )
 
     @classmethod
