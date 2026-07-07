@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
-from kodo_mcp_shell import mcp
+from kodo_mcp_shell import app, mcp
 
 
 async def _call(name: str, **kw: Any) -> Any:
@@ -51,3 +51,14 @@ async def test_unrestricted_mode_runs_a_shell(monkeypatch: pytest.MonkeyPatch) -
 async def test_empty_command_errors() -> None:
     with pytest.raises(ToolError):
         await _call("run", command="   ")
+
+
+async def test_timeout_returns_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A command that prints then hangs (ping without -c, tail -f, ...) is stopped at the timeout
+    # and returns what it printed, flagged — not an empty error.
+    monkeypatch.setenv("KODO_SHELL_UNRESTRICTED", "1")  # need a shell to `sleep`
+    monkeypatch.setattr(app, "_TIMEOUT", 0.5)
+    out = await _call("run", command="printf 'ONE\\nTWO\\n'; sleep 5")
+    assert out["timed_out"] is True and out["exit_code"] is None
+    assert "ONE" in out["stdout"] and "TWO" in out["stdout"]
+    assert "bounded" in out.get("note", "")
