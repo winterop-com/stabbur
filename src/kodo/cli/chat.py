@@ -1,5 +1,6 @@
 """`kodo chat` - the terminal chat: interactive TUI, one-shot -p, tools, and serve-attach."""
 
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -66,6 +67,10 @@ def chat(
             "model per call; the model stays loaded. Default from KODO_CHAT_SERVER / `kodo config set server`.",
         ),
     ] = None,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help="With -p, never render markdown; print raw text even to a terminal."),
+    ] = False,
 ) -> None:
     """Chat with a library model: full-screen TUI, one-shot with ``-p``, tools with ``--mcp``.
 
@@ -117,17 +122,41 @@ def chat(
             base_url = found.base_url
             typer.secho(f"↳ attaching to running kodo serve at {base_url}", fg=typer.colors.BRIGHT_BLACK, err=True)
 
+    # Render the reply as markdown only when -p writes to a real terminal (the git/bat/ls
+    # convention): an interactive `kodo chat -p "…"` gets tables/headings/code like the TUI,
+    # while a pipe or redirect stays raw and clean. `--raw` forces raw even on a TTY. Rendering
+    # buffers the whole reply (markdown needs the full text), so live token streaming is traded
+    # for formatting; the raw path keeps streaming.
+    render = prompt is not None and not raw and _isatty()
+
     try:
         if prompt is not None and not mcp_servers:
-            # Scripted one-shot, no tools: print only the reply to stdout (clean for
-            # piping); errors go to stderr. Everything else goes through the one
-            # interactive/agent path below (tools optional, empty list = plain chat).
-            print(runtime.generate(model, prompt, max_tokens, system_prompt, images, audios, base_url))  # noqa: T201
+            # Scripted one-shot, no tools: the reply is the full string, so rendering is free.
+            # Raw prints only the reply to stdout (clean for piping); errors go to stderr.
+            reply = runtime.generate(model, prompt, max_tokens, system_prompt, images, audios, base_url)
+            if render:
+                _render_markdown(reply)
+            else:
+                print(reply)  # noqa: T201
         else:
-            _chat_with_tools(model, mcp_servers, prompt, max_tokens, system_prompt, images, audios, base_url)
+            _chat_with_tools(
+                model, mcp_servers, prompt, max_tokens, system_prompt, images, audios, base_url, render=render
+            )
     except (RuntimeError, httpx.HTTPError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
+
+
+def _isatty() -> bool:
+    """Whether stdout is an interactive terminal (gates ``-p`` markdown rendering)."""
+    return sys.stdout.isatty()
+
+
+def _render_markdown(text: str) -> None:
+    """Render ``text`` as Markdown to stdout (the interactive ``-p`` path, like the TUI does)."""
+    from rich.markdown import Markdown  # noqa: PLC0415
+
+    console.print(Markdown(text.strip()))
 
 
 def _chat_with_tools(
@@ -139,13 +168,15 @@ def _chat_with_tools(
     images: list[str] | None = None,
     audios: list[str] | None = None,
     base_url: str | None = None,
+    render: bool = False,
 ) -> None:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
     With ``prompt`` set (``-p``) this streams a single answer to stdout (tools still
     run); otherwise it hands off to the full-screen Textual chat. With ``base_url`` set
     (a running ``kodo serve``), the one-shot path attaches to that server — reusing its
-    loaded model instead of spawning a runtime.
+    loaded model instead of spawning a runtime. With ``render`` set (interactive ``-p``),
+    the answer is buffered and printed as rendered markdown instead of streamed raw.
     """
     import asyncio  # noqa: PLC0415
 
@@ -176,6 +207,9 @@ def _chat_with_tools(
     # thinking happened so the first answer token starts on a fresh line.
     turn_reasoned = False
     turn_separated = True
+    # When rendering (interactive -p to a TTY), the answer is buffered here and rendered as
+    # markdown once complete instead of streamed token-by-token (markdown needs the full text).
+    answer_parts: list[str] = []
 
     def _first_output() -> None:
         nonlocal turn_status, turn_labeled
@@ -209,7 +243,10 @@ def _chat_with_tools(
     def on_token(text: str) -> None:
         _first_output()
         _separate()
-        print(text, end="", flush=True)  # noqa: T201
+        if render:
+            answer_parts.append(text)  # buffered; rendered as markdown once the reply completes
+        else:
+            print(text, end="", flush=True)  # noqa: T201
 
     def on_reasoning(text: str) -> None:
         # Reasoning models' thinking → dim on stderr (keeps -p stdout the answer only).
@@ -245,7 +282,10 @@ def _chat_with_tools(
                 model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
             )
             _first_output()
-            print()  # noqa: T201 - newline after streamed answer
+            if render:
+                _render_markdown("".join(answer_parts))
+            else:
+                print()  # noqa: T201 - newline after streamed answer
 
     # Attach to a running kodo serve for the one-shot path: reuse its loaded model, no spawn/stop.
     if base_url is not None and prompt is not None:

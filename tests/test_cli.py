@@ -426,6 +426,47 @@ def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None
     assert captured["base_url"] is None  # falls back to spawning a local runtime
 
 
+def _stub_generate_reply(monkeypatch: pytest.MonkeyPatch, reply: str) -> None:
+    """Point a no-tools `-p` chat at a fixed reply (no runtime, no serve)."""
+    from kodo import capabilities, runtime
+    from kodo.runtime import serve_registry
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    monkeypatch.setattr(runtime, "generate", lambda *a, **k: reply)
+
+
+def test_chat_p_piped_prints_raw_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Not a TTY (CliRunner) -> raw text passes through untouched, safe to pipe.
+    monkeypatch.setattr(cli.chat, "_isatty", lambda: False)
+    _stub_generate_reply(monkeypatch, "# Title\n\n| a | b |\n| - | - |")
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
+    assert result.exit_code == 0, result.output
+    assert "# Title" in result.output  # literal markdown, not rendered
+
+
+def test_chat_p_tty_renders_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A real terminal -> render markdown (like git/bat/ls colorize on a TTY).
+    monkeypatch.setattr(cli.chat, "_isatty", lambda: True)
+    rendered: list[str] = []
+    monkeypatch.setattr(cli.chat, "_render_markdown", lambda text: rendered.append(text))
+    _stub_generate_reply(monkeypatch, "# Title")
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
+    assert result.exit_code == 0, result.output
+    assert rendered == ["# Title"]  # routed through the renderer, not printed raw
+
+
+def test_chat_p_raw_flag_forces_raw_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    # --raw wins even on a TTY: no rendering, literal text out.
+    monkeypatch.setattr(cli.chat, "_isatty", lambda: True)
+    monkeypatch.setattr(cli.chat, "_render_markdown", lambda text: pytest.fail("must not render with --raw"))
+    _stub_generate_reply(monkeypatch, "# Title")
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--raw"])
+    assert result.exit_code == 0, result.output
+    assert "# Title" in result.output
+
+
 def test_mcp_tools_lists_tools_by_server(monkeypatch: pytest.MonkeyPatch) -> None:
     from kodo import mcpservers
 
