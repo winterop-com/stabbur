@@ -391,3 +391,34 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000/v1"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] == "http://127.0.0.1:8000"  # normalized (trailing /v1 stripped)
+
+
+def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import capabilities, runtime, serve_registry
+    from kodo.serve_registry import ServeRecord
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    # No --server/config, but a live serve is registered for this model -> auto-attach.
+    monkeypatch.setattr(
+        serve_registry, "discover", lambda name: ServeRecord(base_url="http://127.0.0.1:9", model=name, pid=1)
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[-1]) or "ok")
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] == "http://127.0.0.1:9"
+    assert "attaching to running kodo serve" in result.output  # note printed
+
+
+def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import capabilities, runtime, serve_registry
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)  # nothing running
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[-1]) or "ok")
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] is None  # falls back to spawning a local runtime
