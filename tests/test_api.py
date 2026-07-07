@@ -133,8 +133,8 @@ async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest
     import time
 
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
-    monkeypatch.setattr("kodo.routers.serving.library_ops.find", lambda name: [fake])
-    monkeypatch.setattr("kodo.routers.serving.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr("kodo.routers.serving.chat.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("kodo.routers.serving.chat.runtime.runnable_error", lambda m: None)
 
     active = 0
     max_active = 0
@@ -164,8 +164,8 @@ async def test_load_and_unload_rejected_while_generating(
     # A running generation reserves the runtime (active_generations > 0); load/unload
     # must refuse (409) so the runtime it's streaming from is never swapped/killed.
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
-    monkeypatch.setattr("kodo.routers.serving.library_ops.find", lambda name: [fake])
-    monkeypatch.setattr("kodo.routers.serving.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr("kodo.routers.serving.chat.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("kodo.routers.serving.chat.runtime.runnable_error", lambda m: None)
     monkeypatch.setattr(app.state.manager, "load", lambda *a, **k: None)
     monkeypatch.setattr(app.state.manager, "stop", lambda *a, **k: None)
 
