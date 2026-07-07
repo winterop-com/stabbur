@@ -302,24 +302,34 @@ def test_voice_import_rejects_all_with_ids() -> None:
     assert "OR --all" in result.output
 
 
-def test_config_set_and_show(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_set_get_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("KODO_DEFAULT_MODEL", raising=False)
     set_res = runner.invoke(cli.app, ["config", "set", "model", "pub/Model-GGUF"])
     assert set_res.exit_code == 0, set_res.output
     assert "Set model = pub/Model-GGUF" in set_res.output
     from kodo import userconfig
 
     assert userconfig.read()["default_model"] == "pub/Model-GGUF"
-    show = runner.invoke(cli.app, ["config", "show"])
-    assert show.exit_code == 0, show.output
-    assert "pub/Model-GGUF" in show.output
+    # `get` prints just the raw value (scriptable); `list` shows the whole picture.
+    got = runner.invoke(cli.app, ["config", "get", "model"])
+    assert got.exit_code == 0 and got.output.strip() == "pub/Model-GGUF"
+    listed = runner.invoke(cli.app, ["config", "list"])
+    assert listed.exit_code == 0 and "pub/Model-GGUF" in listed.output
 
 
-def test_config_set_rejects_unknown_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_get_unset_is_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    res = runner.invoke(cli.app, ["config", "set", "bogus", "x"])
-    assert res.exit_code == 1
-    assert "Unknown key" in res.output
+    monkeypatch.delenv("KODO_CHAT_SERVER", raising=False)
+    got = runner.invoke(cli.app, ["config", "get", "server"])
+    assert got.exit_code == 0 and got.output.strip() == ""
+
+
+def test_config_get_set_reject_unknown_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    for args in (["config", "set", "bogus", "x"], ["config", "get", "bogus"]):
+        res = runner.invoke(cli.app, args)
+        assert res.exit_code == 1 and "Unknown key" in res.output
 
 
 def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

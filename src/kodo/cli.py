@@ -586,9 +586,35 @@ def config_path() -> None:
     console.print(str(userconfig.config_path()))
 
 
-@config_app.command("show")
-def config_show() -> None:
-    """Show the machine config file and the effective (resolved) defaults."""
+def _config_field(key: str) -> str:
+    """Resolve a `kodo config` key to its Settings field name, or exit with a clear error."""
+    field = userconfig.WRITABLE.get(key)
+    if field is None:
+        typer.secho(
+            f"Unknown key {key!r}. Known keys: {', '.join(userconfig.WRITABLE)}.", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(1)
+    return field
+
+
+@config_app.command("get")
+def config_get(
+    key: Annotated[str, typer.Argument(help=f"Config key: {', '.join(userconfig.WRITABLE)}.")],
+) -> None:
+    """Print the effective value of one config key (empty if unset) — scriptable.
+
+    The effective value folds in env vars / project kodo.toml / .env that outrank the machine
+    config, so `$(kodo config get server)` is what `kodo chat` would actually use.
+    """
+    value = getattr(config.Settings(), _config_field(key))
+    if value is not None:
+        print(str(value))  # noqa: T201 - raw stdout for command substitution
+
+
+@config_app.command("list")
+@config_app.command("ls", hidden=True)
+def config_list() -> None:
+    """List the machine config file and the effective (resolved) defaults."""
     path = userconfig.config_path()
     stored = userconfig.read()
     console.print(f"[bold]Machine config[/]  {path}" + ("" if path.is_file() else "  [dim](not created yet)[/]"))
@@ -610,12 +636,7 @@ def config_set(
     value: Annotated[str, typer.Argument(help="The value to store.")],
 ) -> None:
     """Set a machine default (persisted to the config file), e.g. `kodo config set model <name>`."""
-    field = userconfig.WRITABLE.get(key)
-    if field is None:
-        typer.secho(
-            f"Unknown key {key!r}. Known keys: {', '.join(userconfig.WRITABLE)}.", fg=typer.colors.RED, err=True
-        )
-        raise typer.Exit(1)
+    field = _config_field(key)
     stored = value
     if field == "library_root":  # persist an absolute, ~-expanded path so it resolves from any cwd
         stored = str(Path(value).expanduser().resolve())
