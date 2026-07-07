@@ -93,21 +93,24 @@ The weights land under `dhis2/library/gguf/lmstudio-community/gemma-4-12B-it-QAT
 
 ## 2. Attach the DHIS2 bridge
 
-Add an `[[mcp]]` block to `dhis2/kodo.toml`. kodo splits `command` like a shell line
-(so extra arguments work), but **`[[mcp]]` has no `env` field** — so the target
-profile is carried by an `env` prefix. `DHIS2_MCP_READONLY=1` keeps it query-only:
+Add a server entry to `dhis2/.mcp.json` (standard `mcpServers` JSON, so it has a
+first-class `env` object). `DHIS2_MCP_READONLY=1` keeps it query-only:
 
-```toml
-# The DHIS2 CLI bridge — a single `dhis2_cli` tool that runs d2 CLI calls against
-# the connected instance. DHIS2_PROFILE selects the target (from profiles.toml);
-# the `env` prefix carries it because [[mcp]].command has no env field.
-[[mcp]]
-name = "dhis2"
-command = "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"
+```json
+{
+  "mcpServers": {
+    "dhis2": {
+      "command": "uvx",
+      "args": ["dhis2w-mcp-bridge"],
+      "env": { "DHIS2_PROFILE": "play42", "DHIS2_MCP_READONLY": "1" }
+    }
+  }
+}
 ```
 
-To retarget a different server later, swap `play42` for another profile name
-(e.g. `play43`) — no other change.
+The DHIS2 CLI bridge is a single `dhis2_cli` tool that runs d2 CLI calls against the
+connected instance; `DHIS2_PROFILE` selects the target (from `profiles.toml`). To
+retarget later, swap `play42` for another profile name (e.g. `play43`) — no other change.
 
 ## 3. Verify the tool wiring
 
@@ -161,7 +164,7 @@ same directory — both bind to the project's model with the DHIS2 tool availabl
 | Step | Command |
 | --- | --- |
 | Scaffold + copy model | `kodo project new dhis2 --model …gemma-4-12B-it-QAT-GGUF --copy` |
-| Attach bridge | add `[[mcp]]` with `env DHIS2_PROFILE=play42 … uvx dhis2w-mcp-bridge` |
+| Attach bridge | add a `.mcp.json` entry: `uvx dhis2w-mcp-bridge` with `env.DHIS2_PROFILE=play42` |
 | Verify tools | `kodo project show` |
 | Try it | `kodo chat -p "…"` (or `kodo serve --ui`) |
 | Retarget server | change the profile name in the `env` prefix |
