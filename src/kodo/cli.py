@@ -1952,6 +1952,15 @@ def chat(
             f"[yellow]--server[/] applies to one-shot (-p) only; the TUI loads its own model. Ignoring {base_url}."
         )
         base_url = None
+    # With nothing configured, auto-attach to a running `kodo serve` locked to this model (one-shot
+    # only): reuse its resident weights instead of reloading. A stderr note keeps it non-surprising.
+    if base_url is None and prompt is not None:
+        from kodo import serve_registry  # noqa: PLC0415
+
+        found = serve_registry.discover(model.name)
+        if found is not None:
+            base_url = found.base_url
+            typer.secho(f"↳ attaching to running kodo serve at {base_url}", fg=typer.colors.BRIGHT_BLACK, err=True)
 
     try:
         if prompt is not None and not mcp_servers:
@@ -2214,12 +2223,17 @@ def serve(
     if auth_token:
         console.print(f"  [dim]Token:[/]    [dim]{auth_token}[/]")
     console.print("  [dim]Ctrl-C to stop[/]\n")
-    uvicorn.run(
-        "kodo.app:app",
-        host=bind_host,
-        port=bind_port,
-        reload=reload,
-    )
+
+    # Advertise this serve so `kodo chat` (no --server) can attach to its loaded model instead of
+    # reloading. Only unauthenticated (loopback, no-token) serves — chat can't send a token yet.
+    from kodo import serve_registry  # noqa: PLC0415
+
+    if not auth_token and locked_model is not None:
+        serve_registry.register(base, locked_model)
+    try:
+        uvicorn.run("kodo.app:app", host=bind_host, port=bind_port, reload=reload)
+    finally:
+        serve_registry.unregister()
 
 
 # --- voice -----------------------------------------------------------------

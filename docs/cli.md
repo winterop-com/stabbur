@@ -163,11 +163,14 @@ already-loaded model (tools still run):
 
 ```bash
 kodo serve --model <name> --port 8000        # load the model once, keep it resident
-kodo config set server http://127.0.0.1:8000 # (or KODO_CHAT_SERVER / --server) as the default
 kodo chat -p "what is todays date"           # instant — no reload
 ```
 
-`--server` applies to the one-shot (`-p`) path; the interactive TUI owns its own runtime.
+A loopback `kodo serve --model <name>` is **auto-detected**: with no `--server` (and none in
+config), `kodo chat -p` finds a running server locked to that model and attaches to it (a `↳
+attaching…` note goes to stderr). Set an explicit default with `kodo config set server <url>`
+(or `KODO_CHAT_SERVER`); `--server` overrides. `--server`/attach apply to the one-shot (`-p`)
+path; the interactive TUI owns its own runtime.
 
 **Multimodal input** — for vision/audio models, attach files:
 
