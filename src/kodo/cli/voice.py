@@ -87,9 +87,8 @@ def speak(
     (ffmpeg); with ``-o`` writes there, otherwise a temp file is played.
     """
     from kodo.voice import audio as audio_export  # noqa: PLC0415
-    from kodo.voice import kokoro, tts  # noqa: PLC0415
     from kodo.voice import registry as voice_registry  # noqa: PLC0415
-    from kodo.voice import runtime as voice_runtime  # noqa: PLC0415
+    from kodo.voice import tts  # noqa: PLC0415
 
     text = tts.speech_text(" ".join(words))  # accept an unquoted phrase; strip any Markdown
     if not audio_export.is_supported(fmt):
@@ -111,46 +110,61 @@ def speak(
         raise typer.Exit(1)
     try:
         if voice is not None:  # Kokoro (ONNX) — the lightweight preset engine
-            if not kokoro.available():
-                typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.RED, err=True)
-                raise typer.Exit(1)
-            if not kokoro.assets_present():
-                with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):
-                    kokoro.ensure_assets()
-            with console.status(f"[cyan]Synthesizing speech ({voice})…", spinner="dots"):
-                data = kokoro.synthesize(text, voice, None).read_bytes()
+            data = _synth_kokoro(text, voice)
         elif spec is not None and spec.backend == voice_registry.Backend.mlx_audio:  # Dia / Qwen3-TTS
-            if not voice_runtime.available():
-                typer.secho("mlx-audio not installed. Run `uv sync --extra voice`.", fg=typer.colors.RED, err=True)
-                raise typer.Exit(1)
-            matches = [m for m in library_ops.find(spec.repo) if m.voice_kind == "tts"]
-            if not matches:
-                typer.secho(
-                    f"{spec.display_name} is not in the library (`kodo voice import`).", fg=typer.colors.RED, err=True
-                )
-                raise typer.Exit(1)
-            extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
-            with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
-                data = voice_runtime.synthesize(
-                    matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra
-                )
+            data = _synth_mlx(spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed)
         else:  # llama-tts / OuteTTS
-            model_path = vocoder_path = None
-            if model is not None:
-                matches = [m for m in library_ops.find(model) if m.tts]
-                if not matches:
-                    typer.secho(
-                        f"No TTS model matches {model!r} (see `kodo library ls`).", fg=typer.colors.RED, err=True
-                    )
-                    raise typer.Exit(1)
-                model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
-            with console.status("[cyan]Synthesizing speech…", spinner="dots"):
-                data = tts.synthesize(text, None, model_path, vocoder_path).read_bytes()
+            data = _synth_oute(model, text)
         data = audio_export.convert(data, fmt)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
     _finish_speak(data, fmt, output, play)
+
+
+def _synth_kokoro(text: str, voice: str) -> bytes:
+    """Synthesize with Kokoro (ONNX) — the lightweight built-in engine; fetches its model on first use."""
+    from kodo.voice import kokoro  # noqa: PLC0415
+
+    if not kokoro.available():
+        typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    if not kokoro.assets_present():
+        with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):
+            kokoro.ensure_assets()
+    with console.status(f"[cyan]Synthesizing speech ({voice})…", spinner="dots"):
+        return kokoro.synthesize(text, voice, None).read_bytes()
+
+
+def _synth_mlx(spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | None, seed: int | None) -> bytes:
+    """Synthesize with the mlx-audio runtime (Dia / Qwen3-TTS), supporting voice cloning + a pinned seed."""
+    from kodo.voice import runtime as voice_runtime  # noqa: PLC0415
+
+    if not voice_runtime.available():
+        typer.secho("mlx-audio not installed. Run `uv sync --extra voice`.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    matches = [m for m in library_ops.find(spec.repo) if m.voice_kind == "tts"]
+    if not matches:
+        typer.secho(f"{spec.display_name} is not in the library (`kodo voice import`).", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
+    with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
+        return voice_runtime.synthesize(matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra)
+
+
+def _synth_oute(model: str | None, text: str) -> bytes:
+    """Synthesize with llama-tts / OuteTTS — the default when no ``--voice`` or mlx-audio model is given."""
+    from kodo.voice import tts  # noqa: PLC0415
+
+    model_path = vocoder_path = None
+    if model is not None:
+        matches = [m for m in library_ops.find(model) if m.tts]
+        if not matches:
+            typer.secho(f"No TTS model matches {model!r} (see `kodo library ls`).", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+        model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
+    with console.status("[cyan]Synthesizing speech…", spinner="dots"):
+        return tts.synthesize(text, None, model_path, vocoder_path).read_bytes()
 
 
 def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> None:
