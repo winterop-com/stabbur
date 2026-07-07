@@ -32,7 +32,7 @@ help:
 	@echo "  test        Run tests"
 	@echo "  coverage    Run tests with coverage reporting"
 	@echo "  build       Build wheel + sdist"
-	@echo "  frontend    Build the browser UI (npm install + build → frontend/dist)"
+	@echo "  frontend    Build the browser UI (bun install + build → frontend/dist)"
 	@echo "  docs        Serve the docs locally with live reload"
 	@echo "  docs-build  Build the docs site"
 	@echo "  clean       Clean up temporary files"
@@ -96,12 +96,12 @@ build:
 
 frontend:
 	@echo ">>> Building the browser UI → frontend/dist"
-	@cd frontend && npm install && npm run build
+	@cd frontend && bun install && bun run build
 
 frontend-dev:
 	@echo ">>> Vite dev server (proxies /api + /v1 to KODO_DEV_API or :8000)"
 	@echo ">>> Run 'kodo serve --port 8000' alongside for the backend"
-	@cd frontend && npm run dev
+	@cd frontend && bun run dev
 
 docs: docs-serve
 

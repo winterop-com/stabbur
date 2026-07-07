@@ -115,8 +115,10 @@ one-shot (no TUI).
 - **`kodo serve --ui --model <name>`** — *locked* single-model mode: no picker, stable
   OpenAI `/v1`, configurable CORS. The intended backend for the Chrome extension.
 
-Stack: **Vite + React + Tailwind v4 + shadcn/ui**, built to `frontend/dist` and served by
-`serve --ui` (API routes take precedence, SPA is the catch-all). **One SPA, four surfaces**
+Stack: **Vite + React + Tailwind v4 + shadcn/ui**, built with **Bun** (`bun` is the frontend
+package manager + runner — `make frontend` runs `bun install && bun run build`; there is no npm
+lockfile) to `frontend/dist` and served by `serve --ui` (API routes take precedence, SPA is the
+catch-all). **One SPA, four surfaces**
 (build the chat UI once, wrap it): web (`serve --ui`), Chrome extension (MV3 side panel,
 locked `/v1`), and Tauri + Electron desktop wrappers (maneki's pattern; kodo's should also
 launch/embed `kodo serve`). Chat UI uses shadcn's official chat components paired with a

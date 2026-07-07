@@ -49,10 +49,10 @@ Kokoro downloads its model (~310 MB) into a machine cache (~/.kodo/kokoro).
 
 ### 3. Web UI (optional)
 
-The browser UI is built from source (**Node / npm** required); it isn't committed:
+The browser UI is built from source (**[Bun](https://bun.sh)** required); it isn't committed:
 
 ```bash
-make frontend        # npm install + build -> frontend/dist
+make frontend        # bun install + build -> frontend/dist
 ```
 
 Then run `kodo serve --ui`. Skip this if you only use the CLI.

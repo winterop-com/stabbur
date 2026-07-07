@@ -33,7 +33,7 @@ brew install llama.cpp        # baseline runtime: GGUF chat + OuteTTS speech (bu
 make install-mlx              # optional: MLX runtimes (Apple Silicon)
 make install-tts              # optional: 54-voice Kokoro TTS (macOS + Linux; espeak bundled)
 make install-voice            # optional: mlx-audio (Dia/Whisper/Qwen3-TTS, Apple Silicon)
-make frontend                 # optional: build the web UI (needs Node/npm)
+make frontend                 # optional: build the web UI (needs Bun)
 export KODO_LIBRARY_ROOT=/path/to/your/library   # required: where your library lives
 kodo doctor                   # verify what's installed
 ```
