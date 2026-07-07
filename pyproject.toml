@@ -22,6 +22,7 @@ dependencies = [
     "kodo-mcp-files",
     "kodo-mcp-memory",
     "kodo-mcp-search",
+    "kodo-mcp-shell",
     "kodo-mcp-weather-yr",
     "kodo-mcp-utils",
     # Kokoro-82M (ONNX) — the lightweight, cross-platform in-chat voice. A base dep (not an
@@ -113,6 +114,7 @@ kodo-mcp-memory = { workspace = true }
 kodo-benchmark = { workspace = true }
 kodo-sandbox = { workspace = true }
 kodo-mcp-search = { workspace = true }
+kodo-mcp-shell = { workspace = true }
 kodo-mcp-weather-yr = { workspace = true }
 kodo-mcp-utils = { workspace = true }
 kodo-mcp-web = { workspace = true }  # optional (the `web` extra); heavy Playwright deps

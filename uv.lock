@@ -22,6 +22,7 @@ members = [
     "kodo-mcp-files",
     "kodo-mcp-memory",
     "kodo-mcp-search",
+    "kodo-mcp-shell",
     "kodo-mcp-utils",
     "kodo-mcp-weather-yr",
     "kodo-mcp-web",
@@ -1447,6 +1448,7 @@ dependencies = [
     { name = "kodo-mcp-files" },
     { name = "kodo-mcp-memory" },
     { name = "kodo-mcp-search" },
+    { name = "kodo-mcp-shell" },
     { name = "kodo-mcp-utils" },
     { name = "kodo-mcp-weather-yr" },
     { name = "kokoro-onnx" },
@@ -1505,6 +1507,7 @@ requires-dist = [
     { name = "kodo-mcp-files", editable = "packages/kodo-mcp-files" },
     { name = "kodo-mcp-memory", editable = "packages/kodo-mcp-memory" },
     { name = "kodo-mcp-search", editable = "packages/kodo-mcp-search" },
+    { name = "kodo-mcp-shell", editable = "packages/kodo-mcp-shell" },
     { name = "kodo-mcp-utils", editable = "packages/kodo-mcp-utils" },
     { name = "kodo-mcp-weather-yr", editable = "packages/kodo-mcp-weather-yr" },
     { name = "kodo-mcp-web", marker = "extra == 'web'", editable = "packages/kodo-mcp-web" },
@@ -1648,6 +1651,21 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pluginkit", specifier = ">=0.4.7" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
+]
+
+[[package]]
+name = "kodo-mcp-shell"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-shell" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "pluginkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
 ]
 
 [[package]]
