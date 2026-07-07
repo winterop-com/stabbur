@@ -131,7 +131,7 @@ def serve(
 
     # Advertise this serve so `kodo chat` (no --server) can attach to its loaded model instead of
     # reloading. Only unauthenticated (loopback, no-token) serves — chat can't send a token yet.
-    from kodo import serve_registry  # noqa: PLC0415
+    from kodo.runtime import serve_registry  # noqa: PLC0415
 
     if not auth_token and locked_model is not None:
         serve_registry.register(base, locked_model)

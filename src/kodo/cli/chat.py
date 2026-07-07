@@ -114,7 +114,7 @@ def chat(
     # With nothing configured, auto-attach to a running `kodo serve` locked to this model (one-shot
     # only): reuse its resident weights instead of reloading. A stderr note keeps it non-surprising.
     if base_url is None and prompt is not None:
-        from kodo import serve_registry  # noqa: PLC0415
+        from kodo.runtime import serve_registry  # noqa: PLC0415
 
         found = serve_registry.discover(model.name)
         if found is not None:
@@ -158,9 +158,9 @@ def _chat_with_tools(
     from kodo import (
         agent,  # noqa: PLC0415
         chatui,  # noqa: PLC0415
-        sampling,  # noqa: PLC0415
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
+    from kodo.runtime import sampling  # noqa: PLC0415
 
     servers = mcp_servers  # already (name, argv, env) specs
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied

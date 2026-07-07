@@ -15,11 +15,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from kodo import agent, capabilities, cards, doctor, mcp_catalog, runtime, sampling
+from kodo import agent, capabilities, cards, doctor, mcp_catalog, runtime
 from kodo import library as library_ops
 from kodo import tags as tags_ops
 from kodo.config import Settings
-from kodo.sampling import ModelSampling
+from kodo.runtime import sampling
+from kodo.runtime.sampling import ModelSampling
 from kodo.server import ServerManager
 from kodo.tools import MCPToolset
 from kodo.voice import audio as audio_export

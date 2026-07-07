@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from kodo import serve_registry
-from kodo.serve_registry import ServeRecord
+from kodo.runtime import serve_registry
+from kodo.runtime.serve_registry import ServeRecord
 
 
 def test_register_discover_unregister(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

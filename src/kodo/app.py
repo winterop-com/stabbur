@@ -12,11 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from kodo import config, mcpservers, project, runtime, supervisor
+from kodo import config, mcpservers, project, runtime
 from kodo import library as library_ops
 from kodo import tools as mcp_tools
 from kodo.config import Settings, get_settings
 from kodo.routers import catalog, health, serving
+from kodo.runtime import supervisor
 from kodo.server import ServerManager
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})

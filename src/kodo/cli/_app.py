@@ -99,8 +99,9 @@ class _HostContext:
     ) -> tuple[list[tuple[str, dict[str, object]]], str]:
         import asyncio  # noqa: PLC0415
 
-        from kodo import agent, sampling  # noqa: PLC0415
+        from kodo import agent  # noqa: PLC0415
         from kodo import tools as mcp_tools  # noqa: PLC0415
+        from kodo.runtime import sampling  # noqa: PLC0415
 
         rec = sampling.recommended(model)
         commands: list[tuple[str | None, list[str]]] = [(None, shlex.split(s)) for s in servers]
@@ -157,7 +158,7 @@ def main() -> None:
     """Console entry point: run the app, turning config problems into clean messages, not tracebacks."""
     import tomllib  # noqa: PLC0415
 
-    from kodo import supervisor  # noqa: PLC0415
+    from kodo.runtime import supervisor  # noqa: PLC0415
 
     # Reclaim any runtime a previously-crashed kodo left orphaned (holding memory) before doing
     # anything else. Best-effort and safe — only reaps runtimes whose owning kodo is gone (A4).

@@ -394,8 +394,9 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import capabilities, runtime, serve_registry
-    from kodo.serve_registry import ServeRecord
+    from kodo import capabilities, runtime
+    from kodo.runtime import serve_registry
+    from kodo.runtime.serve_registry import ServeRecord
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -412,7 +413,8 @@ def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import capabilities, runtime, serve_registry
+    from kodo import capabilities, runtime
+    from kodo.runtime import serve_registry
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())

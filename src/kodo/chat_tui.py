@@ -29,8 +29,8 @@ from textual.widgets import Collapsible, Static, TextArea
 from kodo import agent, attach, capabilities
 from kodo import library as library_ops
 from kodo import runtime as runtime_mod
-from kodo import sampling as sampling_mod
 from kodo import tools as mcp_tools
+from kodo.runtime import sampling as sampling_mod
 
 
 def _fmt_tokens(n: int) -> str:

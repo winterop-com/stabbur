@@ -12,7 +12,7 @@ import pytest
 from kodo import chat_tui, runtime
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
-from kodo.sampling import ModelSampling
+from kodo.runtime.sampling import ModelSampling
 
 
 @pytest.fixture(autouse=True)

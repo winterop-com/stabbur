@@ -19,10 +19,11 @@ import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from kodo import capabilities, host, supervisor
+from kodo import capabilities, host
 from kodo.config import debug_enabled, get_settings, pinned_runtime_port
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat, _human_size
+from kodo.runtime import supervisor
 
 # The serve command reuses this to pick its own API port; runtime spawning goes through the
 # supervisor (which retries on a bind collision), so there's one implementation.
@@ -241,7 +242,7 @@ def generate(
 
 def _chat(base: str, model: LibraryModel, messages: list[dict[str, Any]], max_tokens: int | None = None) -> str:
     """POST one chat completion to an already-served ``base`` and return the reply text."""
-    from kodo import sampling  # noqa: PLC0415 - avoid import cycle at module load
+    from kodo.runtime import sampling  # noqa: PLC0415 - avoid import cycle at module load
 
     # mlx-vlm requires the OpenAI ``model`` field and matches it against what it loaded
     # (the launch path); llama-server / mlx-lm ignore it.

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from kodo import supervisor
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
+from kodo.runtime import supervisor
 from kodo.server import ServerManager
 
 
