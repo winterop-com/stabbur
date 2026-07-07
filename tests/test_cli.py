@@ -300,3 +300,40 @@ def test_voice_import_rejects_all_with_ids() -> None:
     result = runner.invoke(cli.app, ["voice", "import", "--all", "kokoro"])
     assert result.exit_code == 2, result.output
     assert "OR --all" in result.output
+
+
+def test_config_set_and_show(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    set_res = runner.invoke(cli.app, ["config", "set", "model", "pub/Model-GGUF"])
+    assert set_res.exit_code == 0, set_res.output
+    assert "Set model = pub/Model-GGUF" in set_res.output
+    from kodo import userconfig
+
+    assert userconfig.read()["default_model"] == "pub/Model-GGUF"
+    show = runner.invoke(cli.app, ["config", "show"])
+    assert show.exit_code == 0, show.output
+    assert "pub/Model-GGUF" in show.output
+
+
+def test_config_set_rejects_unknown_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    res = runner.invoke(cli.app, ["config", "set", "bogus", "x"])
+    assert res.exit_code == 1
+    assert "Unknown key" in res.output
+
+
+def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.setattr(library_ops, "scan", lambda: [])  # no models -> no picker
+    lib = tmp_path / "lib"
+    res = runner.invoke(
+        cli.app, ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui"]
+    )
+    assert res.exit_code == 0, res.output
+    from kodo import userconfig
+
+    stored = userconfig.read()
+    assert stored["default_model"] == "pub/M"
+    assert Path(stored["library_root"]) == lib.resolve()
+    assert lib.is_dir()  # setup created it

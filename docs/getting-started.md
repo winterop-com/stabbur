@@ -57,21 +57,33 @@ make frontend        # bun install + build -> frontend/dist
 
 Then run `kodo serve --ui`. Skip this if you only use the CLI.
 
-### Verify
+### Set up this machine
 
 ```bash
-kodo doctor          # checks runtimes, library, and the current project
+kodo setup           # first-run: sets the library location + a default model, builds the UI
+kodo doctor          # or just check runtimes, library, and the current project
 ```
+
+`kodo setup` is the write-mode companion to `kodo doctor`: it persists per-machine
+defaults (see below), builds the browser UI if [Bun](https://bun.sh) is present, and
+prints an OS-specific hint for anything it can't install (the llama.cpp binary). It's
+safe to re-run. Prefer to do it by hand? Everything it writes is a `kodo config` call.
 
 Optional model *sources* (not required to run kodo): **Ollama** and **LM Studio**
 — kodo reads their local caches if present, so you can pull models from them.
 
 ## Point at your library
 
-kodo's config lives in **`kodo.toml`** in your working directory. Run
-`kodo project init` to scaffold one (see [kodo.toml.example](https://github.com/winterop-com/kodo/blob/main/kodo.toml.example)),
-or create it by hand. The library location is the `library_root` key — put it on
-an external/cloud drive:
+The library location is the `library_root` setting. The simplest way to set it
+per machine — no shell edits — is the **machine config**:
+
+```bash
+kodo config set library-root /path/to/your/library   # -> ~/.config/kodo/config.toml
+kodo config set model lmstudio-community/gemma-4-12B-it-QAT-GGUF   # default model outside a project
+```
+
+A **project** can instead pin its own library + model in **`kodo.toml`** (run
+`kodo project init` to scaffold one; see [kodo.toml.example](https://github.com/winterop-com/kodo/blob/main/kodo.toml.example)):
 
 ```toml
 # kodo.toml
@@ -83,10 +95,9 @@ model = "lmstudio-community/gemma-4-12B-it-QAT-GGUF"
 
 Every value can be overridden per machine with a `KODO_*` environment variable
 (e.g. a different mount path on Linux: `KODO_LIBRARY_ROOT=/media/<user>/<drive>`).
-A `.env` still works as an optional low-priority fallback, but `kodo.toml` is
-the primary config — you don't need `.env`. Precedence, high to low:
-CLI flags, `KODO_*` env vars, `kodo.toml`, `.env`. Settings are
-[pydantic-settings][ps]. See [The library](guides/library.md) for storage notes.
+Precedence, high to low: CLI flags, `KODO_*` env vars, project `kodo.toml`, `.env`,
+machine config (`~/.config/kodo/config.toml`). Settings are [pydantic-settings][ps].
+See [The library](guides/library.md) for storage notes.
 
 [ps]: https://docs.pydantic.dev/latest/concepts/pydantic_settings/
 
