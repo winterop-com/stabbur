@@ -1,6 +1,6 @@
 """Tests for the Kokoro TTS engine helpers (pure metadata; no model download)."""
 
-from kodo import kokoro
+from kodo.voice import kokoro
 
 
 def test_voices_are_the_full_v1_set() -> None:

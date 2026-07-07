@@ -30,7 +30,7 @@ from kodo.cli._common import (
 @voice_app.command("voices")
 def voices() -> None:
     """List the built-in Kokoro voices (the always-available in-chat TTS)."""
-    from kodo import kokoro  # noqa: PLC0415
+    from kodo.voice import kokoro  # noqa: PLC0415
 
     if not kokoro.available():
         typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.YELLOW)
@@ -90,8 +90,8 @@ def speak(
     Any other ``--model`` uses ``llama-tts``/OuteTTS. ``--format`` transcodes the result
     (ffmpeg); with ``-o`` writes there, otherwise a temp file is played.
     """
-    from kodo import kokoro, tts  # noqa: PLC0415
     from kodo.voice import audio as audio_export  # noqa: PLC0415
+    from kodo.voice import kokoro, tts  # noqa: PLC0415
     from kodo.voice import registry as voice_registry  # noqa: PLC0415
     from kodo.voice import runtime as voice_runtime  # noqa: PLC0415
 
