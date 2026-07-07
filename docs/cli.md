@@ -148,12 +148,26 @@ kodo chat <name> -p "prompt"          # one-shot, prints just the answer (pipeab
 kodo chat <name> -p "prompt" -n 256   # --max-tokens
 kodo chat <name> --system "..."       # session system prompt (overrides kodo.toml)
 kodo chat <name> --mcp <cmd>          # attach an MCP tool server (repeatable)
+kodo chat <name> -p "prompt" --server http://127.0.0.1:8000   # reuse a running `kodo serve`
 ```
 
 Interactive chat opens a scrolling TUI: markdown replies, collapsible reasoning,
 live tool activity, and a context footer. Enter sends; Shift+Return / Ctrl-J / a
 trailing backslash insert a newline; type a new message while one streams to
 **queue** it; Esc stops. `-p` stays a plain scripted one-shot (streamed stdout).
+
+**Reuse a loaded model (`--server`)** — by default each `kodo chat` spawns its own
+runtime and loads the model, so a one-shot pays that load every time. Point `-p` at a
+running `kodo serve` instead and it attaches to that server's `/v1`, reusing the
+already-loaded model (tools still run):
+
+```bash
+kodo serve --model <name> --port 8000        # load the model once, keep it resident
+kodo config set server http://127.0.0.1:8000 # (or KODO_CHAT_SERVER / --server) as the default
+kodo chat -p "what is todays date"           # instant — no reload
+```
+
+`--server` applies to the one-shot (`-p`) path; the interactive TUI owns its own runtime.
 
 **Multimodal input** — for vision/audio models, attach files:
 

@@ -302,24 +302,34 @@ def test_voice_import_rejects_all_with_ids() -> None:
     assert "OR --all" in result.output
 
 
-def test_config_set_and_show(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_set_get_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("KODO_DEFAULT_MODEL", raising=False)
     set_res = runner.invoke(cli.app, ["config", "set", "model", "pub/Model-GGUF"])
     assert set_res.exit_code == 0, set_res.output
     assert "Set model = pub/Model-GGUF" in set_res.output
     from kodo import userconfig
 
     assert userconfig.read()["default_model"] == "pub/Model-GGUF"
-    show = runner.invoke(cli.app, ["config", "show"])
-    assert show.exit_code == 0, show.output
-    assert "pub/Model-GGUF" in show.output
+    # `get` prints just the raw value (scriptable); `list` shows the whole picture.
+    got = runner.invoke(cli.app, ["config", "get", "model"])
+    assert got.exit_code == 0 and got.output.strip() == "pub/Model-GGUF"
+    listed = runner.invoke(cli.app, ["config", "list"])
+    assert listed.exit_code == 0 and "pub/Model-GGUF" in listed.output
 
 
-def test_config_set_rejects_unknown_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_get_unset_is_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    res = runner.invoke(cli.app, ["config", "set", "bogus", "x"])
-    assert res.exit_code == 1
-    assert "Unknown key" in res.output
+    monkeypatch.delenv("KODO_CHAT_SERVER", raising=False)
+    got = runner.invoke(cli.app, ["config", "get", "server"])
+    assert got.exit_code == 0 and got.output.strip() == ""
+
+
+def test_config_get_set_reject_unknown_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    for args in (["config", "set", "bogus", "x"], ["config", "get", "bogus"]):
+        res = runner.invoke(cli.app, args)
+        assert res.exit_code == 1 and "Unknown key" in res.output
 
 
 def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -335,3 +345,49 @@ def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: py
     assert stored["default_model"] == "pub/M"
     assert Path(stored["library_root"]) == lib.resolve()
     assert lib.is_dir()  # setup created it
+
+
+def test_normalize_server_url() -> None:
+    assert cli._normalize_server_url("http://h:8000") == "http://h:8000"
+    assert cli._normalize_server_url("http://h:8000/") == "http://h:8000"
+    assert cli._normalize_server_url("http://h:8000/v1") == "http://h:8000"
+    assert cli._normalize_server_url("  http://h:8000/v1/  ") == "http://h:8000"
+    assert cli._normalize_server_url(None) is None
+    assert cli._normalize_server_url("  ") is None
+
+
+def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With base_url set, generate() must NOT spawn a runtime (_serve); it POSTs to the given base.
+    from kodo import runtime
+
+    def _boom(_model: object) -> object:
+        raise AssertionError("_serve must not be called when base_url is provided")
+
+    seen: dict[str, object] = {}
+
+    def _fake_chat(base: str, model: object, messages: object, max_tokens: object = None) -> str:
+        seen["base"] = base
+        return "attached reply"
+
+    monkeypatch.setattr(runtime, "_serve", _boom)
+    monkeypatch.setattr(runtime, "_chat", _fake_chat)
+    out = runtime.generate(_lib_model("pub/X"), "hi", base_url="http://127.0.0.1:8000")
+    assert out == "attached reply"
+    assert seen["base"] == "http://127.0.0.1:8000"
+
+
+def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import capabilities, runtime
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    captured: dict[str, object] = {}
+
+    def _fake_generate(model: object, prompt: str, *a: object) -> str:
+        captured["base_url"] = a[-1]  # base_url is the last positional
+        return "ok"
+
+    monkeypatch.setattr(runtime, "generate", _fake_generate)
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000/v1"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] == "http://127.0.0.1:8000"  # normalized (trailing /v1 stripped)
