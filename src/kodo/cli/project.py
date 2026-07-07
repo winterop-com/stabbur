@@ -314,6 +314,17 @@ def _connect_project_tools(
 
     servers = [m.to_spec() for m in mcp]
 
+    # connect() namespaces tools under a *slugged* prefix (`weather-yr` -> `weather_yr`), so map
+    # each assigned prefix back to the raw server name — mirroring connect's slug + collision
+    # disambiguation — so the grouped result keys match the names the caller passed in.
+    prefix_to_name: dict[str, str] = {}
+    used: dict[str, int] = {}
+    for m in mcp:
+        base = mcp_tools._server_prefix(m.name, [m.command, *m.args])
+        n = used.get(base, 0)
+        used[base] = n + 1
+        prefix_to_name[base if n == 0 else f"{base}{n + 1}"] = m.name
+
     async def _collect() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         async with mcp_tools.connect(servers) as toolset:
             pairs = [(s["function"]["name"], s["function"].get("description", "") or "") for s in toolset.schemas]
@@ -325,8 +336,8 @@ def _connect_project_tools(
         return {}, str(exc), []
     grouped: dict[str, list[tuple[str, str]]] = {}
     for name, desc in pairs:
-        server, _, tool = name.partition("__")  # tools are namespaced <server>__<tool>
-        grouped.setdefault(server, []).append((tool or name, desc))
+        prefix, _, tool = name.partition("__")  # tools are namespaced <prefix>__<tool>
+        grouped.setdefault(prefix_to_name.get(prefix, prefix), []).append((tool or name, desc))
     return grouped, None, failures
 
 

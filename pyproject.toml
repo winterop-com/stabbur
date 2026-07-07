@@ -21,6 +21,7 @@ dependencies = [
     "kodo-mcp-exec",
     "kodo-mcp-files",
     "kodo-mcp-memory",
+    "kodo-mcp-network",
     "kodo-mcp-search",
     "kodo-mcp-weather-yr",
     "kodo-mcp-utils",
@@ -110,6 +111,7 @@ kodo-mcp-datetime = { workspace = true }
 kodo-mcp-exec = { workspace = true }
 kodo-mcp-files = { workspace = true }
 kodo-mcp-memory = { workspace = true }
+kodo-mcp-network = { workspace = true }
 kodo-benchmark = { workspace = true }
 kodo-sandbox = { workspace = true }
 kodo-mcp-search = { workspace = true }

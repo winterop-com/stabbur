@@ -173,3 +173,40 @@ def mcp_remove(
         console.print(f"[yellow]{name}[/] is not in {target}.")
         raise typer.Exit(1)
     console.print(f"[green]Removed[/] [cyan]{name}[/] from {target}")
+
+
+@mcp_app.command("tools")
+def mcp_tools() -> None:
+    """List every tool the configured MCP servers expose (global + project), with descriptions.
+
+    Connects to the resolved servers (``~/.config/kodo/mcp.json`` + ``./.mcp.json``) and lists the
+    actual tools each one exposes — unlike ``kodo mcp list``, which shows the servers/catalog. This
+    is "what can my assistant actually do" in one place.
+    """
+    from kodo.cli.project import _connect_project_tools  # noqa: PLC0415
+
+    servers = mcpservers.resolve()
+    if not servers:
+        console.print("[dim]No MCP servers configured.[/] Add one with [bold]kodo mcp add[/] (or [bold]--global[/]).")
+        return
+    console.print(f"[dim]Connecting to {len(servers)} server(s)…[/]")
+    grouped, error, failures = _connect_project_tools(servers)
+    if error:
+        console.print(f"[red]Could not connect:[/] [dim]{error}[/]")
+        raise typer.Exit(1)
+    failed = {label: reason for label, reason in failures}
+    total = 0
+    for server in servers:
+        command = " ".join([server.command, *server.args])
+        if server.name in failed:
+            console.print(
+                f"\n[yellow]{server.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{failed[server.name]}[/]"
+            )
+            continue
+        tools = sorted(grouped.get(server.name, []))
+        total += len(tools)
+        console.print(f"\n[cyan]{server.name}[/] [dim]({command})[/] — [bold]{len(tools)}[/] tool(s)")
+        for tool, desc in tools:
+            summary = desc.splitlines()[0] if desc else ""
+            console.print(f"  [white]{tool}[/]  [dim]{summary}[/]")
+    console.print(f"\n[dim]{total} tools across {len(servers)} server(s).[/]")

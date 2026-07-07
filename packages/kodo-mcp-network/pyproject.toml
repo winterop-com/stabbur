@@ -1,0 +1,21 @@
+[project]
+name = "kodo-mcp-network"
+version = "0.1.0"
+description = "Kodo MCP server: public IP, IP-based location, and Tailscale tailnet status (over stdio)"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.4.2",
+    "httpx>=0.28.1",
+    "pluginkit>=0.4.7",
+]
+
+[project.scripts]
+kodo-mcp-network = "kodo_mcp_network:main"
+
+[project.entry-points."kodo.plugins"]
+network = "kodo_mcp_network.plugin:PLUGIN"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
