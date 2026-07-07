@@ -8,16 +8,14 @@ binaries kodo spawns (llama.cpp / MLX), the library location, what's in it, and
 the current project manifest.
 """
 
-import platform
 import shutil
-import sys
 from enum import StrEnum
 
 from pydantic import BaseModel
 
+from kodo import host, runtime
 from kodo import library as library_ops
 from kodo import project as project_ops
-from kodo import runtime
 from kodo.config import Settings, get_settings
 
 
@@ -53,9 +51,9 @@ class DoctorReport(BaseModel):
         return CheckStatus.ok
 
 
-def _is_apple_silicon() -> bool:
-    """Whether this is an Apple Silicon Mac (where MLX runtimes are relevant)."""
-    return sys.platform == "darwin" and platform.machine() == "arm64"
+def check_platform() -> list[Check]:
+    """Report the OS/arch so the rest of the report (esp. N/A rows) reads in context."""
+    return [Check(name="Platform", status=CheckStatus.ok, detail=host.os_label())]
 
 
 def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = True) -> Check:
@@ -82,7 +80,7 @@ def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = T
 
 def check_runtimes() -> list[Check]:
     """Check the model-runtime binaries kodo spawns."""
-    mlx_relevant = _is_apple_silicon()
+    mlx_relevant = host.is_apple_silicon()
     return [
         # GGUF is the cross-platform backbone; without llama-server nothing GGUF runs.
         _runtime_check("llama.cpp (GGUF)", "llama-server", required=True),
@@ -176,5 +174,5 @@ def check_project(settings: Settings) -> list[Check]:
 def run_checks(settings: Settings | None = None) -> DoctorReport:
     """Run every health check and return the aggregated report."""
     conf = settings or get_settings()
-    checks = [*check_runtimes(), *check_library(conf), *check_project(conf)]
+    checks = [*check_platform(), *check_runtimes(), *check_library(conf), *check_project(conf)]
     return DoctorReport(checks=checks)

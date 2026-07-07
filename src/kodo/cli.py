@@ -2,7 +2,6 @@
 
 import os
 import secrets
-import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -13,7 +12,20 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from kodo import attach, capabilities, cards, config, consumers, doctor, mcp_catalog, project, runtime, scaffold, tags
+from kodo import (
+    attach,
+    capabilities,
+    cards,
+    config,
+    consumers,
+    doctor,
+    host,
+    mcp_catalog,
+    project,
+    runtime,
+    scaffold,
+    tags,
+)
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.config import get_settings
@@ -1475,7 +1487,7 @@ def speak(
     ] = None,
     play: Annotated[
         bool,
-        typer.Option("--play/--no-play", help="Play the audio after generating (macOS afplay)."),
+        typer.Option("--play/--no-play", help="Play the audio after generating (via the OS audio player)."),
     ] = True,
 ) -> None:
     """Text-to-speech: synthesize ``text`` to audio.
@@ -1554,7 +1566,7 @@ def speak(
 
 
 def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> None:
-    """Write synthesized audio (to ``output`` or a temp file) and optionally play it (macOS)."""
+    """Write synthesized audio (to ``output`` or a temp file) and optionally play it."""
     if output is not None:
         dest = output
     else:
@@ -1563,12 +1575,18 @@ def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> Non
         dest = Path(name)
     dest.write_bytes(data)
     console.print(f"[green]Wrote[/] {dest}")
-    if play and output is not None:
+    if not play:
+        return
+    if output is not None:
         console.print("[dim](not auto-played — audio was written to your -o file)[/]")
-    if play and output is None and shutil.which("afplay"):
-        import subprocess  # noqa: PLC0415
+        return
+    cmd = host.audio_play_command(dest)
+    if cmd is None:
+        console.print("[dim](no audio player found; install one to auto-play, e.g. ffmpeg)[/]")
+        return
+    import subprocess  # noqa: PLC0415
 
-        subprocess.run(["afplay", str(dest)])  # noqa: S603, S607 - local playback of our own file
+    subprocess.run(cmd)  # noqa: S603 - local playback of our own file
 
 
 # Attachment helpers live in kodo.attach (shared with the Textual chat); alias the

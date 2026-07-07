@@ -12,6 +12,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from kodo import host
+
 # format -> (extra ffmpeg output args, media type). WAV needs no transcode.
 _FORMATS: dict[str, tuple[list[str], str]] = {
     "wav": ([], "audio/wav"),
@@ -54,7 +56,7 @@ def convert(wav: bytes, fmt: str | None) -> bytes:
     if name == "wav" or name not in _FORMATS:
         return wav
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError(f"ffmpeg is required to export {name!r} audio (install it: `brew install ffmpeg`).")
+        raise RuntimeError(f"ffmpeg is required to export {name!r} audio ({host.package_hint('ffmpeg')}).")
     args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "wav", "-i", "pipe:0", *_FORMATS[name][0], "pipe:1"]
     proc = subprocess.run(args, input=wav, capture_output=True)  # noqa: S603
     if proc.returncode != 0:
