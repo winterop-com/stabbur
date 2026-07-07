@@ -297,14 +297,14 @@ def test_mlx_detected_by_config_marker_outside_mlx_bucket(tmp_path: Path) -> Non
     (model_dir / "model.safetensors").write_bytes(b"z" * 2048)
     (model_dir / "config.json").write_text('{"quantization": {"group_size": 64, "bits": 4, "mode": "affine"}}')
 
-    assert library._classify_dir(model_dir) is ModelFormat.mlx
+    assert library._model._classify_dir(model_dir) is ModelFormat.mlx
 
     # A plain safetensors repo (HF-style quant, no affine marker) stays safetensors.
     plain = tmp_path / "some-publisher" / "Model-fp16"
     plain.mkdir(parents=True)
     (plain / "model.safetensors").write_bytes(b"z" * 2048)
     (plain / "config.json").write_text('{"quantization_config": {"quant_method": "gptq"}}')
-    assert library._classify_dir(plain) is ModelFormat.safetensors
+    assert library._model._classify_dir(plain) is ModelFormat.safetensors
 
 
 def test_library_scan_and_find(tmp_path: Path) -> None:
@@ -515,7 +515,7 @@ def test_scan_keeps_cross_library_format_variants(tmp_path: Path, monkeypatch: p
     (local / "mlx" / "pub" / "Foo").mkdir(parents=True)
     (local / "mlx" / "pub" / "Foo" / "weights.safetensors").write_bytes(b"m" * 100)
 
-    monkeypatch.setattr(library, "roots", lambda *a, **k: [local, drive])
+    monkeypatch.setattr(library._scan, "roots", lambda *a, **k: [local, drive])
     formats = {m.model_format for m in library.find("Foo")}
     assert formats == {ModelFormat.gguf, ModelFormat.mlx}
     assert len(library.find("Foo", model_format=ModelFormat.mlx)) == 1
@@ -530,7 +530,7 @@ def test_scan_first_library_wins_on_tie(tmp_path: Path, monkeypatch: pytest.Monk
     (local / "gguf" / "pub" / "Bar").mkdir(parents=True)
     (local / "gguf" / "pub" / "Bar" / "m.gguf").write_bytes(b"g" * 100)
 
-    monkeypatch.setattr(library, "roots", lambda *a, **k: [local, drive])  # local first = wins
+    monkeypatch.setattr(library._scan, "roots", lambda *a, **k: [local, drive])  # local first = wins
     found = library.find("Bar")
     assert len(found) == 1
     assert found[0].load_target == local / "gguf" / "pub" / "Bar" / "m.gguf"
@@ -576,7 +576,7 @@ def test_scan_spans_multiple_libraries(tmp_path: Path, monkeypatch: pytest.Monke
         d.mkdir(parents=True)
         (d / "m.gguf").write_bytes(b"x" * 100)
 
-    monkeypatch.setattr(library, "roots", lambda *a, **k: [local, shared])
+    monkeypatch.setattr(library._scan, "roots", lambda *a, **k: [local, shared])
     names = {m.name for m in library.scan()}  # no explicit root → spans all libraries
     assert names == {"pub/Shared-GGUF", "pub/Local-GGUF"}
 
@@ -589,7 +589,7 @@ def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.Mo
     shared = tmp_path / "shared"
     monkeypatch.chdir(tmp_path)
     settings = Settings(library_root=shared)
-    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    monkeypatch.setattr(library._roots, "get_settings", lambda: settings)
 
     monkeypatch.setattr(project, "load", lambda *a, **k: None)  # no project
     assert library.roots(settings) == [shared.resolve()]
@@ -611,7 +611,7 @@ def test_roots_shared_token_strictness(tmp_path: Path, monkeypatch: pytest.Monke
     # library_root is left at its default → "not set explicitly".
     settings = Settings()
     assert "library_root" not in settings.model_fields_set
-    monkeypatch.setattr(library, "get_settings", lambda: settings)
+    monkeypatch.setattr(library._roots, "get_settings", lambda: settings)
 
     # Free-play (no project → implicit [@shared]) with no root set: refuse to run.
     monkeypatch.setattr(project, "load", lambda *a, **k: None)

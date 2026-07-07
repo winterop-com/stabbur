@@ -74,7 +74,7 @@ def test_remove_reports_failure_when_dir_survives(tmp_path: Path, monkeypatch: p
         file_count=1,
     )
     # Simulate rmtree failing silently (ignore_errors=True) — the dir remains.
-    monkeypatch.setattr(library.shutil, "rmtree", lambda *a, **k: None)
+    monkeypatch.setattr(library._manage.shutil, "rmtree", lambda *a, **k: None)
     assert library.remove(model) == (0, 0)  # honest: nothing removed
 
 
@@ -150,7 +150,7 @@ def test_isolated_skips_failing_and_none_items() -> None:
             name=f"m{n}", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x")
         )
 
-    out = library._isolated(build, [1, 2, 3, 4])
+    out = library._scan._isolated(build, [1, 2, 3, 4])
     assert [m.name for m in out] == ["m1", "m4"]  # 2 (raised) and 3 (None) both dropped, rest survive
 
 
@@ -159,14 +159,14 @@ def test_scan_survives_a_corrupt_model(tmp_path: Path, monkeypatch: pytest.Monke
     # healthy models and silently skips the broken one.
     _gguf(tmp_path / "gguf" / "pub" / "good")
     _gguf(tmp_path / "gguf" / "pub" / "bad")
-    real = library._model_from_dir
+    real = library._scan._model_from_dir
 
     def faulty(model_dir: Path, base: Path) -> library.LibraryModel | None:
         if model_dir.name == "bad":
             raise ValueError("simulated corruption")
         return real(model_dir, base)
 
-    monkeypatch.setattr(library, "_model_from_dir", faulty)
+    monkeypatch.setattr(library._scan, "_model_from_dir", faulty)
     names = {m.name for m in library.scan(root=tmp_path)}
     assert "pub/good" in names  # healthy model survives
     assert "pub/bad" not in names  # corrupt one skipped, no exception
