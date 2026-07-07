@@ -45,7 +45,7 @@ uv run kodo chat
 
 This is what makes a project *truly* portable: `uv run kodo` uses the pinned kodo and the
 MCP servers installed into the project's `.venv`, instead of relying on a globally-installed
-kodo and runtime `uvx` fetches. Because the servers are real dependencies, their `[[mcp]]`
+kodo and runtime `uvx` fetches. Because the servers are real dependencies, their `.mcp.json`
 commands drop the `uvx` runner. `.venv/` is gitignored; `uv.lock` is committed for
 reproducibility. (`kodo` isn't on PyPI yet, so its pin is a local path source — replace it
 with a version once kodo publishes. Pass `--no-uv` for the plain `kodo.toml`-only shape.)
@@ -87,15 +87,15 @@ libraries = ["library", "@shared"]   # only when --copy is used; else just @shar
 model = "unsloth/Qwen3.5-4B-GGUF"
 system_prompt = "You are a concise, helpful assistant."
 chat_voice = "kokoro:af_heart"       # spoken-reply voice (Kokoro)
-
-# [[mcp]] blocks add tools (see below)
 ```
+
+Tools are **not** in `kodo.toml` — they live in a sibling `.mcp.json` (see below).
 
 - **`libraries`** — the libraries this project reads, in priority order (first match
   wins). With `--copy` it lists the project-local `library/` first, then `@shared`
   (the machine default, `KODO_LIBRARY_ROOT`). See [The library](library.md).
 - **`[project]`** — the bound model, system prompt, and spoken-reply voice.
-- **`[[mcp]]`** — one block per MCP tool server (repeatable).
+- **`.mcp.json`** — the project's MCP tool servers (standard `mcpServers` JSON).
 
 ## A locked assistant
 
@@ -106,20 +106,23 @@ any model). Pass `--model` to override the binding.
 
 ## Tools
 
-Add tools with `[[mcp]]` blocks — installed `kodo-mcp-*` plugins or any external MCP
-server command. Browse a curated catalog and append one with `kodo mcp`:
+Tools are the standard `mcpServers` JSON in `./.mcp.json` (plus the machine-global
+`~/.config/kodo/mcp.json`, which merges in). Browse a curated catalog and add one with
+`kodo mcp`:
 
 ```bash
-kodo mcp list        # curated servers + installed plugins (✓ = already in kodo.toml)
-kodo mcp add fetch   # append its [[mcp]] block to ./kodo.toml
+kodo mcp list        # curated servers + installed plugins (✓ = already in .mcp.json)
+kodo mcp add fetch   # add to ./.mcp.json  (--global for ~/.config/kodo/mcp.json)
 ```
 
-…or write the block by hand:
+…or write the JSON by hand:
 
-```toml
-[[mcp]]
-name = "datetime"
-command = "kodo-mcp-datetime"
+```json
+{
+  "mcpServers": {
+    "datetime": { "command": "kodo-mcp-datetime" }
+  }
+}
 ```
 
 `kodo.toml`'s `command` is split like a shell line, so arguments work inline; there

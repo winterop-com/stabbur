@@ -76,13 +76,14 @@ Command names are pinned to current upstream (verified mid-2026). See the
 - **Machine config** (`config.py`) — `library_root`, `host`/`port`, `cors_origins`,
   `auth_token`, and other per-machine settings. These are `pydantic-settings` fields, so any
   value can be overridden per machine with a `KODO_*` env var (precedence: CLI args > `KODO_*`
-  env > `kodo.toml` > `.env`). `library_root` has **no default** — it is `None` when unset, and
-  every consumer routes through `library.roots()` / `library.default_root()`, which raise
-  `LibraryNotConfigured` rather than silently using a `./data` folder.
+  env > `kodo.toml` > `.env` > `~/.config/kodo/config.toml`). `library_root` has **no default** —
+  it is `None` when unset, and every consumer routes through `library.roots()` /
+  `library.default_root()`, which raise `LibraryNotConfigured` rather than silently using `./data`.
 - **The project manifest** (`project.py`) — the *portable, committable* assistant definition:
-  `[project]` (model + system prompt), `[[mcp]]` (tool servers), `[voice]`, and `libraries`
-  (which stores this project composes, in priority order). No machine-specific paths, so a
-  project directory is git-committable and moves between machines.
+  `[project]` (model + system prompt), `[voice]`, and `libraries` (which stores this project
+  composes, in priority order). Tools are separate — the standard `mcpServers` JSON in `.mcp.json`
+  (`mcpservers.py`), merged with the machine-global `~/.config/kodo/mcp.json`. No machine-specific
+  paths, so a project directory is git-committable and moves between machines.
 
 Despite the two readers, the file has **one parser and one writer** (`project.py`):
 
@@ -118,8 +119,9 @@ server (`ServerManager`) go through one **supervisor** (`supervisor.py`):
 - Each runtime is spawned in its own session (`start_new_session`), so stopping it `killpg`s the
   whole group — the runtime *and* any workers it forked, not just the direct child.
 - Each records a `meta.json` (its pid/pgid/command + the pid of the kodo that owns it) under
-  `~/.kodo/runtimes/` — ephemeral, machine-local state (a pid means nothing on another machine, so
-  it deliberately does **not** live in a library). On a graceful exit an `atexit` hook stops live
+  the XDG runtime/cache dir (`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`) —
+  ephemeral, machine-local state (a pid means nothing on another machine, so it deliberately
+  does **not** live in a library). On a graceful exit an `atexit` hook stops live
   runtimes; for an ungraceful death (SIGKILL/OOM), `sweep_orphans()` runs at the next kodo start
   and reclaims a runtime whose owning kodo is gone (and whose live command still matches — a
   PID-reuse guard), so a crashed kodo never leaves a model holding memory with no way to reclaim it.

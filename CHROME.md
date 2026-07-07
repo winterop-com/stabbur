@@ -107,7 +107,7 @@ are not discovered late:
 
 - **A generic project metadata block** (not a DHIS2-named `[dhis2]` setting) — the
   static source for the endpoint above, so kodo reads UI metadata from config
-  instead of parsing `[[mcp]]` shell commands. Needs `config.py` / project-loading
+  instead of parsing `.mcp.json` server commands. Needs `config.py` / project-loading
   changes, but kept domain-agnostic so kodo never learns the word "dhis2".
 
 Per project rule 4, both the endpoint response and the `[dhis2]` config block must
@@ -231,7 +231,7 @@ Where the fields come from (all keeping DHIS2 logic out of kodo):
 - **Static fields** (`base_url`, `auth`, `readonly`, `source`) — from a generic,
   opaque `[assistant]`/`[ui]` block in `kodo.toml` that kodo echoes without
   interpreting. The DHIS2 project template writes it. Cleaner than kodo parsing
-  `[[mcp]]` shell commands or `MCP_ROUTER_CONFIG` for `DHIS2_PROFILE=...`, and it
+  `.mcp.json` server commands or `MCP_ROUTER_CONFIG` for `DHIS2_PROFILE=...`, and it
   keeps the MCP command as pure execution detail.
 - **Dynamic `verified` block** (live version + username) — from an **MCP resource**
   the DHIS2 bridge publishes (backed by `system/info` + `me`), which kodo exposes
@@ -537,10 +537,16 @@ The local `d2w` and MCP bridge/router workspace is:
 For local development, point kodo directly at that workspace rather than relying
 on a published `uvx` package:
 
-```toml
-[[mcp]]
-name = "dhis2"
-command = "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uv --directory /Users/morteoh/dev/local/dhis2w-utils run dhis2w-mcp-bridge"
+```json
+{
+  "mcpServers": {
+    "dhis2": {
+      "command": "uv",
+      "args": ["--directory", "/Users/morteoh/dev/local/dhis2w-utils", "run", "dhis2w-mcp-bridge"],
+      "env": { "DHIS2_PROFILE": "play42", "DHIS2_MCP_READONLY": "1" }
+    }
+  }
+}
 ```
 
 For a mid-sized model, the router may be a better tradeoff than the single CLI
@@ -571,10 +577,16 @@ Example `mcp-router.json`:
 
 Then point kodo at the router:
 
-```toml
-[[mcp]]
-name = "dhis2"
-command = "env MCP_ROUTER_CONFIG=mcp-router.json MCP_ROUTER_READONLY=1 uv --directory /Users/morteoh/dev/local/dhis2w-utils run dhis2w-mcp-router"
+```json
+{
+  "mcpServers": {
+    "dhis2": {
+      "command": "uv",
+      "args": ["--directory", "/Users/morteoh/dev/local/dhis2w-utils", "run", "dhis2w-mcp-router"],
+      "env": { "MCP_ROUTER_CONFIG": "mcp-router.json", "MCP_ROUTER_READONLY": "1" }
+    }
+  }
+}
 ```
 
 The bridge is still the safest first target for smaller local models because it

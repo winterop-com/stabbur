@@ -57,17 +57,22 @@ Two distinct, composable concepts (see `kodo.library.roots`):
 - **A Project (`./kodo.toml`) composes libraries + defines an assistant.** It lists
   `libraries = [...]` in priority order — project-relative paths plus the `@shared`
   token for the machine default — so it can keep hot models next to it *and* use the big
-  archive. `[project]` (model + system prompt), `[[mcp]]` (tools), and `[voice]` define
-  the assistant. A project references models **by name**, never by path — so it's
-  portable/committable. Outside a project, just the default library is used.
+  archive. `[project]` (model + system prompt) and `[voice]` define the assistant; **tools
+  live in `.mcp.json`** (standard `mcpServers` JSON, see below), not in `kodo.toml`. A project
+  references models **by name**, never by path — so it's portable/committable. Outside a
+  project, just the default library is used.
 
 `library.scan()` reads across the resolved libraries (first match wins); each model
 records its `library_root` so tags read/write against the right library. All **portable
 data** — models, tags, runtime assets like the Kokoro TTS model (`<root>/tts/kokoro`) —
-lives in a library so it travels with the drive. The one thing under `~/.kodo` is
-**ephemeral machine-local runtime state** (`~/.kodo/runtimes/`, used by `kodo.supervisor`
-to reap runtimes orphaned by a crashed kodo) — a pid means nothing on another machine, so
-it must not travel. Keep the split: portable → library; transient machine state → `~/.kodo`.
+lives in a library so it travels with the drive. Two things live outside a library, and
+they're different: **ephemeral machine-local runtime state** (pidfiles + logs under
+`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`; used by `kodo.supervisor` to
+reap runtimes orphaned by a crashed kodo — a pid means nothing on another machine, so it must
+not travel), and **durable machine config** (`~/.config/kodo/config.toml` via `kodo.userconfig`,
+written by `kodo config` / `kodo setup`: the per-machine `library_root` + `default_model`
+defaults, the lowest-priority `Settings` source). Keep the three-way split: portable → library;
+transient machine state → XDG runtime/cache; machine defaults → `~/.config/kodo` (XDG config).
 
 ## Library organization
 
@@ -149,6 +154,14 @@ server), not just DHIS2. llama-server does OpenAI-style tool calling (`--jinja`)
 the **agent loop** (model emits `tool_call` → kodo executes via the MCP client → feeds the
 result back → continues), streamed to the chat UI. kodo owns the client + loop so every
 surface (web, extension, CLI) stays thin and tools work uniformly.
+
+**Config is the ecosystem-standard `mcpServers` JSON** (`kodo.mcpservers`), the same shape
+Claude Desktop / Claude Code / Cursor use — so a server's README snippet pastes straight in.
+Two levels **merge**: machine-global `~/.config/kodo/mcp.json` (what free-play chat gets;
+`kodo mcp add --global`) and per-project `./.mcp.json` (`kodo mcp add`); a project name
+overrides a global one, and CLI `--mcp` layers on top. `kodo.toml` no longer carries tools.
+Bundled first-party servers (`kodo-mcp-*`, base deps) are entered by package name; `kodo setup`
+seeds a minimal global default (`datetime`).
 
 ## Gotchas worth knowing
 

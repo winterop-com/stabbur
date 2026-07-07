@@ -411,8 +411,7 @@ export function SettingsPanel({
             )}
           </select>
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Used by the Listen button on replies. Many voices via{" "}
-            <code className="text-[10px]">make install-tts</code> (Kokoro).
+            Used by the Listen button on replies. 54 built-in Kokoro voices across 9 languages.
           </p>
         </Section>
 

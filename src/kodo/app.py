@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from kodo import config, project, runtime, supervisor
+from kodo import config, mcpservers, project, runtime, supervisor
 from kodo import library as library_ops
 from kodo import tools as mcp_tools
 from kodo.config import Settings, get_settings
@@ -108,19 +108,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             raise RuntimeError(f"locked --model cannot be run: {reason}")
         manager.load(matches[0])
 
-    # Spawn the project's MCP servers (kodo.toml [[mcp]]) once, shared across chat
-    # requests, so the web UI / extension get tools via the server-side agent loop.
+    # Spawn the resolved MCP servers (global ~/.config/kodo/mcp.json + project .mcp.json) once,
+    # shared across chat requests, so the web UI / extension get tools via the server-side agent loop.
     async with AsyncExitStack() as mcp_stack:
         proj = project.load()
         app.state.system_prompt = proj.system_prompt if proj else ""
-        # The project's bound model, surfaced in /api/status so the UI auto-loads
-        # it on open (a project is a reproducible assistant: model + prompt + tools).
-        app.state.project_model = proj.model if proj else None
+        # The model the UI auto-loads on open: the project's bound model (a project is a
+        # reproducible assistant: model + prompt + tools), or — outside a project — the machine
+        # default (`kodo config set model`), so free-play serve --ui still opens on a model.
+        app.state.project_model = project.resolve_model(None, proj)
         # The project's spoken-reply voice + whether the Voice surface is enabled, surfaced in
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
         app.state.voice_enabled = proj.voice_enabled if proj else True
-        servers = [m.to_spec() for m in proj.mcp] if proj else []
+        servers = [s.to_spec() for s in mcpservers.resolve()]
         if servers:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
         try:

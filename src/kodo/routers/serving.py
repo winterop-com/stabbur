@@ -635,7 +635,7 @@ async def speak(req: SpeakRequest) -> Response:
     try:
         if voice.startswith("kokoro:"):
             if not kokoro.available():
-                raise HTTPException(status_code=503, detail="Kokoro TTS is not installed (make install-tts)")
+                raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall kodo (`uv sync`)")
             wav_path = await asyncio.to_thread(kokoro.synthesize, text, voice.split(":", 1)[1], None)
         else:
             if not tts.available():
@@ -716,7 +716,7 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
 
     if backend == Backend.kokoro_onnx:
         if not kokoro.available():
-            raise HTTPException(status_code=503, detail="Kokoro TTS is not installed (make install-tts)")
+            raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall kodo (`uv sync`)")
         name = (req.voice or "af_heart").split(":")[-1]
         wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
         data = wav_path.read_bytes()

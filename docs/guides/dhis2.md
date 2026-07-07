@@ -105,19 +105,23 @@ play servers.
 
 ## 3. Wire it into kodo
 
-kodo ships a curated entry, so one command adds the bridge to a project's `kodo.toml`:
+kodo ships a curated entry, so one command adds the bridge to a project's `.mcp.json`:
 
 ```bash
-kodo mcp add dhis2     # then edit DHIS2_PROFILE in the generated command
+kodo mcp add dhis2     # then edit DHIS2_PROFILE in the generated entry
 ```
 
-That writes an `[[mcp]]` block roughly like:
+That writes a standard `mcpServers` entry roughly like:
 
-```toml
-[[mcp]]
-name = "dhis2"
-command = "dhis2w-mcp-bridge"
-env = { DHIS2_PROFILE = "play42", DHIS2_MCP_READONLY = "1" }
+```json
+{
+  "mcpServers": {
+    "dhis2": {
+      "command": "dhis2w-mcp-bridge",
+      "env": { "DHIS2_PROFILE": "play42", "DHIS2_MCP_READONLY": "1" }
+    }
+  }
+}
 ```
 
 Change `DHIS2_PROFILE` to your profile name; drop `DHIS2_MCP_READONLY` to allow writes.

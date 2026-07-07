@@ -36,7 +36,7 @@ def split_env_prefix(command: str) -> tuple[str, dict[str, str]]:
     """Lift a leading ``env VAR=val …`` prefix out of a command into structured env.
 
     ``env DHIS2_PROFILE=play42 dhis2w-mcp-bridge`` -> ``("dhis2w-mcp-bridge", {"DHIS2_PROFILE": "play42"})``.
-    Lets a ``[[mcp]]`` block carry a clean ``command`` plus a readable ``env`` table.
+    Lets a curated single-string command lift into an ``.mcp.json`` entry's ``command`` + ``env``.
     """
     toks = shlex.split(command)
     env: dict[str, str] = {}
@@ -53,7 +53,7 @@ def split_env_prefix(command: str) -> tuple[str, dict[str, str]]:
 def pip_deps_from_mcp(mcp: list[tuple[str, str]]) -> list[str]:
     """Pip packages a uv project must install for its MCP servers.
 
-    Maps each ``[[mcp]]`` command to a PyPI package where possible: ``uvx <pkg>`` -> ``<pkg>``
+    Maps each MCP server command to a PyPI package where possible: ``uvx <pkg>`` -> ``<pkg>``
     (the server the project pins so it need not be fetched at runtime). Skips node servers
     (``bunx``/``npx``) and kodo's own bundled ``kodo-mcp-*`` (they ship with the ``kodo`` dep).
     """

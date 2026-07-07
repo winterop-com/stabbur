@@ -2,14 +2,20 @@
 
 ``kodo.toml`` in the working directory is the primary config source: it holds
 both the library location (``library_root``) and the project/assistant manifest
-(``[project]`` / ``[[mcp]]``, read separately by :mod:`kodo.project`). Every
+(``[project]`` / ``[voice]``, read separately by :mod:`kodo.project`; tools live in
+``.mcp.json``, see :mod:`kodo.mcpservers`). Every
 value can still be overridden per machine with a ``KODO_*`` environment
-variable; ``.env`` remains an optional low-priority fallback.
+variable; ``.env`` remains an optional low-priority fallback. Below that sits the
+durable **machine config** (:mod:`kodo.userconfig`, ``~/.config/kodo/config.toml``),
+written by ``kodo config`` / ``kodo setup`` — the persistent per-machine default
+(library location, default model) so a fresh box needs no shell export.
 
-Precedence (high to low): CLI args, ``KODO_*`` env vars, ``kodo.toml``, ``.env``.
+Precedence (high to low): CLI args, ``KODO_*`` env vars, ``kodo.toml``, ``.env``,
+machine config.
 """
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
@@ -43,6 +49,23 @@ class _KodoTomlSource(PydanticBaseSettingsSource):
         return project.read_raw()
 
 
+class _MachineConfigSource(PydanticBaseSettingsSource):
+    """Feed settings from the durable machine config (:func:`kodo.userconfig.read`).
+
+    The lowest-priority real source: per-machine defaults (library location, default model)
+    written by ``kodo config`` / ``kodo setup``. Its TOML keys are already :class:`Settings`
+    field names, so the parsed dict maps directly; unknown keys are ignored (``extra="ignore"``).
+    """
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:  # noqa: ARG002
+        return None, field_name, False  # unused: __call__ returns the whole dict below
+
+    def __call__(self) -> dict[str, Any]:
+        from kodo import userconfig  # noqa: PLC0415 - lazy, symmetry with _KodoTomlSource
+
+        return userconfig.read()
+
+
 def _default_lmstudio_dir() -> Path:
     """Return the first LM Studio model directory that exists, or the modern default."""
     candidates = [
@@ -55,11 +78,26 @@ def _default_lmstudio_dir() -> Path:
     return candidates[0]
 
 
+def _default_runtime_state_dir() -> Path:
+    """Ephemeral per-runtime state dir (pidfiles + logs), placed per the XDG spec.
+
+    Runtime state is transient and machine-local (a pid means nothing elsewhere), so it belongs
+    under ``$XDG_RUNTIME_DIR`` (user-private, cleared on logout — ideal for pidfiles) when set,
+    else the cache dir (``$XDG_CACHE_HOME``, default ``~/.cache``). Not a library (it must never
+    travel with the drive), and no longer ``~/.kodo`` (which wasn't XDG-compliant).
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return Path(runtime) / "kodo" / "runtimes"
+    cache = os.environ.get("XDG_CACHE_HOME")
+    return (Path(cache) if cache else Path.home() / ".cache") / "kodo" / "runtimes"
+
+
 class Settings(BaseSettings):
     """Application settings — read from ``kodo.toml`` first, then env vars.
 
     Top-level keys in ``kodo.toml`` (e.g. ``library_root = "/path/to/your/library"``)
-    map directly to these fields; the ``[project]`` / ``[[mcp]]`` tables are
+    map directly to these fields; the ``[project]`` / ``[voice]`` tables are
     ignored here and read by :mod:`kodo.project`. A ``KODO_*`` environment
     variable (e.g. ``KODO_LIBRARY_ROOT``) overrides the file per machine.
     """
@@ -67,7 +105,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="KODO_",
         env_file=".env",
-        extra="ignore",  # manifest tables ([project]/[[mcp]]/…) coexist in kodo.toml; ignore them here
+        extra="ignore",  # manifest tables ([project]/[voice]/…) coexist in kodo.toml; ignore them here
     )
 
     @classmethod
@@ -79,16 +117,19 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Order the sources: init args > env vars > kodo.toml > .env > secrets.
+        """Order the sources: init args > env vars > kodo.toml > .env > machine config > secrets.
 
         ``kodo.toml`` is the primary config file, so it outranks ``.env``; real
-        environment variables still win for genuine per-machine overrides.
+        environment variables still win for genuine per-machine overrides. The machine
+        config (:mod:`kodo.userconfig`) sits at the bottom as the durable default a project
+        or env var can override.
         """
         return (
             init_settings,
             env_settings,
             _KodoTomlSource(settings_cls),
             dotenv_settings,
+            _MachineConfigSource(settings_cls),
             file_secret_settings,
         )
 
@@ -166,6 +207,12 @@ class Settings(BaseSettings):
     # raise ``LibraryNotConfigured`` rather than silently falling back to a ``./data`` dir.
     library_root: Path | None = None
 
+    # Machine-default model, used outside a project (free-play) when no model is named on the
+    # CLI. In a project, ``kodo.toml``'s ``[project].model`` outranks this (a project pins its
+    # own model); this is the fallback so ``kodo chat`` / ``serve --ui`` have a model to load
+    # without a project or an explicit name. Set it with ``kodo config set model <name>``.
+    default_model: str | None = None
+
     # Source stores to scan and back up from.
     ollama_models_dir: Path = Path.home() / ".ollama" / "models"
     lmstudio_models_dir: Path = _default_lmstudio_dir()
@@ -176,9 +223,9 @@ class Settings(BaseSettings):
 
     # Ephemeral, machine-local runtime state (one dir per spawned runtime: its pidfile-ish
     # ``meta.json`` + captured log). NOT library data — a pid means nothing on another machine,
-    # so this deliberately lives under ``~/.kodo`` rather than travelling with the drive. The
-    # supervisor uses it to reap runtimes orphaned by a crashed kodo (see :mod:`kodo.supervisor`).
-    runtime_state_dir: Path = Path.home() / ".kodo" / "runtimes"
+    # so it lives under the XDG runtime/cache dir (see _default_runtime_state_dir), never a
+    # library. The supervisor uses it to reap runtimes orphaned by a crashed kodo (kodo.supervisor).
+    runtime_state_dir: Path = _default_runtime_state_dir()
 
 
 @lru_cache

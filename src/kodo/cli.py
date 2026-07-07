@@ -2,6 +2,7 @@
 
 import os
 import secrets
+import shlex
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -21,10 +22,12 @@ from kodo import (
     doctor,
     host,
     mcp_catalog,
+    mcpservers,
     project,
     runtime,
     scaffold,
     tags,
+    userconfig,
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
@@ -62,10 +65,15 @@ mcp_app = typer.Typer(
     no_args_is_help=True,
 )
 voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
+config_app = typer.Typer(
+    help="Machine-level defaults (~/.config/kodo/config.toml): library location + default model.",
+    no_args_is_help=True,
+)
 app.add_typer(library_app, name="library")
 app.add_typer(project_app, name="project")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(voice_app, name="voice")
+app.add_typer(config_app, name="config")
 
 
 # The MCP catalog (curated + optional first-party servers) lives in `kodo.mcp_catalog` so the
@@ -78,15 +86,9 @@ _uninstalled_optional = mcp_catalog.uninstalled_optional
 # Project templates now live in kodo.templates (TEMPLATES).
 
 
-def _project_mcp_keys(path: Path = Path("kodo.toml")) -> set[str]:
-    """Names + commands of MCP servers already listed in the local ``kodo.toml`` (empty if none)."""
-    proj = project.load(path)
-    keys: set[str] = set()
-    for m in proj.mcp if proj else []:
-        keys.add(m.command)
-        if m.name:
-            keys.add(m.name)
-    return keys
+def _project_mcp_keys() -> set[str]:
+    """Names of MCP servers already in the local ``.mcp.json`` (empty if none)."""
+    return {s.name for s in mcpservers.read_project()}
 
 
 @mcp_app.command("list")
@@ -160,19 +162,21 @@ def mcp_list() -> None:
 @mcp_app.command("add")
 def mcp_add(
     name: Annotated[str, typer.Argument(help="An installed plugin or external-catalog name (see `kodo mcp list`).")],
+    to_global: Annotated[
+        bool,
+        typer.Option(
+            "--global", "-g", help="Add to the machine-global ~/.config/kodo/mcp.json instead of this project."
+        ),
+    ] = False,
 ) -> None:
-    """Add an MCP server to this directory's ``kodo.toml`` (idempotent).
+    """Add an MCP server to the standard ``mcpServers`` JSON (idempotent — replaces by name).
 
-    Resolves ``name`` against installed first-party plugins first, then the external
-    catalog. Appends a ``[[mcp]]`` block; edit the command afterwards if it has a
-    placeholder (path/profile).
+    Targets this directory's ``.mcp.json`` by default, or the machine-global
+    ``~/.config/kodo/mcp.json`` with ``--global`` (tools every free-play chat gets). Resolves
+    ``name`` against installed first-party plugins first, then the external catalog; edit the
+    entry afterwards if its command has a placeholder (path/profile).
     """
     from kodo import plugins  # noqa: PLC0415
-
-    path = Path("kodo.toml")
-    if not path.is_file():
-        console.print("[red]No kodo.toml here.[/] Run [bold]kodo project init[/] first (or cd into a project).")
-        raise typer.Exit(1)
 
     # First-party plugins win a name clash — kodo controls them, so prefer them over external.
     server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == name), None)
@@ -191,24 +195,18 @@ def mcp_add(
         entry_name, command, setup = chosen.name, chosen.command, chosen.setup
         uninstalled_optional = chosen in _OPTIONAL_FIRST_PARTY
 
-    if entry_name in _project_mcp_keys(path) or command in _project_mcp_keys(path):
-        console.print(f"[yellow]{entry_name}[/] is already in {path}.")
+    target = mcpservers.global_path() if to_global else mcpservers.project_path()
+    existing = mcpservers.read_global() if to_global else mcpservers.read_project()
+    if any(s.name == entry_name for s in existing):
+        console.print(f"[yellow]{entry_name}[/] is already in {target}.")
         return
 
-    # In a uv project (pyproject.toml present) the server is a pinned dependency, so drop the
-    # runtime `uvx` fetch from the command and add the package to pyproject.toml.
+    # In a uv *project* (pyproject.toml present, not --global) the server is a pinned dependency,
+    # so drop the runtime `uvx` fetch from the command and add the package to pyproject.toml.
     pyproject = Path("pyproject.toml")
-    uv_project = pyproject.is_file()
-    cmd, env = scaffold.split_env_prefix(scaffold.strip_uvx(command) if uv_project else command)
-
-    # project.add_mcp owns the write: it validates the resulting TOML before touching the file,
-    # so a bad edit is reported cleanly and never corrupts kodo.toml (A1).
-    try:
-        project.add_mcp(path, project.ProjectMcp(name=entry_name, command=cmd, env=env))
-    except project.ProjectError as exc:
-        console.print(f"[red]{exc}[/]")
-        raise typer.Exit(1) from exc
-    console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {path}")
+    uv_project = not to_global and pyproject.is_file()
+    mcpservers.add(_to_mcp_server(entry_name, scaffold.strip_uvx(command) if uv_project else command), glob=to_global)
+    console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {target}")
 
     if uv_project:
         for pkg in scaffold.pip_deps_from_mcp([(entry_name, command)]):  # original (uvx) command -> pip pkg
@@ -219,6 +217,23 @@ def mcp_add(
     elif setup:
         console.print(f"  [yellow]setup:[/] {setup}")
     console.print("[dim]Check it:[/] kodo project show")
+
+
+@mcp_app.command("remove")
+@mcp_app.command("rm", hidden=True)
+def mcp_remove(
+    name: Annotated[str, typer.Argument(help="The server name to remove (see `kodo project show`).")],
+    from_global: Annotated[
+        bool, typer.Option("--global", "-g", help="Remove from the machine-global mcp.json instead of this project.")
+    ] = False,
+) -> None:
+    """Remove an MCP server from this project's ``.mcp.json`` or the global ``mcp.json`` (``--global``)."""
+    written = mcpservers.remove(name, glob=from_global)
+    target = mcpservers.global_path() if from_global else mcpservers.project_path()
+    if written is None:
+        console.print(f"[yellow]{name}[/] is not in {target}.")
+        raise typer.Exit(1)
+    console.print(f"[green]Removed[/] [cyan]{name}[/] from {target}")
 
 
 @app.callback()
@@ -328,14 +343,28 @@ def _print_model_card(model: library_ops.LibraryModel, model_tags: list[str]) ->
 _LOCAL_LIBRARY = scaffold.LOCAL_LIBRARY
 
 
-def _to_project_mcp(name: str, command: str) -> project.ProjectMcp:
-    """Turn a CLI ``(name, command)`` pair into a manifest :class:`kodo.project.ProjectMcp`.
+def _to_mcp_server(name: str, command: str) -> mcpservers.McpServer:
+    """Turn a CLI ``(name, command)`` pair into a standard :class:`kodo.mcpservers.McpServer`.
 
-    Splits a leading ``env VAR=val …`` prefix out of the command into the entry's ``env`` table,
-    so ``kodo.project`` serializes it (rendering/writes are owned there — A1).
+    Splits a leading ``env VAR=val …`` prefix into the entry's ``env`` table, then the remaining
+    command into ``command`` + ``args`` (the ``mcpServers`` JSON shape).
     """
     cmd, env = scaffold.split_env_prefix(command)
-    return project.ProjectMcp(name=name, command=cmd, env=env)
+    argv = shlex.split(cmd)
+    return mcpservers.McpServer(name=name, command=argv[0], args=argv[1:], env=env)
+
+
+def _cli_mcp_spec(value: str) -> tuple[str | None, list[str], dict[str, str]]:
+    """Resolve a ``--mcp`` value to the ``(name, argv, env)`` spec :func:`kodo.tools.connect` wants.
+
+    An advertised server *name* (or *command*) resolves to that server; anything else is used
+    verbatim as a command. A leading ``env VAR=val`` prefix is lifted into ``env``.
+    """
+    from kodo import plugins  # noqa: PLC0415
+
+    name, command = plugins.resolve_mcp(value)
+    cmd, env = scaffold.split_env_prefix(command)
+    return name, shlex.split(cmd), env
 
 
 def _library_names() -> set[str]:
@@ -354,15 +383,8 @@ _DOCTOR_STYLE = {
 }
 
 
-@app.command("doctor")
-def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
-    """Check system health: runtimes, library, and the current project.
-
-    A quick pre-flight: are the runtime binaries kodo spawns installed, is the
-    library reachable and non-empty, and does the project (if any) point at a
-    model that's present. Exits non-zero if any check fails.
-    """
-    report = doctor.run_checks()
+def _print_doctor_table(report: doctor.DoctorReport) -> None:
+    """Render a doctor report as the shared status table (used by `doctor` and `setup`)."""
     table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False)
     table.add_column("", width=4)
     table.add_column("Check", style="bold")
@@ -375,7 +397,17 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
         table.add_row(f"[{color}]{label}[/]", check.name, detail)
     console.print(table)
 
-    color, _ = _DOCTOR_STYLE[report.status]
+
+@app.command("doctor")
+def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
+    """Check system health: runtimes, library, and the current project.
+
+    A quick pre-flight: are the runtime binaries kodo spawns installed, is the
+    library reachable and non-empty, and does the project (if any) point at a
+    model that's present. Exits non-zero if any check fails.
+    """
+    report = doctor.run_checks()
+    _print_doctor_table(report)
     if report.status is doctor.CheckStatus.fail:
         console.print("\n[red]Some checks failed.[/] Address the items above to run models.")
         raise typer.Exit(1)
@@ -383,6 +415,196 @@ def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
         console.print("\n[yellow]All essentials present[/], with warnings above.")
     else:
         console.print("\n[green]All good.[/]")
+
+
+def _setup_library_root(explicit: Path | None, yes: bool) -> None:
+    """Ensure a library location is configured, persisting it to the machine config."""
+    current = config.Settings().library_root
+    if explicit is None and current is not None:
+        console.print(f"[green]Library[/]  already configured -> {current}")
+        return
+    fallback = userconfig.default_library_dir()
+    if explicit is not None:
+        root = explicit.expanduser().resolve()
+    elif yes:
+        root = fallback.resolve()
+    else:
+        raw = typer.prompt("Where should your library live?", default=str(fallback))
+        root = Path(raw).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    userconfig.set_value("library_root", str(root))
+    config.get_settings.cache_clear()  # so the model picker + final doctor see the new root
+    console.print(f"[green]Set[/]  library root -> {root}")
+    # The machine config is the lowest-priority source, so a KODO_LIBRARY_ROOT env var or a cwd
+    # .env still shadows what we just wrote. Say so rather than let doctor's differing value baffle.
+    effective = config.Settings().library_root
+    if effective is not None and effective != root:
+        console.print(
+            f"[yellow]Note[/]  a higher-priority source (KODO_LIBRARY_ROOT env or ./.env) still "
+            f"points at [cyan]{effective}[/] and will win over the machine config."
+        )
+
+
+def _setup_default_model(explicit: str | None, yes: bool) -> None:
+    """Set (or offer to pick) the machine default model used outside a project."""
+    if explicit is not None:
+        userconfig.set_value("default_model", explicit)
+        config.get_settings.cache_clear()
+        console.print(f"[green]Set[/]  default model -> {explicit}")
+        return
+    if config.Settings().default_model:
+        console.print(f"[green]Model[/]  default -> {config.Settings().default_model}")
+        return
+    try:
+        models = [m for m in library_ops.scan() if m.generative and not m.is_ollama]
+    except Exception:  # noqa: BLE001 - a library scan hiccup shouldn't abort setup
+        models = []
+    if not models:
+        console.print("[dim]Model[/]  no runnable models yet — pull one with `kodo library pull`.")
+        return
+    if yes:
+        console.print("[dim]Model[/]  no default set — `kodo config set model <name>` to pick one.")
+        return
+    console.print("\nPick a default model to use outside a project [dim](optional)[/]:")
+    shown = models[:10]
+    for i, m in enumerate(shown, 1):
+        console.print(f"  [cyan]{i}[/]  {m.name}")
+    raw = typer.prompt("Number (blank to skip)", default="", show_default=False)
+    if raw.strip().isdigit() and 1 <= int(raw) <= len(shown):
+        chosen = shown[int(raw) - 1].name
+        userconfig.set_value("default_model", chosen)
+        config.get_settings.cache_clear()
+        console.print(f"[green]Set[/]  default model -> {chosen}")
+
+
+def _setup_ui(build_ui: bool | None, yes: bool) -> None:
+    """Build the web UI if it isn't built and bun is available (from a source checkout)."""
+    import shutil  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+
+    dist = config.Settings().frontend_dir
+    if (dist / "index.html").is_file():
+        console.print(f"[green]Web UI[/]  built -> {dist}")
+        return
+    frontend_src = Path(__file__).resolve().parent.parent.parent / "frontend"
+    if not (frontend_src / "package.json").is_file():
+        console.print("[dim]Web UI[/]  source not present (packaged install) — skipping.")
+        return
+    bun = shutil.which("bun")
+    if bun is None:
+        console.print("[yellow]Web UI[/]  not built — install bun (https://bun.sh), then `make frontend`.")
+        return
+    do_build = build_ui if build_ui is not None else (yes or typer.confirm("Build the web UI now (bun)?", default=True))
+    if not do_build:
+        console.print("[dim]Web UI[/]  not built — run `make frontend` when you want it.")
+        return
+    with console.status("[cyan]Building the web UI (bun)…", spinner="dots"):
+        install = subprocess.run([bun, "install"], cwd=frontend_src, capture_output=True, text=True)  # noqa: S603
+        built = (
+            subprocess.run([bun, "run", "build"], cwd=frontend_src, capture_output=True, text=True)  # noqa: S603
+            if install.returncode == 0
+            else install
+        )
+    if built.returncode == 0:
+        console.print(f"[green]Web UI[/]  built -> {dist}")
+    else:
+        console.print("[red]Web UI[/]  build failed — run `make frontend` to see the error.")
+
+
+def _setup_default_tools(yes: bool) -> None:
+    """Seed the global mcp.json with a minimal default toolset (datetime) if it has none."""
+    existing = mcpservers.read_global()
+    if existing:
+        console.print(f"[green]Tools[/]  global default -> {', '.join(s.name for s in existing)}")
+        return
+    from kodo import plugins  # noqa: PLC0415
+
+    # Minimal, safe default: datetime — models otherwise don't know the current date/time. More
+    # via `kodo mcp add --global <name>` (see `kodo mcp list`).
+    server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == "datetime"), None)
+    if server is None:
+        return
+    if not yes and not typer.confirm("Enable the default 'datetime' tool for chats?", default=True):
+        console.print("[dim]Tools[/]  none — add with `kodo mcp add --global <name>`.")
+        return
+    mcpservers.add(_to_mcp_server(server.name, server.command), glob=True)
+    console.print(f"[green]Set[/]  default tools -> {server.name}  [dim](kodo mcp add --global <name> for more)[/]")
+
+
+@app.command()
+def setup(
+    library_root: Annotated[
+        Path | None, typer.Option("--library-root", help="Set the library location (skips the prompt).")
+    ] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Set the machine default model.")] = None,
+    build_ui: Annotated[
+        bool | None, typer.Option("--build-ui/--no-build-ui", help="Build the web UI (default: ask if bun is present).")
+    ] = None,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Accept defaults without prompting (non-interactive).")
+    ] = False,
+) -> None:
+    """First-run machine setup: configure the library + default model, build the UI, check runtimes.
+
+    The write-mode companion to `kodo doctor`, at machine scope (whereas `kodo project init`
+    scaffolds a single project). It persists per-machine defaults to ~/.config/kodo/config.toml,
+    builds the browser UI if bun is available, and fixes what it can — printing an OS-specific
+    hint for what it can't (installing the llama.cpp binary). Safe to re-run.
+    """
+    console.rule("[bold]kodo setup")
+    _setup_library_root(library_root, yes)
+    _setup_default_model(model, yes)
+    _setup_default_tools(yes)
+    _setup_ui(build_ui, yes)
+    console.print()
+    report = doctor.run_checks()
+    _print_doctor_table(report)
+    if report.status is doctor.CheckStatus.fail:
+        console.print("\n[yellow]Setup done, but some checks still fail[/] (see above — likely the llama.cpp binary).")
+    else:
+        console.print("\n[green]Setup complete.[/] Try `kodo chat` or `kodo serve --ui`.")
+
+
+@config_app.command("path")
+def config_path() -> None:
+    """Print the machine config file path."""
+    console.print(str(userconfig.config_path()))
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Show the machine config file and the effective (resolved) defaults."""
+    path = userconfig.config_path()
+    stored = userconfig.read()
+    console.print(f"[bold]Machine config[/]  {path}" + ("" if path.is_file() else "  [dim](not created yet)[/]"))
+    if stored:
+        for key, field in userconfig.WRITABLE.items():
+            if field in stored:
+                console.print(f"  {key} = {stored[field]!r}")
+    # The effective values fold in env vars / project kodo.toml / .env that outrank this file.
+    settings = config.Settings()
+    console.print("\n[bold]Effective[/] [dim](after env / project / .env override)[/]")
+    console.print(f"  library-root  {settings.library_root or '[yellow](not set)[/]'}")
+    console.print(f"  model         {settings.default_model or '[dim](none — free-play)[/]'}")
+
+
+@config_app.command("set")
+def config_set(
+    key: Annotated[str, typer.Argument(help=f"Config key: {', '.join(userconfig.WRITABLE)}.")],
+    value: Annotated[str, typer.Argument(help="The value to store.")],
+) -> None:
+    """Set a machine default (persisted to the config file), e.g. `kodo config set model <name>`."""
+    field = userconfig.WRITABLE.get(key)
+    if field is None:
+        typer.secho(
+            f"Unknown key {key!r}. Known keys: {', '.join(userconfig.WRITABLE)}.", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(1)
+    stored = value
+    if field == "library_root":  # persist an absolute, ~-expanded path so it resolves from any cwd
+        stored = str(Path(value).expanduser().resolve())
+    written = userconfig.set_value(field, stored)
+    console.print(f"[green]Set[/] {key} = {stored}\n[dim]{written}[/]")
 
 
 @library_app.command("ls")
@@ -1151,19 +1373,19 @@ def _scaffold_project(
                 console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
             _pull_or_exit(model, local_lib)
 
-    # In a uv project the MCP servers are pinned deps, so they run straight off PATH — drop
-    # the runtime `uvx ` fetch from each command that has one.
-    toml_mcp = [(name, scaffold.strip_uvx(command)) for name, command in mcp] if uv else mcp
-    mcp_models = [_to_project_mcp(name, command) for name, command in toml_mcp]
     proj.write_text(
         project.render_manifest(
             model=model,
             system_prompt=system_prompt,
-            mcp=mcp_models or None,
             local_library_dir=_LOCAL_LIBRARY if use_local else None,
             chat_voice=chat_voice,
         )
     )
+    # Tools go in the standard .mcp.json (not kodo.toml). In a uv project the servers are pinned
+    # deps that run straight off PATH, so drop the runtime `uvx ` fetch from each command.
+    scaffold_mcp = [(name, scaffold.strip_uvx(command)) for name, command in mcp] if uv else mcp
+    for entry_name, command in scaffold_mcp:
+        mcpservers.add(_to_mcp_server(entry_name, command), glob=False, project_dir=target)
 
     if uv:
         mlx = "mlx" in model.lower() or bool(existing and existing[0].model_format == "mlx")
@@ -1251,9 +1473,9 @@ def new(
 
 
 def _connect_project_tools(
-    mcp: list[project.ProjectMcp],
+    mcp: list[mcpservers.McpServer],
 ) -> tuple[dict[str, list[tuple[str, str]]], str | None, list[tuple[str, str]]]:
-    """Spawn the project's MCP servers and return their real tools, grouped by server.
+    """Spawn the given MCP servers and return their real tools, grouped by server.
 
     Returns ``({server: [(tool, description), ...]}, error, failures)``: ``error`` is a message
     if the whole connect failed, else ``None``; ``failures`` is per-server ``(label, reason)``
@@ -1318,27 +1540,28 @@ def project_(
     console.print("[bold]System prompt[/]")
     console.print(Panel(sp, border_style="grey37", padding=(0, 1)) if sp else "  [dim]none[/]")
 
-    # Tools — connect to the MCP servers and list the tools they actually expose.
-    console.print("\n[bold]Tools[/]")
-    if not proj.mcp:
+    # Tools — the effective MCP servers (global + project .mcp.json), with their live tools.
+    console.print("\n[bold]Tools[/] [dim](global + project .mcp.json)[/]")
+    servers = mcpservers.resolve()
+    if not servers:
         console.print("  [dim]none[/]")
     else:
-        console.print(f"  [dim]connecting to {len(proj.mcp)} MCP server(s) …[/]")
-        grouped, error, failures = _connect_project_tools(proj.mcp)
+        console.print(f"  [dim]connecting to {len(servers)} MCP server(s) …[/]")
+        grouped, error, failures = _connect_project_tools(servers)
         if error:
             console.print(f"  [red]could not connect:[/] [dim]{error}[/]")
         failed = {label: reason for label, reason in failures}
-        for m in proj.mcp:
-            server = m.name or m.command.split()[0]
-            if server in failed:  # this one couldn't start; the others still work
-                console.print(f"  [yellow]{server}[/] [dim]({m.command})[/] — [red]failed:[/] [dim]{failed[server]}[/]")
+        for m in servers:
+            command = " ".join([m.command, *m.args])
+            if m.name in failed:  # this one couldn't start; the others still work
+                console.print(f"  [yellow]{m.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{failed[m.name]}[/]")
                 if m.command.startswith("kodo-mcp-web"):
                     console.print(
                         "    [dim]hint:[/] the web reader is optional — install it with [bold]make install-web[/]"
                     )
                 continue
-            tools_here = grouped.get(server, [])
-            console.print(f"  [cyan]{server}[/] [dim]({m.command})[/] — [bold]{len(tools_here)}[/] tool(s)")
+            tools_here = grouped.get(m.name, [])
+            console.print(f"  [cyan]{m.name}[/] [dim]({command})[/] — [bold]{len(tools_here)}[/] tool(s)")
             for tool, desc in tools_here:
                 summary = desc.splitlines()[0][:80] if desc else ""
                 console.print(f"    [white]{tool}[/]{f'  [dim]{summary}[/]' if summary else ''}")
@@ -1437,11 +1660,11 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
 
 @voice_app.command("voices")
 def voices() -> None:
-    """List the built-in Kokoro voices (needs the `tts` extra: `make install-tts`)."""
+    """List the built-in Kokoro voices (the always-available in-chat TTS)."""
     from kodo import kokoro  # noqa: PLC0415
 
     if not kokoro.available():
-        typer.secho("Kokoro TTS not installed. Run `make install-tts` (uv sync --extra tts).", fg=typer.colors.YELLOW)
+        typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.YELLOW)
         raise typer.Exit(1)
     table = Table(title="Kokoro voices", box=None, header_style="bold")
     table.add_column("id", style="cyan")
@@ -1524,7 +1747,7 @@ def speak(
     try:
         if voice is not None:  # Kokoro (ONNX) — the lightweight preset engine
             if not kokoro.available():
-                typer.secho("Kokoro TTS not installed. Run `make install-tts`.", fg=typer.colors.RED, err=True)
+                typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.RED, err=True)
                 raise typer.Exit(1)
             if not kokoro.assets_present():
                 with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):
@@ -1654,23 +1877,21 @@ def chat(
     tool schema instead of calling it).
     """
     proj = project.load()
-    model_name = name or (proj.model if proj else None)
+    model_name = project.resolve_model(name, proj)
     if model_name is None:
         console.print(
             "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
-            "or define a default model in a project ([cyan]kodo project init[/])."
+            "set a machine default ([cyan]kodo config set model <name>[/]), "
+            "or define one in a project ([cyan]kodo project init[/])."
         )
         raise typer.Exit(1)
     model = _resolve_library_model(model_name, model_format)
-    from kodo import plugins  # noqa: PLC0415
 
-    # (name, command) per server. A bare --mcp value is resolved against advertised
-    # servers (so `--mcp datetime` finds kodo-mcp-datetime), else used verbatim as a
-    # command; project [[mcp]] entries carry their own manifest name (the tool namespace).
-    mcp_servers: list[tuple[str | None, str, dict[str, str]]] = (
-        [(*plugins.resolve_mcp(c), {}) for c in mcp] + [(m.name, m.command, m.env) for m in (proj.mcp if proj else [])]
-        if tools
-        else []
+    # (name, argv, env) per server. A bare --mcp value resolves against advertised servers
+    # (so `--mcp datetime` finds kodo-mcp-datetime), else it's used verbatim as a command;
+    # the rest come from the resolved mcp.json layers (global + project, see kodo.mcpservers).
+    mcp_servers: list[tuple[str | None, list[str], dict[str, str]]] = (
+        [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in mcpservers.resolve()] if tools else []
     )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     caps = capabilities.capabilities(model)
@@ -1691,7 +1912,7 @@ def chat(
 
 def _chat_with_tools(
     model: library_ops.LibraryModel,
-    mcp_servers: list[tuple[str | None, str, dict[str, str]]],
+    mcp_servers: list[tuple[str | None, list[str], dict[str, str]]],
     prompt: str | None,
     max_tokens: int | None,
     system_prompt: str = "",
@@ -1704,7 +1925,6 @@ def _chat_with_tools(
     run); otherwise it hands off to the full-screen Textual chat.
     """
     import asyncio  # noqa: PLC0415
-    import shlex  # noqa: PLC0415
 
     from rich.progress import Progress  # noqa: PLC0415
 
@@ -1715,7 +1935,7 @@ def _chat_with_tools(
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
 
-    servers = [(name, shlex.split(cmd), env) for name, cmd, env in mcp_servers]
+    servers = mcp_servers  # already (name, argv, env) specs
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied
     # to every CLI chat turn just like the web path does.
     rec = sampling.recommended(model)
@@ -2053,11 +2273,12 @@ class _HostContext:
 
     def resolve_model(self, name: str | None, model_format: str | None = None) -> library_ops.LibraryModel:
         proj = project.load()
-        model_name = name or (proj.model if proj else None)
+        model_name = project.resolve_model(name, proj)
         if model_name is None:
             console.print(
                 "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
-                "or define a default model in a project ([cyan]kodo project init[/])."
+                "set a machine default ([cyan]kodo config set model <name>[/]), "
+                "or define one in a project ([cyan]kodo project init[/])."
             )
             raise typer.Exit(1)
         return _resolve_library_model(model_name, ModelFormat(model_format) if model_format else None)

@@ -15,7 +15,7 @@ reports a model that "exited before becoming ready". (Also settable with
 Scaffold **`kodo.toml`** here — kodo's primary config (no `.env` needed) — and
 ensure its model is in the library. The generated file is portable — it lists the
 `libraries` this project uses (a project-local `models/` plus `@shared`, the
-machine default) plus the assistant (`[project]` model + `[[mcp]]` tools).
+machine default) plus the assistant (`[project]` model; tools in `.mcp.json`).
 Idempotent — only pulls the model if it's missing. With no `--model` it
 offers a small curated set and pulls the choice into the project-local library.
 
@@ -49,16 +49,18 @@ kodo project show --card    # also print the model card (README)
 
 ## `kodo mcp list` / `kodo mcp add`
 
-Browse MCP tool servers and attach them to a project. `list` shows a **curated
-catalog** (DHIS2, `fetch`, `git`, `sqlite`, `filesystem`, …) plus any
-installed `kodo-mcp-*` plugins; a `✓` marks servers already in the current
-directory's `kodo.toml`. `add` appends a server's `[[mcp]]` block to that file
-(idempotent), printing a `setup:` hint when the command needs config.
+Browse MCP tool servers and attach them via the standard `mcpServers` JSON. `list`
+shows a **curated catalog** (DHIS2, `fetch`, `git`, `sqlite`, `filesystem`, …) plus any
+installed `kodo-mcp-*` plugins; a `✓` marks servers already in the current directory's
+`.mcp.json`. `add` writes a server entry to `./.mcp.json` — or the machine-global
+`~/.config/kodo/mcp.json` with `--global` — printing a `setup:` hint when the command
+needs config; `remove` drops one again.
 
 ```bash
-kodo mcp list          # curated catalog + installed plugins (ls is an alias)
-kodo mcp add fetch     # append its [[mcp]] block to ./kodo.toml
-kodo mcp add dhis2     # then edit the DHIS2_PROFILE in the command
+kodo mcp list             # curated catalog + installed plugins (ls is an alias)
+kodo mcp add fetch        # add to ./.mcp.json
+kodo mcp add --global datetime   # add to ~/.config/kodo/mcp.json (every chat gets it)
+kodo mcp add dhis2        # then edit the DHIS2_PROFILE in the entry's env
 ```
 
 See [Tools (MCP)](guides/tools.md) for the full picture.
@@ -172,7 +174,7 @@ kodo runs generative LLMs only.
 ## `kodo voice voices`
 
 List the built-in **Kokoro** voices (54 across 9 languages) with their id,
-language, and gender. Requires the optional TTS extra (`make install-tts`).
+language, and gender. Kokoro ships built in (no extra to install).
 
 ```bash
 kodo voice voices                            # id · name · language · gender

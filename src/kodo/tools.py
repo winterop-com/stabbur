@@ -149,9 +149,9 @@ async def connect(
     """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset.
 
     Each server is ``(name, command)`` or ``(name, command, env)``: tools are namespaced under
-    the manifest ``name`` when given (``kodo.toml`` ``[[mcp]].name``), else a prefix derived from
-    the executable. ``name`` may be ``None`` for a bare command (e.g. CLI ``--mcp``). A server's
-    ``env`` (from ``[[mcp]].env``) is merged over kodo's base environment for that server only.
+    the given ``name`` when set (the ``.mcp.json`` server key), else a prefix derived from the
+    executable. ``name`` may be ``None`` for a bare command (e.g. CLI ``--mcp``). A server's
+    ``env`` (from its ``.mcp.json`` entry) is merged over kodo's base environment for it only.
     """
     toolset = MCPToolset()
     used: dict[str, int] = {}  # disambiguate servers that derive the same prefix

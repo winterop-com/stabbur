@@ -130,8 +130,8 @@ class CuratedMcp(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    name: str  # tool namespace + kodo.toml [[mcp]].name, e.g. "dhis2"
-    command: str  # the kodo.toml [[mcp]].command to run it
+    name: str  # tool namespace + the .mcp.json server key, e.g. "dhis2"
+    command: str  # the command to run it (added to .mcp.json by `kodo mcp add`)
     description: str
     setup: str = ""  # one-line hint when the server needs config (a profile, path, key, Node, …)
 
@@ -147,7 +147,7 @@ class ProjectTemplate(BaseModel):
 
     model: str  # default library model to bind (overridable with --model)
     system_prompt: str
-    mcp: list[tuple[str, str]] = Field(default_factory=list)  # (name, command) per [[mcp]] block
+    mcp: list[tuple[str, str]] = Field(default_factory=list)  # (name, command) written to .mcp.json
     files: dict[str, str] = Field(default_factory=dict)  # relative path -> content, written verbatim
     next_steps: str = ""  # printed after scaffolding (setup the template still needs)
     extras: list[str] = Field(default_factory=list)  # kodo extras the uv project needs, e.g. ["voice"], ["web"]

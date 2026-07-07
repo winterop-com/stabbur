@@ -24,8 +24,9 @@ it's pulled from the HF cache or downloaded from Hugging Face:
 
 ## Backends & install
 
-- **kokoro-onnx** — cross-platform (macOS + Linux) ONNX runtime. Install with
-  `make install-tts` (`uv sync --extra tts`). Needs the `espeak-ng` system binary.
+- **kokoro-onnx** — cross-platform (macOS + Linux) ONNX runtime. Built in (a base
+  dependency, no extra to install); espeak-ng is bundled via `espeakng_loader`, so
+  there's no system binary to install.
 - **mlx-audio** — Apple-Silicon only (Dia, Whisper). A platform-gated extra:
   `uv sync --extra voice` (a no-op off Apple Silicon). English G2P via `misaki[en]`.
 - **llama-tts** — the `llama-tts` binary from llama.cpp (`brew install llama.cpp`).

@@ -13,7 +13,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from kodo import host, runtime
+from kodo import host, mcpservers, runtime
 from kodo import library as library_ops
 from kodo import project as project_ops
 from kodo.config import Settings, get_settings
@@ -133,41 +133,64 @@ def check_library(settings: Settings) -> list[Check]:
 
 
 def check_project(settings: Settings) -> list[Check]:
-    """Check the current project manifest (kodo.toml), if any."""
+    """Check the current project (if any) and the effective default model.
+
+    A project is optional (free-play is valid), so its rows only appear when a ``kodo.toml``
+    is present. The **default model** row is always shown when one is resolvable — the project's
+    model, else the machine default (``kodo config set model``) — since that's what ``kodo chat``
+    and ``serve --ui`` load without an explicit name.
+    """
     proj = project_ops.load()
-    if proj is None:
-        # No project is a valid mode (free-play: all models, no auto-load), not something to
-        # report — so emit no project checks at all rather than a "none in cwd" row.
-        return []
-    checks = [Check(name="Project (kodo.toml)", status=CheckStatus.ok, detail="found")]
-    # A project that lists @shared but whose KODO_LIBRARY_ROOT is unset silently drops the
-    # shared archive (see library.roots): the project runs from its own libraries, but the
-    # drive's models are invisible with no error. Warn so it's not a mystery.
-    if library_ops.SHARED_TOKEN in proj.libraries and "library_root" not in settings.model_fields_set:
-        checks.append(
-            Check(
-                name="Shared library (@shared)",
-                status=CheckStatus.warn,
-                detail="listed in this project but unreachable — KODO_LIBRARY_ROOT is not set",
-                hint="Set KODO_LIBRARY_ROOT (e.g. export it in your shell profile) so @shared resolves; "
-                "until then this project runs only from its own libraries.",
+    checks: list[Check] = []
+    if proj is not None:
+        checks.append(Check(name="Project (kodo.toml)", status=CheckStatus.ok, detail="found"))
+        # A project that lists @shared but whose library_root is unset silently drops the shared
+        # archive (see library.roots): it runs from its own libraries, but the drive's models are
+        # invisible with no error. Warn so it's not a mystery.
+        if library_ops.SHARED_TOKEN in proj.libraries and "library_root" not in settings.model_fields_set:
+            checks.append(
+                Check(
+                    name="Shared library (@shared)",
+                    status=CheckStatus.warn,
+                    detail="listed in this project but unreachable — KODO_LIBRARY_ROOT is not set",
+                    hint="Set KODO_LIBRARY_ROOT (e.g. export it in your shell profile) so @shared resolves; "
+                    "until then this project runs only from its own libraries.",
+                )
             )
+
+    # The effective default model: project model > machine default (settings.default_model).
+    default_model = project_ops.resolve_model(None, proj)
+    if default_model is not None:
+        resolved = library_ops.find(default_model)
+        from_project = bool(proj and proj.model)
+        detail = (
+            default_model + ("" if from_project else " (machine default)") + ("" if resolved else " — not in library")
         )
-    if proj.model:
-        resolved = library_ops.find(proj.model)
         checks.append(
             Check(
                 name="Default model",
                 status=CheckStatus.ok if resolved else CheckStatus.warn,
-                detail=proj.model + ("" if resolved else " (not in library)"),
-                hint=None if resolved else f"Pull it: `kodo library pull huggingface {proj.model}`.",
+                detail=detail,
+                hint=None if resolved else f"Pull it: `kodo library pull huggingface {default_model}`.",
             )
         )
-    else:
-        checks.append(Check(name="Default model", status=CheckStatus.warn, detail="not set"))
-    if proj.mcp:
-        names = ", ".join(m.name or m.command.split()[0] for m in proj.mcp)
-        checks.append(Check(name="Project tools (MCP)", status=CheckStatus.ok, detail=f"{len(proj.mcp)} ({names})"))
+    elif proj is not None:
+        # A project usually pins a model; flag when it doesn't. (No project + no machine default
+        # is plain free-play — nothing to report.)
+        checks.append(
+            Check(
+                name="Default model",
+                status=CheckStatus.warn,
+                detail="not set",
+                hint="Set one in kodo.toml, or a machine default: `kodo config set model <name>`.",
+            )
+        )
+
+    # Effective tools: the resolved mcp.json servers (global + project). Shown whenever any exist.
+    servers = mcpservers.resolve()
+    if servers:
+        names = ", ".join(s.name for s in servers)
+        checks.append(Check(name="Tools (MCP)", status=CheckStatus.ok, detail=f"{len(servers)} ({names})"))
     return checks
 
 
