@@ -1,7 +1,7 @@
 """`kodo project` - scaffold (init/new) and inspect (show) a project assistant."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from pydantic import BaseModel, ConfigDict
@@ -16,12 +16,6 @@ from kodo import (
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
-from kodo.models import ModelSource, ProjectTemplate
-from kodo.templates import TEMPLATES
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import project_app
 from kodo.cli._common import (
     _CURATED,
@@ -36,6 +30,8 @@ from kodo.cli._common import (
     _UvOpt,
     console,
 )
+from kodo.models import ModelSource, ProjectTemplate
+from kodo.templates import TEMPLATES
 
 
 def _pick_model_interactive() -> str:

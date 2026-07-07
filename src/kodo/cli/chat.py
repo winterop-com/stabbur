@@ -1,7 +1,7 @@
 """`kodo chat` - the terminal chat: interactive TUI, one-shot -p, tools, and serve-attach."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import httpx
 import typer
@@ -14,11 +14,6 @@ from kodo import (
     runtime,
 )
 from kodo import library as library_ops
-from kodo.config import get_settings
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import app
 from kodo.cli._common import (
     FormatOption,
@@ -28,6 +23,7 @@ from kodo.cli._common import (
     _resolve_library_model,
     console,
 )
+from kodo.config import get_settings
 
 
 @app.command()

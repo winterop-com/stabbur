@@ -1,7 +1,7 @@
 """`kodo config` - read and write the machine config (get/set/list/path)."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 
@@ -9,10 +9,6 @@ from kodo import (
     config,
     userconfig,
 )
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import config_app
 from kodo.cli._common import (
     console,

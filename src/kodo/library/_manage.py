@@ -3,19 +3,14 @@
 import json
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
 from kodo import cards, locking
+from kodo.library._model import LibraryModel, _classify_dir
 from kodo.models import ModelFormat
 from kodo.sources import ollama
 from kodo.sources.base import copy_verified, dir_stats
-
-if TYPE_CHECKING:
-    pass
-
-from kodo.library._model import LibraryModel, _classify_dir
 
 
 def remove(model: LibraryModel) -> tuple[int, int]:

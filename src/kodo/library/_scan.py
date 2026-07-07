@@ -2,16 +2,9 @@
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 from kodo import arch
-from kodo.models import ModelFormat
-from kodo.sources import ollama
-from kodo.sources.base import dir_stats
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.library._model import (
     LibraryModel,
     ModelRef,
@@ -25,6 +18,9 @@ from kodo.library._model import (
     pick_gguf,
 )
 from kodo.library._roots import roots
+from kodo.models import ModelFormat
+from kodo.sources import ollama
+from kodo.sources.base import dir_stats
 
 _T = TypeVar("_T")
 

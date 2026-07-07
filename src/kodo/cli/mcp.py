@@ -1,7 +1,7 @@
 """`kodo mcp` - browse the MCP catalog and add/remove servers in .mcp.json."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich import box
@@ -11,10 +11,6 @@ from kodo import (
     mcpservers,
     scaffold,
 )
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import mcp_app
 from kodo.cli._common import (
     _CURATED_MCP,

@@ -1,7 +1,7 @@
 """`kodo library` - list, pull, remove, tag, verify, install, and search the model library."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich import box
@@ -15,13 +15,6 @@ from kodo import (
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
-from kodo.config import get_settings
-from kodo.models import ModelFormat, ModelSource, _human_size
-from kodo.sources import huggingface as hf
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import library_app
 from kodo.cli._common import (
     _FORMAT_STYLE,
@@ -36,6 +29,9 @@ from kodo.cli._common import (
     _resolve_library_model,
     console,
 )
+from kodo.config import get_settings
+from kodo.models import ModelFormat, ModelSource, _human_size
+from kodo.sources import huggingface as hf
 
 
 @library_app.command("ls")

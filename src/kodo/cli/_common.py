@@ -2,7 +2,7 @@
 
 import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich import box
@@ -20,10 +20,6 @@ from kodo import (
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
 from kodo.models import CuratedModel, ModelFormat, ModelSource
-
-if TYPE_CHECKING:
-    pass
-
 
 console = Console()
 

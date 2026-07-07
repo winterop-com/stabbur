@@ -1,14 +1,9 @@
 """Library location: resolving the configured library roots (with @shared) and their state."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from kodo import project
 from kodo.config import Settings, get_settings
-
-if TYPE_CHECKING:
-    pass
-
 
 SHARED_TOKEN = "@shared"
 

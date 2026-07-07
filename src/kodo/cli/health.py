@@ -1,7 +1,7 @@
 """`kodo doctor` and `kodo setup` - machine health checks and first-run setup."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich import box
@@ -14,10 +14,6 @@ from kodo import (
     userconfig,
 )
 from kodo import library as library_ops
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import app
 from kodo.cli._common import (
     _to_mcp_server,

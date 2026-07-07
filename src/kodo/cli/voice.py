@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
 import typer
 from rich import box
@@ -14,17 +14,13 @@ from kodo import (
     host,
 )
 from kodo import library as library_ops
-from kodo.config import get_settings
-from kodo.models import ModelSource
-
-if TYPE_CHECKING:
-    pass
-
 from kodo.cli._app import voice_app
 from kodo.cli._common import (
     _pull_voice_all,
     console,
 )
+from kodo.config import get_settings
+from kodo.models import ModelSource
 
 
 @voice_app.command("voices")
