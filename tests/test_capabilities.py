@@ -106,10 +106,24 @@ def test_tools_needs_a_calling_marker_not_bare_tools(tmp_path: Path) -> None:
     def caps_for(template: str) -> bool:
         (tmp_path / "config.json").write_text(json.dumps({"architectures": ["LlamaForCausalLM"]}))
         (tmp_path / "tokenizer_config.json").write_text(json.dumps({"chat_template": template}))
-        return capabilities.capabilities(_model(tmp_path, ModelFormat.mlx, tmp_path)).tools
+        # _detect (not the cached capabilities()) — this re-reads a mutated model at the same path.
+        return capabilities._detect(_model(tmp_path, ModelFormat.mlx, tmp_path)).tools
 
     assert caps_for("you may use these tools to help the user") is False
     assert caps_for("{% if tool_call %}...{% endif %}") is True
+
+
+def test_capabilities_are_cached_in_the_sidecar(tmp_path: Path) -> None:
+    # First call detects + writes .kodo/capabilities.json; later calls read it (no re-detection).
+    gguf = tmp_path / "m.gguf"
+    _write_gguf(gguf, {"general.architecture": (8, "llama"), "llama.context_length": (4, 8192)})
+    model = _model(tmp_path, ModelFormat.gguf, gguf)
+    first = capabilities.capabilities(model)
+    cache = capabilities._cache_path(model)
+    assert cache.is_file() and first.context_length == 8192
+    # Corrupt the weights: a cached read must ignore them and return the stored result.
+    gguf.write_bytes(b"garbage")
+    assert capabilities.capabilities(model) == first
 
 
 def test_gguf_audio_from_mmproj_metadata(tmp_path: Path) -> None:

@@ -21,10 +21,16 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
+
+# Cached detection result, kept beside the model so a scan doesn't re-parse the GGUF header every
+# time (detection reads the file's KV block off disk — hundreds of ms for a big model). Lives in
+# the ``.kodo`` sidecar, so it travels with the library; the model files are immutable once pulled,
+# so the cache never goes stale. A separate file from ``metadata.json`` to stay clear of ``verify``.
+_CAPS_CACHE = "capabilities.json"
 
 # GGUF metadata value type codes (ggml spec).
 _GGUF_STRING = 8
@@ -214,8 +220,34 @@ def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
     )
 
 
-def capabilities(model: LibraryModel) -> ModelCapabilities:
-    """Static capability hints for ``model`` (safe: never raises, defaults to False)."""
+def _cache_path(model: LibraryModel) -> Path:
+    """Path to the model's cached-capabilities sidecar file."""
+    from kodo.cards import SIDECAR_DIR  # noqa: PLC0415 - avoid an import cycle at module load
+
+    return model.path / SIDECAR_DIR / _CAPS_CACHE
+
+
+def _read_cached(model: LibraryModel) -> ModelCapabilities | None:
+    """Return the cached capabilities for ``model``, or None if absent/unreadable."""
+    try:
+        data = json.loads(_cache_path(model).read_text(encoding="utf-8"))
+        return ModelCapabilities.model_validate(data)
+    except (OSError, json.JSONDecodeError, ValidationError):
+        return None
+
+
+def _write_cached(model: LibraryModel, caps: ModelCapabilities) -> None:
+    """Best-effort backfill of the capabilities cache (silent on a read-only mount)."""
+    path = _cache_path(model)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(caps.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # e.g. a read-only drive — detection still returned; we just don't cache it
+
+
+def _detect(model: LibraryModel) -> ModelCapabilities:
+    """Read capabilities straight from the weights on disk (the uncached path)."""
     try:
         if model.model_format is ModelFormat.gguf:
             return _gguf_capabilities(model)
@@ -224,3 +256,18 @@ def capabilities(model: LibraryModel) -> ModelCapabilities:
     except Exception:  # noqa: BLE001 - capability detection is best-effort; never break the picker
         pass
     return ModelCapabilities()
+
+
+def capabilities(model: LibraryModel) -> ModelCapabilities:
+    """Static capability hints for ``model`` (safe: never raises, defaults to False).
+
+    Reads a cached result from the ``.kodo`` sidecar when present (so a library scan doesn't
+    re-parse the GGUF header every time); on a miss it detects from the weights and backfills the
+    cache, so the next scan is instant. The model is immutable once pulled, so the cache is stable.
+    """
+    cached = _read_cached(model)
+    if cached is not None:
+        return cached
+    caps = _detect(model)
+    _write_cached(model, caps)
+    return caps

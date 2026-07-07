@@ -5,7 +5,8 @@ API (suites, ``evaluate``, ``run_code``, ``extract_code``, and the result models
 kodo's ``kodo benchmark`` driver imports directly.
 """
 
-from kodo_benchmark.app import main, mcp
+from typing import Any
+
 from kodo_benchmark.core import (
     Problem,
     ProblemResult,
@@ -49,3 +50,17 @@ __all__ = [
     "save_run",
     "score_tool",
 ]
+
+
+def __getattr__(name: str) -> Any:  # noqa: D401
+    """Lazily import ``main`` / ``mcp`` from ``.app`` (PEP 562).
+
+    The ``kodo benchmark`` plugin imports only ``core`` (cheap). Keeping ``main``/``mcp`` — which
+    pull in FastMCP — out of eager package import means plugin discovery (and thus every ``kodo``
+    CLI startup, which mounts plugins) doesn't pay the ~0.2s FastMCP import it never uses.
+    """
+    if name in ("main", "mcp"):
+        import importlib  # noqa: PLC0415
+
+        return getattr(importlib.import_module("kodo_benchmark.app"), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
