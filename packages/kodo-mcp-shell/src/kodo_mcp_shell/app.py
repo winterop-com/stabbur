@@ -89,6 +89,31 @@ def _check_allowed(argv: list[str]) -> None:
     )
 
 
+def _text(value: str | bytes | None) -> str:
+    """Coerce a subprocess stream (str, bytes, or None) to text."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else value.decode(errors="replace")
+
+
+def _result(exit_code: int | None, stdout: str, stderr: str, *, timed_out: bool = False) -> dict[str, Any]:
+    """Build the tool's result dict (capping each stream, flagging truncation/timeout)."""
+    result: dict[str, Any] = {
+        "exit_code": exit_code,
+        "stdout": stdout[:_MAX_OUTPUT],
+        "stderr": stderr[:_MAX_OUTPUT],
+        "truncated": len(stdout) > _MAX_OUTPUT or len(stderr) > _MAX_OUTPUT,
+        "timed_out": timed_out,
+        "mode": "unrestricted" if _unrestricted() else "read-only",
+    }
+    if timed_out:
+        result["note"] = (
+            f"command did not exit within {_TIMEOUT:.0f}s and was stopped — this is partial output. For "
+            "continuous commands use a bounded form (e.g. `ping -c 4`, `tail -n 50`, `journalctl -n 100`)."
+        )
+    return result
+
+
 @mcp.tool
 def run(command: str) -> dict[str, Any]:
     """Run a shell command on this machine and return its ``stdout``, ``stderr``, and ``exit_code``.
@@ -97,7 +122,11 @@ def run(command: str) -> dict[str, Any]:
     ``df``, ``ps``, ``journalctl``, ``ls``/``cat``, ``git log``, ``systemctl status``, ``docker ps``,
     …), and the command runs without a shell — so no pipes, globs, or ``$VAR`` expansion. If
     ``KODO_SHELL_UNRESTRICTED=1`` is set, it instead runs the command through a shell with **no
-    restrictions** (real host access). Bounded by a timeout; output is capped (``truncated`` flags it).
+    restrictions** (real host access). Output is capped (``truncated`` flags it).
+
+    The command must **exit on its own**. A continuous one (``ping`` without ``-c``, ``tail -f``,
+    ``top``, ``journalctl -f``, ``watch``) is stopped at the timeout and returns *partial* output
+    with ``timed_out: true`` — so always prefer a bounded form (``ping -c 4``, ``tail -n 50``).
     """
     if not command.strip():
         raise RuntimeError("empty command")
@@ -118,17 +147,12 @@ def run(command: str) -> dict[str, Any]:
                 raise RuntimeError(f"command not found on PATH: {argv[0]!r}")
             proc = subprocess.run([exe, *argv[1:]], capture_output=True, text=True, timeout=_TIMEOUT)  # noqa: S603
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"command timed out after {_TIMEOUT:.0f}s") from exc
+        # A command that won't exit on its own is killed at the timeout — return whatever it printed
+        # (e.g. `ping`'s per-packet latency lines) so the answer isn't lost, flagged as timed out.
+        return _result(None, _text(exc.stdout), _text(exc.stderr), timed_out=True)
     except OSError as exc:
         raise RuntimeError(f"couldn't run the command: {exc}") from exc
-    stdout, stderr = proc.stdout or "", proc.stderr or ""
-    return {
-        "exit_code": proc.returncode,
-        "stdout": stdout[:_MAX_OUTPUT],
-        "stderr": stderr[:_MAX_OUTPUT],
-        "truncated": len(stdout) > _MAX_OUTPUT or len(stderr) > _MAX_OUTPUT,
-        "mode": "unrestricted" if _unrestricted() else "read-only",
-    }
+    return _result(proc.returncode, proc.stdout or "", proc.stderr or "")
 
 
 def main() -> None:
