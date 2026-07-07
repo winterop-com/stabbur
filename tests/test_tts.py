@@ -1,6 +1,6 @@
 """Tests for text-to-speech helpers (Markdown-to-speech cleanup)."""
 
-from kodo import tts
+from kodo.voice import tts
 
 
 def test_speech_text_passes_plain_prose_through() -> None:

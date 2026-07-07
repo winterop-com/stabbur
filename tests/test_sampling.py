@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from kodo import sampling
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
+from kodo.runtime import sampling
 
 
 def _mlx_model(model_dir: Path) -> LibraryModel:

@@ -67,7 +67,7 @@ records its `library_root` so tags read/write against the right library. All **p
 data** — models, tags, runtime assets like the Kokoro TTS model (`<root>/tts/kokoro`) —
 lives in a library so it travels with the drive. Two things live outside a library, and
 they're different: **ephemeral machine-local runtime state** (pidfiles + logs under
-`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`; used by `kodo.supervisor` to
+`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`; used by `kodo.runtime.supervisor` to
 reap runtimes orphaned by a crashed kodo — a pid means nothing on another machine, so it must
 not travel), and **durable machine config** (`~/.config/kodo/config.toml` via `kodo.userconfig`,
 written by `kodo config` / `kodo setup`: the per-machine `library_root` + `default_model`
@@ -112,7 +112,7 @@ convert/fine-tune source, 2-4x the quant). Format is a per-model choice, not "ke
 
 The browser is the primary, full-featured surface (library browse + chat), via
 `kodo serve --ui`. The interactive terminal chat (`kodo chat`) is a **Textual TUI**
-(`chat_tui.py`) reusing the same runtime + agent loop; `kodo chat -p` is a plain scripted
+(`chat_tui/`) reusing the same runtime + agent loop; `kodo chat -p` is a plain scripted
 one-shot (no TUI).
 
 - **`kodo serve --ui`** — full app: browse the library (grouped by format) + chat with any

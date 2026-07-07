@@ -1,12 +1,4 @@
-"""Full-screen Textual chat for ``kodo chat`` (interactive mode).
-
-A proper TUI over the same runtime + agent loop the CLI uses: a scrolling
-transcript (markdown replies, live reasoning, tool activity), a multi-line input
-(Enter sends; Shift+Return, Ctrl-J, or a trailing backslash insert a newline),
-and a pinned two-line status footer (model, live context usage, tools). The model
-server is spawned by the caller; this app owns the MCP toolset + the streamed
-agent loop, and ESC cancels an in-flight reply.
-"""
+"""The Textual chat application (ChatApp) and the run_interactive entry point."""
 
 import asyncio
 import random
@@ -18,192 +10,19 @@ from typing import Any
 from rich.console import Group
 from rich.markdown import Markdown
 from rich.text import Text
-from textual import events, on
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import VerticalScroll
-from textual.message import Message
 from textual.widgets import Collapsible, Static, TextArea
 
 from kodo import agent, attach, capabilities
 from kodo import library as library_ops
 from kodo import runtime as runtime_mod
-from kodo import sampling as sampling_mod
 from kodo import tools as mcp_tools
-
-
-def _fmt_tokens(n: int) -> str:
-    """Compact token count: 1234 -> 1.2K, 262144 -> 256K."""
-    if n < 1000:
-        return str(n)
-    if n < 1_000_000:
-        return f"{n / 1000:.1f}K".replace(".0K", "K")
-    return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
-
-
-# Whimsical "working" words shown while the model thinks (one picked per turn), à la Claude Code.
-_GERUNDS = (
-    "Percolating",
-    "Noodling",
-    "Conjuring",
-    "Ruminating",
-    "Marinating",
-    "Cogitating",
-    "Simmering",
-    "Pondering",
-    "Tinkering",
-    "Brewing",
-    "Musing",
-    "Whirring",
-    "Moonwalking",
-    "Computing",
-    "Scheming",
-    "Puzzling",
-    "Deliberating",
-    "Contemplating",
-    "Synthesizing",
-    "Wrangling",
-)
-
-# Braille spinner frames for the "thinking" indicator.
-_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-# Accepted aliases -> ModelSampling field, for the `/set <param> <value>` command.
-_SAMPLING_FIELDS: dict[str, str] = {
-    "temperature": "temperature",
-    "temp": "temperature",
-    "top_p": "top_p",
-    "top-p": "top_p",
-    "topp": "top_p",
-    "top_k": "top_k",
-    "top-k": "top_k",
-    "topk": "top_k",
-    "min_p": "min_p",
-    "min-p": "min_p",
-    "minp": "min_p",
-    "repeat_penalty": "repeat_penalty",
-    "repeat-penalty": "repeat_penalty",
-    "penalty": "repeat_penalty",
-}
-
-# Slash commands typed in the input, for the in-line autocomplete menu. Each is
-# (display, completion, help): the completion is what Tab fills in (a trailing space
-# where an argument follows). The palette (Ctrl+P) is generated separately from live app state.
-_SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
-    ("/mcp", "/mcp", "MCP servers + tools (alias /tools)"),
-    ("/mcp on <server>", "/mcp on ", "enable a server's tools"),
-    ("/mcp off <server>", "/mcp off ", "disable a server's tools"),
-    ("/mcp reconnect", "/mcp reconnect", "respawn the MCP servers"),
-    ("/copy", "/copy", "copy the last reply"),
-    ("/model", "/model ", "switch the running model (or /model to list)"),
-    ("/export", "/export ", "save the transcript to a markdown file"),
-    ("/set", "/set ", "adjust sampling (temperature/top_p/top_k/…)"),
-    ("/clear", "/clear", "clear the conversation"),
-    ("/help", "/help", "commands + keyboard shortcuts"),
-    ("/exit", "/exit", "quit"),
-)
-
-
-class _KodoCommands(Provider):
-    """Commands for the Ctrl+P palette, alongside Textual's built-ins."""
-
-    def _commands(self) -> list[tuple[str, str, Any]]:
-        """(title, help, callback) for every palette command, from live app state."""
-        app: Any = self.app
-        items: list[tuple[str, str, Any]] = [
-            ("MCP servers & tools", "list the MCP servers and tools available to the model", app.action_show_mcp),
-            (
-                "Reconnect MCP servers",
-                "respawn the MCP servers (if one died or its config changed)",
-                app.action_reconnect_mcp,
-            ),
-            ("Copy last reply", "copy the last reply to the clipboard", app.action_copy_reply),
-            ("Export transcript", "save the conversation to a markdown file (chat.md)", app.action_export),
-            ("Sampling settings", "show sampling; change with /set <param> <value>", app.action_show_sampling),
-            ("Switch model", "list the models you can switch to", app.action_show_models),
-            ("Clear conversation", "clear the transcript, keep the system prompt", app.action_clear),
-            ("Help", "commands + keyboard shortcuts", app.action_help),
-        ]
-        # One enable/disable entry per loaded MCP server.
-        for srv in app._server_names():
-            off = srv in app._disabled
-            verb = "Enable" if off else "Disable"
-            items.append(
-                (
-                    f"{verb} MCP server: {srv}",
-                    f"turn {srv}'s tools {'on' if off else 'off'}",
-                    lambda s=srv, e=off: app._mcp_toggle(s, e),
-                )
-            )
-        # One "switch to" entry per other library model.
-        for model in app._switchable_models():
-            if model.name != app._model_name:
-                items.append(
-                    (
-                        f"Switch model: {model.name}",
-                        f"load {model.name} ({model.model_format.value})",
-                        lambda n=model.name: app.action_switch_model(n),
-                    )
-                )
-        return items
-
-    async def discover(self) -> Hits:
-        # Shown when the palette opens with no query typed yet.
-        for title, help_text, callback in self._commands():
-            yield DiscoveryHit(title, callback, help=help_text)
-
-    async def search(self, query: str) -> Hits:
-        matcher = self.matcher(query)
-        for title, help_text, callback in self._commands():
-            score = matcher.match(title)
-            if score > 0:
-                yield Hit(score, matcher.highlight(title), callback, help=help_text)
-
-
-class ChatInput(TextArea):
-    """Multi-line input where Enter sends and Shift+Return inserts a newline.
-
-    Shift+Return needs a terminal that reports it distinctly (kitty/iTerm2/VS Code
-    with the enhanced keyboard protocol; Textual enables it when available). Ctrl-J
-    and a trailing backslash work everywhere as fallbacks.
-    """
-
-    class Submitted(Message):
-        """Posted when the user presses Enter on a non-continuation line."""
-
-        def __init__(self, text: str) -> None:
-            self.text = text
-            super().__init__()
-
-    async def _on_key(self, event: events.Key) -> None:
-        # Tab completes a slash command being typed (instead of inserting a tab).
-        if event.key == "tab" and self.text.startswith("/") and "\n" not in self.text:
-            event.prevent_default()
-            event.stop()
-            complete = getattr(self.app, "_complete_slash", None)
-            if complete is not None:
-                complete()
-            return
-        if event.key in ("shift+enter", "ctrl+j"):
-            event.prevent_default()
-            event.stop()
-            self.insert("\n")
-            return
-        if event.key == "enter":
-            # A trailing backslash at the end of the buffer is a newline (continuation),
-            # not a send -- the universal fallback where Shift+Return is unavailable.
-            if self.cursor_location == self.document.end and self.text.endswith("\\"):
-                event.prevent_default()
-                event.stop()
-                self.action_delete_left()
-                self.insert("\n")
-                return
-            event.prevent_default()
-            event.stop()
-            self.post_message(self.Submitted(self.text))
-            return
-        await super()._on_key(event)
+from kodo.chat_tui._util import _GERUNDS, _SAMPLING_FIELDS, _SLASH_COMMANDS, _SPINNER, _fmt_tokens
+from kodo.chat_tui._widgets import ChatInput, _KodoCommands
+from kodo.runtime import sampling as sampling_mod
 
 
 class ChatApp(App[None]):

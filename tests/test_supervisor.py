@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from kodo import supervisor
+from kodo.runtime import supervisor
 
 # Binds the given port and sleeps; exits 1 with a bind-error message if the port is taken.
 _BIND_SCRIPT = (

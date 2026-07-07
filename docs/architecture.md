@@ -6,23 +6,26 @@ and every data type is a `BaseModel` (no `@dataclass`).
 
 ## Modules
 
+Large concerns are **packages** (a re-exporting `__init__` keeps `from kodo import X` working while
+the internals live in focused submodules); small cross-cutting modules stay top-level.
+
 ```
 src/kodo/
-├── config.py    # Settings (machine config from kodo.toml + KODO_* env vars)
-├── project.py   # the kodo.toml project manifest — the one parser + writer for it
-├── scaffold.py  # pure `kodo project new/init` logic (pyproject, model copy, git) — testable
-├── models.py    # ModelSource, ModelFormat, ModelEntry, Catalog, PullResult
-├── catalog.py   # list/pull across the source stores
-├── library.py   # scan the on-drive library → LibraryModel; roots()/default_root() guards
-├── locking.py   # per-library file lock around mutations (CLI + serve run concurrently)
-├── runtime.py   # build run/chat/generate commands (llama.cpp / mlx_lm)
-├── supervisor.py# spawn/stop/reap model runtimes (process groups, pidfile, orphan sweep)
-├── server.py    # ServerManager: one runtime child process + lifecycle
-├── hfcache.py   # point the HF hub cache at the library drive (import-time; see below)
-├── cards.py     # model-card + metadata sidecars
-├── cli.py       # Typer app: list / library / pull / run / chat / serve
-├── app.py       # FastAPI factory (CORS, auth, routers, SPA mount, lifespan)
-├── routers/     # health, catalog (browse/pull), serving (status/load/proxy)
+├── config.py / userconfig.py  # Settings (kodo.toml + KODO_* env) + the durable machine config
+├── models.py / host.py / locking.py / doctor.py  # core value types, OS helpers, per-library lock, health
+├── cli/         # the Typer app, one module per command group (_app/_common + library/project/mcp/
+│                #   voice/config/health/chat/serve) — was one 2400-line cli.py
+├── library/     # scan the on-drive library → LibraryModel: _model, _roots, _scan, _manage
+├── runtime/     # spawn + run models: runtime (commands), supervisor (reaper), serve_registry, sampling
+├── voice/       # TTS/STT: kokoro, tts, the mlx-audio runtime, audio export, the voice registry
+├── chat_tui/    # the Textual terminal chat: _util, _widgets, app (ChatApp)
+├── project.py / scaffold.py / templates.py  # the kodo.toml manifest (one parser+writer) + scaffolding
+├── agent.py / tools.py / mcpservers.py / mcp_catalog.py / plugins.py  # agent loop + MCP client/config
+├── catalog.py / consumers.py / cards.py / tags.py / arch.py / capabilities.py  # source + library support
+├── attach.py / chatui.py / hfcache.py  # media attach, shared chat rendering, HF-cache redirect
+├── app.py / server.py  # FastAPI factory (CORS/auth/SPA/lifespan) + ServerManager (one runtime child)
+├── routers/     # FastAPI routers: health, catalog (browse/pull), and serving/ (a package: _base/core/
+│                #   chat/voice/proxy behind one APIRouter)
 └── sources/     # base + huggingface / ollama / lmstudio adapters
 ```
 
@@ -114,7 +117,7 @@ that crosses. Centralized in one documented function rather than scattered `os.e
 ## Process lifecycle & concurrency
 
 Model runtimes are **external processes** kodo spawns, and both the CLI (`runtime.start`) and the
-server (`ServerManager`) go through one **supervisor** (`supervisor.py`):
+server (`ServerManager`) go through one **supervisor** (`runtime/supervisor.py`):
 
 - Each runtime is spawned in its own session (`start_new_session`), so stopping it `killpg`s the
   whole group — the runtime *and* any workers it forked, not just the direct child.

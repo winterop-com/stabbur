@@ -11,8 +11,9 @@ from enum import StrEnum
 
 import httpx
 
-from kodo import runtime, supervisor
+from kodo import runtime
 from kodo.library import LibraryModel
+from kodo.runtime import supervisor
 
 
 class ServerState(StrEnum):

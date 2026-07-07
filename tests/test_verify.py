@@ -87,7 +87,7 @@ def test_verify_ollama_uses_blob_digests(tmp_path: Path, monkeypatch: pytest.Mon
         load_target=manifest,
         library_root=tmp_path,
     )
-    monkeypatch.setattr(library.ollama, "verify_manifest", lambda *a, **k: (["missing blob sha256:abc"], 3))
+    monkeypatch.setattr(library._manage.ollama, "verify_manifest", lambda *a, **k: (["missing blob sha256:abc"], 3))
     result = library.verify(model, deep=True)
     assert not result.ok
     assert result.checked == "blobs+sha256 (3)"

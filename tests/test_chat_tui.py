@@ -12,14 +12,14 @@ import pytest
 from kodo import chat_tui, runtime
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat
-from kodo.sampling import ModelSampling
+from kodo.runtime.sampling import ModelSampling
 
 
 @pytest.fixture(autouse=True)
 def _stub_model_probes(monkeypatch: pytest.MonkeyPatch) -> None:
     # _apply_model reads the model's config/files; stub those so the app builds fast + hermetic.
-    monkeypatch.setattr(chat_tui.sampling_mod, "recommended", lambda _m: ModelSampling(repeat_penalty=1.1))
-    monkeypatch.setattr(chat_tui.capabilities, "capabilities", lambda _m: SimpleNamespace(context_length=1024))
+    monkeypatch.setattr(chat_tui.app.sampling_mod, "recommended", lambda _m: ModelSampling(repeat_penalty=1.1))
+    monkeypatch.setattr(chat_tui.app.capabilities, "capabilities", lambda _m: SimpleNamespace(context_length=1024))
 
 
 def _fake_runtime(model: LibraryModel, base: str = "http://127.0.0.1:9", port: int = 9) -> runtime.RuntimeProc:
@@ -73,7 +73,7 @@ async def test_enter_sends_and_streams_reply(monkeypatch: pytest.MonkeyPatch) ->
         messages.append({"role": "assistant", "content": "Hello, world"})
         return "Hello, world"
 
-    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
     app = _app()
     async with app.run_test() as pilot:
         await pilot.press("h", "i")
@@ -106,7 +106,7 @@ async def test_reasoning_collapses_after_answer(monkeypatch: pytest.MonkeyPatch)
         messages.append({"role": "assistant", "content": "the answer"})
         return "the answer"
 
-    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
     app = _app()
     async with app.run_test() as pilot:
         await pilot.press("h", "i")
@@ -138,7 +138,7 @@ async def test_thinking_collapse_preference_is_sticky(monkeypatch: pytest.Monkey
         messages.append({"role": "assistant", "content": "answer"})
         return "answer"
 
-    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
     app = _app()
     async with app.run_test() as pilot:
         await pilot.press("h", "i")
@@ -190,7 +190,7 @@ async def test_prompts_queue_while_busy_and_run_in_order(monkeypatch: pytest.Mon
         messages.append({"role": "assistant", "content": "ok"})
         return "ok"
 
-    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
     app = _app()
     async with app.run_test() as pilot:
         app.on_chat_input_submitted(chat_tui.ChatInput.Submitted("first"))
@@ -215,7 +215,7 @@ async def test_trailing_backslash_inserts_newline_instead_of_sending(monkeypatch
         args[1].append({"role": "assistant", "content": "ok"})
         return "ok"
 
-    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
     app = _app()
     async with app.run_test() as pilot:
         await pilot.press("a", "backslash")
@@ -235,12 +235,12 @@ async def test_model_switch_swaps_the_runtime(monkeypatch: pytest.MonkeyPatch) -
     app = _app()
     model_a = app._model  # the starting model (pub/Foo-GGUF)
     # Both models are "in the library"; the runtime is faked so nothing actually serves.
-    monkeypatch.setattr(chat_tui.library_ops, "scan", lambda: [model_a, model_b])
+    monkeypatch.setattr(chat_tui.app.library_ops, "scan", lambda: [model_a, model_b])
     stopped: list[Any] = []
-    monkeypatch.setattr(chat_tui.runtime_mod, "stop", lambda rt: stopped.append(rt.model.name))
-    monkeypatch.setattr(chat_tui.runtime_mod, "wait_ready", lambda rt, timeout=None: None)
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", lambda rt: stopped.append(rt.model.name))
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "wait_ready", lambda rt, timeout=None: None)
     monkeypatch.setattr(
-        chat_tui.runtime_mod,
+        chat_tui.app.runtime_mod,
         "start",
         lambda m: _fake_runtime(m, base="http://127.0.0.1:5555", port=5555),
     )
@@ -274,7 +274,7 @@ async def test_ctrl_y_copies_last_reply(monkeypatch: pytest.MonkeyPatch) -> None
         messages.append({"role": "assistant", "content": "Copy me"})
         return "Copy me"
 
-    monkeypatch.setattr(chat_tui.agent, "run", fake_run)
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
     app = _app()
     copied: list[str] = []
     async with app.run_test() as pilot:
