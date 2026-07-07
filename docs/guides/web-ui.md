@@ -72,7 +72,7 @@ Three surfaces, reachable from the sidebar (or the collapsed icon rail):
 **Build the UI once** (it's not committed — only its source is):
 
 ```bash
-make frontend                         # npm install + build → frontend/dist
+make frontend                         # bun install + build → frontend/dist
 ```
 
 Then serve it:
