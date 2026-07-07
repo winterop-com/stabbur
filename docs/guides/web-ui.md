@@ -51,9 +51,9 @@ Three surfaces, reachable from the sidebar (or the collapsed icon rail):
   text), so a plain chat model can read a file as context.
 - **Listen (text-to-speech)** — a speaker button on each reply reads it aloud
   (Markdown/code is stripped first so only the prose is spoken); the settings rail
-  picks the **voice**. With the optional Kokoro extra (`make install-tts`) that's a
-  picker of **54 built-in voices** across 9 languages (grouped by language); otherwise
-  it falls back to `llama-tts`/OuteTTS.
+  picks the **voice** — a picker of Kokoro's **54 built-in voices** across 9 languages
+  (grouped by language), since Kokoro ships built in. `llama-tts`/OuteTTS is available
+  as an alternate engine.
 - **Mermaid diagrams** — ```` ```mermaid ```` fenced blocks render as live
   diagrams (theme-aware, lazy-loaded), with a source/diagram toggle and copy;
   invalid syntax falls back to the source.

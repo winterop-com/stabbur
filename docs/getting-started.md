@@ -29,11 +29,11 @@ Install the ones you need:
 | --- | --- | --- |
 | **llama.cpp** | `brew install llama.cpp` (macOS); build from source on Linux | The baseline: GGUF chat (`llama-server`) and OuteTTS speech (`llama-tts`) |
 | **MLX** — optional, Apple Silicon | `make install-mlx` (= `uv sync --extra mlx`) | Running MLX models (`mlx_lm` / `mlx-vlm`) — fastest on Macs |
-| **Kokoro TTS** — optional, macOS + Linux | `make install-tts` (= `uv sync --extra tts`) | 54 built-in multi-voice text-to-speech; espeak-ng is **bundled**, no system dep |
 
-llama.cpp is the one to install first. The MLX and TTS extras are optional and
-gated — add them only if you want MLX models or multi-voice speech. On first use
-Kokoro downloads its model (~310 MB) into a machine cache (~/.kodo/kokoro).
+llama.cpp is the one to install first. The MLX extra is optional and gated — add
+it only if you want MLX models. **Kokoro TTS** (54 multi-voice speech, espeak-ng
+bundled) ships built in — no extra to install; on first use it downloads its model
+(~310 MB) into the library (`<root>/tts/kokoro`).
 
 !!! note "MLX + `transformers` 5.13"
     `make install-mlx` already caps `transformers<5.13` (5.13 broke `mlx-lm`'s tokenizer

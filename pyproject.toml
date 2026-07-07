@@ -24,8 +24,15 @@ dependencies = [
     "kodo-mcp-search",
     "kodo-mcp-weather-yr",
     "kodo-mcp-utils",
+    # Kokoro-82M (ONNX) — the lightweight, cross-platform in-chat voice. A base dep (not an
+    # extra) so "Listen"/speak works out of the box on every install; the design treats it as
+    # always-available, and it's self-contained (kokoro-onnx bundles espeak-ng via
+    # espeakng_loader, soundfile bundles libsndfile — no system packages). The heavier
+    # Apple-only mlx-audio runtime (Dia/Whisper) stays the opt-in `voice` extra.
+    "kokoro-onnx>=0.4.9",
     "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
+    "soundfile>=0.13.1",
     "textual>=0.85",
     "typer>=0.25.1",
     "uvicorn[standard]>=0.49.0",
@@ -47,22 +54,14 @@ mlx = [
     "transformers>=5.5,<5.13; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
-# Local multi-voice text-to-speech via Kokoro-82M (ONNX). Optional, but unlike
-# `mlx` NOT platform-gated: onnxruntime ships wheels for both macOS (Apple
-# Silicon) and Linux, so one backend covers both. Gives 54 built-in named voices
-# with no reference audio. Needs the `espeak-ng` system binary for phonemization
-# (`brew install espeak-ng` / `apt install espeak-ng`); kodo hints if it's
-# missing rather than hanging. Install with `uv sync --extra tts`.
-tts = [
-    "kokoro-onnx>=0.4.9",
-    "soundfile>=0.13.1",
-]
+# NOTE: Kokoro-82M (ONNX) TTS moved to [project.dependencies] — it's the always-available
+# in-chat voice, no longer an opt-in extra. See the note there.
 
 # Full voice runtime via mlx-audio (Apple Silicon): Dia (dialogue + cloning), Kokoro,
 # Qwen3-TTS, and Whisper STT, served through mlx-audio's OpenAI /v1/audio server which kodo
 # spawns + proxies. mlx-audio is gated (mlx, Apple-only, no Linux wheels); its per-model
-# helpers (misaki G2P for Kokoro, soundfile) are cross-platform. On Linux, the `tts` extra's
-# Kokoro-ONNX covers TTS. Install with `uv sync --extra voice` on an M-series Mac.
+# helpers (misaki G2P for Kokoro, soundfile) are cross-platform. On Linux, the base
+# Kokoro-ONNX dep covers TTS. Install with `uv sync --extra voice` on an M-series Mac.
 voice = [
     "mlx-audio>=0.4.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "misaki[en]>=0.9.4",  # grapheme->phoneme for Kokoro (English backend)

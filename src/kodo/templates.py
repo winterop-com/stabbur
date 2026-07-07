@@ -432,11 +432,10 @@ TEMPLATES: dict[str, ProjectTemplate] = {
         model="unsloth/Qwen3.5-4B-GGUF",
         system_prompt=_VOICE_ASSISTANT_PROMPT,
         files={"examples/prompts.md": _KOKORO_PROMPTS_MD},
-        extras=["tts"],
+        extras=[],
         chat_voice="kokoro:af_heart",
         next_steps=(
-            "Kokoro (the `tts` extra) speaks replies aloud — needs the espeak-ng binary "
-            "(`brew install espeak-ng`).\n"
+            "Kokoro speaks replies aloud — it's built in (no extra, espeak-ng bundled).\n"
             "  uv sync && uv run kodo serve --ui        # enable Listen, or: uv run kodo chat"
         ),
     ),
@@ -444,11 +443,11 @@ TEMPLATES: dict[str, ProjectTemplate] = {
         model="unsloth/Qwen3.5-4B-GGUF",
         system_prompt=_VOICE_ASSISTANT_PROMPT,
         files={"examples/prompts.md": _WHISPER_PROMPTS_MD},
-        extras=["voice", "tts"],
+        extras=["voice"],
         chat_voice="kokoro:af_heart",
         next_steps=(
-            "A full voice loop: Whisper transcribes your mic, Kokoro speaks replies (Apple Silicon `voice`\n"
-            "extra + espeak-ng).\n"
+            "A full voice loop: Whisper transcribes your mic (Apple Silicon `voice` extra), Kokoro\n"
+            "speaks replies (built in).\n"
             "  uv sync && uv run kodo serve --ui        # use the Voice surface"
         ),
     ),

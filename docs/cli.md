@@ -172,7 +172,7 @@ kodo runs generative LLMs only.
 ## `kodo voice voices`
 
 List the built-in **Kokoro** voices (54 across 9 languages) with their id,
-language, and gender. Requires the optional TTS extra (`make install-tts`).
+language, and gender. Kokoro ships built in (no extra to install).
 
 ```bash
 kodo voice voices                            # id · name · language · gender

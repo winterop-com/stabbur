@@ -2,8 +2,8 @@
 
 Kokoro is a small (82M) open-weights TTS with **54 built-in named voices** across
 9 languages, run through onnxruntime — one backend for macOS + Linux, no GPU and
-no reference audio. It's an optional extra (``uv sync --extra tts``); kodo imports
-it lazily so the rest of the app works without it. The model + combined voices
+no reference audio. It's a base dependency (the always-available in-chat voice); kodo
+still imports it lazily so a broken install degrades gracefully. The model + combined voices
 file are fetched on first use into the library (``<library_root>/tts/kokoro``), so
 they travel with it — mirroring how ``llama-tts`` auto-fetches OuteTTS.
 
@@ -208,7 +208,7 @@ def synthesize(text: str, voice: str, out_path: Path | None = None) -> Path:
             text is empty, or synthesis produces no audio.
     """
     if not available():
-        raise RuntimeError("Kokoro TTS is not installed. Run `make install-tts` (uv sync --extra tts).")
+        raise RuntimeError("Kokoro TTS is unavailable — reinstall kodo's dependencies (`uv sync`).")
     if voice not in _VOICE_IDS_SET:
         raise RuntimeError(f"unknown Kokoro voice {voice!r}")
     if not text.strip():

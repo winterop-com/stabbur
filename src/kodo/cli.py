@@ -1437,11 +1437,11 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
 
 @voice_app.command("voices")
 def voices() -> None:
-    """List the built-in Kokoro voices (needs the `tts` extra: `make install-tts`)."""
+    """List the built-in Kokoro voices (the always-available in-chat TTS)."""
     from kodo import kokoro  # noqa: PLC0415
 
     if not kokoro.available():
-        typer.secho("Kokoro TTS not installed. Run `make install-tts` (uv sync --extra tts).", fg=typer.colors.YELLOW)
+        typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.YELLOW)
         raise typer.Exit(1)
     table = Table(title="Kokoro voices", box=None, header_style="bold")
     table.add_column("id", style="cyan")
@@ -1524,7 +1524,7 @@ def speak(
     try:
         if voice is not None:  # Kokoro (ONNX) — the lightweight preset engine
             if not kokoro.available():
-                typer.secho("Kokoro TTS not installed. Run `make install-tts`.", fg=typer.colors.RED, err=True)
+                typer.secho("Kokoro TTS is unavailable — reinstall kodo (`uv sync`).", fg=typer.colors.RED, err=True)
                 raise typer.Exit(1)
             if not kokoro.assets_present():
                 with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):

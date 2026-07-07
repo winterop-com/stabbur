@@ -31,7 +31,6 @@ src/kodo/
 uv sync                       # kodo itself (needs Python 3.13 + uv)
 brew install llama.cpp        # baseline runtime: GGUF chat + OuteTTS speech (build from source on Linux)
 make install-mlx              # optional: MLX runtimes (Apple Silicon)
-make install-tts              # optional: 54-voice Kokoro TTS (macOS + Linux; espeak bundled)
 make install-voice            # optional: mlx-audio (Dia/Whisper/Qwen3-TTS, Apple Silicon)
 make frontend                 # optional: build the web UI (needs Bun)
 export KODO_LIBRARY_ROOT=/path/to/your/library   # required: where your library lives

@@ -124,7 +124,7 @@ Making sound is a **different kind of model** entirely, not an LLM: a **TTS** sy
 turns text into a waveform (an acoustic model + a **vocoder** that renders samples).
 kodo runs these as their own engines, separate from the chat model:
 
-- **Kokoro** (ONNX, `make install-tts`) — 54 built-in voices; the multi-voice engine.
+- **Kokoro** (ONNX, built in) — 54 built-in voices; the multi-voice engine.
 - **OuteTTS** (a GGUF + a WavTokenizer vocoder, via `llama-tts`) — the fallback.
 
 So the flow is asymmetric: **multimodal LLMs are image/audio *in* → text *out*; TTS
