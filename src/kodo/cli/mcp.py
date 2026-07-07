@@ -153,7 +153,9 @@ def mcp_add(
         console.print(f"  [yellow]not installed[/] — reports 0 tools until you {setup}")
     elif setup:
         console.print(f"  [yellow]setup:[/] {setup}")
-    console.print("[dim]Check it:[/] kodo project show")
+    # `project show` needs a project; a global add is machine-wide, so point at `doctor` (its
+    # Tools row lists the resolved servers) which works anywhere.
+    console.print(f"[dim]Check it:[/] {'kodo doctor' if to_global else 'kodo project show'}")
 
 
 @mcp_app.command("remove")
