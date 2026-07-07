@@ -424,3 +424,32 @@ def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] is None  # falls back to spawning a local runtime
+
+
+def test_mcp_tools_lists_tools_by_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import mcpservers
+
+    servers = [
+        mcpservers.McpServer(name="datetime", command="kodo-mcp-datetime"),
+        mcpservers.McpServer(name="weather-yr", command="kodo-mcp-weather-yr"),
+    ]
+    monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: servers)
+    grouped = {
+        "datetime": [("today", "Today's date.")],
+        "weather-yr": [("weather_forecast", "Weather for a named place.")],  # hyphen name resolves
+    }
+    monkeypatch.setattr(cli.project, "_connect_project_tools", lambda mcp: (grouped, None, []))
+    result = runner.invoke(cli.app, ["mcp", "tools"])
+    assert result.exit_code == 0, result.output
+    assert "today" in result.output and "weather_forecast" in result.output
+    assert "Weather for a named place." in result.output
+    assert "3 tools across 2 server(s)" not in result.output  # 2 tools, not miscounted
+    assert "2 tools across 2 server(s)" in result.output
+
+
+def test_mcp_tools_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import mcpservers
+
+    monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: [])
+    result = runner.invoke(cli.app, ["mcp", "tools"])
+    assert result.exit_code == 0 and "No MCP servers configured" in result.output
