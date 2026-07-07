@@ -19,7 +19,7 @@ import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from kodo import capabilities, supervisor
+from kodo import capabilities, host, supervisor
 from kodo.config import debug_enabled, get_settings, pinned_runtime_port
 from kodo.library import LibraryModel
 from kodo.models import ModelFormat, _human_size
@@ -32,11 +32,9 @@ find_free_port = supervisor.find_free_port
 # Progress/spinner goes to stderr so one-shot stdout (piped output) stays clean.
 _status_console = Console(stderr=True)
 
-_INSTALL_HINTS = {
-    "llama-server": "Install llama.cpp: `brew install llama.cpp` (macOS) or build from source.",
-    "mlx_lm.server": "Install the MLX runtimes: `uv sync --extra mlx` (Apple Silicon only).",
-    "mlx_vlm.server": "Install the MLX runtimes: `uv sync --extra mlx` (Apple Silicon only).",
-}
+# OS-tailored install hints (see kodo.host) so a missing binary points macOS users
+# at Homebrew and Linux users at release binaries / their package manager.
+_INSTALL_HINTS = host.install_hints()
 
 
 def build_command(model: LibraryModel, host: str, port: int, n_ctx: int | None = None) -> list[str]:

@@ -12,6 +12,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from kodo import host
+
 _TTS_BIN = "llama-tts"
 
 
@@ -79,7 +81,7 @@ def synthesize(
             synthesis fails.
     """
     if shutil.which(_TTS_BIN) is None:
-        raise RuntimeError(f"{_TTS_BIN!r} not found on PATH. Install llama.cpp (e.g. `brew install llama.cpp`).")
+        raise RuntimeError(f"{_TTS_BIN!r} not found on PATH. {host.llama_cpp_hint()}")
     if not text.strip():
         raise RuntimeError("nothing to speak (empty text)")
     if model is not None and vocoder is None:

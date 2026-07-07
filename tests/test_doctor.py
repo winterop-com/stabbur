@@ -40,6 +40,14 @@ def test_project_no_shared_warning_when_library_root_set(tmp_path: Path, monkeyp
     assert not any(c.name == "Shared library (@shared)" for c in doctor.check_project(settings))
 
 
+def test_platform_check_reports_os() -> None:
+    checks = doctor.check_platform()
+    assert len(checks) == 1
+    assert checks[0].name == "Platform"
+    assert checks[0].status is doctor.CheckStatus.ok
+    assert checks[0].detail  # e.g. "Linux x86_64"
+
+
 def test_report_status_rolls_up_worst() -> None:
     ok = doctor.Check(name="a", status=doctor.CheckStatus.ok, detail="")
     warn = doctor.Check(name="b", status=doctor.CheckStatus.warn, detail="")
