@@ -66,12 +66,13 @@ Two distinct, composable concepts (see `kodo.library.roots`):
 records its `library_root` so tags read/write against the right library. All **portable
 data** — models, tags, runtime assets like the Kokoro TTS model (`<root>/tts/kokoro`) —
 lives in a library so it travels with the drive. Two things live outside a library, and
-they're different: **ephemeral machine-local runtime state** (`~/.kodo/runtimes/`, used by
-`kodo.supervisor` to reap runtimes orphaned by a crashed kodo — a pid means nothing on another
-machine, so it must not travel), and **durable machine config** (`~/.config/kodo/config.toml`
-via `kodo.userconfig`, written by `kodo config` / `kodo setup`: the per-machine `library_root`
-+ `default_model` defaults, the lowest-priority `Settings` source). Keep the three-way split:
-portable → library; transient machine state → `~/.kodo`; machine defaults → `~/.config/kodo`.
+they're different: **ephemeral machine-local runtime state** (pidfiles + logs under
+`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`; used by `kodo.supervisor` to
+reap runtimes orphaned by a crashed kodo — a pid means nothing on another machine, so it must
+not travel), and **durable machine config** (`~/.config/kodo/config.toml` via `kodo.userconfig`,
+written by `kodo config` / `kodo setup`: the per-machine `library_root` + `default_model`
+defaults, the lowest-priority `Settings` source). Keep the three-way split: portable → library;
+transient machine state → XDG runtime/cache; machine defaults → `~/.config/kodo` (XDG config).
 
 ## Library organization
 

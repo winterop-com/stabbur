@@ -15,6 +15,7 @@ machine config.
 """
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
@@ -75,6 +76,21 @@ def _default_lmstudio_dir() -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def _default_runtime_state_dir() -> Path:
+    """Ephemeral per-runtime state dir (pidfiles + logs), placed per the XDG spec.
+
+    Runtime state is transient and machine-local (a pid means nothing elsewhere), so it belongs
+    under ``$XDG_RUNTIME_DIR`` (user-private, cleared on logout — ideal for pidfiles) when set,
+    else the cache dir (``$XDG_CACHE_HOME``, default ``~/.cache``). Not a library (it must never
+    travel with the drive), and no longer ``~/.kodo`` (which wasn't XDG-compliant).
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return Path(runtime) / "kodo" / "runtimes"
+    cache = os.environ.get("XDG_CACHE_HOME")
+    return (Path(cache) if cache else Path.home() / ".cache") / "kodo" / "runtimes"
 
 
 class Settings(BaseSettings):
@@ -207,9 +223,9 @@ class Settings(BaseSettings):
 
     # Ephemeral, machine-local runtime state (one dir per spawned runtime: its pidfile-ish
     # ``meta.json`` + captured log). NOT library data — a pid means nothing on another machine,
-    # so this deliberately lives under ``~/.kodo`` rather than travelling with the drive. The
-    # supervisor uses it to reap runtimes orphaned by a crashed kodo (see :mod:`kodo.supervisor`).
-    runtime_state_dir: Path = Path.home() / ".kodo" / "runtimes"
+    # so it lives under the XDG runtime/cache dir (see _default_runtime_state_dir), never a
+    # library. The supervisor uses it to reap runtimes orphaned by a crashed kodo (kodo.supervisor).
+    runtime_state_dir: Path = _default_runtime_state_dir()
 
 
 @lru_cache

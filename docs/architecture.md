@@ -119,8 +119,9 @@ server (`ServerManager`) go through one **supervisor** (`supervisor.py`):
 - Each runtime is spawned in its own session (`start_new_session`), so stopping it `killpg`s the
   whole group — the runtime *and* any workers it forked, not just the direct child.
 - Each records a `meta.json` (its pid/pgid/command + the pid of the kodo that owns it) under
-  `~/.kodo/runtimes/` — ephemeral, machine-local state (a pid means nothing on another machine, so
-  it deliberately does **not** live in a library). On a graceful exit an `atexit` hook stops live
+  the XDG runtime/cache dir (`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`) —
+  ephemeral, machine-local state (a pid means nothing on another machine, so it deliberately
+  does **not** live in a library). On a graceful exit an `atexit` hook stops live
   runtimes; for an ungraceful death (SIGKILL/OOM), `sweep_orphans()` runs at the next kodo start
   and reclaims a runtime whose owning kodo is gone (and whose live command still matches — a
   PID-reuse guard), so a crashed kodo never leaves a model holding memory with no way to reclaim it.
