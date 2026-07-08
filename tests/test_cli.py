@@ -499,14 +499,78 @@ def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch
         _probe_remote("http://127.0.0.1:1", None, None)
 
 
-def test_probe_remote_exits_when_serve_has_no_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_remote_exits_when_serve_has_no_model_and_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
     from kodo.cli.chat import _probe_remote
 
-    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "idle", "model": None}})
+    # Unlocked, empty, and nothing to auto-load (no request, no server default) -> exit with a hint.
+    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "stopped", "model": None, "locked": False}})
     with pytest.raises(typer.Exit):
         _probe_remote("http://127.0.0.1:8000", None, None)
+
+
+def test_probe_remote_exits_when_locked_serve_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    from kodo.cli.chat import _probe_remote
+
+    # A locked serve loads eagerly; empty means its load failed -> never try to load into it.
+    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "stopped", "model": None, "locked": True, "error": "boom"}})
+    with pytest.raises(typer.Exit):
+        _probe_remote("http://127.0.0.1:8000", None, None)
+
+
+def _stub_loadable_serve(monkeypatch: pytest.MonkeyPatch, default: str | None) -> list[str]:
+    """A fake idle unlocked serve: POST /api/load/<name> flips /api/status to ready on <name>."""
+    from types import SimpleNamespace
+
+    import httpx
+
+    posts: list[str] = []
+    loaded: dict[str, str | None] = {"model": None}
+
+    def _get(url: str, timeout: object = None) -> object:
+        assert url.endswith("/api/status")
+        payload: dict[str, object] = {
+            "state": "ready" if loaded["model"] else "stopped",
+            "model": loaded["model"],
+            "locked": False,
+            "project_model": default,
+            "runtime_load_timeout": 5,
+            "n_ctx": 4096 if loaded["model"] else None,
+        }
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda payload=payload: payload)
+
+    def _post(url: str, timeout: object = None) -> object:
+        posts.append(url)
+        loaded["model"] = url.rsplit("/api/load/", 1)[-1]
+        return SimpleNamespace(raise_for_status=lambda: None)
+
+    monkeypatch.setattr(httpx, "get", _get)
+    monkeypatch.setattr(httpx, "post", _post)
+    return posts
+
+
+def test_probe_remote_autoloads_the_server_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Idle unlocked serve with a default: attach loads it like the web UI does on open.
+    from kodo.cli.chat import _probe_remote
+
+    posts = _stub_loadable_serve(monkeypatch, default="pub/Default-GGUF")
+    endpoint = _probe_remote("http://127.0.0.1:8000", None, None)
+    assert posts == ["http://127.0.0.1:8000/api/load/pub/Default-GGUF"]
+    assert endpoint.model_name == "pub/Default-GGUF"
+    assert endpoint.n_ctx == 4096  # from the ready status, not the idle one
+
+
+def test_probe_remote_autoload_prefers_the_requested_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An explicitly requested model wins over the server's default.
+    from kodo.cli.chat import _probe_remote
+
+    posts = _stub_loadable_serve(monkeypatch, default="pub/Default-GGUF")
+    endpoint = _probe_remote("http://127.0.0.1:8000", _lib_model("pub/X"), "pub/X")
+    assert posts == ["http://127.0.0.1:8000/api/load/pub/X"]
+    assert endpoint.model is not None and endpoint.model.name == "pub/X"  # local metadata kept
 
 
 def test_probe_remote_drops_local_metadata_on_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:

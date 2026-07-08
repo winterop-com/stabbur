@@ -210,9 +210,11 @@ def _probe_remote(base_url: str, model: library_ops.LibraryModel | None, request
     """Probe a ``--server`` URL and build the TUI's endpoint, or exit if it can't chat.
 
     ``kodo serve`` answers ``GET /api/status`` (loaded model name + context window); anything
-    else OpenAI-compatible answers ``GET /v1/models``. A locally-resolved ``model`` supplies
-    sampling/capability metadata — unless a kodo serve reports a *different* model, in which
-    case the local metadata is dropped (it would describe the wrong model).
+    else OpenAI-compatible answers ``GET /v1/models``. An idle unlocked serve gets a model
+    auto-loaded the way the web UI does on open (see :func:`_autoload_remote`). A locally-
+    resolved ``model`` supplies sampling/capability metadata — unless a kodo serve reports a
+    *different* model, in which case the local metadata is dropped (it would describe the
+    wrong model).
     """
     from kodo.chat_tui.app import RemoteEndpoint  # noqa: PLC0415 - keeps textual off the non-TUI paths
 
@@ -221,15 +223,14 @@ def _probe_remote(base_url: str, model: library_ops.LibraryModel | None, request
     n_ctx: int | None = None
     status = _probe_json(f"{base_url}/api/status")
     if status is not None:
-        # kodo serve: the status names the loaded model. Refuse to attach with none loaded —
-        # every chat turn would 409 — and point at how to load one.
+        # kodo serve: the status names the loaded model. With none loaded (an unlocked serve
+        # starts empty), load one the way the web UI does on open — every chat turn would 409
+        # otherwise.
         served = status.get("model")
         if not isinstance(served, str) or not served:
-            console.print(
-                f"[red]{base_url} has no model loaded[/] — load one in the serve UI "
-                f"(or POST {base_url}/api/load?name=<model>) and retry."
-            )
-            raise typer.Exit(1)
+            status = _autoload_remote(base_url, status, model, requested)
+            served = status.get("model")
+            assert isinstance(served, str)  # _autoload_remote only returns a ready status
         remote_name = served
         ctx = status.get("n_ctx")
         n_ctx = ctx if isinstance(ctx, int) else None
@@ -258,6 +259,66 @@ def _probe_remote(base_url: str, model: library_ops.LibraryModel | None, request
 
     display = model.name if model is not None else (remote_name or base_url)
     return RemoteEndpoint(base=base_url, model=model, model_name=display, model_id=model_id, n_ctx=n_ctx)
+
+
+def _autoload_remote(
+    base_url: str, status: dict[str, object], model: library_ops.LibraryModel | None, requested: str | None
+) -> dict[str, object]:
+    """Load a model into an idle ``kodo serve``, mirroring what the web UI does on open.
+
+    An unlocked serve starts empty and the SPA auto-loads the server's default
+    (``project_model``: the project's bound model, else the machine default) when opened —
+    so the TUI attach does the same. An explicitly requested model wins over that default.
+    Returns the ready status (model guaranteed loaded), or exits with a message.
+    """
+    import time  # noqa: PLC0415
+
+    if status.get("locked"):
+        # A locked serve loads its model eagerly at startup; empty means that load failed.
+        err = status.get("error")
+        detail = f" ({err})" if isinstance(err, str) and err else ""
+        console.print(f"[red]{base_url} is locked but has no model loaded[/]{detail} — check the serve logs.")
+        raise typer.Exit(1)
+    default = status.get("project_model")
+    target = (model.name if model is not None else requested) or (default if isinstance(default, str) else None)
+    if not target:
+        console.print(
+            f"[red]{base_url} has no model loaded[/] and no default to load — pass a model name "
+            f"([cyan]kodo chat <model> --server …[/]), set one ([cyan]kodo config set model <name>[/]), "
+            "or load one in the serve UI."
+        )
+        raise typer.Exit(1)
+
+    try:
+        # Returns right after spawning the runtime; readiness is polled via /api/status below.
+        # The 30s bound covers a slow spawn, not the load itself.
+        httpx.post(f"{base_url}/api/load/{target}", timeout=30).raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.json() if "json" in exc.response.headers.get("content-type", "") else {}
+        detail = body.get("detail", str(exc)) if isinstance(body, dict) else str(exc)
+        console.print(f"[red]{base_url} could not load {target!r}[/] — {detail}")
+        raise typer.Exit(1) from exc
+    except httpx.HTTPError as exc:
+        console.print(f"[red]{base_url} could not load {target!r}[/] — {exc}")
+        raise typer.Exit(1) from exc
+
+    timeout = status.get("runtime_load_timeout")
+    deadline = time.monotonic() + (timeout if isinstance(timeout, int) and timeout > 0 else 600)
+    with console.status(f"loading {target} on {base_url} … (this can take a moment)"):
+        while time.monotonic() < deadline:
+            polled = _probe_json(f"{base_url}/api/status")
+            if polled is not None:
+                if polled.get("state") == "ready" and isinstance(polled.get("model"), str):
+                    console.print(f"[grey50]loaded {polled['model']} on {base_url}[/]")
+                    return polled
+                if polled.get("state") == "stopped":
+                    err = polled.get("error")
+                    detail = f" — {err}" if isinstance(err, str) and err else ""
+                    console.print(f"[red]loading {target!r} on {base_url} failed[/]{detail}")
+                    raise typer.Exit(1)
+            time.sleep(1)
+    console.print(f"[red]timed out waiting for {target!r} to load on {base_url}[/]")
+    raise typer.Exit(1)
 
 
 def _probe_json(url: str) -> dict[str, object] | None:
