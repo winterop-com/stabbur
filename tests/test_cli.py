@@ -426,6 +426,99 @@ def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None
     assert captured["base_url"] is None  # falls back to spawning a local runtime
 
 
+def _stub_httpx_get(monkeypatch: pytest.MonkeyPatch, responses: dict[str, object]) -> None:
+    """Fake ``httpx.get`` by URL suffix: a payload answers with it; a missing suffix refuses."""
+    from types import SimpleNamespace
+
+    import httpx
+
+    def _get(url: str, timeout: object = None) -> object:
+        for suffix, payload in responses.items():
+            if url.endswith(suffix):
+                return SimpleNamespace(raise_for_status=lambda: None, json=lambda payload=payload: payload)
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+
+def test_chat_tui_server_flag_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
+    # --server with no -p now attaches the interactive TUI: no runtime spawn, remote endpoint.
+    from kodo import capabilities, chat_tui, runtime
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(runtime, "load", lambda _m: (_ for _ in ()).throw(AssertionError("must not spawn")))
+    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "running", "model": "pub/X", "n_ctx": 2048}})
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(chat_tui, "run_interactive", lambda **kw: captured.update(kw))
+
+    result = runner.invoke(cli.app, ["chat", "pub/X", "--no-tools", "--server", "http://127.0.0.1:8000/v1"])
+    assert result.exit_code == 0, result.output
+    endpoint = captured["endpoint"]
+    assert isinstance(endpoint, chat_tui.RemoteEndpoint)
+    assert endpoint.base == "http://127.0.0.1:8000"  # normalized (trailing /v1 stripped)
+    assert endpoint.model is not None and endpoint.model.name == "pub/X"  # local metadata kept
+    assert endpoint.n_ctx == 2048
+
+
+def test_chat_tui_server_attaches_without_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The served model doesn't exist locally (and no name was given): attach on server metadata alone.
+    from kodo import chat_tui, runtime
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])
+    monkeypatch.setattr(runtime, "load", lambda _m: (_ for _ in ()).throw(AssertionError("must not spawn")))
+    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "running", "model": "pub/Served-GGUF"}})
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(chat_tui, "run_interactive", lambda **kw: captured.update(kw))
+
+    result = runner.invoke(cli.app, ["chat", "--no-tools", "--server", "http://127.0.0.1:8000"])
+    assert result.exit_code == 0, result.output
+    endpoint = captured["endpoint"]
+    assert isinstance(endpoint, chat_tui.RemoteEndpoint)
+    assert endpoint.model is None
+    assert endpoint.model_name == "pub/Served-GGUF"  # discovered from /api/status
+
+
+def test_probe_remote_falls_back_to_v1_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Not kodo serve (no /api/status): a raw llama-server answers /v1/models.
+    from kodo.cli.chat import _probe_remote
+
+    _stub_httpx_get(monkeypatch, {"/v1/models": {"data": [{"id": "/models/foo.gguf"}]}})
+    endpoint = _probe_remote("http://127.0.0.1:9999", None, None)
+    assert endpoint.model_id == "/models/foo.gguf"  # sent as the OpenAI model field
+    assert endpoint.model_name == "/models/foo.gguf"
+
+
+def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    from kodo.cli.chat import _probe_remote
+
+    _stub_httpx_get(monkeypatch, {})  # both probes refuse
+    with pytest.raises(typer.Exit):
+        _probe_remote("http://127.0.0.1:1", None, None)
+
+
+def test_probe_remote_exits_when_serve_has_no_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    from kodo.cli.chat import _probe_remote
+
+    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "idle", "model": None}})
+    with pytest.raises(typer.Exit):
+        _probe_remote("http://127.0.0.1:8000", None, None)
+
+
+def test_probe_remote_drops_local_metadata_on_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The server runs a different model than the locally-resolved one: its metadata would mislead.
+    from kodo.cli.chat import _probe_remote
+
+    _stub_httpx_get(monkeypatch, {"/api/status": {"state": "running", "model": "pub/Other-GGUF"}})
+    endpoint = _probe_remote("http://127.0.0.1:8000", _lib_model("pub/X"), "pub/X")
+    assert endpoint.model is None
+    assert endpoint.model_name == "pub/Other-GGUF"  # the server's model wins
+
+
 def _stub_generate_reply(monkeypatch: pytest.MonkeyPatch, reply: str) -> None:
     """Point a no-tools `-p` chat at a fixed reply (no runtime, no serve)."""
     from kodo import capabilities, runtime

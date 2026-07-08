@@ -7,6 +7,7 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
 from rich.console import Group
 from rich.markdown import Markdown
 from rich.text import Text
@@ -23,6 +24,22 @@ from kodo import tools as mcp_tools
 from kodo.chat_tui._util import _GERUNDS, _SAMPLING_FIELDS, _SLASH_COMMANDS, _SPINNER, _fmt_tokens
 from kodo.chat_tui._widgets import ChatInput, _KodoCommands
 from kodo.runtime import sampling as sampling_mod
+
+
+class RemoteEndpoint(BaseModel):
+    """An already-running OpenAI-compatible server the TUI attaches to (and never owns).
+
+    Built by ``kodo chat --server``: the TUI chats against ``base`` but must not stop the
+    server on exit or switch its model. ``model`` carries local library metadata when the
+    served model also resolved locally (sampling, capabilities); otherwise the session runs
+    on the server-reported fields alone.
+    """
+
+    base: str  # normalized base URL (no trailing / or /v1)
+    model: library_ops.LibraryModel | None = None  # local metadata, when the name resolved in the library
+    model_name: str  # display name (library / /api/status / /v1/models / the URL itself)
+    model_id: str | None = None  # OpenAI ``model`` field when there is no local model (from /v1/models)
+    n_ctx: int | None = None  # context window reported by kodo serve's /api/status, if it answered
 
 
 class ChatApp(App[None]):
@@ -61,7 +78,7 @@ class ChatApp(App[None]):
     def __init__(
         self,
         *,
-        runtime_proc: "runtime_mod.RuntimeProc",
+        endpoint: "runtime_mod.RuntimeProc | RemoteEndpoint",
         servers: list[tuple[str | None, list[str], dict[str, str]]],
         system_prompt: str,
         images: list[str],
@@ -69,8 +86,10 @@ class ChatApp(App[None]):
         max_tokens: int | None,
     ) -> None:
         super().__init__()
-        self._runtime = runtime_proc  # the TUI owns the runtime and can swap it (model switch)
-        self._model = runtime_proc.model
+        # A spawned runtime the TUI owns (it can swap it on model switch, and stops it on
+        # exit) — or a RemoteEndpoint it merely attaches to and must leave running.
+        self._endpoint: runtime_mod.RuntimeProc | RemoteEndpoint = endpoint
+        self._model: library_ops.LibraryModel | None = endpoint.model
         self._servers = servers
         self._max_tokens = max_tokens
         self._apply_model()  # derive _model_name/_format/_target/_base/_sampling/_ctx_max
@@ -103,17 +122,29 @@ class ChatApp(App[None]):
         self._reason_collapsed_pref = box.collapsed
 
     def _apply_model(self) -> None:
-        """Set the per-model fields (name/format/target/base/sampling/context) from the current model."""
+        """Set the per-model fields (name/format/target/base/sampling/context) from the current endpoint."""
+        self._base = self._endpoint.base
+        remote = self._endpoint if isinstance(self._endpoint, RemoteEndpoint) else None
         model = self._model
-        self._model_name = model.name
-        self._model_format = model.model_format.value
-        self._model_target = str(model.load_target)  # OpenAI ``model`` field value (mlx-vlm needs it)
-        self._base = self._runtime.base
-        self._sampling = sampling_mod.recommended(model)
-        try:
-            self._ctx_max = capabilities.capabilities(model).context_length
-        except Exception:  # noqa: BLE001 - detection is best-effort; the footer just omits ctx
-            self._ctx_max = None
+        if model is not None:
+            self._model_name = model.name
+            self._model_format = model.model_format.value
+            self._model_target: str | None = str(model.load_target)  # OpenAI ``model`` field (mlx-vlm needs it)
+            self._sampling = sampling_mod.recommended(model)
+            try:
+                self._ctx_max = capabilities.capabilities(model).context_length
+            except Exception:  # noqa: BLE001 - detection is best-effort; the footer just omits ctx
+                self._ctx_max = None
+            if remote is not None and remote.n_ctx is not None:
+                self._ctx_max = remote.n_ctx  # the window the server actually loaded, not the model's max
+        else:
+            # Remote attach with no local copy: run on the server-reported fields alone.
+            assert remote is not None  # a spawned runtime always carries its LibraryModel
+            self._model_name = remote.model_name
+            self._model_format = "remote"
+            self._model_target = remote.model_id
+            self._sampling = sampling_mod.ModelSampling(repeat_penalty=sampling_mod.DEFAULT_REPEAT_PENALTY)
+            self._ctx_max = remote.n_ctx
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="transcript")
@@ -159,6 +190,8 @@ class ChatApp(App[None]):
 
         api = Text(f"{self._base}/v1", style="grey42")
         api.append("   OpenAI-compatible", style="grey35")
+        if isinstance(self._endpoint, RemoteEndpoint):
+            api.append("   attached (remote)", style="grey35")
 
         return Group(title, Text(), model, api)
 
@@ -272,8 +305,22 @@ class ChatApp(App[None]):
                 self._models_cache = []
         return self._models_cache
 
+    def _remote_switch_blocked(self) -> bool:
+        """Post the /model-unavailable note when attached to a remote server (kodo can't switch it)."""
+        if not isinstance(self._endpoint, RemoteEndpoint):
+            return False
+        self._post(
+            Text(
+                "attached to a remote server — /model isn't available; switch the model on the server, then /clear",
+                style="grey50",
+            )
+        )
+        return True
+
     def action_show_models(self) -> None:
         """List the models the session can switch to (the current one marked), in the transcript."""
+        if self._remote_switch_blocked():
+            return
         models = self._switchable_models()
         if not models:
             self._post(Text("No switchable models in the library.", style="grey50"))
@@ -289,6 +336,8 @@ class ChatApp(App[None]):
 
     def action_switch_model(self, name: str) -> None:
         """Switch the runtime to another library model (by full name or bare repo tail)."""
+        if self._remote_switch_blocked():
+            return
         if self._busy:
             self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
             return
@@ -320,7 +369,7 @@ class ChatApp(App[None]):
             self._switching = False
             self._refresh_status()
             return
-        self._runtime = new
+        self._endpoint = new
         self._model = model
         self._apply_model()
         self.ctx_used = None  # new model, fresh context window
@@ -330,7 +379,8 @@ class ChatApp(App[None]):
 
     def _reserve(self, model: library_ops.LibraryModel) -> "runtime_mod.RuntimeProc":
         """(worker thread) Stop the current runtime, then start + wait for the new one."""
-        runtime_mod.stop(self._runtime)  # free memory before loading the next model
+        assert isinstance(self._endpoint, runtime_mod.RuntimeProc)  # switching is blocked on remote attaches
+        runtime_mod.stop(self._endpoint)  # free memory before loading the next model
         new = runtime_mod.start(model)
         try:
             runtime_mod.wait_ready(new)
@@ -784,19 +834,20 @@ class ChatApp(App[None]):
 
 def run_interactive(
     *,
-    runtime_proc: "runtime_mod.RuntimeProc",
+    endpoint: "runtime_mod.RuntimeProc | RemoteEndpoint",
     servers: list[tuple[str | None, list[str], dict[str, str]]],
     system_prompt: str,
     images: list[str],
     audios: list[str],
     max_tokens: int | None,
 ) -> None:
-    """Build and run the chat TUI (blocking) against ``runtime_proc``.
+    """Build and run the chat TUI (blocking) against ``endpoint``.
 
-    The TUI owns the runtime from here — it can switch models — and stops whatever it ends on.
+    A spawned runtime is owned by the TUI from here — it can switch models — and whatever
+    it ends on is stopped. A :class:`RemoteEndpoint` is only attached to; it stays running.
     """
     app = ChatApp(
-        runtime_proc=runtime_proc,
+        endpoint=endpoint,
         servers=servers,
         system_prompt=system_prompt,
         images=images,
@@ -806,4 +857,5 @@ def run_interactive(
     try:
         app.run()
     finally:
-        runtime_mod.stop(app._runtime)  # the current model's runtime (may have been swapped)
+        if isinstance(app._endpoint, runtime_mod.RuntimeProc):
+            runtime_mod.stop(app._endpoint)  # the current model's runtime (may have been swapped)

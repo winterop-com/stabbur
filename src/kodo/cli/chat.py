@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import httpx
 import typer
@@ -20,11 +20,15 @@ from kodo.cli._common import (
     FormatOption,
     _cli_mcp_spec,
     _load_media,
+    _maybe_library_model,
     _normalize_server_url,
     _resolve_library_model,
     console,
 )
 from kodo.config import get_settings
+
+if TYPE_CHECKING:
+    from kodo.chat_tui.app import RemoteEndpoint
 
 
 @app.command()
@@ -63,8 +67,9 @@ def chat(
         str | None,
         typer.Option(
             "--server",
-            help="Attach to a running `kodo serve` (e.g. http://127.0.0.1:8000) instead of loading the "
-            "model per call; the model stays loaded. Default from KODO_CHAT_SERVER / `kodo config set server`.",
+            help="Attach to a running `kodo serve` (e.g. http://127.0.0.1:8000) instead of loading a "
+            "model locally — the interactive TUI and one-shot -p both. Default from KODO_CHAT_SERVER / "
+            "`kodo config set server`.",
         ),
     ] = None,
     raw: Annotated[
@@ -83,14 +88,26 @@ def chat(
     """
     proj = project.load()
     model_name = project.resolve_model(name, proj)
-    if model_name is None:
-        console.print(
-            "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
-            "set a machine default ([cyan]kodo config set model <name>[/]), "
-            "or define one in a project ([cyan]kodo project init[/])."
-        )
-        raise typer.Exit(1)
-    model = _resolve_library_model(model_name, model_format)
+    # Attach to a running server (--server > KODO_CHAT_SERVER / machine config) instead of
+    # spawning a runtime — the interactive TUI and one-shot -p both. For the interactive
+    # attach the model may exist only on the server, so local resolution is best-effort
+    # there; every other path still requires (and strictly resolves) a library model.
+    base_url = _normalize_server_url(server or get_settings().chat_server)
+    interactive_remote = base_url is not None and prompt is None
+    model: library_ops.LibraryModel | None
+    if interactive_remote:
+        # Only an explicitly typed name supplies local metadata: the server decides what runs,
+        # so letting the machine/project *default* model label the session would mislead.
+        model = _maybe_library_model(name, model_format) if name is not None else None
+    else:
+        if model_name is None:
+            console.print(
+                "[red]No model given.[/] Pass a model name (see [cyan]kodo library ls[/]), "
+                "set a machine default ([cyan]kodo config set model <name>[/]), "
+                "or define one in a project ([cyan]kodo project init[/])."
+            )
+            raise typer.Exit(1)
+        model = _resolve_library_model(model_name, model_format)
 
     # (name, argv, env) per server. A bare --mcp value resolves against advertised servers
     # (so `--mcp datetime` finds kodo-mcp-datetime), else it's used verbatim as a command;
@@ -99,24 +116,18 @@ def chat(
         [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in mcpservers.resolve()] if tools else []
     )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
-    caps = capabilities.capabilities(model)
-    images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision)
-    audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio)
+    # Capabilities are unknowable without a local copy (remote attach): load media unwarned.
+    caps = capabilities.capabilities(model) if model is not None else None
+    images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision if caps else True)
+    audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio if caps else True)
 
-    # Attach to a running kodo serve (--server > KODO_CHAT_SERVER / machine config) instead of
-    # spawning a per-call runtime. Supported for the one-shot (-p) path; the interactive TUI owns
-    # its own runtime (and can switch models), so --server doesn't apply there yet.
-    base_url = _normalize_server_url(server or get_settings().chat_server)
-    if base_url is not None and prompt is None:
-        console.print(
-            f"[yellow]--server[/] applies to one-shot (-p) only; the TUI loads its own model. Ignoring {base_url}."
-        )
-        base_url = None
     # With nothing configured, auto-attach to a running `kodo serve` locked to this model (one-shot
     # only): reuse its resident weights instead of reloading. A stderr note keeps it non-surprising.
+    # The interactive TUI does NOT auto-attach — silently disabling /model would surprise.
     if base_url is None and prompt is not None:
         from kodo.runtime import serve_registry  # noqa: PLC0415
 
+        assert model is not None  # every non-interactive-remote path resolved strictly above
         found = serve_registry.discover(model.name)
         if found is not None:
             base_url = found.base_url
@@ -129,16 +140,27 @@ def chat(
     # for formatting; the raw path keeps streaming.
     render = prompt is not None and not raw and _isatty()
 
+    if interactive_remote:
+        # Interactive attach: probe the server for its loaded model, then hand the TUI a
+        # RemoteEndpoint — no runtime spawn, and the server is left running on exit. Outside
+        # the try below: _probe_remote exits with its own message (and typer.Exit IS a
+        # RuntimeError, which that except would garble into a bare "1").
+        assert base_url is not None
+        _chat_attached(base_url, model, name, mcp_servers, system_prompt, images, audios, max_tokens)
+        return
+
     try:
         if prompt is not None and not mcp_servers:
             # Scripted one-shot, no tools: the reply is the full string, so rendering is free.
             # Raw prints only the reply to stdout (clean for piping); errors go to stderr.
+            assert model is not None
             reply = runtime.generate(model, prompt, max_tokens, system_prompt, images, audios, base_url)
             if render:
                 _render_markdown(reply)
             else:
                 print(reply)  # noqa: T201
         else:
+            assert model is not None
             _chat_with_tools(
                 model, mcp_servers, prompt, max_tokens, system_prompt, images, audios, base_url, render=render
             )
@@ -157,6 +179,96 @@ def _render_markdown(text: str) -> None:
     from rich.markdown import Markdown  # noqa: PLC0415
 
     console.print(Markdown(text.strip()))
+
+
+def _chat_attached(
+    base_url: str,
+    model: library_ops.LibraryModel | None,
+    requested: str | None,
+    mcp_servers: list[tuple[str | None, list[str], dict[str, str]]],
+    system_prompt: str,
+    images: list[str],
+    audios: list[str],
+    max_tokens: int | None,
+) -> None:
+    """Run the interactive TUI attached to a running server (no runtime spawn, no stop on exit)."""
+    endpoint = _probe_remote(base_url, model, requested)
+    # Imported lazily so `-p` and the non-chat commands never pay textual's import cost.
+    from kodo import chat_tui  # noqa: PLC0415
+
+    chat_tui.run_interactive(
+        endpoint=endpoint,
+        servers=mcp_servers,
+        system_prompt=system_prompt,
+        images=images,
+        audios=audios,
+        max_tokens=max_tokens,
+    )
+
+
+def _probe_remote(base_url: str, model: library_ops.LibraryModel | None, requested: str | None) -> "RemoteEndpoint":
+    """Probe a ``--server`` URL and build the TUI's endpoint, or exit if it can't chat.
+
+    ``kodo serve`` answers ``GET /api/status`` (loaded model name + context window); anything
+    else OpenAI-compatible answers ``GET /v1/models``. A locally-resolved ``model`` supplies
+    sampling/capability metadata — unless a kodo serve reports a *different* model, in which
+    case the local metadata is dropped (it would describe the wrong model).
+    """
+    from kodo.chat_tui.app import RemoteEndpoint  # noqa: PLC0415 - keeps textual off the non-TUI paths
+
+    remote_name: str | None = None
+    model_id: str | None = None
+    n_ctx: int | None = None
+    status = _probe_json(f"{base_url}/api/status")
+    if status is not None:
+        # kodo serve: the status names the loaded model. Refuse to attach with none loaded —
+        # every chat turn would 409 — and point at how to load one.
+        served = status.get("model")
+        if not isinstance(served, str) or not served:
+            console.print(
+                f"[red]{base_url} has no model loaded[/] — load one in the serve UI "
+                f"(or POST {base_url}/api/load?name=<model>) and retry."
+            )
+            raise typer.Exit(1)
+        remote_name = served
+        ctx = status.get("n_ctx")
+        n_ctx = ctx if isinstance(ctx, int) else None
+        if model is not None and served != model.name:
+            console.print(
+                f"[yellow]{base_url} is serving {served!r}, not {model.name!r}[/] — using the server's model."
+            )
+            model = None
+        elif model is None and requested:
+            want = requested.lower()
+            if want not in (served.lower(), served.rsplit("/", 1)[-1].lower()):
+                console.print(
+                    f"[yellow]{base_url} is serving {served!r}, not {requested!r}[/] — using the server's model."
+                )
+    else:
+        # Not kodo serve — plain OpenAI discovery (llama-server, mlx-lm, LM Studio, ...).
+        listed = _probe_json(f"{base_url}/v1/models")
+        if listed is None:
+            console.print(f"[red]Nothing answering at {base_url}[/] — is the server running?")
+            raise typer.Exit(1)
+        rows = listed.get("data")
+        first = rows[0] if isinstance(rows, list) and rows else None
+        got = first.get("id") if isinstance(first, dict) else None
+        model_id = got if isinstance(got, str) and got else None
+        remote_name = model_id
+
+    display = model.name if model is not None else (remote_name or base_url)
+    return RemoteEndpoint(base=base_url, model=model, model_name=display, model_id=model_id, n_ctx=n_ctx)
+
+
+def _probe_json(url: str) -> dict[str, object] | None:
+    """GET ``url`` and return its JSON object, or ``None`` on any failure (probing, not fetching)."""
+    try:
+        resp = httpx.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _chat_with_tools(
@@ -305,7 +417,7 @@ def _chat_with_tools(
     from kodo import chat_tui  # noqa: PLC0415
 
     chat_tui.run_interactive(
-        runtime_proc=rt,
+        endpoint=rt,
         servers=servers,
         system_prompt=system_prompt,
         images=images or [],

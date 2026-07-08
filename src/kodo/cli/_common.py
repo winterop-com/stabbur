@@ -272,16 +272,36 @@ def _resolve_library_model(name: str, model_format: ModelFormat | None) -> libra
     return model
 
 
+def _maybe_library_model(name: str, model_format: ModelFormat | None) -> library_ops.LibraryModel | None:
+    """Resolve a runnable generative library model by name, or ``None`` where :func:`_resolve_library_model` exits.
+
+    For the remote-attach path (``chat --server``): the model may exist only on the server,
+    so an unknown / ambiguous / not-locally-runnable name degrades to server-side metadata
+    instead of aborting.
+    """
+    matches = library_ops.find(name, model_format=model_format)
+    if len(matches) != 1:
+        return None
+    model = matches[0]
+    if not model.generative or model.model_format is ModelFormat.safetensors or model.is_ollama:
+        return None
+    return model
+
+
 _media_data_url = attach.media_data_url
 
 
 def _load_media(
-    paths: list[Path], model: library_ops.LibraryModel, *, kind: str, default_mime: str, capable: bool
+    paths: list[Path], model: library_ops.LibraryModel | None, *, kind: str, default_mime: str, capable: bool
 ) -> list[str]:
-    """Read image/audio files into data URLs; warn if the model lacks that modality."""
+    """Read image/audio files into data URLs; warn if the model lacks that modality.
+
+    ``model`` may be ``None`` (remote attach with no local copy) — capabilities are unknown
+    then, so no warning is possible; pass ``capable=True``.
+    """
     if not paths:
         return []
-    if not capable:
+    if not capable and model is not None:
         console.print(f"[yellow]Note:[/] {model.name!r} isn't detected as a {kind} model; {kind} may be ignored.")
     urls: list[str] = []
     for p in paths:

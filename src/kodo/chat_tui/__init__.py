@@ -7,6 +7,6 @@ are re-exported so ``chat_tui.run_interactive(...)`` keeps working; the submodul
 
 from kodo.chat_tui import _util, _widgets, app
 from kodo.chat_tui._widgets import ChatInput
-from kodo.chat_tui.app import ChatApp, run_interactive
+from kodo.chat_tui.app import ChatApp, RemoteEndpoint, run_interactive
 
-__all__ = ["run_interactive", "ChatApp", "ChatInput", "app", "_widgets", "_util"]
+__all__ = ["run_interactive", "ChatApp", "ChatInput", "RemoteEndpoint", "app", "_widgets", "_util"]

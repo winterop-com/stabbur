@@ -45,7 +45,20 @@ def _app() -> chat_tui.ChatApp:
     )
     rt = _fake_runtime(model)
     return chat_tui.ChatApp(
-        runtime_proc=rt,
+        endpoint=rt,
+        servers=[],
+        system_prompt="",
+        images=[],
+        audios=[],
+        max_tokens=None,
+    )
+
+
+def _remote_app(**endpoint_kw: Any) -> chat_tui.ChatApp:
+    """An app attached to a remote server (no local model unless passed in)."""
+    endpoint = chat_tui.RemoteEndpoint(base="http://127.0.0.1:8000", model_name="pub/Served-GGUF", **endpoint_kw)
+    return chat_tui.ChatApp(
+        endpoint=endpoint,
         servers=[],
         system_prompt="",
         images=[],
@@ -252,10 +265,79 @@ async def test_model_switch_swaps_the_runtime(monkeypatch: pytest.MonkeyPatch) -
             if not app._switching:
                 break
 
-    assert app._model.name == "pub/Bar-GGUF"  # rebound to the new model
+    assert app._model is not None and app._model.name == "pub/Bar-GGUF"  # rebound to the new model
     assert app._base == "http://127.0.0.1:5555"  # and its new runtime URL
     assert app._model_name == "pub/Bar-GGUF"  # derived fields refreshed
     assert stopped == ["pub/Foo-GGUF"]  # the old runtime was torn down
+
+
+async def test_remote_attach_chats_against_the_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: Any,
+        on_event: Any,
+        on_token: Any,
+        **kw: Any,
+    ) -> str:
+        seen["base"] = base
+        seen["model"] = kw.get("model")
+        messages.append({"role": "assistant", "content": "ok"})
+        return "ok"
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _remote_app(n_ctx=4096)
+    assert app._model_format == "remote"  # no local copy: server-reported fields only
+    assert app._ctx_max == 4096  # the window the server loaded
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+    assert seen["base"] == "http://127.0.0.1:8000"  # generation hits the attached server
+    assert seen["model"] is None  # no local load_target; the field is omitted
+
+
+async def test_remote_attach_blocks_model_switching(monkeypatch: pytest.MonkeyPatch) -> None:
+    from textual.widgets import Static
+
+    def _boom(*_a: Any, **_k: Any) -> None:
+        raise AssertionError("a remote attach must never touch local runtimes")
+
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", _boom)
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "start", _boom)
+    app = _remote_app()
+    async with app.run_test() as pilot:
+        app.action_switch_model("pub/Other-GGUF")
+        app.action_show_models()
+        await pilot.pause()
+        blocked = [w for w in app.query(Static) if "attached to a remote server" in str(w.render())]
+        assert len(blocked) == 2  # both actions posted the /model-unavailable note instead of switching
+    assert app._model_name == "pub/Served-GGUF"  # nothing changed
+
+
+def test_run_interactive_stops_owned_runtime_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    stopped: list[Any] = []
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", lambda rt: stopped.append(rt))
+    monkeypatch.setattr(chat_tui.ChatApp, "run", lambda self: None)  # headless: skip the event loop
+
+    model = LibraryModel(
+        name="pub/Foo-GGUF",
+        model_format=ModelFormat.gguf,
+        path=Path("/lib/gguf/pub/Foo-GGUF"),
+        load_target=Path("/lib/gguf/pub/Foo-GGUF/model.gguf"),
+    )
+    rt = _fake_runtime(model)
+    chat_tui.run_interactive(endpoint=rt, servers=[], system_prompt="", images=[], audios=[], max_tokens=None)
+    assert stopped == [rt]  # an owned runtime is torn down on exit
+
+    stopped.clear()
+    remote = chat_tui.RemoteEndpoint(base="http://127.0.0.1:8000", model_name="pub/Served-GGUF")
+    chat_tui.run_interactive(endpoint=remote, servers=[], system_prompt="", images=[], audios=[], max_tokens=None)
+    assert stopped == []  # a remote server is left running
 
 
 async def test_ctrl_y_copies_last_reply(monkeypatch: pytest.MonkeyPatch) -> None:
