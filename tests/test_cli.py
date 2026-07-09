@@ -68,6 +68,18 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         assert "already exists" in again.output
 
 
+def test_pick_model_rejects_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    # "0" used to negative-index to the last option (a surprise selection); it must be rejected
+    # like any out-of-range choice. No library configured → options are just the curated starters.
+    monkeypatch.setattr(library_ops, "configured", lambda *a, **k: False)
+    monkeypatch.setattr(cli.project.typer, "prompt", lambda *a, **k: "0")
+    with pytest.raises(typer.Exit) as exc:
+        cli.project._pick_model_interactive()
+    assert exc.value.exit_code == 1
+
+
 def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 

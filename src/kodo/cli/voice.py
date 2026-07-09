@@ -168,7 +168,11 @@ def _synth_oute(model: str | None, text: str) -> bytes:
 
 
 def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> None:
-    """Write synthesized audio (to ``output`` or a temp file) and optionally play it."""
+    """Write synthesized audio (to ``output`` or a temp file) and optionally play it.
+
+    A temp file (no ``--output``) is unlinked once playback returns — it exists only to hand a
+    path to the OS audio player — so repeated ``kodo voice speak`` calls don't litter ``/tmp``.
+    """
     if output is not None:
         dest = output
     else:
@@ -177,18 +181,22 @@ def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> Non
         dest = Path(name)
     dest.write_bytes(data)
     console.print(f"[green]Wrote[/] {dest}")
-    if not play:
-        return
     if output is not None:
-        console.print("[dim](not auto-played — audio was written to your -o file)[/]")
+        if play:
+            console.print("[dim](not auto-played — audio was written to your -o file)[/]")
         return
-    cmd = host.audio_play_command(dest)
-    if cmd is None:
-        console.print("[dim](no audio player found; install one to auto-play, e.g. ffmpeg)[/]")
-        return
-    import subprocess  # noqa: PLC0415
+    try:
+        if not play:
+            return
+        cmd = host.audio_play_command(dest)
+        if cmd is None:
+            console.print("[dim](no audio player found; install one to auto-play, e.g. ffmpeg)[/]")
+            return
+        import subprocess  # noqa: PLC0415
 
-    subprocess.run(cmd)  # noqa: S603 - local playback of our own file
+        subprocess.run(cmd)  # noqa: S603 - local playback of our own file
+    finally:
+        dest.unlink(missing_ok=True)  # the temp file existed only to feed the player
 
 
 # Attachment helpers live in kodo.attach (shared with the Textual chat); alias the

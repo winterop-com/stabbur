@@ -49,7 +49,10 @@ def _pick_model_interactive() -> str:
         console.print(f"  {len(options)}. {c.id}  [dim]pull · {c.note}[/]")
     choice = typer.prompt("Number", default="1")
     try:
-        return options[int(choice) - 1]
+        index = int(choice)
+        if index < 1:  # "0"/negatives would wrap to the last option via negative indexing
+            raise IndexError
+        return options[index - 1]
     except (ValueError, IndexError):
         console.print(f"[red]Not a valid choice: {choice!r}[/]")
         raise typer.Exit(1) from None
