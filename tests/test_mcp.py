@@ -134,6 +134,28 @@ async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.Monk
     assert messages[-1] == {"role": "assistant", "content": stopped}  # recorded in history
 
 
+async def test_agent_stop_message_reaches_an_async_sink(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The /api/chat sink is async (queue.put): the max-rounds terminal message must go
+    # through _emit and be awaited — a bare on_token(...) call would silently drop it
+    # for exactly the streaming clients it exists for.
+    async def looping_stream(
+        http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
+    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+        return "", [{"id": "1", "name": "x__y", "args": "{}"}], None
+
+    monkeypatch.setattr(agent, "_stream_turn", looping_stream)
+    tokens: list[str] = []
+
+    async def sink(text: str) -> None:
+        tokens.append(text)
+
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+    out = await agent.run("http://runtime", messages, tools.MCPToolset(), None, None, sink, max_rounds=1)
+
+    assert out == "[agent stopped: too many tool rounds]"
+    assert tokens == [out]  # delivered through the async sink, not dropped
+
+
 async def test_agent_recovers_from_a_hung_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
     # A tool call that hangs (surfaced as a timeout) must NOT stall the loop: the error is
     # fed back to the model and the loop continues to a final answer. Regression for a

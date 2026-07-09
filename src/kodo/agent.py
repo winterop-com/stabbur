@@ -224,7 +224,8 @@ async def run(
     # reply is delivered — stream it (so streaming clients, incl. the web UI whose
     # /api/chat discards the return value, actually see it) and record it in history.
     stopped = "[agent stopped: too many tool rounds]"
-    if on_token:
-        on_token(stopped)
+    # _emit, not a bare call: the /api/chat sink is async (queue.put) — calling it
+    # unawaited would silently drop the message for exactly the clients it's for.
+    await _emit(on_token, stopped)
     messages.append({"role": "assistant", "content": stopped})
     return stopped
