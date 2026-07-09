@@ -200,10 +200,7 @@ module = [
     "espeakng_loader.*",
     "kokoro_onnx.*",
     "mlx.*",
-    "mlx_lm.*",
-    "mlx_vlm.*",
     "mlx_audio.*",
-    "misaki.*",
 ]
 ignore_missing_imports = true
 

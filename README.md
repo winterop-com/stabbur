@@ -19,9 +19,9 @@ src/kodo/
 ├── capabilities.py    # Detects per-model tools/vision/audio + context
 ├── runtime.py         # Serves a model (llama.cpp / mlx_lm / mlx-vlm)
 ├── voice/             # Voice models: registry, import, TTS/STT runtime
-├── cli.py             # Typer CLI (entry point: `kodo` → kodo.cli:main)
+├── cli/              # Typer CLI package, one module per command group (entry: `kodo` → kodo.cli:main)
 ├── app.py             # FastAPI app factory
-├── routers/           # health + serving (browse/load/chat/audio) endpoints
+├── routers/           # health + catalog (browse/pull) + serving (load/chat/audio) endpoints
 └── sources/           # huggingface / ollama / lmstudio adapters
 ```
 

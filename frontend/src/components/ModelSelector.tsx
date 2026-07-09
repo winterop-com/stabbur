@@ -135,7 +135,7 @@ export function ModelSelector({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        disabled={locked || busy}
+        disabled={busy}
         className={cn(
           "inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70",
         )}
@@ -150,9 +150,8 @@ export function ModelSelector({
         {busy ? (
           <span className="text-xs text-muted-foreground">loading…</span>
         ) : (
-          !locked && <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
         )}
-        {locked && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">locked</span>}
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
@@ -253,7 +252,7 @@ export function ModelSelector({
             })}
           </div>
         ))}
-        {status?.model && !locked && (
+        {status?.model && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onEject} className="text-muted-foreground">
