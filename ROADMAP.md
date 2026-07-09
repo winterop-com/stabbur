@@ -164,8 +164,6 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
   `kodo library cards` backfills a missing card (README) into a model's `.kodo/` sidecar by
   inferring the HF repo from its `<publisher>/<repo>` name, so the info panel has docs. Idempotent
   (skips models that already have one); `--refresh` re-fetches. Ollama models keep their generated card.
-- A "want list" / sync command to (re-)download a declared set of models.
-- Verify/repair: re-check sizes & checksums against metadata.
 
 ## North-star roadmap
 

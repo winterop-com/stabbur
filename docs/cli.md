@@ -153,6 +153,38 @@ kodo library pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' 
 - `--vocoder <repo>` — Hugging Face only; co-locate a vocoder (e.g. WavTokenizer)
   with the model so it's recognized as a **text-to-speech** model (see `kodo voice speak`).
 
+## `kodo library manifest`
+
+Export your library as a **want list** — a portable, human-editable TOML file of `[[model]]`
+entries (source + name + format), one per model, enough to re-pull each. Reads each model's
+recorded source from its `.kodo/` sidecar (inferring it for older pulls). Prints to stdout by
+default; `--save <file>` writes it. No state is kept in the library — the manifest is generated
+on demand, so you keep the file wherever you like (commit it to a repo, copy it to another drive).
+
+```bash
+kodo library manifest                     # print the want list (pipeable)
+kodo library manifest --save models.toml  # write it to a file
+```
+
+LM Studio backups (which can't be re-downloaded as such) are recorded as their Hugging Face
+equivalent; Ollama models are recorded as-is; voice models as their registry id.
+
+## `kodo library sync <wantfile>`
+
+Re-download every model in a want list that's **missing** from your library. Diffs the file
+against your library (models already present are skipped) and pulls the rest via the normal
+per-source paths — the rebuild-a-drive companion to `kodo library manifest`.
+
+```bash
+kodo library sync models.toml             # pull everything missing
+kodo library sync models.toml --dry-run   # show the plan, download nothing
+kodo library sync models.toml --shared    # into the shared/default library
+```
+
+One model failing doesn't stop the others; the command exits non-zero if any failed. Ollama
+entries need the model in your **local Ollama store** first (`ollama pull <name>`), since the
+Ollama pull path copies from there rather than the internet.
+
 ## `kodo chat <name>`
 
 Chat with a library model — a full-screen Textual TUI by default, one-shot with `-p`.

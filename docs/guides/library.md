@@ -148,6 +148,18 @@ kodo library verify --deep     # also re-hash Ollama blobs against their sha256
 Ollama's store is content-addressed, so `--deep` gives true content integrity there. HF/LM Studio
 pulls carry no per-file checksums, so their check is structural (present + non-empty).
 
+## Rebuild a drive
+
+Because every model already records where it came from, the library **is** its own manifest.
+`kodo library manifest --save models.toml` writes a portable want list — a `[[model]]` entry per
+model (source + name + format). Keep that file anywhere (commit it to a repo, drop it on another
+machine); nothing is stored back in the library. On a fresh or replacement drive, point
+`KODO_LIBRARY_ROOT` at it and run `kodo library sync models.toml`: it diffs the list against what's
+present and re-pulls only what's missing, via the normal per-source paths (`--dry-run` first to
+preview). One model failing doesn't stop the rest, and it exits non-zero if any did. LM Studio
+backups re-pull from their Hugging Face equivalent; Ollama entries need the model in your local
+Ollama store first (`ollama pull <name>`). See [`kodo library manifest` / `sync`](../cli.md).
+
 ## Model cards & metadata
 
 Each pulled model gets a `.kodo/` sidecar with `metadata.json` and a

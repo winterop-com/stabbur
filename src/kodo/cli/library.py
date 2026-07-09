@@ -1,5 +1,6 @@
-"""`kodo library` - list, pull, remove, tag, verify, install, and search the model library."""
+"""`kodo library` - list, pull, remove, tag, verify, install, search, and sync the model library."""
 
+import tomllib
 from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
@@ -12,7 +13,9 @@ from kodo import (
     capabilities,
     cards,
     consumers,
+    fsatomic,
     tags,
+    wantlist,
 )
 from kodo import catalog as catalog_ops
 from kodo import library as library_ops
@@ -463,6 +466,89 @@ def verify_library(
     bad = len(models) - ok_count
     console.print(f"\n[bold]{ok_count}/{len(models)} ok[/]" + (f" · [red]{bad} with issues[/]" if bad else ""))
     if bad:
+        raise typer.Exit(1)
+
+
+@library_app.command()
+def manifest(
+    save: Annotated[
+        Path | None,
+        typer.Option("--save", help="Write the want list to this file (default: print TOML to stdout)."),
+    ] = None,
+) -> None:
+    """Export your library as a re-pullable want list (TOML) — the input for `kodo library sync`.
+
+    Reads each model's recorded source (its ``.kodo/`` sidecar, or inferred for older pulls) and
+    emits a portable ``[[model]]`` list. Keep the file wherever you like — commit it, or copy it to
+    a new drive — then ``kodo library sync <file>`` re-downloads everything in it that's missing. No
+    state is kept in the library; the manifest is generated on demand.
+    """
+    library_ops.roots()  # fail fast + clean if no library is configured
+    entries, comments = wantlist.collect(library_ops.scan())
+    text = wantlist.render(entries, comments)
+    if save is None:
+        typer.echo(text, nl=False)  # raw TOML, pipeable
+        return
+    fsatomic.write_text(save, text)
+    console.print(f"[green]Wrote[/] {len(entries)} models [dim]→[/] {save}")
+    if comments:
+        console.print(f"[dim]{len(comments)} model(s) noted as comments (not source-re-pullable).[/]")
+
+
+@library_app.command()
+def sync(
+    wantfile: Annotated[Path, typer.Argument(help="A want list (TOML) produced by `kodo library manifest`.")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="List what would be pulled and exit; download nothing.")
+    ] = False,
+    shared: Annotated[
+        bool,
+        typer.Option("--shared", help="Pull into the shared/default library instead of the project-local one."),
+    ] = False,
+) -> None:
+    """Re-download every model in a want list that's missing from your library.
+
+    Diffs the file against your library (models already present are skipped) and pulls the rest via
+    the normal per-source paths. Ollama entries need the model in your local Ollama store; LM Studio
+    backups are recorded as their Hugging Face equivalent. One model failing doesn't stop the others
+    — the command exits non-zero if any failed. ``--dry-run`` shows the plan without downloading.
+    """
+    if not wantfile.is_file():
+        console.print(f"[red]No such want list:[/] {wantfile}")
+        raise typer.Exit(2)
+    try:
+        wants = wantlist.parse(wantfile.read_text(encoding="utf-8"))
+    except (ValueError, tomllib.TOMLDecodeError) as exc:
+        console.print(f"[red]Invalid want list[/] ({wantfile}): {exc}")
+        raise typer.Exit(2) from exc
+
+    root = library_ops.default_root() if shared else library_ops.roots()[0]
+    sp = wantlist.plan(wants, library_ops.scan())
+    for w in sp.present:
+        console.print(f"[dim]— have[/] {w.name} [dim]({w.source})[/]")
+    if not sp.missing:
+        console.print(f"\n[green]Nothing to sync[/] — all {len(wants)} models present.")
+        return
+    if dry_run:
+        console.print(f"\n[bold]{len(sp.missing)} to pull[/] [dim](dry run)[/]:")
+        for w in sp.missing:
+            fmt = f" [dim]{w.model_format}[/]" if w.model_format else ""
+            console.print(f"  [cyan]{w.source}[/] {w.name}{fmt}")
+        console.print("\n[dim]Re-run without --dry-run to download them.[/]")
+        return
+
+    pulled = failed = 0
+    for w in sp.missing:
+        try:
+            result = wantlist.pull_entry(w, root)
+        except Exception as exc:  # noqa: BLE001 - one bad model must not abort the sync
+            failed += 1
+            console.print(f"[red]✗ fail[/] {w.name} [dim]— {exc}[/]")
+            continue
+        pulled += 1
+        console.print(f"[green]✓ pull[/] {w.name} [dim]({result.size_human})[/]")
+    console.print(f"\n[bold]{pulled} pulled[/] · {len(sp.present)} already present · {failed} failed")
+    if failed:
         raise typer.Exit(1)
 
 
