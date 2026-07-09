@@ -235,6 +235,10 @@ def remove(name: str, models_dir: Path | None = None) -> None:
             _blob_path(root, digest).unlink(missing_ok=True)
     manifest_path.unlink()
 
+    # Drop the browsable sidecar written by pull (card + metadata under .library/<safe_name>/),
+    # so removing a model doesn't orphan it. Absent in Ollama's own native store — a no-op there.
+    shutil.rmtree(root / ".library" / _safe_name(name), ignore_errors=True)
+
     # Prune now-empty parent directories up to (but not including) manifests_root.
     parent = manifest_path.parent
     while parent != manifests_root and parent.is_dir() and not any(parent.iterdir()):

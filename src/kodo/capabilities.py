@@ -221,9 +221,19 @@ def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
 
 
 def _cache_path(model: LibraryModel) -> Path:
-    """Path to the model's cached-capabilities sidecar file."""
+    """Path to the model's cached-capabilities sidecar file.
+
+    A directory-based model (gguf/mlx/…) keeps the cache in its own ``.kodo`` sidecar. An Ollama
+    model's ``path`` is the manifest *file*, so a ``.kodo`` dir can't be made under it (the mkdir
+    fails and every scan re-parses the GGUF blob); route it instead to the browsable
+    ``ollama/.library/<safe_name>/`` sidecar that ``pull`` already writes the card + metadata into.
+    """
     from kodo.cards import SIDECAR_DIR  # noqa: PLC0415 - avoid an import cycle at module load
 
+    if model.is_ollama:
+        # Mirror kodo.sources.ollama._safe_name locally to avoid importing the source here.
+        safe_name = model.name.replace(":", "_").replace("/", "_")
+        return model.library_root / "ollama" / ".library" / safe_name / _CAPS_CACHE
     return model.path / SIDECAR_DIR / _CAPS_CACHE
 
 

@@ -126,6 +126,33 @@ def test_capabilities_are_cached_in_the_sidecar(tmp_path: Path) -> None:
     assert capabilities.capabilities(model) == first
 
 
+def test_ollama_capabilities_cache_lands_in_library_sidecar(tmp_path: Path) -> None:
+    # An Ollama model's `path` is the manifest FILE, so a `.kodo` under it can't be created; the
+    # cache must go to the ollama/.library/<safe_name>/ sidecar instead. First read detects + writes
+    # it there; the second read hits the cache even after the weights are corrupted.
+    manifest = tmp_path / "ollama" / "manifests" / "registry.ollama.ai" / "library" / "qwen" / "latest"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    blob = tmp_path / "ollama" / "blobs" / "sha256-abc"
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    _write_gguf(blob, {"general.architecture": (8, "llama"), "llama.context_length": (4, 4096)})
+    model = LibraryModel(
+        name="qwen:latest",
+        model_format=ModelFormat.gguf,
+        is_ollama=True,
+        path=manifest,
+        load_target=blob,
+        library_root=tmp_path,
+    )
+
+    caps = capabilities.capabilities(model)
+    cache = capabilities._cache_path(model)
+    assert cache == tmp_path / "ollama" / ".library" / "qwen_latest" / capabilities._CAPS_CACHE
+    assert cache.is_file() and caps.context_length == 4096
+    blob.write_bytes(b"garbage")  # a cached read must ignore corrupted weights
+    assert capabilities.capabilities(model) == caps
+
+
 def test_gguf_audio_from_mmproj_metadata(tmp_path: Path) -> None:
     # An mmproj with clip.has_audio_encoder → audio capability (vision off).
     gguf = tmp_path / "model.gguf"

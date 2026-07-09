@@ -106,3 +106,22 @@ def test_remove_ollama_model_via_library(tmp_path: Path) -> None:
     assert not (store / "blobs" / uniq.replace(":", "-")).exists()  # unique blob gone
     assert (store / "blobs" / shared.replace(":", "-")).is_file()  # shared blob kept
     assert (count, freed) == (1, 60)
+
+
+def test_remove_ollama_deletes_the_library_sidecar(tmp_path: Path) -> None:
+    # pull writes a browsable sidecar under ollama/.library/<safe_name>/; remove must delete it
+    # too, not orphan it.
+    from kodo.sources import ollama
+
+    store = tmp_path / "ollama"
+    digest = _add_blob(store, b"z" * 40)
+    man = _write_manifest(store, "solo", [digest])
+    sidecar = store / ".library" / ollama._safe_name("solo:latest")
+    sidecar.mkdir(parents=True)
+    (sidecar / "metadata.json").write_text("{}")
+    (sidecar / "model-card.md").write_text("# solo")
+
+    ollama.remove("solo:latest", store)
+
+    assert not man.exists()
+    assert not sidecar.exists()  # the sidecar is gone, not orphaned
