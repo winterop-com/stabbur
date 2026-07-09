@@ -21,7 +21,9 @@ deliberately with ``kodo mcp add shell``.
 import os
 import shlex
 import shutil
+import signal
 import subprocess
+from collections.abc import Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -35,9 +37,10 @@ _MAX_OUTPUT = 64 * 1024  # per stream (stdout/stderr); truncation is flagged
 # data out (curl/wget/nc — exfiltration under prompt injection) or dump the environment (env).
 _READ_ONLY: frozenset[str] = frozenset(
     {
-        # network diagnostics (no data payload)
+        # network diagnostics (no data payload). ip/ifconfig/route/arp are NOT here — they can
+        # mutate network state, so they're gated per-invocation via _READ_ONLY_ARGV below.
         "ping", "ping6", "dig", "host", "nslookup", "traceroute", "traceroute6", "tracepath",
-        "mtr", "ss", "netstat", "ip", "ifconfig", "route", "arp", "whois", "getent",
+        "mtr", "ss", "netstat", "whois", "getent",
         # host / process / disk / logs
         "uname", "uptime", "hostname", "hostnamectl", "whoami", "id", "date", "cal", "df", "du",
         "free", "lsblk", "lscpu", "lsusb", "lspci", "lsof", "ps", "pgrep", "pstree", "w", "who",
@@ -62,6 +65,41 @@ _READ_ONLY_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "npm": frozenset({"list", "ls", "view", "outdated"}),
 }
 
+# Network binaries whose read/mutate split isn't at argv[1] (unlike git/docker): each gets a
+# small argv predicate. `ip` mutates via a verb after the object (`ip link set …`), the others
+# via specific args/flags. Root-only mutations in practice, but the read-only contract holds.
+_IP_READ_VERBS = frozenset({"", "show", "sh", "list", "ls", "lst", "get", "help"})
+
+
+def _ip_readonly(args: list[str]) -> bool:
+    """``ip [flags] <object> [verb …]`` reads only when the verb is show/list/get (the default)."""
+    words = [a for a in args if not a.startswith("-")]
+    verb = words[1] if len(words) > 1 else ""
+    return verb in _IP_READ_VERBS
+
+
+def _route_readonly(args: list[str]) -> bool:
+    """Bare ``route`` (plus flags like ``-n``) prints the table; any non-flag arg (add/del/…) mutates."""
+    return all(a.startswith("-") for a in args)
+
+
+def _arp_readonly(args: list[str]) -> bool:
+    """``arp`` reads unless asked to set (``-s``), delete (``-d``), or bulk-load (``-f``) entries."""
+    return not any(a.startswith("-") and set(a.lstrip("-")) & {"s", "d", "f"} for a in args)
+
+
+def _ifconfig_readonly(args: list[str]) -> bool:
+    """``ifconfig [-a] [iface]`` reads; a second non-flag arg (``up``/``down``/``inet`` …) mutates."""
+    return len([a for a in args if not a.startswith("-")]) <= 1
+
+
+_READ_ONLY_ARGV: dict[str, Callable[[list[str]], bool]] = {
+    "ip": _ip_readonly,
+    "route": _route_readonly,
+    "arp": _arp_readonly,
+    "ifconfig": _ifconfig_readonly,
+}
+
 
 def _unrestricted() -> bool:
     """Whether full (arbitrary-command) mode is enabled via ``KODO_SHELL_UNRESTRICTED``."""
@@ -73,6 +111,14 @@ def _check_allowed(argv: list[str]) -> None:
     binary = os.path.basename(argv[0])
     if binary in _READ_ONLY:
         return
+    checker = _READ_ONLY_ARGV.get(binary)
+    if checker is not None:
+        if checker(argv[1:]):
+            return
+        raise RuntimeError(
+            f"read-only mode: this {binary!r} invocation can change network state; only its "
+            "show/list forms are allowed. Set KODO_SHELL_UNRESTRICTED=1 to run arbitrary commands."
+        )
     subs = _READ_ONLY_SUBCOMMANDS.get(binary)
     if subs is not None:
         sub = argv[1] if len(argv) > 1 else ""
@@ -132,27 +178,42 @@ def run(command: str) -> dict[str, Any]:
         raise RuntimeError("empty command")
     try:
         if _unrestricted():
-            argv_full = ["bash", "-lc", command]
-            proc = subprocess.run(argv_full, capture_output=True, text=True, timeout=_TIMEOUT)  # noqa: S603
-        else:
-            try:
-                argv = shlex.split(command)
-            except ValueError as exc:
-                raise RuntimeError(f"couldn't parse the command: {exc}") from exc
-            if not argv:
-                raise RuntimeError("empty command")
-            _check_allowed(argv)
-            exe = shutil.which(argv[0])
-            if exe is None:
-                raise RuntimeError(f"command not found on PATH: {argv[0]!r}")
-            proc = subprocess.run([exe, *argv[1:]], capture_output=True, text=True, timeout=_TIMEOUT)  # noqa: S603
-    except subprocess.TimeoutExpired as exc:
-        # A command that won't exit on its own is killed at the timeout — return whatever it printed
-        # (e.g. `ping`'s per-packet latency lines) so the answer isn't lost, flagged as timed out.
-        return _result(None, _text(exc.stdout), _text(exc.stderr), timed_out=True)
+            return _run_group(["bash", "-lc", command])
+        try:
+            argv = shlex.split(command)
+        except ValueError as exc:
+            raise RuntimeError(f"couldn't parse the command: {exc}") from exc
+        if not argv:
+            raise RuntimeError("empty command")
+        _check_allowed(argv)
+        exe = shutil.which(argv[0])
+        if exe is None:
+            raise RuntimeError(f"command not found on PATH: {argv[0]!r}")
+        return _run_group([exe, *argv[1:]])
     except OSError as exc:
         raise RuntimeError(f"couldn't run the command: {exc}") from exc
-    return _result(proc.returncode, proc.stdout or "", proc.stderr or "")
+
+
+def _run_group(argv: list[str]) -> dict[str, Any]:
+    """Run ``argv`` in its own process group, killing the whole group at the timeout.
+
+    ``subprocess.run`` would kill only the direct child — ``bash -lc "ping …"`` would leave
+    ``ping`` running detached after the tool "returns". Partial output printed before the kill
+    is still returned (flagged ``timed_out``) so the answer isn't lost.
+    """
+    proc = subprocess.Popen(  # noqa: S603
+        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)  # start_new_session makes proc.pid the group id
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.wait()
+        return _result(None, _text(exc.stdout), _text(exc.stderr), timed_out=True)
+    return _result(proc.returncode, stdout or "", stderr or "")
 
 
 def main() -> None:
