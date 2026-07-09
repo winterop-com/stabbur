@@ -7,12 +7,15 @@ browser (Playwright/Chromium) and, when the precise extract is still thin, retur
 **visible text** (what you'd read looking at it). Output is prefixed with the title + source URL.
 
 Security (SSRF): only ``http(s)`` URLs are allowed, and any host that resolves to a
-private / loopback / link-local / reserved address is refused — checked for the top-level
-URL *and* enforced on every request the browser makes (subresources, redirects) via request
-interception, so a public page can't pivot to an internal address. Set
-``KODO_WEB_ALLOW_PRIVATE=1`` to intentionally read an internal/localhost host. A per-fetch
-navigation timeout bounds hangs and the returned Markdown is length-capped
-(``KODO_WEB_MAX_CHARS``).
+private / loopback / link-local / reserved address is refused. On the static path the
+connection is **pinned** to the vetted IP (resolve once, connect to that address, with the
+``Host`` header + TLS SNI/verification kept on the original hostname), so a DNS-rebinding
+host can't pass the check and then serve the fetch from a private address. The browser path
+re-vets every request (subresources, redirects) via interception, but Chromium resolves its
+own connections — a rebinding TOCTOU window remains there, so the static path is the strong
+guarantee. Set ``KODO_WEB_ALLOW_PRIVATE=1`` to intentionally read an internal/localhost
+host. A per-fetch navigation timeout bounds hangs and the returned Markdown is
+length-capped (``KODO_WEB_MAX_CHARS``).
 
 Needs the browser binary: the ``web`` extra installs the Playwright *package*, but Chromium
 is a separate ~150 MB download — run ``playwright install chromium`` once. A missing browser
@@ -31,7 +34,7 @@ import socket
 from functools import partial
 from html import unescape
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urljoin, urlparse
 
 import httpx
 import trafilatura
@@ -109,6 +112,33 @@ def _guard_url(url: str) -> None:
     reason = _resolve_blocked(host, port)
     if reason is not None:
         raise ValueError(f"refusing to fetch {url!r}: {reason}")
+
+
+def _pin_host(parsed: ParseResult) -> tuple[str, dict[str, str], dict[str, str]]:
+    """Resolve ``parsed``'s host once, vet every address, and pin the connection to one.
+
+    Returns ``(request_url, headers, extensions)``: the URL rewritten to a vetted IP, a
+    matching ``Host`` header, and httpcore's ``sni_hostname`` extension so TLS still
+    handshakes and verifies the certificate against the original hostname. Connecting to
+    the checked IP — instead of letting the HTTP client re-resolve — closes the
+    DNS-rebinding TOCTOU between the SSRF check and the fetch.
+    """
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise ValueError(f"could not resolve host {host!r}: {exc}") from exc
+    ips = [str(info[4][0]) for info in infos]
+    for ip in ips:
+        if _is_blocked_ip(ip):
+            raise ValueError(f"refusing to fetch: {host!r} resolves to {ip} (private/loopback/link-local address)")
+    pinned = ips[0]
+    netloc = f"[{pinned}]" if ":" in pinned else pinned
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    host_header = host if parsed.port is None else f"{host}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl(), {"Host": host_header}, {"sni_hostname": host}
 
 
 async def _route_is_blocked(url: str, cache: dict[str, bool]) -> bool:
@@ -218,26 +248,35 @@ def _format(body: str, final_url: str, title: str) -> str:
 async def _fetch_static(url: str) -> tuple[str, str, str]:
     """Fetch a page with a plain guarded httpx GET; return (final_url, html, title).
 
-    Redirects are followed manually so every hop is SSRF-guarded; non-text responses raise
-    (the caller falls back to the browser). No JavaScript — cheap, for static/server-rendered pages.
+    Redirects are followed manually so every hop is SSRF-guarded, and each hop's connection
+    is pinned to its vetted IP (:func:`_pin_host`) so rebinding DNS between check and fetch
+    can't reach a private address. Non-text responses raise (the caller falls back to the
+    browser). No JavaScript — cheap, for static/server-rendered pages.
     """
     async with httpx.AsyncClient(
         timeout=settings.timeout_seconds,
         headers={"User-Agent": settings.user_agent},
         follow_redirects=False,
     ) as client:
-        current = url
+        current = url  # the logical URL (real hostname); requests go to the pinned-IP rewrite
         for _ in range(settings.max_redirects + 1):
-            _guard_url(current)
-            resp = await client.get(current)
+            parsed = urlparse(current)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                raise ValueError(f"only http(s) URLs with a host are allowed, got {current!r}")
+            if settings.allow_private:
+                resp = await client.get(current)
+            else:
+                target, headers, extensions = _pin_host(parsed)
+                resp = await client.get(target, headers=headers, extensions=extensions)
             if resp.is_redirect and "location" in resp.headers:
-                current = str(resp.url.join(resp.headers["location"]))
+                # Join against the logical URL, not resp.url (which carries the pinned IP).
+                current = urljoin(current, resp.headers["location"])
                 continue
             resp.raise_for_status()
             content_type = resp.headers.get("content-type", "")
             if not any(kind in content_type for kind in ("html", "xml", "text")):
                 raise ValueError(f"non-text content-type {content_type!r}")
-            return str(resp.url), resp.text, _title_from_html(resp.text)
+            return current, resp.text, _title_from_html(resp.text)
         raise ValueError(f"too many redirects (> {settings.max_redirects})")
 
 

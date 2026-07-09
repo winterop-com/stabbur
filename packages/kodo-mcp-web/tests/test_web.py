@@ -6,6 +6,8 @@ is exercised by manual verification and the ``tools-web`` benchmark suite, which
 Chromium. The whole module is skipped when the optional ``web`` deps aren't installed.
 """
 
+from urllib.parse import urlparse
+
 import pytest
 
 pytest.importorskip("playwright")
@@ -56,6 +58,27 @@ def test_guard_respects_allow_private(monkeypatch: pytest.MonkeyPatch) -> None:
     app._guard_url("http://127.0.0.1:8080/")  # opted in -> allowed
     with pytest.raises(ValueError):  # scheme is still enforced even with allow_private
         app._guard_url("file:///etc/passwd")
+
+
+def test_pin_host_blocks_private_resolution() -> None:
+    # The pinned resolve vets every address up front — a host resolving privately never
+    # gets a connection at all (the DNS-rebinding fix: resolve once, connect to the
+    # vetted IP, never let the HTTP client re-resolve).
+    with pytest.raises(ValueError, match="private|loopback|link-local"):
+        app._pin_host(urlparse("http://127.0.0.1/"))
+    with pytest.raises(ValueError, match="private|loopback|link-local"):
+        app._pin_host(urlparse("http://localhost:8080/"))
+
+
+def test_pin_host_pins_ip_and_keeps_hostname_for_tls() -> None:
+    # The request URL is rewritten to the vetted IP; the Host header and SNI extension
+    # keep the original hostname so virtual hosting + certificate verification still work.
+    target, headers, ext = app._pin_host(urlparse("https://93.184.216.34:8443/x?q=1"))
+    parsed = urlparse(target)
+    assert parsed.hostname == "93.184.216.34" and parsed.port == 8443
+    assert parsed.path == "/x" and parsed.query == "q=1"
+    assert headers["Host"] == "93.184.216.34:8443"
+    assert ext["sni_hostname"] == "93.184.216.34"
 
 
 def test_needs_render_thin_vs_good() -> None:
