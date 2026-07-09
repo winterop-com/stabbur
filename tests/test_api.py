@@ -449,3 +449,21 @@ async def test_audio_speech_rejects_unsupported_model_upfront(client: AsyncClien
     r = await client.post("/v1/audio/speech", json={"model": "qwen3-tts", "input": "hello"})
     assert r.status_code == 422
     assert "supported" in r.json()["detail"].lower()
+
+
+async def test_audio_speech_unknown_model_404s(client: AsyncClient) -> None:
+    # An unknown model must 404 — not silently synthesize with the Kokoro fallback voice,
+    # which would return wrong-voice audio with a 200 for a caller's explicit model choice.
+    r = await client.post("/v1/audio/speech", json={"model": "mlx-community/NotARealTTS", "input": "hello"})
+    assert r.status_code == 404
+    assert "unknown" in r.json()["detail"].lower()
+
+
+async def test_audio_speech_openai_alias_maps_to_default_voice(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Stock OpenAI clients send OpenAI's own model ids ("tts-1"); those must route to the
+    # default chat voice (Kokoro backend — 503 here since it's stubbed unavailable), not 404.
+    monkeypatch.setattr("kodo.routers.serving.voice.kokoro.available", lambda: False)
+    r = await client.post("/v1/audio/speech", json={"model": "tts-1", "input": "hello"})
+    assert r.status_code == 503

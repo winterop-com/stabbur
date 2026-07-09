@@ -172,6 +172,11 @@ async def speak(req: SpeakRequest) -> Response:
     return Response(content=data, media_type="audio/wav")
 
 
+# OpenAI's own TTS model names, accepted as aliases for the default chat voice so a stock
+# OpenAI client pointed at kodo works unchanged.
+_OPENAI_TTS_ALIASES = frozenset({"tts-1", "tts-1-hd", "gpt-4o-mini-tts"})
+
+
 class AudioSpeechRequest(BaseModel):
     """OpenAI ``/v1/audio/speech`` request, plus kodo's voice-cloning extensions."""
 
@@ -207,12 +212,23 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
         raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
 
     spec = voice_registry.get(req.model) or voice_registry.by_repo(req.model)
+    if spec is None and req.model in _OPENAI_TTS_ALIASES:
+        # Generic OpenAI clients send OpenAI's own model names; map them to the default
+        # chat voice so the endpoint stays drop-in compatible.
+        spec = voice_registry.get("kokoro")
+    if spec is None:
+        # An unknown model must 404, not silently synthesize with the Kokoro fallback voice —
+        # a caller asking for a specific model would get wrong-voice audio with a 200.
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown TTS model {req.model!r} — use a registry voice id or repo (see /api/voice)",
+        )
     # Enforce the registry's supported flag here, at the action, not only in the UI (A6/VO-M3):
     # a model marked unsupported (e.g. Qwen3-TTS — mlx-audio can't load its speech tokenizer) would
     # otherwise be attempted and fail as a slow, opaque 502. Reject it upfront with a clear reason.
-    if spec is not None and not spec.supported:
+    if not spec.supported:
         raise HTTPException(status_code=422, detail=f"{req.model!r} isn't supported for synthesis in kodo yet.")
-    backend = spec.backend if spec else Backend.kokoro_onnx  # unknown -> the safe ONNX chat voice
+    backend = spec.backend
 
     if backend == Backend.kokoro_onnx:
         if not kokoro.available():
