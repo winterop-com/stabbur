@@ -12,6 +12,8 @@ doesn't yet send the token; use ``--server`` explicitly there.
 """
 
 import os
+import subprocess
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -25,6 +27,7 @@ class ServeRecord(BaseModel):
     base_url: str
     model: str | None  # the locked model (None = free-play, not auto-attachable)
     pid: int
+    cmdline: str = ""  # the serve process's argv at register time — a PID-reuse guard (see discover)
 
 
 def _registry_dir() -> Path:
@@ -43,6 +46,31 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _process_command(pid: int) -> str:
+    """The live command line for ``pid`` (``ps``), or ``""`` if it can't be read.
+
+    ``-ww`` disables ps's column-width truncation so the full argv is returned. Retries on an
+    empty result: a framework-Python launcher can intermittently report a blank command to ps,
+    and a spurious blank at register time would make every later discover treat the record as stale.
+    """
+    for _ in range(5):
+        try:
+            out = subprocess.run(
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        text = out.stdout.strip()
+        if text:
+            return text
+        time.sleep(0.05)
+    return ""
+
+
 def register(base_url: str, model: str | None) -> Path | None:
     """Record this ``kodo serve`` (its base URL + locked model) so ``kodo chat`` can find it.
 
@@ -52,7 +80,10 @@ def register(base_url: str, model: str | None) -> Path | None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            ServeRecord(base_url=base_url, model=model, pid=os.getpid()).model_dump_json(), encoding="utf-8"
+            ServeRecord(
+                base_url=base_url, model=model, pid=os.getpid(), cmdline=_process_command(os.getpid())
+            ).model_dump_json(),
+            encoding="utf-8",
         )
         return path
     except OSError:
@@ -79,6 +110,12 @@ def discover(model: str) -> ServeRecord | None:
             continue
         if not _pid_alive(record.pid):
             record_file.unlink(missing_ok=True)  # the serve is gone; clean up the stale hint
+            continue
+        # PID-reuse guard: a live pid isn't enough — a SIGKILLed serve leaves its record and the
+        # OS can recycle the pid onto an unrelated process. A record with no recorded identity (an
+        # older kodo) or whose live cmdline no longer matches is stale; sweep it like a dead pid.
+        if not record.cmdline or _process_command(record.pid) != record.cmdline:
+            record_file.unlink(missing_ok=True)
             continue
         if record.model == model:
             return record
