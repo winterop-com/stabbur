@@ -8,15 +8,12 @@ another machine and the tags come along. Each library owns its own tags.
 """
 
 import json
-import os
 import re
-import uuid
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from kodo import locking
+from kodo import fsatomic, locking
 
 _FILENAME = "tags.json"
 _REGISTRY_FILENAME = "tag-registry.json"
@@ -55,27 +52,6 @@ def _path(library_root: Path) -> Path:
     return library_root / ".kodo" / _FILENAME
 
 
-def _atomic_write_json(path: Path, data: Any) -> None:
-    """Write ``data`` as JSON to ``path`` atomically and durably.
-
-    Uses a **per-write unique** temp file (so a concurrent CLI + ``kodo serve`` writer can't
-    clobber each other's staging) and fsyncs before the rename (so an unclean exFAT eject can't
-    leave a truncated/empty file that ``load`` would silently read as ``{}`` — losing all tags).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        tmp.replace(path)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
 def load(library_root: Path) -> dict[str, list[str]]:
     """Read the whole ``{model_name: [tags]}`` map (empty if none/unreadable)."""
     try:
@@ -96,7 +72,7 @@ def load(library_root: Path) -> dict[str, list[str]]:
 def save(library_root: Path, mapping: dict[str, list[str]]) -> None:
     """Persist the map (dropping models with no tags), atomically + durably."""
     clean = {name: sorted(set(tags)) for name, tags in mapping.items() if tags}
-    _atomic_write_json(_path(library_root), clean)
+    fsatomic.write_json(_path(library_root), clean)
 
 
 def tags_for(library_root: Path, name: str) -> list[str]:
@@ -164,7 +140,7 @@ def load_registry(library_root: Path) -> dict[str, TagMeta]:
 def save_registry(library_root: Path, registry: dict[str, TagMeta]) -> None:
     """Persist the registry (dropping empty entries), atomically + durably."""
     clean = {tag: m.model_dump(exclude_none=True) for tag, m in registry.items() if m.model_dump(exclude_none=True)}
-    _atomic_write_json(_registry_path(library_root), clean)
+    fsatomic.write_json(_registry_path(library_root), clean)
 
 
 def set_tag_meta(

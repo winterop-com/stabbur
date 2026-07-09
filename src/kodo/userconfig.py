@@ -19,6 +19,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from kodo import fsatomic
+
 # Fields writable via ``kodo config set`` (friendly CLI key -> Settings field / TOML key).
 WRITABLE: dict[str, str] = {
     "library-root": "library_root",
@@ -82,6 +84,5 @@ def set_value(field: str, value: str) -> Path:
     text = "".join(f"{key} = {json.dumps(val)}\n" for key, val in sorted(data.items()))
     tomllib.loads(text)  # validate the result before writing
     path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    fsatomic.write_text(path, text)
     return path

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from kodo import userconfig
+from kodo import fsatomic, userconfig
 
 PROJECT_FILE = ".mcp.json"
 
@@ -110,8 +110,7 @@ def resolve(project_dir: Path | None = None) -> list[McpServer]:
 def _write_file(path: Path, servers: list[McpServer]) -> None:
     """Write servers to ``path`` as an ``mcpServers`` object (pretty JSON), creating parents."""
     text = json.dumps({"mcpServers": {s.name: s.to_entry() for s in servers}}, indent=2) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    fsatomic.write_text(path, text)
 
 
 def add(server: McpServer, *, glob: bool, project_dir: Path | None = None) -> Path:
