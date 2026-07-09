@@ -153,7 +153,12 @@ async def speak(req: SpeakRequest) -> Response:
         if voice.startswith("kokoro:"):
             if not kokoro.available():
                 raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall kodo (`uv sync`)")
-            wav_path = await asyncio.to_thread(kokoro.synthesize, text, voice.split(":", 1)[1], None)
+            name = voice.split(":", 1)[1]
+            # An unknown voice id is a client error: validate here so it 422s, rather than letting
+            # kokoro.synthesize raise RuntimeError("unknown Kokoro voice …") that maps to a 500 below.
+            if name not in {v.id for v in kokoro.voices()}:
+                raise HTTPException(status_code=422, detail=f"unknown Kokoro voice {name!r}")
+            wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
         else:
             if not tts.available():
                 raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")

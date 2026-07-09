@@ -337,6 +337,18 @@ async def test_api_chat_requires_loaded_model(client: AsyncClient) -> None:
     assert r.status_code == 409
 
 
+async def test_api_speak_unknown_kokoro_voice_is_422(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An unknown Kokoro voice id is a client error, not an engine failure: it must 422, not 500.
+    from types import SimpleNamespace
+
+    from kodo.routers.serving import voice as voice_router
+
+    monkeypatch.setattr(voice_router.kokoro, "available", lambda: True)
+    monkeypatch.setattr(voice_router.kokoro, "voices", lambda: [SimpleNamespace(id="af_heart")])
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "kokoro:not_a_voice"})
+    assert r.status_code == 422
+
+
 async def test_api_model_returns_card(client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# My Model\n\nUsage info here.")
     model = LibraryModel(name="pub/M", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "w.gguf")
