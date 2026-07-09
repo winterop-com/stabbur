@@ -45,10 +45,17 @@ def remove(model: LibraryModel) -> tuple[int, int]:
 def _drop_tags(model: LibraryModel) -> None:
     """Drop a removed model's tag assignments so a later re-pull doesn't silently inherit them.
 
+    Tags are keyed by name alone while model identity is ``(name, format)``: when another
+    format copy of the same name survives in this library (e.g. removing the GGUF while the
+    safetensors copy stays), the tags are still that copy's and must be kept.
+
     Writes without acquiring the library lock — callers (``remove``) already hold it.
     """
     from kodo import tags  # noqa: PLC0415 - lazy to keep import order simple
+    from kodo.library._scan import scan  # noqa: PLC0415 - lazy to keep import order simple
 
+    if any(m.name == model.name for m in scan(model.library_root)):
+        return
     mapping = tags.load(model.library_root)
     if mapping.pop(model.name, None) is not None:
         tags.save(model.library_root, mapping)
@@ -137,10 +144,14 @@ def apply_migration(actions: list[MigrationAction]) -> tuple[int, int, int]:
             action.dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(action.src), str(action.dest))
             moved += 1
-        else:  # dedup: the bucket already has a verified copy, so the huggingface/ copy is redundant
-            shutil.rmtree(action.src, ignore_errors=True)
-            deduped += 1
-            freed += action.size_bytes
+        else:
+            # dedup: the bucket had a verified copy at plan time — re-verify it's still complete
+            # before deleting src (a concurrent remove/pull may have deleted or truncated it
+            # between plan and apply; same guard as the move branch's dest-appeared case).
+            if copy_verified(action.src, action.dest):
+                shutil.rmtree(action.src, ignore_errors=True)
+                deduped += 1
+                freed += action.size_bytes
     # Tidy up now-empty publisher dirs (and huggingface/ itself) left behind by the moves.
     for hf_root in hf_roots:
         for empty in sorted((p for p in hf_root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):

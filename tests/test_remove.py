@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from kodo import library
+from kodo import library, tags
 from kodo.models import ModelFormat
 
 
@@ -23,6 +23,47 @@ def test_remove_directory_model_deletes_the_dir(tmp_path: Path) -> None:
     count, freed = library.remove(m)
     assert not d.exists()
     assert (count, freed) == (1, 100)
+
+
+def _gguf_model(root: Path) -> library.LibraryModel:
+    d = root / "gguf" / "pub" / "repo"
+    d.mkdir(parents=True)
+    (d / "model.gguf").write_bytes(b"x" * 100)
+    return library.LibraryModel(
+        name="pub/repo",
+        model_format=ModelFormat.gguf,
+        path=d,
+        load_target=d / "model.gguf",
+        size_bytes=100,
+        file_count=1,
+        library_root=root,
+    )
+
+
+def test_remove_keeps_tags_when_another_format_copy_survives(tmp_path: Path) -> None:
+    # Tags are keyed by name alone while identity is (name, format): removing the GGUF
+    # copy must NOT drop the tags off the surviving safetensors copy of the same name.
+    m = _gguf_model(tmp_path)
+    s = tmp_path / "safetensors" / "pub" / "repo"
+    s.mkdir(parents=True)
+    (s / "model.safetensors").write_bytes(b"y" * 100)
+    (s / "config.json").write_text("{}")
+    tags.set_tags(tmp_path, "pub/repo", ["favorite"])
+
+    library.remove(m)
+
+    assert not m.path.exists()
+    assert tags.tags_for(tmp_path, "pub/repo") == ["favorite"]  # surviving copy keeps them
+
+
+def test_remove_drops_tags_with_the_last_copy(tmp_path: Path) -> None:
+    # No other format copy left -> the tags go too, so a later re-pull starts clean.
+    m = _gguf_model(tmp_path)
+    tags.set_tags(tmp_path, "pub/repo", ["favorite"])
+
+    library.remove(m)
+
+    assert tags.tags_for(tmp_path, "pub/repo") == []
 
 
 def _add_blob(store: Path, data: bytes) -> str:

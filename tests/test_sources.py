@@ -685,3 +685,22 @@ def test_library_migrate_moves_dedups_and_keeps_unknown(tmp_path: Path) -> None:
     # the migrated GGUF now scans from its format bucket with a clean name
     names = {(m.name, m.model_format.value) for m in library.scan(root=tmp_path)}
     assert ("unsloth/Foo-GGUF", "gguf") in names
+
+
+def test_library_migrate_dedup_reverifies_before_delete(tmp_path: Path) -> None:
+    # A dedup planned against a verified bucket copy must NOT delete the huggingface/
+    # source if that copy vanished between plan and apply (a concurrent remove) — the
+    # source may be the last complete copy of the model.
+    import shutil  # noqa: PLC0415
+
+    hf = tmp_path / "huggingface"
+    _mk(hf / "mlx-community" / "Bar-4bit", "model.safetensors", "config.json")
+    bucket = _mk(tmp_path / "mlx" / "mlx-community" / "Bar-4bit", "model.safetensors", "config.json")
+
+    plan = library.plan_migration(tmp_path)
+    assert [a.kind for a in plan] == ["dedup"]
+    shutil.rmtree(bucket)  # the bucket copy disappears between plan and apply
+
+    moved, deduped, freed = library.apply_migration(plan)
+    assert (moved, deduped, freed) == (0, 0, 0)
+    assert (hf / "mlx-community" / "Bar-4bit" / "model.safetensors").is_file()  # source preserved
