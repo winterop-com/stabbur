@@ -74,16 +74,13 @@ The north star (bottom of this file) is the local DHIS2 assistant. **Shipped:** 
   isolate kodo vs llama.cpp; (4) if it fails llama-server-alone → upstream issue; if it works alone
   → fix kodo's mmproj-pick (match by `clip.has_audio_encoder`, not filename) or the content shape.
 
-- **`kodo-mcp-web` SSRF guard is bypassable by DNS rebinding.** [deferred — only matters if
-  exposing kodo beyond a trusted LAN, which isn't the current model] `_guard_url` resolves via
-  `getaddrinfo` and rejects blocked IPs, but `httpx.AsyncClient.get` then does its *own* DNS
-  resolution to connect (`kodo-mcp-web/.../app.py:82-111,224-240`) — a hostname that resolves
-  public for the guard and `127.0.0.1`/`169.254.169.254` for the fetch reaches internal services.
-  The browser path (`_route_is_blocked`, `:114-130`) has the same shape (Chromium re-resolves).
-  Fix: resolve once and connect to the pinned IP. Related hardening from the same audit:
-  the IP blocklist misses CGNAT `100.64.0.0/10` (use `not is_global`); the exec sandbox runs as
-  root-in-container (add `--user`/`--cap-drop=ALL`/`--security-opt=no-new-privileges`); `run_python`
-  accepts an unbounded model-supplied `timeout_s` and buffers full stdout in host memory.
+- **`kodo-mcp-web` browser path can't pin DNS.** [deferred residual — only matters if exposing
+  kodo beyond a trusted LAN] The static fetch path is fixed (resolve once, vet, connect to the
+  pinned IP with Host/SNI on the real hostname; blocklist now `not is_global`, covering CGNAT),
+  but the Playwright path only re-vets each request via interception — Chromium resolves its own
+  connections, so a rebinding window remains there. A full fix would fulfill intercepted routes
+  through the pinned httpx client (heavy; breaks streaming) — revisit only if the exposure model
+  changes.
 
 ## Internal MCP servers — the "normal toolset" (complete)
 

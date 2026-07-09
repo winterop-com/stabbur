@@ -24,7 +24,7 @@ async def test_server_exposes_read_url() -> None:
 
 
 def test_is_blocked_ip() -> None:
-    for blocked in ("127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.169.254", "::1", "0.0.0.0"):
+    for blocked in ("127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.169.254", "::1", "0.0.0.0", "100.64.0.1"):
         assert app._is_blocked_ip(blocked), blocked
     for ok in ("93.184.216.34", "8.8.8.8", "1.1.1.1"):
         assert not app._is_blocked_ip(ok), ok

@@ -70,16 +70,14 @@ settings = Settings()
 
 
 def _is_blocked_ip(ip: str) -> bool:
-    """Whether an IP is one we refuse to reach (private/loopback/link-local/etc)."""
+    """Whether an IP is one we refuse to reach (private/loopback/link-local/CGNAT/etc).
+
+    ``not is_global`` subsumes private/loopback/link-local/reserved/unspecified AND the
+    shared address space (CGNAT ``100.64.0.0/10``), which ``is_private`` alone misses.
+    Multicast is blocked explicitly — parts of it (e.g. ``224.0.1.0/24``) count as global.
+    """
     addr = ipaddress.ip_address(ip)
-    return (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_multicast
-        or addr.is_reserved
-        or addr.is_unspecified
-    )
+    return addr.is_multicast or not addr.is_global
 
 
 def _resolve_blocked(host: str, port: int) -> str | None:
