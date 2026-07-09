@@ -157,8 +157,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # load/unload refuses while this is > 0 so a running generation never has its
     # runtime swapped/killed out from under it. Mutated only on the event loop.
     app.state.active_generations = 0
-    # Shared client for the /v1 proxy (no timeout — streaming); closed in lifespan.
-    app.state.http = httpx.AsyncClient(timeout=None)
+    # Shared client for the /v1 proxy; closed in lifespan. Bounded: a hung/half-open
+    # runtime must not hold the generation reservation forever (which would 409 every
+    # later load/unload). 600s per read allows the long token gaps of prompt processing
+    # on big contexts (and matches the agent loop's own client).
+    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
     # MCP toolset + system prompt for the server-side agent loop; populated by
     # lifespan from kodo.toml (None / "" otherwise).
     app.state.toolset = None

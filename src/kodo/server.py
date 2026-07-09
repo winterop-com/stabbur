@@ -41,8 +41,8 @@ class ServerManager:
         # level. The route-layer asyncio lock can be released early if a request is
         # cancelled while its worker thread is still inside load()/stop(); this lock
         # guarantees the mutations themselves never overlap. Reentrant so load()
-        # (holding it) can call stop(). Not taken by status reads, so the event loop
-        # never blocks on it.
+        # (holding it) can call stop(). Status reads only try-acquire it (never
+        # block), so the event loop never stalls on it.
         self._lifecycle = threading.RLock()
 
     @property
@@ -58,16 +58,33 @@ class ServerManager:
         a dead process is not a loaded model, so callers (status, the ``/v1``
         proxy) must not treat the stale name as runnable.
         """
-        if self._model is not None and not self._alive():
-            # Died unexpectedly (crash / OOM / bad model) — keep the log tail so
-            # callers can report *why* instead of a silent disappearance.
-            self._last_error = self._read_log_tail() or self._last_error
-            self._reset_proc()
-            self._model = None
-        return self._model
+        # Snapshot both fields: reads run on the event loop while load()/stop() mutate
+        # them from worker threads, so self._handle must never be dereferenced twice.
+        model, handle = self._model, self._handle
+        if model is None:
+            return None
+        if handle is not None and handle.poll() is None:
+            return model
+        # The runtime looks dead. Reap it only if no lifecycle op is mid-flight —
+        # blocking on the lock here would stall the event loop behind a load()/stop(),
+        # and a mid-swap snapshot isn't proof of death anyway. The in-flight op leaves
+        # consistent state itself; a genuinely dead runtime is reaped by the next read.
+        if self._lifecycle.acquire(blocking=False):
+            try:
+                if self._model is not None and not self._alive():
+                    # Died unexpectedly — keep the log tail so callers can report
+                    # *why* instead of a silent disappearance.
+                    self._last_error = self._read_log_tail() or self._last_error
+                    self._reset_proc()
+                    self._model = None
+                return self._model
+            finally:
+                self._lifecycle.release()
+        return None  # a load/stop is mid-flight: transitional, report "not loaded"
 
     def _alive(self) -> bool:
-        return self._handle is not None and self._handle.poll() is None
+        handle = self._handle  # snapshot: a concurrent stop() may null the field mid-check
+        return handle is not None and handle.poll() is None
 
     @property
     def last_error(self) -> str | None:
