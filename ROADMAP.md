@@ -147,20 +147,19 @@ runtimes, `/v1/audio/*` endpoints, the web Voice studio, chat dictation + speak-
   second registry field to justify it (YAGNI) — derived color covers today's case. Pairs with a
   small color-picker / `kodo library tag --color`. Also: a curated default tag set seeded from
   `docs/guides/models.md`.
-- **Format-centric shared library.** **Storage done:** HF pulls are now format-centric
+- **Format-centric shared library.** **Done.** HF pulls are format-centric
   (`gguf/`/`mlx/`/`safetensors/` via `huggingface.hub_format`), matching LM Studio — one copy per
-  `(model, format)` on disk instead of a duplicate under `huggingface/`. **Consumers (lifecycle
-  done):** `kodo library install <model> --to {ollama,lmstudio}` feeds a runtime from the canonical
-  copy; `kodo library installed` shows which runtimes each model is fed into; `kodo library
-  uninstall <model> --from {ollama,lmstudio}` reverses it (keeping the library copy). Ollama imports
-  the GGUF (Modelfile → `ollama create`, a regenerable copy) / `ollama rm`; **LM Studio** gets a
-  zero-copy symlink into the `gguf/`/`mlx/` bucket (which already matches LM Studio's
-  `<publisher>/<repo>/<file>` layout; the link is on the machine disk, so exFAT's no-symlink limit
-  doesn't apply). **Remaining:** `mlx_lm` (already runs loose MLX in place, so really just docs),
-  and a per-model format policy (keep GGUF+MLX ready, safetensors on demand).
-  **Migrate pass done:** `kodo library migrate` reorganizes an existing
-  `huggingface/` tree into the format buckets (dry-run + `--apply`, dedups copies already in a
-  bucket).
+  `(model, format)` on disk instead of a duplicate under `huggingface/`. All three consumers are
+  fed from that canonical copy: `kodo library install <model> --to {ollama,lmstudio}` (Ollama
+  imports the GGUF via a Modelfile → `ollama create`, a regenerable copy; LM Studio gets a
+  zero-copy symlink into the `gguf/`/`mlx/` bucket), `kodo library installed` shows what's fed
+  where, and `kodo library uninstall <model> --from {ollama,lmstudio}` reverses it (keeping the
+  library copy). **mlx_lm** needs no install step — `mlx_lm.server`/`mlx_vlm.server` run a loose MLX
+  copy in place (documented in `docs/guides/library.md`). `kodo library formats` surfaces the
+  per-model format policy (keep GGUF+MLX ready-to-run, safetensors on demand): a report flagging
+  redundant safetensors copies + safetensors-only models with no quant, and the space reclaimable.
+  `kodo library migrate` reorganizes an existing `huggingface/` tree into the format buckets
+  (dry-run + `--apply`, dedups copies already in a bucket).
 - ~~Auto-fetch HF model cards for LM Studio models (infer the repo from the path).~~ **Done:**
   `kodo library cards` backfills a missing card (README) into a model's `.kodo/` sidecar by
   inferring the HF repo from its `<publisher>/<repo>` name, so the info panel has docs. Idempotent

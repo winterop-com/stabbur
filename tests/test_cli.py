@@ -35,6 +35,59 @@ def test_library_ls_shows_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "in your library" in result.output
 
 
+_GEN_CONFIG = b'{"architectures": ["LlamaForCausalLM"]}'  # marks a safetensors dir as a generative chat LLM
+
+
+def _mk_lib_dir(path: Path, *files: tuple[str, bytes]) -> None:
+    """Create a model directory in a synthetic library with the given (name, content) files."""
+    path.mkdir(parents=True, exist_ok=True)
+    for name, content in files:
+        (path / name).write_bytes(content)
+
+
+def test_library_formats_flags_redundant_and_missing_quant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo import library
+
+    # gguf-only (no note); gguf + safetensors (safetensors redundant); safetensors-only (no quant).
+    _mk_lib_dir(tmp_path / "gguf" / "pub" / "OnlyGGUF", ("model.Q4_K_M.gguf", b"g" * 100))
+    _mk_lib_dir(tmp_path / "gguf" / "pub" / "Both", ("model.Q4_K_M.gguf", b"g" * 100))
+    _mk_lib_dir(
+        tmp_path / "safetensors" / "pub" / "Both",
+        ("model.safetensors", b"s" * 500),
+        ("config.json", _GEN_CONFIG),
+    )
+    _mk_lib_dir(
+        tmp_path / "safetensors" / "pub" / "OnlySafe",
+        ("model.safetensors", b"s" * 300),
+        ("config.json", _GEN_CONFIG),
+    )
+
+    real_scan = library.scan  # capture before patching (library_ops and library are one module)
+    monkeypatch.setattr(library_ops, "scan", lambda: real_scan(root=tmp_path))
+    result = runner.invoke(cli.app, ["library", "formats"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+
+    # The redundant safetensors copy whose reclaimable size the footer totals (OnlySafe is NOT
+    # redundant — it has no quant — so it must not be counted).
+    both_sft = next(
+        m for m in real_scan(root=tmp_path) if m.name == "pub/Both" and m.model_format is ModelFormat.safetensors
+    )
+
+    assert "pub/OnlyGGUF" in out  # gguf-only model is listed...
+    assert out.count("redundant safetensors (") == 1  # ...but flagged for exactly one model (Both)
+    assert out.count("no ready-to-run quant") == 1  # exactly one safetensors-only model (OnlySafe)
+    assert "kodo library rm pub/Both --format safetensors" in out  # actionable hint
+    assert f"{both_sft.size_human} reclaimable" in out  # total == only the redundant copy's size
+
+
+def test_library_formats_empty_library(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(library_ops, "scan", lambda: [])
+    result = runner.invoke(cli.app, ["library", "formats"])
+    assert result.exit_code == 0, result.output
+    assert "No chat models" in result.output
+
+
 def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> None:
     # Not in the library, but present in a source cache as an embedding model.
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])

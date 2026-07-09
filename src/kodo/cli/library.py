@@ -1,5 +1,6 @@
 """`kodo library` - list, pull, remove, tag, verify, install, and search the model library."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
 
@@ -228,7 +229,9 @@ def install(
     The library keeps one canonical copy; this points a runtime at it. ``--to ollama``
     imports the GGUF into a running Ollama (``ollama create``); ``--to lmstudio`` symlinks
     the GGUF/MLX model into LM Studio's models dir (zero copy). Either way the drive stays
-    the single source of truth.
+    the single source of truth. **mlx_lm** needs no install step — ``mlx_lm.server`` /
+    ``mlx_vlm.server`` run a loose MLX copy in place (kodo serves MLX this way), so there's
+    no ``--to mlx_lm``.
     """
     if to not in ("ollama", "lmstudio"):
         console.print(f"[red]Unsupported target {to!r}[/] — use [bold]ollama[/] or [bold]lmstudio[/].")
@@ -325,6 +328,75 @@ def installed() -> None:
     console.print("[bold]Installed into runtimes[/] [dim](library keeps the canonical copy)[/]")
     for line in lines:
         console.print(line)
+
+
+# Display-format column order for `kodo library formats`. Ollama's content-addressed store is
+# its own column (a distinct consumer copy), not folded into gguf. gguf/mlx are the ready-to-run
+# quants kodo serves; safetensors is the convert/fine-tune source (2-4x a quant, not runnable).
+_FORMAT_COLUMNS = ("gguf", "mlx", "safetensors", "ollama", "unknown")
+
+
+def _format_key(model: library_ops.LibraryModel) -> str:
+    """The display-format column a model belongs to (ollama store vs its on-disk format)."""
+    return "ollama" if model.is_ollama else model.model_format.value
+
+
+@library_app.command("formats")
+def formats() -> None:
+    """Show each model's on-disk formats and flag redundant safetensors / missing quants.
+
+    One row per model name, a column per format present (gguf / mlx / safetensors / ollama) with
+    that copy's size, and a NOTE flagging the policy cases (see ``kodo library ls`` for the full
+    per-model listing). Two things get called out: a **redundant** safetensors copy — a GGUF or MLX
+    build of the same model already exists, so safetensors is just the convert/fine-tune source and
+    can be dropped — and a model that's **only** safetensors, which llama.cpp/mlx_lm can't serve
+    (pull a GGUF or MLX build to run it). The footer totals the space reclaimable by removing every
+    redundant safetensors copy.
+    """
+    library_ops.roots()  # fail fast + clean if no library is configured
+    models = [m for m in library_ops.scan() if m.generative]  # chat LLMs; voice is a separate family
+    by_name: dict[str, dict[str, library_ops.LibraryModel]] = defaultdict(dict)
+    for m in models:
+        by_name[m.name][_format_key(m)] = m
+    if not by_name:
+        console.print("No chat models in your library.")
+        console.print("[dim]Pull one with[/] kodo library pull [dim]· see[/] kodo library ls")
+        return
+
+    present = [f for f in _FORMAT_COLUMNS if any(f in fmts for fmts in by_name.values())]
+    console.print(f"\n[bold]{len(by_name)} models[/] by format\n")
+    table = Table(box=box.SIMPLE_HEAD, header_style="bold", pad_edge=False)
+    table.add_column("NAME", style="white")
+    for f in present:
+        style = _FORMAT_STYLE.get(ModelFormat(f)) if f in ModelFormat.__members__ else None
+        table.add_column(f.upper(), justify="right", style=style)
+    table.add_column("NOTE")
+
+    reclaimable = 0
+    for name in sorted(by_name):
+        fmts = by_name[name]
+        cells = [fmts[f].size_human if f in fmts else "" for f in present]
+        note = ""
+        has_quant = "gguf" in fmts or "mlx" in fmts
+        if "safetensors" in fmts and has_quant:
+            sft = fmts["safetensors"]
+            reclaimable += sft.size_bytes
+            note = (
+                f"[yellow]redundant safetensors ({sft.size_human})[/] "
+                f"[dim]· kodo library rm {name} --format safetensors[/]"
+            )
+        elif "safetensors" in fmts and "ollama" not in fmts:
+            note = "[yellow]no ready-to-run quant[/] [dim](safetensors only — pull a GGUF/MLX build to run it)[/]"
+        table.add_row(name, *cells, note)
+    console.print(table)
+
+    if reclaimable:
+        console.print(
+            f"\n[bold]{_human_size(reclaimable)} reclaimable[/] — remove the redundant safetensors "
+            "copies above (a GGUF/MLX build of each already exists)."
+        )
+    else:
+        console.print("\n[dim]No redundant safetensors copies — nothing to reclaim.[/]")
 
 
 @library_app.command("cards")

@@ -85,6 +85,21 @@ kodo library ls
 kodo library ls -d     # detailed cards (caps, context, location, path, tags)
 ```
 
+## `kodo library formats`
+
+One row per model with a column per format present (gguf / mlx / safetensors /
+ollama) and their sizes, plus a NOTE flagging the format-policy cases: a
+**redundant** safetensors copy (a GGUF or MLX build of the same model already
+exists — safetensors is just the convert/fine-tune source and can be dropped) and
+a model that's **only** safetensors (no ready-to-run quant — llama.cpp/mlx_lm
+can't serve it; pull a GGUF or MLX build). The footer totals the space reclaimable
+by removing every redundant safetensors copy.
+
+```bash
+kodo library formats
+kodo library rm <name> --format safetensors   # act on a flagged copy
+```
+
 ## `kodo library rm <name>`
 
 Remove a model from the library — **deletes its files from disk**. Resolves like

@@ -129,6 +129,11 @@ Default policy: keep **GGUF + MLX** ready for a model you actually use; fetch sa
 when you need to convert or train. `kodo library rm <model> --format safetensors` reclaims space
 once a conversion is done.
 
+`kodo library formats` makes this actionable: one row per model with a column per format present
+and their sizes, flagging any **redundant** safetensors copy (a GGUF/MLX build already exists) and
+any model that's **only** safetensors (no ready-to-run quant), with the total space reclaimable by
+dropping the redundant copies.
+
 ## Checking integrity
 
 `kodo library verify` checks each model on disk is intact — the declared weights (and vision
