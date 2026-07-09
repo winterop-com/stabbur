@@ -36,7 +36,7 @@ def mcp_list() -> None:
     First-party ``kodo-mcp-*`` plugins are the recommended set — kodo controls them, they
     need no external runtime, and they're always up to date. The external catalog is a
     fallback for tools kodo doesn't ship yet. A [green]✓[/] marks a server already in this
-    directory's ``kodo.toml``; add one with ``kodo mcp add <name>``.
+    directory's ``.mcp.json``; add one with ``kodo mcp add <name>``.
     """
     from kodo import plugins  # noqa: PLC0415
 
@@ -93,7 +93,7 @@ def mcp_list() -> None:
         desc = c.description + (f"\n[yellow]setup:[/] [dim]{c.setup}[/]" if c.setup else "")
         catalog.add_row(mark(c.name, c.command), c.name, c.command, desc)
     console.print(catalog)
-    console.print("[dim]Add one to this project's kodo.toml (plugins or catalog):[/] kodo mcp add <name>")
+    console.print("[dim]Add one to this project's .mcp.json (plugins or catalog):[/] kodo mcp add <name>")
 
 
 @mcp_app.command("add")

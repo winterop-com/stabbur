@@ -9,9 +9,8 @@ libraries = ["models", "@shared"]
 model = "gemma-4-12B-it-QAT-GGUF"   # a model in one of the libraries above
 system_prompt = ""                  # prepended to every chat; "" = none
 
-# MCP tool servers (repeatable). `command` required, `name` optional.
-# [[mcp]]
-# name = "dhis2"
-# command = "dhis2w-mcp-bridge"
+# Tools/MCP servers do NOT live here: they go in ./.mcp.json (the standard
+# `mcpServers` JSON that Claude Desktop / Cursor use). Add one with
+# `kodo mcp add <name>` — see `kodo mcp list` for the catalog.
 
 # Serve/runtime overrides also go here (host, port, serve_ui, ...).
