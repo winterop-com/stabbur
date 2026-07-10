@@ -12,7 +12,7 @@ the internals live in focused submodules); small cross-cutting modules stay top-
 ```
 src/kodo/
 ├── config.py / userconfig.py  # Settings (kodo.toml + KODO_* env) + the durable machine config
-├── models.py / host.py / locking.py / doctor.py  # core value types, OS helpers, per-library lock, health
+├── models.py / host.py / locking.py / doctor.py / fsatomic.py  # value types, OS helpers, lock, health, atomic writes
 ├── cli/         # the Typer app, one module per command group (_app/_common + library/project/mcp/
 │                #   voice/config/health/chat/serve) — was one 2400-line cli.py
 ├── library/     # scan the on-drive library → LibraryModel: _model, _roots, _scan, _manage
@@ -21,7 +21,7 @@ src/kodo/
 ├── chat_tui/    # the Textual terminal chat: _util, _widgets, app (ChatApp)
 ├── project.py / scaffold.py / templates.py  # the kodo.toml manifest (one parser+writer) + scaffolding
 ├── agent.py / tools.py / mcpservers.py / mcp_catalog.py / plugins.py  # agent loop + MCP client/config
-├── catalog.py / consumers.py / cards.py / tags.py / arch.py / capabilities.py  # source + library support
+├── catalog.py / consumers.py / cards.py / tags.py / arch.py / capabilities.py / wantlist.py  # source + library support
 ├── attach.py / chatui.py / hfcache.py  # media attach, shared chat rendering, HF-cache redirect
 ├── app.py / server.py  # FastAPI factory (CORS/auth/SPA/lifespan) + ServerManager (one runtime child)
 ├── routers/     # FastAPI routers: health, catalog (browse/pull), and serving/ (a package: _base/core/
@@ -67,7 +67,8 @@ flowchart LR
 - **GGUF → llama.cpp** (`llama-server`, `llama-cli`) — cross-platform, web UI,
   tool calling (`--jinja`), and a native router mode for hot-swap.
 - **MLX → mlx_lm** (`mlx_lm.server`, `mlx_lm.chat`, `mlx_lm.generate`) — Apple
-  Silicon.
+  Silicon. Vision-capable MLX checkpoints route to **mlx-vlm** (`mlx_vlm.server`)
+  instead, since text-only mlx_lm errors on the extra multimodal params.
 
 Command names are pinned to current upstream (verified mid-2026). See the
 [CLI reference](cli.md) for the command surface.

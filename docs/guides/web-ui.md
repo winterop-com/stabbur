@@ -130,8 +130,8 @@ kodo serve --ui --model <name>        # or: make run MODEL=<name>
 
 Locks the server to one model: no switching, the composer's model picker is hidden
 (the top-bar badge shows the bound model), and a stable `/v1`. This is the intended
-backend for the [Chrome extension](../roadmap.md) — the extension's side panel points
-at this endpoint. Set `cors_origins` to the extension's origin so it can call across
+backend for the Chrome extension (planned — see `ROADMAP.md` and `CHROME.md` in the repo),
+whose side panel points at this endpoint. Set `cors_origins` to the extension's origin so it can call across
 origins (see below).
 
 **A project locks too.** In a directory with a `kodo.toml` whose `[project].model`

@@ -104,9 +104,10 @@ convert/fine-tune source, 2-4x the quant). Format is a per-model choice, not "ke
   fastest on the Mac. **safetensors** — original full-precision weights.
 - Sharing reality: LM Studio reads loose GGUF/MLX directly; Ollama imports a GGUF into its
   own blob store and won't run a loose file in place. So the win is one canonical library
-  copy we *install into* whichever runtime, not one file used live by all. Making Ollama /
-  LM Studio / mlx_lm *consumers* fed from the canonical library is the larger open direction
-  (see `ROADMAP.md`).
+  copy we *install into* whichever runtime, not one file used live by all. All three consumers
+  are fed from the canonical copy: `kodo library install/uninstall <model> --to/--from
+  {ollama,lmstudio}` (Ollama imports via a Modelfile, LM Studio gets a zero-copy symlink) and
+  mlx_lm runs a loose MLX copy in place; `kodo library formats` reports the per-model policy.
 
 ## UI — web-first, plus a Textual terminal chat
 
@@ -153,7 +154,10 @@ kodo supports **tool/function calling and acts as an MCP client**, generically (
 server), not just DHIS2. llama-server does OpenAI-style tool calling (`--jinja`); kodo runs
 the **agent loop** (model emits `tool_call` → kodo executes via the MCP client → feeds the
 result back → continues), streamed to the chat UI. kodo owns the client + loop so every
-surface (web, extension, CLI) stays thin and tools work uniformly.
+surface (web, extension, CLI) stays thin and tools work uniformly. A tool result's text goes
+back as the `tool` message; any **image** it returns (e.g. a Playwright screenshot) is fed to a
+**vision** model as a follow-up user image message so it actually sees it (text-only models get a
+note instead — never the raw image), gated on the detected `vision` capability.
 
 **Config is the ecosystem-standard `mcpServers` JSON** (`kodo.mcpservers`), the same shape
 Claude Desktop / Claude Code / Cursor use — so a server's README snippet pastes straight in.

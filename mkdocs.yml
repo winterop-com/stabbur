@@ -55,7 +55,6 @@ nav:
       - Models & compatibility: guides/models.md
   - Architecture: architecture.md
   - Benchmarks: benchmarks.md
-  - Roadmap: roadmap.md
   - CLI reference: cli.md
 
 markdown_extensions:

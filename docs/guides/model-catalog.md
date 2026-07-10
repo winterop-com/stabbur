@@ -81,7 +81,7 @@ kodo library pull voice distil-whisper # faster distilled Whisper (English)
 
 **Not yet working** (load but produce no audio via mlx-audio's high-level API, or need bespoke
 args): `qwen3-tts`, KittenTTS, OuteTTS-1.0 (mlx), Qwen3-TTS-VoiceDesign, Voxtral-TTS. Tracked in
-[the roadmap](../roadmap.md); revisit as mlx-audio adds support.
+the roadmap (`ROADMAP.md` in the repo); revisit as mlx-audio adds support.
 
 ## Benchmarks
 
