@@ -61,6 +61,10 @@ def test_net_binary_readonly_predicates() -> None:
     assert app._ip_readonly([]) and app._ip_readonly(["addr"]) and app._ip_readonly(["-s", "link"])
     assert app._ip_readonly(["route", "get", "8.8.8.8"]) and app._ip_readonly(["link", "show"])
     assert not app._ip_readonly(["link", "set", "lo", "down"])
+    # -batch/-b runs an arbitrary ip command file (mutations included) — must not slip the empty-verb path.
+    assert not app._ip_readonly(["-b", "/tmp/cmds"])
+    assert not app._ip_readonly(["-batch", "/tmp/cmds"])
+    assert not app._ip_readonly(["-force", "-b", "/tmp/cmds"])
     assert app._route_readonly(["-n"]) and not app._route_readonly(["del", "default"])
     assert app._arp_readonly(["-a", "-n"]) and not app._arp_readonly(["-s", "h", "aa:bb"])
     assert app._ifconfig_readonly(["-a"]) and app._ifconfig_readonly(["lo0"])

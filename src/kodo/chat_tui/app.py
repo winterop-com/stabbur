@@ -564,6 +564,10 @@ class ChatApp(App[None]):
             if "intro" not in child.classes:
                 child.remove()
         self.messages = [m for m in self.messages if m.get("role") == "system"]
+        # Drop stored reasoning too: it's keyed by id() of the now-freed assistant dicts, and a
+        # later turn could reuse a freed address, folding this conversation's thinking into an
+        # unrelated turn's `/export --thinking`.
+        self._reasonings.clear()
         self.ctx_used = None
         self._refresh_status()
 
