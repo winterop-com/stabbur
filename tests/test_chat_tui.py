@@ -19,7 +19,9 @@ from kodo.runtime.sampling import ModelSampling
 def _stub_model_probes(monkeypatch: pytest.MonkeyPatch) -> None:
     # _apply_model reads the model's config/files; stub those so the app builds fast + hermetic.
     monkeypatch.setattr(chat_tui.app.sampling_mod, "recommended", lambda _m: ModelSampling(repeat_penalty=1.1))
-    monkeypatch.setattr(chat_tui.app.capabilities, "capabilities", lambda _m: SimpleNamespace(context_length=1024))
+    monkeypatch.setattr(
+        chat_tui.app.capabilities, "capabilities", lambda _m: SimpleNamespace(context_length=1024, vision=False)
+    )
 
 
 def _fake_runtime(model: LibraryModel, base: str = "http://127.0.0.1:9", port: int = 9) -> runtime.RuntimeProc:
@@ -130,6 +132,47 @@ async def test_reasoning_collapses_after_answer(monkeypatch: pytest.MonkeyPatch)
         assert box.display is True  # reasoning was shown
         assert box.collapsed is True  # and collapsed once the answer arrived
         assert box.title.startswith("thought for")
+
+
+async def test_export_thinking_includes_reasoning_only_when_asked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # /export stays lean by default; /export --thinking folds each turn's reasoning into the file
+    # (the thinking is kept out of self.messages, so export pulls it from the per-turn store).
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: Any,
+        on_event: Any,
+        on_token: Any,
+        on_reasoning: Any = None,
+        on_usage: Any = None,
+        **_kw: Any,
+    ) -> str:
+        on_reasoning("deciding to use browser_find")
+        on_token("done")
+        messages.append({"role": "assistant", "content": "done"})
+        return "done"
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    plain = tmp_path / "plain.md"
+    withthink = tmp_path / "think.md"
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        app.action_export(str(plain))
+        app.action_export(str(withthink), thinking=True)
+
+    plain_text = plain.read_text(encoding="utf-8")
+    think_text = withthink.read_text(encoding="utf-8")
+    assert "deciding to use browser_find" not in plain_text  # default export omits thinking
+    assert "deciding to use browser_find" in think_text  # --thinking includes it
+    assert "<details>" in think_text and "Thinking" in think_text  # folded, not inline
+    assert "done" in think_text  # the answer is still there
 
 
 async def test_thinking_collapse_preference_is_sticky(monkeypatch: pytest.MonkeyPatch) -> None:

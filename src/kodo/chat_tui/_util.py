@@ -66,6 +66,7 @@ _SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
     ("/copy", "/copy", "copy the last reply"),
     ("/model", "/model ", "switch the running model (or /model to list)"),
     ("/export", "/export ", "save the transcript to a markdown file"),
+    ("/export --thinking", "/export --thinking", "export including each turn's thinking (folded)"),
     ("/set", "/set ", "adjust sampling (temperature/top_p/top_k/…)"),
     ("/clear", "/clear", "clear the conversation"),
     ("/help", "/help", "commands + keyboard shortcuts"),

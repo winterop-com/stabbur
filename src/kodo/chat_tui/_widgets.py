@@ -23,6 +23,11 @@ class _KodoCommands(Provider):
             ),
             ("Copy last reply", "copy the last reply to the clipboard", app.action_copy_reply),
             ("Export transcript", "save the conversation to a markdown file (chat.md)", app.action_export),
+            (
+                "Export with thinking",
+                "save the transcript with each turn's reasoning folded in (chat.md)",
+                lambda: app.action_export(thinking=True),
+            ),
             ("Sampling settings", "show sampling; change with /set <param> <value>", app.action_show_sampling),
             ("Switch model", "list the models you can switch to", app.action_show_models),
             ("Clear conversation", "clear the transcript, keep the system prompt", app.action_clear),

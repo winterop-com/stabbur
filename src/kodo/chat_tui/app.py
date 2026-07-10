@@ -106,6 +106,9 @@ class ChatApp(App[None]):
         self._models_cache: list[library_ops.LibraryModel] | None = None  # switchable models (lazy)
         self._reason_collapsed_pref = False  # sticky: once the user collapses thinking, keep it collapsed
         self._reason_prog: dict[int, bool] = {}  # per reasoning box: the collapsed state kodo set itself
+        # A turn's reasoning is not part of self.messages (it's never resent to the model), so keep
+        # it here keyed by the assistant message's id() for `/export --thinking` to pull back.
+        self._reasonings: dict[int, str] = {}
 
     @on(Collapsible.Toggled)
     def _remember_reasoning_collapse(self, event: Collapsible.Toggled) -> None:
@@ -243,8 +246,12 @@ class ChatApp(App[None]):
             return " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
         return ""
 
-    def action_export(self, path: str | None = None) -> None:
-        """Write the conversation to a Markdown file (default: chat.md in the current directory)."""
+    def action_export(self, path: str | None = None, *, thinking: bool = False) -> None:
+        """Write the conversation to a Markdown file (default: chat.md in the current directory).
+
+        With ``thinking``, each assistant turn's reasoning is included as a collapsed ``<details>``
+        block before its answer — the transcript stays readable, but the thinking is there to expand.
+        """
         turns = [
             m
             for m in self.messages
@@ -260,8 +267,13 @@ class ChatApp(App[None]):
             if not text.strip():
                 continue
             heading = {"system": "System prompt", "user": "You", "assistant": "Assistant"}.get(str(role))
-            if heading:
-                lines += [f"## {heading}", "", text, ""]
+            if not heading:
+                continue
+            lines += [f"## {heading}", ""]
+            reason = self._reasonings.get(id(m), "").strip() if thinking and role == "assistant" else ""
+            if reason:
+                lines += ["<details>", "<summary>Thinking</summary>", "", reason, "", "</details>", ""]
+            lines += [text, ""]
         try:
             dest.write_text("\n".join(lines), encoding="utf-8")
         except OSError as exc:
@@ -566,6 +578,7 @@ class ChatApp(App[None]):
             ("/copy", "copy the last reply"),
             ("/model [name]", "switch the running model (or list them)"),
             ("/export [file]", "save the transcript to markdown (chat.md)"),
+            ("/export --thinking", "export and include each turn's thinking (folded)"),
             ("/set <param> <value>", "adjust sampling (temperature/top_p/top_k/min_p/repeat_penalty)"),
             ("/clear", "clear the conversation"),
             ("/help", "this help"),
@@ -632,7 +645,9 @@ class ChatApp(App[None]):
         elif name in ("copy", "y"):
             self.action_copy_reply()
         elif name in ("export", "save"):
-            self.action_export(parts[1] if len(parts) > 1 else None)
+            want_thinking = any(p in ("--thinking", "-t") for p in parts[1:])
+            file_args = [p for p in parts[1:] if not p.startswith("-")]
+            self.action_export(file_args[0] if file_args else None, thinking=want_thinking)
         elif name in ("set", "sampling"):
             if len(parts) >= 3:
                 self._set_sampling(parts[1], parts[2])
@@ -824,6 +839,10 @@ class ChatApp(App[None]):
 
             _stop_think()
             finalize_reasoning()  # reasoning-only replies (no answer tokens) still collapse
+            # Stash this turn's thinking against its assistant message (agent.run left it last) so
+            # `/export --thinking` can include it; the message history itself stays reasoning-free.
+            if reasoning_buf and self.messages and self.messages[-1].get("role") == "assistant":
+                self._reasonings[id(self.messages[-1])] = "".join(reasoning_buf)
             if (reply or "").strip():
                 answer_w.update(Markdown(reply))
             else:
