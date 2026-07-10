@@ -18,6 +18,7 @@ def test_playwright_is_addable_via_mcp_add() -> None:
     assert entry is not None
     argv = shlex.split(entry.command)
     assert argv[0] == "bunx" and "@playwright/mcp@latest" in argv
+    assert "--headless" in argv  # headless default for programmatic/server use (remove to watch)
 
 
 def test_browse_template_wires_playwright() -> None:

@@ -49,11 +49,11 @@ CURATED: list[CuratedMcp] = [
     ),
     CuratedMcp(
         name="playwright",
-        command="bunx @playwright/mcp@latest --isolated",
+        command="bunx @playwright/mcp@latest --headless --isolated",
         description="Drive a real browser: navigate, read the page (snapshot/find), click, fill "
         "forms, screenshot. Handles JavaScript pages; a vision model also sees the screenshots.",
-        setup="needs bun (bunx); downloads a browser on first run. Opens a visible window — "
-        "add --headless for servers/automation, drop --isolated to keep a login between runs",
+        setup="needs bun (bunx); downloads a browser on first run. Runs headless — remove "
+        "--headless to watch/drive the window, drop --isolated to keep a login between runs",
     ),
 ]
 

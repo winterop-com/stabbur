@@ -162,8 +162,8 @@ navigate, read, click, fill forms, and move across pages in one task.
 ## Multi-step
 - Search <site> for "release notes", open the first result, and summarize it.
 
-Notes: it opens a visible browser window (add `--headless` in `.mcp.json` for servers). For
-slow/dynamic pages, ask it to "wait for the content to load, then read it".
+Notes: it runs headless by default; remove `--headless` in `.mcp.json` to watch/drive the
+browser window. For slow/dynamic pages, ask it to "wait for the content to load, then read it".
 """
 
 _MEMORY_PROMPTS_MD = """\
@@ -418,11 +418,11 @@ TEMPLATES: dict[str, ProjectTemplate] = {
             "loading. Use browser_take_screenshot only for questions about visual appearance, layout, "
             "or images. Answer from what the page actually shows, and say when something isn't there."
         ),
-        mcp=[("playwright", "bunx @playwright/mcp@latest --isolated")],
+        mcp=[("playwright", "bunx @playwright/mcp@latest --headless --isolated")],
         files={"examples/prompts.md": _BROWSE_PROMPTS_MD},
         next_steps=(
             "Playwright MCP runs via bunx (needs bun) and downloads a browser on first run.\n"
-            "It opens a visible window; add --headless in .mcp.json for servers/automation.\n"
+            "Runs headless; remove --headless in .mcp.json to watch/drive the browser window.\n"
             "  uv run kodo chat"
         ),
     ),
