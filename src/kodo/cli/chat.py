@@ -357,6 +357,7 @@ def _chat_with_tools(
 
     from kodo import (
         agent,  # noqa: PLC0415
+        capabilities,  # noqa: PLC0415
         chatui,  # noqa: PLC0415
     )
     from kodo import tools as mcp_tools  # noqa: PLC0415
@@ -366,6 +367,7 @@ def _chat_with_tools(
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied
     # to every CLI chat turn just like the web path does.
     rec = sampling.recommended(model)
+    model_vision = capabilities.capabilities(model).vision  # feed tool-returned images back only if seen
     # Tool activity is meta → stderr, so `-p` stdout stays just the answer.
     err = Console(stderr=True)
 
@@ -453,6 +455,7 @@ def _chat_with_tools(
                 min_p=rec.min_p,
                 repeat_penalty=rec.repeat_penalty,
                 model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
+                vision=model_vision,
             )
             _first_output()
             if render:

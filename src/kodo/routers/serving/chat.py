@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from kodo import agent, runtime
+from kodo import agent, capabilities, runtime
 from kodo import library as library_ops
 from kodo.routers.serving._base import (  # shared router + request deps
     ConfDep,
@@ -99,6 +99,10 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                 return
             base = manager.base_url
             model_target = current.load_target
+            try:
+                model_vision = capabilities.capabilities(current).vision  # feed tool images back only if seen
+            except Exception:  # noqa: BLE001 - detection is best-effort; a failure just disables image feedback
+                model_vision = False
             # Model-recommended sampling (LM Studio parity); an explicit request value wins.
             rec = sampling.recommended(current)
             eff_temperature = req.temperature if req.temperature is not None else rec.temperature
@@ -122,6 +126,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         # mlx-vlm requires the OpenAI ``model`` field match what it loaded
                         # (the launch path); harmless for llama-server / mlx-lm.
                         model=str(model_target) if model_target else None,
+                        vision=model_vision,
                     )
                 except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                     await queue.put({"type": "error", "detail": str(exc)})

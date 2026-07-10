@@ -126,13 +126,16 @@ class ChatApp(App[None]):
         self._base = self._endpoint.base
         remote = self._endpoint if isinstance(self._endpoint, RemoteEndpoint) else None
         model = self._model
+        self._vision = False  # feed tool-returned images back only when the model can see them
         if model is not None:
             self._model_name = model.name
             self._model_format = model.model_format.value
             self._model_target: str | None = str(model.load_target)  # OpenAI ``model`` field (mlx-vlm needs it)
             self._sampling = sampling_mod.recommended(model)
             try:
-                self._ctx_max = capabilities.capabilities(model).context_length
+                caps = capabilities.capabilities(model)
+                self._ctx_max = caps.context_length
+                self._vision = caps.vision
             except Exception:  # noqa: BLE001 - detection is best-effort; the footer just omits ctx
                 self._ctx_max = None
             if remote is not None and remote.n_ctx is not None:
@@ -802,6 +805,7 @@ class ChatApp(App[None]):
                     min_p=self._sampling.min_p,
                     repeat_penalty=self._sampling.repeat_penalty,
                     model=self._model_target,  # required by mlx-vlm; ignored by llama-server/mlx-lm
+                    vision=self._vision,
                 )
             except asyncio.CancelledError:  # ESC: drop the partial turn, keep the session
                 _stop_think()

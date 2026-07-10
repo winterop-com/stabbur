@@ -41,8 +41,8 @@ async def test_toolset_namespaces_and_calls() -> None:
         assert schema["type"] == "function"
         assert "parameters" in schema["function"]
 
-        assert (await toolset.call("srv__day_of_week", {})) == "Wednesday"
-        assert (await toolset.call("no_such_tool", {})).startswith("error:")
+        assert (await toolset.call("srv__day_of_week", {})).text == "Wednesday"
+        assert (await toolset.call("no_such_tool", {})).text.startswith("error:")
 
 
 async def test_toolset_dedupes_within_a_prefix() -> None:
@@ -112,6 +112,66 @@ async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyP
 
     assert out == "final answer"
     assert messages[-1] == {"role": "assistant", "content": "final answer"}
+
+
+class _ImageToolset:
+    """A toolset whose one tool returns text plus an image (like browser_take_screenshot)."""
+
+    schemas: list[dict[str, Any]] = []
+
+    async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> tools.ToolResult:
+        return tools.ToolResult(text="captured", images=["data:image/png;base64,QUJD"])
+
+
+def _one_tool_then_done() -> Any:
+    """A staged _stream_turn: round 1 calls a tool, round 2 answers with plain text."""
+    rounds = iter([("", [{"id": "1", "name": "b__shot", "args": "{}"}], None), ("done", [], None)])
+
+    async def staged(
+        http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
+    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+        return next(rounds)
+
+    return staged
+
+
+async def test_agent_feeds_tool_image_to_vision_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A vision model must receive a tool-returned image as a follow-up user image message, so it
+    # actually sees (e.g.) a screenshot instead of hallucinating what it "saw" after the pixels
+    # were dropped.
+    monkeypatch.setattr(agent, "_stream_turn", _one_tool_then_done())
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "screenshot it"}]
+    out = await agent.run("http://runtime", messages, _ImageToolset(), vision=True)  # type: ignore[arg-type]
+
+    assert out == "done"
+    tool_msg = next(m for m in messages if m["role"] == "tool")
+    assert tool_msg["content"] == "captured"  # text stays in the tool message
+    img_users = [m for m in messages if m["role"] == "user" and isinstance(m["content"], list)]
+    assert img_users, "a vision model should get the image as a user message"
+    parts = img_users[-1]["content"]
+    assert any(p.get("type") == "image_url" and p["image_url"]["url"].startswith("data:image/png") for p in parts)
+
+
+async def test_agent_notes_tool_image_for_text_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A text-only model can't see the image: it must be TOLD one was returned rather than have it
+    # silently dropped (which is what makes a vision-less model hallucinate a description).
+    monkeypatch.setattr(agent, "_stream_turn", _one_tool_then_done())
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "screenshot it"}]
+    await agent.run("http://runtime", messages, _ImageToolset(), vision=False)  # type: ignore[arg-type]
+
+    tool_msg = next(m for m in messages if m["role"] == "tool")
+    assert "cannot view images" in tool_msg["content"]
+    assert not any(m["role"] == "user" and isinstance(m["content"], list) for m in messages)  # no image message
+
+
+def test_result_content_extracts_image_blocks() -> None:
+    # A result whose content carries an image block becomes a data: URL alongside the text.
+    text_block = type("T", (), {"type": "text", "text": "shot"})()
+    img_block = type("I", (), {"type": "image", "data": "QUJD", "mimeType": "image/png"})()
+    result = type("R", (), {"data": None, "content": [text_block, img_block]})()
+    tr = tools._result_content(result)
+    assert tr.text == "shot"
+    assert tr.images == ["data:image/png;base64,QUJD"]
 
 
 async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,7 +268,7 @@ async def test_toolset_call_forwards_timeout_to_client() -> None:
     toolset._owner["srv__t"] = (client, "t")  # type: ignore[assignment]
     result = await toolset.call("srv__t", {}, timeout=7.5)
 
-    assert result == "ok"
+    assert result.text == "ok"
     assert client.timeouts == [7.5]
 
 
@@ -235,9 +295,9 @@ async def test_subset_restricts_execution_not_just_display() -> None:
 
     view = ts.subset({"srv__safe"})
     assert view.names == ["srv__safe"]  # display restricted
-    assert "unknown tool" in await view.call("srv__danger", {})  # execution refused
+    assert "unknown tool" in (await view.call("srv__danger", {})).text  # execution refused
     assert executed == []  # the disabled tool never ran
-    assert await view.call("srv__safe", {}) == "ran"  # the enabled one still works
+    assert (await view.call("srv__safe", {})).text == "ran"  # the enabled one still works
     assert executed == ["safe"]
 
 
@@ -257,9 +317,9 @@ async def test_agent_rejects_unparseable_tool_args(monkeypatch: pytest.MonkeyPat
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> str:
+        async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> tools.ToolResult:
             self.calls.append(name)
-            return "ran"
+            return tools.ToolResult(text="ran")
 
     monkeypatch.setattr(agent, "_stream_turn", staged_stream)
     toolset = _RecordingToolset()

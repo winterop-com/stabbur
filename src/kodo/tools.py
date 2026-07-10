@@ -15,6 +15,7 @@ from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
+from pydantic import BaseModel
 
 _NAME_STRIP = re.compile(r"^(kodo-mcp-|mcp-server-|mcp-)")
 
@@ -87,6 +88,28 @@ def _result_text(result: Any) -> str:
     return "\n".join(parts) or str(result)
 
 
+class ToolResult(BaseModel):
+    """A tool call's result: its text plus any images it returned (as ``data:`` URLs).
+
+    An MCP tool may return image content — e.g. ``browser_take_screenshot`` returns a PNG.
+    Keeping the images (not just the text) lets the agent loop feed them back to a vision
+    model as image parts, so the model actually *sees* what the tool produced.
+    """
+
+    text: str = ""
+    images: list[str] = []  # data:<mime>;base64,<...> URLs, one per image content block
+
+
+def _result_content(result: Any) -> ToolResult:
+    """Extract text (unchanged from :func:`_result_text`) plus any image blocks from a result."""
+    images = [
+        f"data:{getattr(c, 'mimeType', None) or 'image/png'};base64,{c.data}"
+        for c in getattr(result, "content", []) or []
+        if getattr(c, "type", None) == "image" and getattr(c, "data", None)
+    ]
+    return ToolResult(text=_result_text(result), images=images)
+
+
 class MCPToolset:
     """Aggregated tools across one or more MCP servers.
 
@@ -128,8 +151,8 @@ class MCPToolset:
         view.schemas = [s for s in self.schemas if s["function"]["name"] in names]
         return view
 
-    async def call(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> str:
-        """Execute a namespaced tool on its owning server and return its result as text.
+    async def call(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> ToolResult:
+        """Execute a namespaced tool on its owning server and return its text + any images.
 
         ``timeout`` (seconds) bounds the call so a hung server (e.g. an MCP tool that shells
         out to a command that never returns) can't stall the agent loop indefinitely — fastmcp
@@ -137,9 +160,9 @@ class MCPToolset:
         """
         entry = self._owner.get(name)
         if entry is None:
-            return f"error: unknown tool {name!r}"
+            return ToolResult(text=f"error: unknown tool {name!r}")
         client, tool_name = entry
-        return _result_text(await client.call_tool(tool_name, arguments, timeout=timeout))
+        return _result_content(await client.call_tool(tool_name, arguments, timeout=timeout))
 
 
 @asynccontextmanager

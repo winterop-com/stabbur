@@ -99,11 +99,12 @@ class _HostContext:
     ) -> tuple[list[tuple[str, dict[str, object]]], str]:
         import asyncio  # noqa: PLC0415
 
-        from kodo import agent  # noqa: PLC0415
+        from kodo import agent, capabilities  # noqa: PLC0415
         from kodo import tools as mcp_tools  # noqa: PLC0415
         from kodo.runtime import sampling  # noqa: PLC0415
 
         rec = sampling.recommended(model)
+        vision = capabilities.capabilities(model).vision
         commands: list[tuple[str | None, list[str]]] = [(None, shlex.split(s)) for s in servers]
         calls: list[tuple[str, dict[str, object]]] = []
 
@@ -113,7 +114,9 @@ class _HostContext:
                 # toolset (and its type) for agent.run; args here are already parsed dicts.
                 original = toolset.call
 
-                async def _recording_call(name: str, args: dict[str, object], timeout: float | None = None) -> str:
+                async def _recording_call(
+                    name: str, args: dict[str, object], timeout: float | None = None
+                ) -> mcp_tools.ToolResult:
                     calls.append((name, args))
                     return await original(name, args, timeout=timeout)
 
@@ -128,6 +131,7 @@ class _HostContext:
                     min_p=rec.min_p,
                     repeat_penalty=rec.repeat_penalty,
                     model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
+                    vision=vision,
                 )
 
         answer = asyncio.run(_go())

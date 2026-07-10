@@ -11,7 +11,11 @@ from typing import Any
 
 import httpx
 
-from kodo.tools import MCPToolset
+from kodo.tools import MCPToolset, ToolResult
+
+# Prefaces the user message that carries images a tool returned (e.g. a screenshot), so a
+# vision model reads them as its own multimodal input right after the tool results.
+_TOOL_IMAGE_PREAMBLE = "Image(s) returned by the tool call(s) above:"
 
 # Callbacks: on_event(kind, detail) for tool activity; on_token(text) for streamed reply.
 # Sinks may be sync (TUI/CLI append to a buffer) or async (the /api/chat SSE path uses an
@@ -141,6 +145,7 @@ async def run(
     max_rounds: int = 8,
     on_usage: UsageSink | None = None,
     tool_timeout: float | None = None,
+    vision: bool = False,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -153,6 +158,9 @@ async def run(
     llama-server/mlx-lm. Bounded by ``max_rounds``; each tool call is bounded by
     ``tool_timeout`` seconds so a hung MCP server can't stall the loop forever —
     ``None`` (default) reads ``KODO_TOOL_TIMEOUT`` (120s; set 0 to disable the bound).
+    ``vision`` is set when the model can see images: an image a tool returns (e.g. a
+    screenshot) is then fed back as a follow-up user image message so the model reads it
+    as multimodal input; a text-only model instead gets a note that an image was returned.
     """
     if tool_timeout is None:
         from kodo.config import get_settings  # noqa: PLC0415 - lazy to keep agent import light
@@ -203,6 +211,7 @@ async def run(
                     ],
                 }
             )
+            round_images: list[str] = []  # images tools returned this round (fed back below)
             for c in calls:
                 await _emit(on_event, "call", f"{c['name']}({c['args']})")
                 try:
@@ -211,14 +220,34 @@ async def run(
                     # Don't run the tool with empty args on unparseable JSON — for a tool with all
                     # optional params that silently returns a plausible-but-wrong result. Feed the
                     # parse error back so the model resends valid arguments.
-                    result = f"error: could not parse tool arguments as JSON ({exc}); resend valid JSON."
+                    result = ToolResult(
+                        text=f"error: could not parse tool arguments as JSON ({exc}); resend valid JSON."
+                    )
                 else:
                     try:
                         result = await toolset.call(c["name"], args, timeout=tool_timeout)
                     except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) to the model
-                        result = f"error: {exc}"
-                await _emit(on_event, "result", result)
-                messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
+                        result = ToolResult(text=f"error: {exc}")
+                display = result.text + (f"  [+{len(result.images)} image(s)]" if result.images else "")
+                await _emit(on_event, "result", display)
+                content = result.text
+                if result.images and vision:
+                    # Feed the pixels back below; leave the tool message a short marker so the
+                    # tool_call_id still has content and the model knows where the image came from.
+                    round_images.extend(result.images)
+                    content = content or "[image returned by the tool; shown in the next message]"
+                elif result.images:
+                    # Text-only model: it can't see the image, so say so rather than drop it silently
+                    # (a screenshot vanishing makes a vision-less model hallucinate what it "saw").
+                    note = "[a tool returned an image, but this model cannot view images]"
+                    content = f"{content}\n{note}" if content else note
+                messages.append({"role": "tool", "tool_call_id": c["id"], "content": content})
+
+            # A vision model reads tool-returned images as its own input: deliver them in a user
+            # message right after the tool results (the exercised multimodal path — an image_url
+            # part in a tool message isn't understood by llama-server/mlx-vlm).
+            if round_images:
+                messages.append({"role": "user", "content": user_content(_TOOL_IMAGE_PREAMBLE, images=round_images)})
 
     # Ran out of tool rounds: surface a terminal message the same way a normal
     # reply is delivered — stream it (so streaming clients, incl. the web UI whose
