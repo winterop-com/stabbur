@@ -47,6 +47,14 @@ CURATED: list[CuratedMcp] = [
         description="Read and write files under a directory.",
         setup="pass the directory to expose (default: here); needs bun (bunx)",
     ),
+    CuratedMcp(
+        name="playwright",
+        command="bunx @playwright/mcp@latest --isolated",
+        description="Drive a real browser: navigate, read the page (snapshot/find), click, fill "
+        "forms, screenshot. Handles JavaScript pages; a vision model also sees the screenshots.",
+        setup="needs bun (bunx); downloads a browser on first run. Opens a visible window — "
+        "add --headless for servers/automation, drop --isolated to keep a login between runs",
+    ),
 ]
 
 

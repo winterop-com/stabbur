@@ -142,6 +142,30 @@ The web reader runs a headless Chromium (installed by `uv sync` via the `web` ex
 first run downloads the browser once.
 """
 
+_BROWSE_PROMPTS_MD = """\
+# Example prompts
+
+This assistant drives a real browser (Playwright). Unlike the one-page `web` reader, it can
+navigate, read, click, fill forms, and move across pages in one task.
+
+## Read / extract
+- Go to https://news.ycombinator.com and list the top 5 story titles with their points.
+- Open <url> and extract every link under the "Documentation" heading.
+- Navigate to <a JavaScript app> and tell me the text it renders (it runs the page's scripts).
+
+## Locate
+- On <url>, find the section that mentions "pricing" and quote it.
+
+## Visual (a vision model sees the screenshot)
+- Open <url>, take a screenshot, and describe the header's color and layout.
+
+## Multi-step
+- Search <site> for "release notes", open the first result, and summarize it.
+
+Notes: it opens a visible browser window (add `--headless` in `.mcp.json` for servers). For
+slow/dynamic pages, ask it to "wait for the content to load, then read it".
+"""
+
 _MEMORY_PROMPTS_MD = """\
 # Example prompts
 
@@ -380,6 +404,26 @@ TEMPLATES: dict[str, ProjectTemplate] = {
             "The web reader needs the `web` extra (Playwright + Chromium); `uv sync` installs it and\n"
             "the first run downloads the browser once.\n"
             "  uv sync && uv run playwright install chromium && uv run kodo chat"
+        ),
+    ),
+    "browse": ProjectTemplate(
+        # gemma-4-12B has vision, so it can also read the screenshots the browser returns.
+        model="lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+        system_prompt=(
+            "You are a web-browsing assistant driving a real browser via the Playwright tools. "
+            "To read or extract page content, use browser_snapshot (the page's accessibility tree). "
+            "To locate a specific known string, use browser_find. If content is missing or the page "
+            "is still loading, use browser_wait_for on the expected text, then snapshot again — the "
+            "browser runs the page's JavaScript, so client-rendered pages work once they finish "
+            "loading. Use browser_take_screenshot only for questions about visual appearance, layout, "
+            "or images. Answer from what the page actually shows, and say when something isn't there."
+        ),
+        mcp=[("playwright", "bunx @playwright/mcp@latest --isolated")],
+        files={"examples/prompts.md": _BROWSE_PROMPTS_MD},
+        next_steps=(
+            "Playwright MCP runs via bunx (needs bun) and downloads a browser on first run.\n"
+            "It opens a visible window; add --headless in .mcp.json for servers/automation.\n"
+            "  uv run kodo chat"
         ),
     ),
     "mcp-memory": ProjectTemplate(
