@@ -1,5 +1,6 @@
 site_name: kodo
 site_description: Build a full local LLM library, then run, chat, and serve it — fully on-box.
+site_url: https://winterop-com.github.io/kodo/
 repo_url: https://github.com/winterop-com/kodo
 repo_name: winterop-com/kodo
 docs_dir: docs
@@ -96,3 +97,7 @@ plugins:
   - panzoom:
       mermaid: true
       full_screen: true
+  # "Last updated" per page, from git history.
+  - git-revision-date-localized:
+      type: date
+      fallback_to_build_date: true

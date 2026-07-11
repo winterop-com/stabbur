@@ -1,5 +1,12 @@
 # kodo
 
+[![Docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fkodo-2b7489)](https://winterop-com.github.io/kodo/)
+[![Python](https://img.shields.io/badge/python-3.13-3776ab)](https://www.python.org/)
+[![Packaging](https://img.shields.io/badge/install-uv-6340ac)](https://docs.astral.sh/uv/)
+[![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
+
+**Documentation: <https://winterop-com.github.io/kodo/>**
+
 A tool for building and keeping a **full local library of LLM models**. It
 discovers models from **Hugging Face**, **Ollama**, and **LM Studio**, pulls
 them into a single library (browse via a **Typer CLI** or a **browser chat UI**),
@@ -36,7 +43,7 @@ src/kodo/
 uv sync                       # kodo itself (needs Python 3.13 + uv)
 brew install llama.cpp        # baseline runtime: GGUF chat + OuteTTS speech (build from source on Linux)
 make install-mlx              # optional: MLX runtimes (Apple Silicon)
-make install-voice            # optional: mlx-audio (Dia/Whisper/Qwen3-TTS, Apple Silicon)
+uv sync --extra voice         # optional: mlx-audio runtimes (Dia/Whisper, Apple Silicon)
 make frontend                 # optional: build the web UI (needs Bun)
 export KODO_LIBRARY_ROOT=/path/to/your/library   # required: where your library lives
 kodo doctor                   # verify what's installed
@@ -49,7 +56,7 @@ it, library commands fail with a clear message instead of silently using `./data
 **Install globally** (run `kodo` from any directory):
 
 ```bash
-uv tool install --editable ".[mlx,voice,tts,benchmark]"   # from a checkout: kodo on your PATH, code edits live
+uv tool install --editable ".[mlx,voice,web,benchmark]"   # from a checkout: kodo on your PATH, code edits live
 uv tool install "git+https://github.com/winterop-com/kodo" # or straight from git (requires repo access; core CLI)
 # then put KODO_LIBRARY_ROOT in your shell profile (~/.zshrc) so it applies everywhere
 ```
@@ -90,8 +97,9 @@ The web UI's **Library** lists both families; the **Voice** studio does TTS/STT
 dictate with the mic (Whisper), and **read replies aloud** (Kokoro by default). See
 the [voice guide](docs/guides/voice.md).
 
-Full docs (mkdocs + material): run `make docs`. See `docs/` — getting started,
-the library, pulling, running & chatting, the web UI, and using models directly.
+Full docs: **<https://winterop-com.github.io/kodo/>** (or `make docs` to serve locally) —
+getting started, the library, pulling, running & chatting, the web UI, the Chrome side panel,
+the DHIS2 assistant, and the architecture.
 
 ## API
 
@@ -100,6 +108,28 @@ the library, pulling, running & chatting, the web UI, and using models directly.
 `/v1/*` (proxied to the loaded model), and `/v1/audio/speech` +
 `/v1/audio/transcriptions`. See the [web UI guide](docs/guides/web-ui.md) for the
 full endpoint table and the single-origin proxy design.
+
+## Chrome side panel & the DHIS2 assistant
+
+kodo ships an **MV3 Chrome side panel** (`extension/`, built with WXT) — a thin client for
+a local or remote `kodo serve` that puts your own model + tools next to any page. It builds
+in two flavors from one codebase: the generic **kodo** panel and **kodo for DHIS2**
+(`KODO_FLAVOR=dhis2`).
+
+Pointed at a DHIS2 project (`kodo project new --template dhis2`), it becomes the north-star
+assistant: chat grounded in the page you are viewing, a target banner (verify + tab
+match/mismatch), and **"Use my login"** — mint a read-only, GET-scoped Personal Access Token
+in the DHIS2 tab's own security context and hand it to kodo once, so the tools act as *you*
+(with a session-cookie fallback). Everything runs against your own local model; nothing
+leaves the box.
+
+```bash
+cd extension && bun install && bun run build          # -> extension/.output/chrome-mv3(-dhis2)
+# chrome://extensions -> Load unpacked -> the built dir; then `kodo serve` and open the panel
+```
+
+See the [Chrome side panel guide](https://winterop-com.github.io/kodo/guides/extension/) and
+the [verified prompt catalog](https://winterop-com.github.io/kodo/guides/extension-prompts/).
 
 ## Configuration
 
