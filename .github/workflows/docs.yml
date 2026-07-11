@@ -34,4 +34,5 @@ jobs:
       - name: Build and deploy to gh-pages
         run: >
           uv run --with mkdocs --with mkdocs-material --with 'mkdocstrings[python]'
+          --with mkdocs-panzoom-plugin
           mkdocs gh-deploy --force --no-history

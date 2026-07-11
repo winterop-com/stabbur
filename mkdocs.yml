@@ -92,3 +92,7 @@ plugins:
             show_source: false
             show_root_heading: true
             members_order: source
+  # Pan/zoom + fullscreen on rendered Mermaid diagrams (the architecture graphs get large).
+  - panzoom:
+      mermaid: true
+      full_screen: true
