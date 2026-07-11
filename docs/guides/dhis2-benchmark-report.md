@@ -9,6 +9,18 @@ and returns the right answer about a live instance. Bottom line up front:
 > beating the 27B and 31B models. You do not need a big model to run DHIS2 locally; you need one
 > that reliably calls tools.
 
+!!! note "Re-verified 2026-07-12 (compact-JSON tool output)"
+
+    kodo now hands tool results to the model as **compact JSON** rather than the older Python
+    `repr` text, so the two locally-available models were re-run to confirm the leaderboard still
+    holds under the new shape. Both reproduce **12/12**: `Ornith-1.0-9B` on 3/3 clean runs and
+    `gemma-4-12B` on 2/2. Two changes came out of it: the `count data sets` ground truth was
+    refreshed **27 → 28** (the play demo added a data set since the 2026-07-04 snapshot; every
+    other count still matches), and generation should be **bounded** (`max_tokens`) — an uncapped
+    run occasionally lets a small model run away on the hardest problem and drop its final answer,
+    which reads as a spurious miss. The larger sweep models below were not re-run (not in the local
+    library); their scores are the original 2026-07-04 measurements.
+
 ## What was measured
 
 The `tools-dhis2` suite (`kodo benchmark run tools-dhis2`) attaches the
@@ -29,7 +41,7 @@ The 12 problems and their ground truth (a snapshot of play42 on 2026-07-04):
 | basics | count organisation units | 1332 |
 | intermediate | count data elements | 1037 |
 | intermediate | count indicators | 77 |
-| intermediate | count data sets | 27 |
+| intermediate | count data sets | 28 |
 | intermediate | org-unit level 3 name | Chiefdom |
 | advanced | count option sets | 171 |
 | advanced | UID of "ANC 1st visit" | fbfJHSPpUQD |

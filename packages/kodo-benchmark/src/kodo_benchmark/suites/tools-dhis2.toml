@@ -74,7 +74,7 @@ difficulty = "intermediate"
 prompt = "How many data sets are there in this DHIS2 instance? Use the available tools."
 servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
-expect_answer_contains = "27"
+expect_answer_contains = "28"
 
 [[problems]]
 id = "orgunit-level-3-name"
