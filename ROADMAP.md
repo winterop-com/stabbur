@@ -34,6 +34,17 @@ Open follow-ups, roughly in order:
   `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
 - **Packaging** — Web Store (unlisted first), pinned manifest key, Firefox `sidebar_action` target
   via the WXT multi-target build.
+- **Re-run the tools-dhis2 benchmark against the new tool-output shape.** Tool results now reach
+  the model as compact JSON instead of the old repr text; the "Ornith-1.0-9B 12/12" result cited
+  in the dhis2 template's model choice predates that change. Likely fine or better (JSON is what
+  these models were tool-trained on), but per "actually test every path" the sweep needs a re-run
+  before the claim is cited again.
+- **Live-E2E the bind mint tail in-browser.** The live spec asserts login/tab-match/consent but
+  skips the in-tab mint when headless: `chrome.scripting.executeScript` on the play tab needs host
+  access, which comes from `activeTab` at runtime (toolbar click) and cannot be granted reliably
+  headless via `chrome.permissions.request`. The tail is covered by the mock UI spec + an
+  out-of-band live proof with the exact payloads; a real fix is driving the action click via CDP
+  or a test-only granted-permissions profile.
 
 The DHIS2 MCP servers it points at are the published PyPI packages (`uvx dhis2w-mcp-bridge` is the
 default; router/full-server for bigger models); source lives in `~/dev/local/dhis2w-utils`.

@@ -46,6 +46,15 @@ Then load it — pick `.output/chrome-mv3` for the generic panel or
    `extension/.output/chrome-mv3-dhis2`).
 4. Click the kodo toolbar icon to open the side panel.
 
+For the full DHIS2 experience (target banner, Verify, Use my login), serve a project
+scaffolded from the dhis2 template instead of a bare model:
+
+```bash
+kodo project new --template dhis2 myassistant && cd myassistant
+mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo credentials
+kodo serve --port 8000
+```
+
 ### Allow the extension (cors_origins)
 
 Read-only traffic (status, tools, chat streaming) works immediately. Mutating requests
