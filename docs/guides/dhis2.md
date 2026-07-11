@@ -201,6 +201,8 @@ refused):
 
 - [DHIS2 assistant worked example](dhis2-project.md) — scaffold a portable project with a
   local model copy, wire the bridge, and confirm the model calls it.
+- [Chrome side panel](extension.md) — put the assistant next to a live DHIS2 tab: the target
+  banner, Verify, "Who am I here?", and "Use my login" (read-only PAT bind).
 - [Tools (MCP)](tools.md) — how kodo's MCP client and agent loop work across all servers.
 - [Model catalog](model-catalog.md) — validated chat models; the `tools-dhis2` benchmark
   suite (`kodo benchmark run tools-dhis2`) scores which of them best drive the bridge.

@@ -46,18 +46,21 @@ nav:
       - Voice (TTS & STT): guides/voice.md
       - Projects: guides/projects.md
       - Tools (MCP): guides/tools.md
-      - "Chrome side panel": guides/extension.md
-      - "Chrome side-panel prompts": guides/extension-prompts.md
-      - "DHIS2 tools & profiles": guides/dhis2.md
-      - "DHIS2 assistant (worked example)": guides/dhis2-project.md
-      - "Model catalog (validated)": guides/model-catalog.md
-      - "DHIS2 benchmark report": guides/dhis2-benchmark-report.md
-      - Using models directly: guides/direct-usage.md
       - How models work (formats & modalities): guides/how-models-work.md
       - Models & compatibility: guides/models.md
+      - Using models directly: guides/direct-usage.md
+  - Chrome side panel:
+      - Overview: guides/extension.md
+      - Prompt catalog: guides/extension-prompts.md
+  - DHIS2 assistant:
+      - Tools & profiles: guides/dhis2.md
+      - Worked example: guides/dhis2-project.md
+      - Benchmark report: guides/dhis2-benchmark-report.md
+  - Reference:
+      - CLI reference: cli.md
+      - Model catalog (validated): guides/model-catalog.md
+      - Benchmark leaderboard: benchmarks.md
   - Architecture: architecture.md
-  - Benchmarks: benchmarks.md
-  - CLI reference: cli.md
 
 markdown_extensions:
   - admonition

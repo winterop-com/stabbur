@@ -1,20 +1,49 @@
 # Getting started
 
+!!! warning "Access & license"
+    kodo is **proprietary, source-available software** — Copyright (c) 2026 Morten Hansen,
+    all rights reserved (see [`LICENSE`](https://github.com/winterop-com/kodo/blob/main/LICENSE)).
+    It is **not** open-source and viewing the source does not grant a right to use it. Running
+    kodo requires a written license from the owner — contact **<morten@winterop.com>**. This
+    guide is written for someone who already has access to the repository and permission to run it.
+
 ## Install
+
+kodo installs **from source with [uv](https://docs.astral.sh/uv/)** — it is not published on
+PyPI, so there is no `pip install kodo`. Everything below uses `uv`. You need **Python 3.13**
+and access to the kodo repository.
 
 ### 1. kodo itself
 
-Requires **Python 3.13** and [uv](https://docs.astral.sh/uv/).
+The tidiest install is a global **`uv tool`** from a local checkout — it puts `kodo` on your
+`PATH` for every directory, editable so a `git pull` takes effect immediately:
 
 ```bash
-uv sync
+git clone https://github.com/winterop-com/kodo && cd kodo
+uv tool install --editable ".[mlx,voice,tts,benchmark]"   # kodo on your PATH; code edits live
 ```
 
-This installs the **`kodo`** command (with a hidden `ls` alias for `list`) plus the
-bundled first-party MCP tool servers (`datetime`, `files`, `memory`, …), so tools work
-out of the box. Run it via `uv run kodo …`, or activate the venv and call `kodo` directly.
-Use `make install` (= `uv sync --extra benchmark`) if you also want the `kodo benchmark`
-eval command.
+Pick only the extras you need — `mlx` and `voice` are Apple-Silicon runtimes, `tts` adds
+Kokoro dependencies, `benchmark` adds the `kodo benchmark` eval command. On Linux, drop
+`mlx`/`voice` (no wheels). You can also install straight from git without a manual clone
+(requires repo access; installs the core CLI, non-editable):
+
+```bash
+uv tool install "git+https://github.com/winterop-com/kodo"
+```
+
+Prefer to work **in the checkout** instead of a global tool? Use `uv sync` and run everything
+through `uv run`:
+
+```bash
+uv sync                       # build the project's .venv (kodo + bundled MCP servers)
+uv run kodo doctor            # run any command with `uv run kodo …`
+```
+
+Either way you get the **`kodo`** command (with a hidden `ls` alias for `list`) plus the
+bundled first-party MCP tool servers (`datetime`, `files`, `memory`, …), so tools work out of
+the box. Use `make install` (= `uv sync --extra benchmark`) for a dev sync that includes the
+`kodo benchmark` eval command.
 
 kodo is installed **from this workspace**, not as a standalone PyPI wheel — the bundled
 `kodo-mcp-*` servers are unpublished workspace members that resolve as editable siblings, so

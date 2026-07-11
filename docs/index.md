@@ -15,6 +15,13 @@ flowchart LR
     lib["Library on your drive<br/>gguf/ · mlx/ · cards + metadata"] -->|chat / serve --ui| rt["llama-server / mlx_lm.server<br/>OpenAI /v1 "]
 ```
 
+!!! info "Proprietary, source-available"
+    kodo is **not** open-source. Copyright (c) 2026 Morten Hansen, all rights reserved
+    (see [`LICENSE`](https://github.com/winterop-com/kodo/blob/main/LICENSE)). The source is
+    published for reference and evaluation; running it requires a written license — contact
+    **<morten@winterop.com>**. Install is from source with `uv` (there is no `pip install kodo`);
+    see [Getting started](getting-started.md).
+
 ## Why
 
 - **One library, everywhere.** A single, format-organized library on an external

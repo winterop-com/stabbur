@@ -10,7 +10,7 @@ reality.
 
 ## How to use
 
-1. Install and open the side panel (see the [extension README](https://github.com/winterop-com/kodo/tree/main/extension)).
+1. Install and open the side panel (see the [Chrome side panel](extension.md) guide).
 2. Point it at a running `kodo serve` (Settings -> kodo base URL).
 3. Turn on **Page context** (the pill in the composer, or the Settings checkbox). This
    attaches the page URL, title, and your current text selection to the next message.

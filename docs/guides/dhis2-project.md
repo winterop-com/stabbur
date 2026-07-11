@@ -159,6 +159,13 @@ DHIS 2 Demo - Sierra Leone.
 For the interactive TUI (or the browser), run `kodo chat` or `kodo serve --ui` in the
 same directory — both bind to the project's model with the DHIS2 tool available.
 
+!!! tip "Next to a live DHIS2 tab"
+    Scaffold from the **`dhis2` template** (`kodo project new mydhis2 --template dhis2`) to also
+    get an `[assistant]` block, then serve it on a pinned port and drive it from the
+    [Chrome side panel](extension.md): a target banner that confirms your active tab matches the
+    instance, **Verify**, **Who am I here?**, and **Use my login** to let the tools act as you
+    (a read-only PAT minted in the tab, never a copied password).
+
 ## Recap
 
 | Step | Command |

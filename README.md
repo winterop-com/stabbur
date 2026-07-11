@@ -6,6 +6,11 @@ them into a single library (browse via a **Typer CLI** or a **browser chat UI**)
 and runs them from there. The library lives under one configurable root you point
 at an external drive (e.g. a 5TB drive).
 
+> **Proprietary, source-available.** kodo is not open-source. Copyright (c) 2026 Morten
+> Hansen, all rights reserved (see [`LICENSE`](LICENSE)). The source is published for
+> reference and evaluation; running it requires a written license — contact
+> <morten@winterop.com>. Install is from source with `uv` (there is no `pip install kodo`).
+
 ![kodo web UI](docs/assets/web-ui.png)
 
 ## Layout
@@ -44,7 +49,8 @@ it, library commands fail with a clear message instead of silently using `./data
 **Install globally** (run `kodo` from any directory):
 
 ```bash
-uv tool install --editable ".[mlx,voice,tts,benchmark]"   # kodo on your PATH, code edits live
+uv tool install --editable ".[mlx,voice,tts,benchmark]"   # from a checkout: kodo on your PATH, code edits live
+uv tool install "git+https://github.com/winterop-com/kodo" # or straight from git (requires repo access; core CLI)
 # then put KODO_LIBRARY_ROOT in your shell profile (~/.zshrc) so it applies everywhere
 ```
 

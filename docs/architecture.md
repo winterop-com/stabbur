@@ -51,16 +51,50 @@ single corrupt or half-written model on disk is skipped rather than crashing the
 (`llama-server` / `mlx_lm.server`) on an internal port — auto-picked free by
 default, or pinned via `runtime_port` / `--runtime-port`. The
 `serving` router exposes `/api/status`, `/api/load/{name}`, and a streaming
-`/v1/{path}` proxy, so the browser SPA (and the future extension) talk to one
-stable origin while the underlying model is swapped underneath.
+`/v1/{path}` proxy, so the browser SPA and the [Chrome side panel](guides/extension.md)
+talk to one stable origin while the underlying model is swapped underneath.
 
 ```mermaid
 flowchart LR
-    client["SPA / extension"] --> api["FastAPI (serve)"]
+    client["SPA / side panel"] --> api["FastAPI (serve)"]
     api -->|"/api/load/{name}"| mgr["ServerManager.load()"]
     mgr -->|spawn| rt["runtime (llama-server / mlx_lm.server)"]
     api -->|"/v1/* stream-proxy"| rt
 ```
+
+The **cross-site guard** (`app.py`) is part of this surface: `serve` is same-origin by
+default, and a mutating `/api` / `/v1` call a browser flags cross-site (`Sec-Fetch-Site`) is
+rejected `403` unless its origin is in `cors_origins` — that is what a Chrome extension origin
+(`chrome-extension://<id>`) must be added to. Read-only traffic is unaffected.
+
+## Agent loop, tools & the assistant surface
+
+kodo is the **MCP client** and owns the **agent loop**, so every frontend (CLI, web, side
+panel) stays thin. `POST /api/chat` (`routers/serving/chat.py`) runs it server-side: the model
+emits a `tool_call`, `agent.py` executes it via the `tools.MCPToolset` (spawned from the merged
+`mcpServers` config, `mcpservers.py`), feeds the result back as a `tool` message, and continues —
+streaming typed SSE (tokens, reasoning, tool-call chips) to the client. A tool result that returns
+an **image** is fed to a vision model as a follow-up user image message (gated on the detected
+`vision` capability); text-only models get a note instead.
+
+A project can also carry a domain-generic **`[assistant]` block** — target metadata kodo
+**echoes but never interprets** (`routers/serving/assistant.py`, `project.AssistantInfo`):
+
+- `GET /api/assistant` returns the block verbatim (name / base_url / auth / readonly / source),
+  404 if absent. `?verify=1` runs the project-declared **verify** recipe (a named MCP tool call)
+  once and caches the outcome for 60s, so a UI can show a live connection state without kodo
+  knowing what "connected" means for the domain.
+- The **probe** recipe is echoed for the *client* to run same-origin in the target tab (e.g. the
+  side panel's "Who am I here?").
+- The **bind** recipe (`POST /api/assistant/bind` / `/unbind`) installs a credential the client
+  minted — e.g. the extension's "Use my login" read-only PAT — by running a named mode's argv
+  (secret handed via env, redacted from captured output, child killed by process group). Only the
+  browser-side mint recipe and mode *names* are exposed; a mode's argv / `secret_env` stay
+  server-side.
+
+This keeps kodo domain-neutral: the DHIS2 assistant is just a project whose `[assistant]` block
+and MCP tools happen to describe a DHIS2 instance. See the
+[Chrome side panel](guides/extension.md) guide for the client half.
 
 ## Runtimes
 

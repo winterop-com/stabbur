@@ -111,6 +111,8 @@ The app keeps one stable origin while swapping the underlying runtime:
 | `POST /api/unload` | eject the loaded model (frees memory) |
 | `POST /api/chat` | server-side agent loop (tools + multimodal) → typed SSE |
 | `GET /api/tools` | attached MCP tools (namespaced `<server>__<tool>`) |
+| `GET /api/assistant` | project `[assistant]` target metadata for UI clients (404 if none); `?verify=1` runs the verify recipe |
+| `POST /api/assistant/bind`, `/unbind` | install/remove a client-minted credential (the side panel's "Use my login") |
 | `GET /api/doctor` | system-health report (mirrors `kodo doctor`) |
 | `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV (chat Listen) |
 | `POST /v1/audio/speech` | OpenAI TTS: text → audio (Kokoro/Dia/…), formats via ffmpeg, voice cloning |
@@ -129,10 +131,9 @@ kodo serve --ui --model <name>        # or: make run MODEL=<name>
 ```
 
 Locks the server to one model: no switching, the composer's model picker is hidden
-(the top-bar badge shows the bound model), and a stable `/v1`. This is the intended
-backend for the Chrome extension (planned — see `ROADMAP.md` and `CHROME.md` in the repo),
-whose side panel points at this endpoint. Set `cors_origins` to the extension's origin so it can call across
-origins (see below).
+(the top-bar badge shows the bound model), and a stable `/v1`. This is the backend for the
+[Chrome side panel](extension.md), whose panel points at this endpoint. Set `cors_origins`
+to the extension's origin so it can call across origins (see below).
 
 **A project locks too.** In a directory with a `kodo.toml` whose `[project].model`
 is set, `kodo serve` binds to that model the same way (a project is a purpose-built

@@ -1,0 +1,37 @@
+name: Docs
+
+# Build the mkdocs site and publish it to the gh-pages branch (GitHub Pages
+# serves that branch). Uses `mkdocs gh-deploy`, the same mechanism as a manual
+# local deploy, so the Pages source stays "Deploy from a branch: gh-pages".
+# Docs-only pushes to main trigger it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write # gh-deploy force-pushes the built site to gh-pages
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gh-deploy needs history to update the gh-pages branch
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Build and deploy to gh-pages
+        run: >
+          uv run --with mkdocs --with mkdocs-material --with 'mkdocstrings[python]'
+          mkdocs gh-deploy --force --no-history

@@ -258,6 +258,34 @@ kodo voice speak "some text" -o out.wav      # write a WAV instead of playing
 kodo voice speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
 ```
 
+## `kodo setup`
+
+First-run **machine setup** — the write-mode companion to `kodo doctor` (machine scope,
+whereas `kodo project init` scaffolds one project). It persists per-machine defaults to
+`~/.config/kodo/config.toml` (library location + default model), builds the browser UI if
+[Bun](https://bun.sh) is present, and prints an OS-specific hint for anything it can't install
+(the llama.cpp binary). Safe to re-run.
+
+```bash
+kodo setup                              # interactive first-run setup
+kodo setup --library-root /path --model <name> --yes   # non-interactive
+```
+
+## `kodo config`
+
+Read and write the **machine defaults** (`~/.config/kodo/config.toml`) — the lowest-priority
+settings source, below `KODO_*` env vars and a project `kodo.toml`. Writable keys:
+`library-root`, `model` (the default model outside a project), and `server` (a default
+`kodo serve` URL for `kodo chat -p` to attach to).
+
+```bash
+kodo config set library-root /path/to/your/library   # where your library lives
+kodo config set model lmstudio-community/gemma-4-12B-it-QAT-GGUF   # default model
+kodo config list                        # show every stored value (ls is an alias)
+kodo config get library-root            # one value
+kodo config path                        # print the config file location
+```
+
 ## `kodo doctor`
 
 Pre-flight system health: are the runtime binaries kodo spawns installed
