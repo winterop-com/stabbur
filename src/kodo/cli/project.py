@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from rich.panel import Panel
 
 from kodo import (
@@ -187,12 +187,22 @@ def _write_project(
     target: Path, choices: _WizardChoices, *, use_local: bool, existing: list[library_ops.LibraryModel], uv: bool
 ) -> None:
     """Write ``kodo.toml`` + ``.mcp.json`` (and, for a uv project, pyproject/README + template files)."""
+    # A template may carry [assistant] target metadata (opaque dict) — validate it to AssistantInfo
+    # so render_manifest (the single writer) emits it, or refuses a malformed one up front with
+    # the CLI's clean error contract (ProjectError), not a pydantic traceback mid-scaffold.
+    assistant = None
+    if choices.template is not None and choices.template.assistant is not None:
+        try:
+            assistant = project.AssistantInfo.model_validate(choices.template.assistant)
+        except ValidationError as exc:
+            raise project.ProjectError(f"template assistant metadata is invalid: {exc}") from exc
     (target / "kodo.toml").write_text(
         project.render_manifest(
             model=choices.model,
             system_prompt=choices.system_prompt,
             local_library_dir=_LOCAL_LIBRARY if use_local else None,
             chat_voice=choices.chat_voice,
+            assistant=assistant,
         )
     )
     # Tools go in the standard .mcp.json (not kodo.toml). In a uv project the servers are pinned

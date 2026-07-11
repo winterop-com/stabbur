@@ -8,6 +8,8 @@ model) doesn't bloat the CLI module.
 
 from __future__ import annotations
 
+from typing import Any
+
 from kodo.models import ProjectTemplate
 
 # --- example prompt files -------------------------------------------------------------------
@@ -281,6 +283,66 @@ def _mcp_prompt(tool_desc: str) -> str:
     )
 
 
+def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, Any]:
+    """Build the ``[assistant]`` block shared by the ``dhis2`` and ``dhis2-write`` templates.
+
+    The two differ only in the profile name, base URL, and readonly flag. The probe + mint recipe
+    are identical across both; each bind mode's ``command`` / ``unbind_command`` target the given
+    profile, and the secret is handed over via its ``secret_env``.
+    """
+
+    def _mode(auth: str, secret_env: str) -> dict[str, Any]:
+        return {
+            "command": ["d2w", "profile", "add", profile, "--url", "{base_url}", "--auth", auth, "--local"],
+            "secret_env": secret_env,
+            "unbind_command": ["d2w", "profile", "remove", profile, "--local"],
+            "unbind_note": (
+                "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
+            ),
+        }
+
+    return {
+        "name": profile,
+        "base_url": base_url,
+        "auth": "basic",
+        "readonly": readonly,
+        "source": f"d2w profile {profile}",
+        "verify": {"tool": "dhis2__dhis2_cli", "args": {"args": ["profile", "verify", profile]}},
+        "probe": {
+            "paths": ["/api/me.json?fields=name,username", "/api/system/info.json"],
+            "fields": {
+                "username": ["0.username"],
+                "name": ["0.name"],
+                "version": ["1.version"],
+                "instanceName": ["1.systemName", "1.instanceName"],
+            },
+            "label": "Browsing as {name} on {instanceName} ({version})",
+        },
+        "bind": {
+            "mint_mode": "pat",
+            "fallback_mode": "session",
+            "mint_path": "/api/apiToken",
+            "mint_method": "POST",
+            "mint_payload": (
+                '{"type":"PERSONAL_ACCESS_TOKEN_V2","expire":{expires_ms},'
+                '"attributes":[{"type":"MethodAllowedList","allowedMethods":{allowed_methods}}],'
+                '"description":{description}}'
+            ),
+            "mint_token_field": "response.key",
+            "mint_id_field": "response.uid",
+            "revoke_path": "/api/apiToken/{credential_id}",
+            "expires_in_days": 30,
+            "methods_readonly": ["GET"],
+            "methods_full": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+            "session_cookie": "JSESSIONID",
+            "modes": {
+                "pat": _mode("pat", "DHIS2_PAT"),
+                "session": _mode("session", "DHIS2_SESSION_COOKIE"),
+            },
+        },
+    }
+
+
 # --- the templates --------------------------------------------------------------------------
 
 TEMPLATES: dict[str, ProjectTemplate] = {
@@ -322,12 +384,22 @@ TEMPLATES: dict[str, ProjectTemplate] = {
         # Ornith-1.0-9B won the tools-dhis2 benchmark (12/12, fastest, smallest).
         model="deepreinforce-ai/Ornith-1.0-9B-GGUF",
         system_prompt=(
-            "You are a DHIS2 assistant for a connected DHIS2 instance. ALWAYS use the dhis2 tools "
-            "(the dhis2_cli tool) to look up real data - never answer counts, UIDs, or metadata from "
-            "memory. To use a name in analytics or a filter, resolve it to a UID first with a metadata "
-            "search or a filtered list. Keep answers concise and state the values you retrieved."
+            "You are a DHIS2 assistant for a connected DHIS2 instance. For questions about DHIS2 data or "
+            "metadata - counts, UIDs, names, analytics, system details - use the dhis2 tools (the dhis2_cli "
+            "tool) to look up real values; never invent counts, UIDs, or metadata. To use a name in analytics "
+            "or a filter, resolve it to a UID first with a metadata search or a filtered list. Messages may "
+            "begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', "
+            "'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Treat "
+            "that context as information the user gave you: answer questions about the current page, its visible "
+            "content, or the signed-in user directly from it, without calling tools, and answer general "
+            "questions normally instead of refusing. Two accounts can differ: the 'Browser session user' is the "
+            "person viewing the page in their browser; your tools authenticate separately as the 'Tool "
+            "account'. When asked 'who am I', answer with the browser session user from the context when "
+            "present; report the tool account only when asked which credentials the tools use. Keep answers "
+            "concise and state the values you retrieved."
         ),
         mcp=[("dhis2", "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge")],
+        assistant=_dhis2_assistant("play42", "https://play.im.dhis2.org/dev-2-42", readonly=True),
         files={"examples/prompts.md": _DHIS2_PROMPTS_MD, "examples/dhis2-profiles.toml": _DHIS2_PROFILE_EXAMPLE},
         next_steps=(
             "Set up the DHIS2 profile, then run:\n"
@@ -342,14 +414,22 @@ TEMPLATES: dict[str, ProjectTemplate] = {
         # A write-enabled DHIS2 assistant against a LOCAL instance you control (not a shared demo).
         model="deepreinforce-ai/Ornith-1.0-9B-GGUF",
         system_prompt=(
-            "You are a DHIS2 assistant that can READ and WRITE metadata on a connected DHIS2 instance "
-            "via the dhis2 tools (the dhis2_cli tool). ALWAYS use the tools for real data - never answer "
-            "counts, UIDs, or metadata from memory. Resolve any name to its UID before acting on it. "
-            "Before creating, updating, or DELETING anything, state exactly what you are about to change; "
+            "You are a DHIS2 assistant that can READ and WRITE metadata on a connected DHIS2 instance via the "
+            "dhis2 tools (the dhis2_cli tool). For DHIS2 data or metadata - counts, UIDs, names, analytics - "
+            "use the tools for real values; never invent them. Resolve any name to its UID before acting on "
+            "it. Before creating, updating, or DELETING anything, state exactly what you are about to change; "
             "after a write, confirm the result by reading it back. Prefer NUMBER value types and sensible "
-            "defaults when creating. Keep answers concise and report the UIDs and outcomes you got."
+            "defaults when creating. Messages may begin with page context supplied by the user's browser: "
+            "lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser "
+            "session user:', and 'Tool account:'. Answer questions about the current page or the signed-in "
+            "user directly from that context, without calling tools, and answer general questions normally "
+            "instead of refusing. The 'Browser session user' is the person viewing the page; your tools "
+            "authenticate separately as the 'Tool account' - writes happen as the tool account, so say so "
+            "when it matters. When asked 'who am I', prefer the browser session user from the context. Keep "
+            "answers concise and report the UIDs and outcomes you got."
         ),
         mcp=[("dhis2", "env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge")],  # no READONLY -> writes enabled
+        assistant=_dhis2_assistant("local_basic", "http://localhost:8080", readonly=False),
         files={
             "examples/prompts.md": _DHIS2_WRITE_PROMPTS_MD,
             "examples/dhis2-profiles.toml": _DHIS2_LOCAL_PROFILE_EXAMPLE,

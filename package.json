@@ -1,0 +1,8 @@
+{
+  "name": "kodo-monorepo",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "extension"
+  ]
+}

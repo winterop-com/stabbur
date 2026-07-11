@@ -5,31 +5,49 @@ every session's context. `CLAUDE.md` holds the durable project rules, architectu
 and conventions; this file holds what's **next**. Completed work is removed (git
 history + `docs/` are the record) — this file is only open threads.
 
-## Next: the browser extension (Phase 2)
+## The browser extension: built (pending review), follow-ups open
 
-Phase 1 (kodo + web chat UI + generic tool/MCP support) is done, so the platform is ready for the
-north-star assistant (diagram at the bottom). In place:
+The MV3 side-panel extension shipped at `extension/` (branch `feat/chrome-extension`):
+WXT + the shared SPA chat core, connection state machine, typed-SSE chat, DHIS2 page context +
+target match/mismatch via the new generic `GET /api/assistant`, narrow same-origin session reads,
+remote-kodo bearer support, and a two-tier Playwright E2E suite (mock + live against play42,
+read-only). Verified prompt catalog: `docs/guides/extension-prompts.md`. Design + status deltas:
+**[`CHROME.md`](CHROME.md)** (see its Status sections).
 
-- **Locked single-model serve** — `kodo serve --ui --model X` exposes a stable OpenAI `/v1` and
-  `/api/chat` behind a cross-site guard + bearer auth (see `CHROME.md`) — the intended extension backend.
-- **Agent loop + MCP client** — tools from any MCP server (`.mcp.json`), streamed tool activity, each
-  call bounded by a timeout; a vision model now also *sees* images a tool returns (e.g. screenshots).
-- **Reproducible assistants** — `kodo project new --template {dhis2,dhis2-write,browse,…}` binds a
-  model + tools + system prompt into a committable project.
+**Round 2 shipped (2026-07-11):** the **"Use my login"** bind flow — read-only PAT minted in the
+target tab's own context (`POST /api/apiToken`), installed via a domain-generic `POST
+/api/assistant/bind` (kodo runs `d2w profile add … --auth pat --local` with the token in env),
+with a plain-language consent card, unbind (revoke + profile removal), and a **session-cookie
+fallback** riding a new `session` auth kind in `dhis2w-client`/`d2w`. Also: declared
+`[assistant.probe]` recipes replaced the round-1 hardcoded identity endpoints, browser-user vs
+tool-account identity labels, compact collapsed tool-result chips, and a Settings backend switcher.
+The whole bind flow is covered live against play42 (`extension/e2e/live/live.spec.ts`).
 
-**The work:** package the existing SPA (`frontend/`) as an **MV3 Chrome side-panel extension**
-pointed at a locked `/v1`. The side-panel-client vs cookie-relay design, the `/api/chat` contract +
-409 handling, CORS vs cross-site-guard mechanics, and the live-session SameSite analysis are all
-worked out in **[`CHROME.md`](CHROME.md)** — start there.
+Open follow-ups, roughly in order:
 
-The DHIS2 MCP servers to point it at live in `~/dev/local/dhis2w-utils` (bridge wiring done, verified
-via `kodo mcp add dhis2`):
+- **Write-enabling consent (round 3)** — extend the bind consent to mint a read-write PAT
+  (`methods_full`, the `bind-allow-writes` toggle is already wired for a non-readonly assistant),
+  behind explicit per-action confirmation, PAT/profile channel only, never ambient cookies; mind
+  DHIS2 CSRF. Pair with the write-reliability work below.
+- **MCP resource for the target** — add a `dhis2://target` resource to `dhis2w-mcp-bridge` (once
+  the pre-1.0 dhis2w release lands) + a generic MCP-resource proxy in kodo, replacing the
+  `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
+- **Packaging** — Web Store (unlisted first), pinned manifest key, Firefox `sidebar_action` target
+  via the WXT multi-target build.
+- **Re-run the tools-dhis2 benchmark against the new tool-output shape.** Tool results now reach
+  the model as compact JSON instead of the old repr text; the "Ornith-1.0-9B 12/12" result cited
+  in the dhis2 template's model choice predates that change. Likely fine or better (JSON is what
+  these models were tool-trained on), but per "actually test every path" the sweep needs a re-run
+  before the claim is cited again.
+- **Live-E2E the bind mint tail in-browser.** The live spec asserts login/tab-match/consent but
+  skips the in-tab mint when headless: `chrome.scripting.executeScript` on the play tab needs host
+  access, which comes from `activeTab` at runtime (toolbar click) and cannot be granted reliably
+  headless via `chrome.permissions.request`. The tail is covered by the mock UI spec + an
+  out-of-band live proof with the exact payloads; a real fix is driving the action click via CDP
+  or a test-only granted-permissions profile.
 
-- **`dhis2w-mcp-bridge`** — one `dhis2_cli` tool shelling out to `d2w`; the default for small models.
-- **`dhis2w-mcp-router`** — 2 meta-tools (`search_tools`/`call_tool`), lazy typed discovery, a single
-  guarded chokepoint + read-only mode.
-- **`dhis2w-mcp`** — the full ~304 typed tools (big-context hosts).
-- `dhis2w-browser` — Playwright DHIS2 automation, for the later "act on the page" tier.
+The DHIS2 MCP servers it points at are the published PyPI packages (`uvx dhis2w-mcp-bridge` is the
+default; router/full-server for bigger models); source lives in `~/dev/local/dhis2w-utils`.
 
 ## DHIS2 write reliability
 
@@ -118,6 +136,8 @@ Chrome extension (side panel, shadcn chat)
 1. **Phase 1 — kodo + web chat UI + generic tool/MCP support.** Done: the library, pull/run/chat,
    `serve --ui` and locked `serve --ui --model X`, the `/v1` proxy, the agent loop + MCP client
    pointable at any server, the bundled toolset, voice, and the Textual TUI.
-2. **Phase 2 — DHIS2 + Chrome extension** [next]: package the SPA as the MV3 side-panel extension
-   against the locked `/v1` (see the top of this file + `CHROME.md`).
-3. **Later** — extension page-context, then page-actions via `dhis2w-browser`.
+2. **Phase 2 — DHIS2 + Chrome extension** [built 2026-07-10, pending review]: the MV3 side-panel
+   extension at `extension/`, including page-context and session reads (see the top of this file +
+   `CHROME.md`).
+3. **Later** — read-only PAT-minting ("Use my login") shipped in round 2; next is writes, then
+   page-actions via `dhis2w-browser`; packaging/stores.

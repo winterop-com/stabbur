@@ -1,0 +1,9 @@
+/* Side-panel styles. Reuse the shared frontend theme (design tokens, prose-chat,
+   highlight.js code styling) so the panel renders identically to the web UI, and
+   point Tailwind's source scanning at both packages so utility classes used only
+   in the shared components (which the panel now imports) survive tree-shaking.
+   @source paths are relative to this file: ../.. = extension/, ../../../frontend/src
+   = the shared frontend. Dark mode follows the .dark class toggled in main.tsx. */
+@import "../../../frontend/src/index.css";
+@source "../../../frontend/src";
+@source "../..";

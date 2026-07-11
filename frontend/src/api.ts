@@ -2,6 +2,7 @@
 // loop against /api/chat (kodo's tool-aware endpoint). /api/chat emits its own
 // event envelope (token/tool/error/done), NOT raw OpenAI SSE, so we parse that.
 
+import { apiFetch } from "@/lib/http";
 import type { TagRegistry } from "@/lib/tags";
 
 export type Role = "user" | "assistant" | "system";
@@ -147,25 +148,25 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export const getStatus = () => fetch("/api/status").then(json<Status>);
-export const getLibrary = () => fetch("/api/library").then(json<LibModel[]>);
+export const getStatus = () => apiFetch("/api/status").then(json<Status>);
+export const getLibrary = () => apiFetch("/api/library").then(json<LibModel[]>);
 
 /** Replace a model's user tags (full list). Returns the normalized saved tags. */
 export const setModelTags = (model: string, tags: string[]) =>
-  fetch("/api/tags", {
+  apiFetch("/api/tags", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model, tags }),
   }).then(json<{ model: string; tags: string[] }>);
 
 /** The tag style registry ({tag: {color, icon, description}}); set via `kodo library tag-style`. */
-export const getTagRegistry = () => fetch("/api/tags/registry").then(json<TagRegistry>);
+export const getTagRegistry = () => apiFetch("/api/tags/registry").then(json<TagRegistry>);
 
 /** List the MCP tools attached to the server (empty if none configured). */
-export const getTools = () => fetch("/api/tools").then(json<ToolInfo[]>);
+export const getTools = () => apiFetch("/api/tools").then(json<ToolInfo[]>);
 
 /** Fetch the system-health report (runtimes, library, project). */
-export const getDoctor = () => fetch("/api/doctor").then(json<DoctorReport>);
+export const getDoctor = () => apiFetch("/api/doctor").then(json<DoctorReport>);
 
 /** A selectable Listen voice, spanning both TTS engines (Kokoro + OuteTTS). */
 export interface Voice {
@@ -177,11 +178,11 @@ export interface Voice {
 }
 
 /** List every available voice (Kokoro built-ins + OuteTTS); empty if no engine. */
-export const getVoices = () => fetch("/api/voices").then(json<Voice[]>);
+export const getVoices = () => apiFetch("/api/voices").then(json<Voice[]>);
 
 /** Synthesize text to speech for a chosen voice id; returns a WAV blob to play. */
 export async function speak(text: string, voice?: string | null): Promise<Blob> {
-  const res = await fetch("/api/speak", {
+  const res = await apiFetch("/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
@@ -211,7 +212,7 @@ export interface VoiceModelInfo {
 }
 
 /** List library voice models (TTS + STT) for the Voice section. */
-export const getVoiceModels = () => fetch("/api/voice").then(json<VoiceModelInfo[]>);
+export const getVoiceModels = () => apiFetch("/api/voice").then(json<VoiceModelInfo[]>);
 
 /** Options for /v1/audio/speech: a model + text, an optional preset voice, or a clone clip. */
 export interface SpeechOptions {
@@ -232,7 +233,7 @@ export async function synthesizeSpeech(opts: SpeechOptions): Promise<Blob> {
   if (opts.refAudioB64) body.ref_audio_b64 = opts.refAudioB64;
   if (opts.refText) body.ref_text = opts.refText;
   if (opts.seed != null) body.seed = opts.seed;
-  const res = await fetch("/v1/audio/speech", {
+  const res = await apiFetch("/v1/audio/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -249,7 +250,7 @@ export async function transcribeAudio(file: Blob, model = "whisper", filename = 
   const form = new FormData();
   form.append("file", file, filename);
   form.append("model", model);
-  const res = await fetch("/v1/audio/transcriptions", { method: "POST", body: form });
+  const res = await apiFetch("/v1/audio/transcriptions", { method: "POST", body: form });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
@@ -268,11 +269,11 @@ export function overallStatus(report: DoctorReport | null): CheckStatus | null {
 
 /** Fetch detailed info (card + metadata) for one model by name. */
 export const getModelInfo = (name: string) =>
-  fetch(`/api/model?name=${encodeURIComponent(name)}`).then(json<ModelInfo>);
+  apiFetch(`/api/model?name=${encodeURIComponent(name)}`).then(json<ModelInfo>);
 
 /** Eject the loaded model (stops its runtime, frees memory). */
 export async function unloadModel(): Promise<Status> {
-  const res = await fetch("/api/unload", { method: "POST" });
+  const res = await apiFetch("/api/unload", { method: "POST" });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
@@ -285,7 +286,7 @@ export async function loadModel(name: string, nCtx?: number | null): Promise<Sta
   // so reserved characters (?, #, %, spaces) in a name can't break the URL.
   const path = name.split("/").map(encodeURIComponent).join("/");
   const query = nCtx != null ? `?n_ctx=${nCtx}` : "";
-  const res = await fetch(`/api/load/${path}${query}`, { method: "POST" });
+  const res = await apiFetch(`/api/load/${path}${query}`, { method: "POST" });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
@@ -321,7 +322,7 @@ export async function* streamChat(
   if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
   if (options.systemPrompt != null) body.system_prompt = options.systemPrompt; // null → omit (use project default)
 
-  const res = await fetch("/api/chat", {
+  const res = await apiFetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

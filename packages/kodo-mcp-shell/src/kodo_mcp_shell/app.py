@@ -73,6 +73,10 @@ _IP_READ_VERBS = frozenset({"", "show", "sh", "list", "ls", "lst", "get", "help"
 
 def _ip_readonly(args: list[str]) -> bool:
     """``ip [flags] <object> [verb …]`` reads only when the verb is show/list/get (the default)."""
+    # -batch/-b runs an arbitrary command file (mutations included), and -force pairs with it —
+    # they sidestep the verb check entirely, so reject them outright.
+    if any(a.lstrip("-") in ("b", "batch", "force") for a in args if a.startswith("-")):
+        return False
     words = [a for a in args if not a.startswith("-")]
     verb = words[1] if len(words) > 1 else ""
     return verb in _IP_READ_VERBS

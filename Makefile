@@ -1,4 +1,4 @@
-.PHONY: help install install-mlx install-web lint check test test-slow coverage build frontend frontend-dev docs docs-serve docs-build clean
+.PHONY: help install install-mlx install-web lint check test test-slow coverage build frontend frontend-dev extension extension-e2e extension-e2e-live extension-prompts docs docs-serve docs-build clean
 
 # ==============================================================================
 # Venv
@@ -32,6 +32,10 @@ help:
 	@echo "  coverage    Run tests with coverage reporting"
 	@echo "  build       Build wheel + sdist"
 	@echo "  frontend    Build the browser UI (bun install + build → frontend/dist)"
+	@echo "  extension   Build the Chrome MV3 side-panel extension (bun install + build)"
+	@echo "  extension-e2e       Run the extension E2E mock tier (fast, hermetic)"
+	@echo "  extension-e2e-live  Run the extension E2E live tier (real kodo + DHIS2 demo)"
+	@echo "  extension-prompts   Verify the side-panel prompt catalog vs gemma-4-12B + regen the doc"
 	@echo "  docs        Serve the docs locally with live reload"
 	@echo "  docs-build  Build the docs site"
 	@echo "  clean       Clean up temporary files"
@@ -97,6 +101,26 @@ frontend-dev:
 	@echo ">>> Vite dev server (proxies /api + /v1 to KODO_DEV_API or :8000)"
 	@echo ">>> Run 'kodo serve --port 8000' alongside for the backend"
 	@cd frontend && bun run dev
+
+extension:
+	@echo ">>> Building the Chrome MV3 side-panel extension → extension/.output/chrome-mv3"
+	@cd extension && bun install && bun run build
+
+extension-e2e:
+	@echo ">>> Extension E2E: mock tier (builds + runs Playwright, headless)"
+	@cd extension && bun install && bun run e2e
+
+# Long model runs must survive an idle machine: macOS Maintenance Sleep suspends the
+# runtime mid-generation and poisons results with bogus timeouts. No-op off macOS.
+CAFFEINATE := $(shell command -v caffeinate >/dev/null 2>&1 && echo "caffeinate -is")
+
+extension-e2e-live:
+	@echo ">>> Extension E2E: live tier (real kodo serve + DHIS2 play demo; ~5-15 min)"
+	@cd extension && bun install && $(CAFFEINATE) bun run e2e:live
+
+extension-prompts:
+	@echo ">>> Extension prompt catalog: capture sites + verify against gemma-4-12B, then regenerate the doc"
+	@cd extension && bun install && $(CAFFEINATE) bun run prompts && bun run prompts:doc
 
 docs: docs-serve
 

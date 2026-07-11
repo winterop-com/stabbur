@@ -174,6 +174,61 @@ def test_result_content_extracts_image_blocks() -> None:
     assert tr.images == ["data:image/png;base64,QUJD"]
 
 
+def test_result_text_dumps_dict_data_as_compact_json() -> None:
+    # A dict payload must reach the model/SSE as compact JSON, not a Python repr.
+    result = type("R", (), {"structured_content": None, "data": {"count": 1332, "ok": True}})()
+    assert tools._result_text(result) == '{"count":1332,"ok":true}'
+
+
+async def test_call_returns_compact_json_for_dict_data() -> None:
+    # End-to-end through MCPToolset.call: dict data becomes compact JSON text (no repr wall).
+    class _Client:
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            return type("R", (), {"structured_content": None, "data": {"exit_code": 0, "stdout": "{}"}})()
+
+    toolset = tools.MCPToolset()
+    toolset._owner["srv__t"] = (_Client(), "t")  # type: ignore[assignment]
+    assert (await toolset.call("srv__t", {})).text == '{"exit_code":0,"stdout":"{}"}'
+
+
+def test_result_text_dumps_synthesized_dataclass_as_json_not_repr() -> None:
+    # fastmcp synthesizes a dataclass for structured returns; it must serialize as fields, not repr.
+    import dataclasses as dc
+
+    @dc.dataclass
+    class _Root:
+        exit_code: int
+        stdout: str
+
+    result = type("R", (), {"structured_content": None, "data": _Root(exit_code=0, stdout="hi")})()
+    text = tools._result_text(result)
+    assert text == '{"exit_code":0,"stdout":"hi"}'
+    assert "Root(" not in text  # the repr wall is gone
+
+
+def test_result_text_prefers_structured_content_over_dataclass_data() -> None:
+    # When both are present, the MCP-spec structuredContent dict wins over synthesized .data.
+    class _SynthesizedRoot:
+        def __repr__(self) -> str:
+            return "Root(exit_code=0)"
+
+    result = type("R", (), {"structured_content": {"exit_code": 0, "stdout": "{}"}, "data": _SynthesizedRoot()})()
+    assert tools._result_text(result) == '{"exit_code":0,"stdout":"{}"}'
+
+
+def test_result_text_keeps_bare_scalars_verbatim() -> None:
+    # A bare string/int return stays verbatim (fastmcp wraps a bare string as
+    # structured_content={"result": ...}; the scalar guard must win so it is not JSON-wrapped).
+    assert tools._result_text(type("R", (), {"structured_content": {"result": "ok"}, "data": "ok"})()) == "ok"
+    assert tools._result_text(type("R", (), {"structured_content": None, "data": 42})()) == "42"
+
+
+def test_result_text_dumps_list_data_as_json_array() -> None:
+    # A list payload becomes a JSON array, not a Python list repr.
+    result = type("R", (), {"structured_content": None, "data": [1, "a", {"b": 2}]})()
+    assert tools._result_text(result) == '[1,"a",{"b":2}]'
+
+
 async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
     # A model that keeps calling tools past max_rounds must still deliver a terminal
     # message: streamed via on_token (so the web UI, which drops the return value,
@@ -270,6 +325,65 @@ async def test_toolset_call_forwards_timeout_to_client() -> None:
 
     assert result.text == "ok"
     assert client.timeouts == [7.5]
+
+
+async def test_call_structured_prefers_the_raw_structured_content_dict() -> None:
+    # fastmcp's result.data is a synthesized dataclass (repr-strings under json), so the MCP-spec
+    # structuredContent dict must win when the server provides one (V: /api/assistant verify shape).
+    class _SynthesizedRoot:
+        def __repr__(self) -> str:
+            return "Root(exit_code=0)"
+
+    class _Client:
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            return type(
+                "R",
+                (),
+                {"structured_content": {"exit_code": 0, "stdout": "{}"}, "data": _SynthesizedRoot()},
+            )()
+
+    toolset = tools.MCPToolset()
+    toolset._owner["srv__t"] = (_Client(), "t")  # type: ignore[assignment]
+
+    assert await toolset.call_structured("srv__t", {}) == {"exit_code": 0, "stdout": "{}"}
+
+
+async def test_call_structured_converts_a_synthesized_dataclass_to_a_dict() -> None:
+    # Without structuredContent, fastmcp's .data can be a synthesized dataclass; it must come
+    # back as a plain dict, not an object that str()s into a repr downstream.
+    import dataclasses as dc
+
+    @dc.dataclass
+    class _Root:
+        exit_code: int
+        stdout: str
+
+    class _Client:
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            return type("R", (), {"structured_content": None, "data": _Root(exit_code=0, stdout="{}")})()
+
+    toolset = tools.MCPToolset()
+    toolset._owner["srv__t"] = (_Client(), "t")  # type: ignore[assignment]
+    assert await toolset.call_structured("srv__t", {}) == {"exit_code": 0, "stdout": "{}"}
+
+
+async def test_call_structured_falls_back_to_data_then_text() -> None:
+    # Without structuredContent, .data is returned; without either, the text content is.
+    class _Client:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            return type("R", (), self.payload)()
+
+    data_only = tools.MCPToolset()
+    data_only._owner["srv__t"] = (_Client({"structured_content": None, "data": {"a": 1}}), "t")  # type: ignore[assignment]
+    assert await data_only.call_structured("srv__t", {}) == {"a": 1}
+
+    part = type("Part", (), {"text": "plain text"})()
+    text_only = tools.MCPToolset()
+    text_only._owner["srv__t"] = (_Client({"structured_content": None, "data": None, "content": [part]}), "t")  # type: ignore[assignment]
+    assert await text_only.call_structured("srv__t", {}) == "plain text"
 
 
 async def test_connect_skips_a_failing_server_and_records_it() -> None:

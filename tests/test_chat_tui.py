@@ -175,6 +175,38 @@ async def test_export_thinking_includes_reasoning_only_when_asked(
     assert "done" in think_text  # the answer is still there
 
 
+async def test_clear_purges_stored_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reasoning is stored keyed by id() of the assistant message; /clear frees those dicts, so it
+    # must purge the store — else a later turn reusing a freed address could fold a cleared
+    # conversation's thinking into /export --thinking.
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: Any,
+        on_event: Any,
+        on_token: Any,
+        on_reasoning: Any = None,
+        on_usage: Any = None,
+        **_kw: Any,
+    ) -> str:
+        on_reasoning("private thinking")
+        on_token("answer")
+        messages.append({"role": "assistant", "content": "answer"})
+        return "answer"
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app._reasonings  # the turn's reasoning was stored
+        app.action_clear()
+        assert app._reasonings == {}  # and dropped on clear
+
+
 async def test_thinking_collapse_preference_is_sticky(monkeypatch: pytest.MonkeyPatch) -> None:
     from textual.widgets import Collapsible
 

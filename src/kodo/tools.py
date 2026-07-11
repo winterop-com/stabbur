@@ -4,6 +4,10 @@ kodo is the MCP *client* — it spawns an MCP server (over stdio), lists its too
 as OpenAI function schemas for the model, and executes ``tool_call``s against it.
 """
 
+import dataclasses
+import datetime
+import enum
+import json
 import os
 import re
 import shutil
@@ -79,9 +83,54 @@ def _openai_schema(tool: Any) -> dict[str, Any]:
     }
 
 
-def _result_text(result: Any) -> str:
-    """Best-effort text from a FastMCP call result (structured data or content)."""
+def _structured_payload(result: Any) -> Any | None:
+    """MCP structuredContent dict -> synthesized-dataclass asdict -> dict/list data; else None."""
+    structured = getattr(result, "structured_content", None)
+    if isinstance(structured, dict):
+        return structured
     data = getattr(result, "data", None)
+    if dataclasses.is_dataclass(data) and not isinstance(data, type):
+        return dataclasses.asdict(data)
+    if isinstance(data, (dict, list)):
+        return data
+    return None
+
+
+def _json_default(value: Any) -> Any:
+    """JSON fallback for values the encoder can't natively serialize.
+
+    ``datetime``/``date`` -> ISO 8601 (stable + sortable), ``Enum`` -> its ``.value``, everything else
+    -> ``str()``. A plain ``default=str`` yields a non-ISO, value-dependent datetime shape and a
+    ``ClassName.MEMBER`` enum repr, so the shapes are pinned here instead.
+    """
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat()
+    if isinstance(value, enum.Enum):
+        return value.value
+    return str(value)
+
+
+def _result_text(result: Any) -> str:
+    """Best-effort display text from a FastMCP call result.
+
+    The decision ladder, in order:
+
+    1. **Bare scalar** ``data`` (str/int/float/bool) -> ``str(data)`` verbatim. This must run
+       first: fastmcp wraps a bare-string tool return as ``structured_content == {"result": ...}``
+       while ``data`` stays the raw scalar, so a scalar guard *before* :func:`_structured_payload`
+       is the only thing that keeps a plain ``"ok"`` / ``"Wednesday"`` return from being JSON-wrapped.
+    2. **Structured payload** (``structuredContent`` / synthesized dataclass / dict-or-list data)
+       -> a compact JSON dump, so the model and SSE get JSON rather than a ``Root(exit_code=0, ...)``
+       repr wall.
+    3. Fallbacks: ``str(data)`` when data is some other non-None object, then joined content text
+       parts, then ``str(result)``.
+    """
+    data = getattr(result, "data", None)
+    if isinstance(data, (str, int, float, bool)):
+        return str(data)
+    payload = _structured_payload(result)
+    if payload is not None:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default)
     if data is not None:
         return str(data)
     parts = [c.text for c in getattr(result, "content", []) if getattr(c, "text", None)]
@@ -163,6 +212,31 @@ class MCPToolset:
             return ToolResult(text=f"error: unknown tool {name!r}")
         client, tool_name = entry
         return _result_content(await client.call_tool(tool_name, arguments, timeout=timeout))
+
+    async def call_structured(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+        """Execute a namespaced tool and return its **structured** payload (not display text).
+
+        Unlike :meth:`call` (which returns text + images for the chat loop), this returns the
+        MCP-spec ``structuredContent`` dict when the server provides one, else FastMCP's
+        reconstructed ``result.data``, else the best-effort text — for callers that consume the
+        result as data (e.g. the ``/api/assistant`` verify probe), not for rendering. The raw
+        dict is preferred because ``result.data`` is a fastmcp-synthesized object (a dataclass,
+        not a Pydantic model), which JSON-serializes as its repr string rather than as fields.
+        An unknown tool raises :class:`KeyError` (the caller turns any failure into a state), so it
+        never masquerades as a successful result the way :meth:`call`'s error string would.
+        """
+        entry = self._owner.get(name)
+        if entry is None:
+            raise KeyError(name)
+        client, tool_name = entry
+        result = await client.call_tool(tool_name, arguments, timeout=timeout)
+        # Shared with _result_text: structuredContent dict -> synthesized-dataclass asdict -> dict/list data.
+        # (fastmcp synthesizes dataclasses, which JSON-serialize as their repr, so we unwrap them here.)
+        payload = _structured_payload(result)
+        if payload is not None:
+            return payload
+        data = getattr(result, "data", None)
+        return data if data is not None else _result_text(result)
 
 
 @asynccontextmanager

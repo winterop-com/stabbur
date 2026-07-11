@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -152,6 +153,9 @@ class ProjectTemplate(BaseModel):
     next_steps: str = ""  # printed after scaffolding (setup the template still needs)
     extras: list[str] = Field(default_factory=list)  # kodo extras the uv project needs, e.g. ["voice"], ["web"]
     chat_voice: str | None = None  # spoken-reply voice override (default: kokoro:af_heart)
+    # Opaque [assistant] target metadata (validated to AssistantInfo at scaffold time); a plain
+    # dict here so models.py needn't import kodo.project.AssistantInfo — avoids an import cycle.
+    assistant: dict[str, Any] | None = Field(default=None)
 
 
 class ErrorResponse(BaseModel):
