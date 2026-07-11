@@ -24,6 +24,38 @@ from kodo.routers.serving.core import ServerStatus, _status
 from kodo.runtime import sampling
 from kodo.tools import MCPToolset
 
+_MAX_DETAIL = 2000  # cap on a tool SSE detail so one giant result can't flood the stream / the UI
+_MAX_DETAIL_STR = 200  # per-string cap when re-dumping a large JSON detail so it stays parseable
+
+
+def _cap_strings(value: Any) -> Any:
+    """Recursively cap every string in a JSON-decoded value to ``_MAX_DETAIL_STR`` chars."""
+    if isinstance(value, str):
+        return value if len(value) <= _MAX_DETAIL_STR else value[:_MAX_DETAIL_STR] + "..."
+    if isinstance(value, list):
+        return [_cap_strings(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _cap_strings(v) for k, v in value.items()}
+    return value
+
+
+def _truncate_detail(detail: str) -> str:
+    """Cap a tool SSE detail near ``_MAX_DETAIL`` chars, preserving JSON structure when it is JSON.
+
+    Small details pass through untouched. A large *JSON* detail is re-dumped compactly with every
+    string value capped, so the UI's collapsible chips can still parse it (a blind ``detail[:2000]``
+    slice would leave them a truncated, unparseable fragment — the exact large payloads they exist
+    for). If the capped re-dump is still too big, or the detail isn't JSON, fall back to a hard cut.
+    """
+    if len(detail) <= _MAX_DETAIL:
+        return detail
+    try:
+        parsed = json.loads(detail)
+    except (ValueError, TypeError):
+        return detail[:_MAX_DETAIL]
+    dumped = json.dumps(_cap_strings(parsed), separators=(",", ":"))
+    return dumped if len(dumped) <= _MAX_DETAIL else detail[:_MAX_DETAIL]
+
 
 class ChatRequest(BaseModel):
     """A chat turn for the server-side agent loop."""
@@ -81,7 +113,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         done = {"type": "done"}
 
         async def on_event(kind: str, detail: str) -> None:
-            await queue.put({"type": "tool", "kind": kind, "detail": detail[:2000]})
+            await queue.put({"type": "tool", "kind": kind, "detail": _truncate_detail(detail)})
 
         async def on_token(text: str) -> None:
             await queue.put({"type": "token", "text": text})
