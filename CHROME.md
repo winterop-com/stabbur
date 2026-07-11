@@ -36,6 +36,83 @@ corrected at its source (Option B) so `SameSite=Lax` reads run in the DHIS2-tab
 content script throughout; and Phase 1 gained conversation-history ownership and a
 graceful not-connected state.
 
+## Status (2026-07-10): built
+
+The extension described here now exists at `extension/` (WXT, MV3 side panel; see
+`extension/README.md` for setup). What shipped vs this design:
+
+- Phase 1 (side-panel client: status/load/409, tools, typed-SSE chat with client-owned
+  history, disconnected state) and Phase 2 (page context, target banner with
+  match/mismatch, generic `GET /api/assistant`) are implemented, plus a narrow
+  Phase-3-lite: fixed-endpoint same-origin session reads (`/api/me`, `/api/system/info`)
+  from the DHIS2 tab, and an opt-in truncated page-text capture.
+- The target-metadata endpoint landed as designed — generic `GET /api/assistant` echoing
+  an opaque `[assistant]` block from `kodo.toml` — but the live `verified` block is
+  produced by a **generic MCP tool call** named in the block (`[assistant.verify]`,
+  e.g. the bridge's `dhis2_cli profile verify`), not by an MCP resource: none of the
+  dhis2w servers publish resources yet. The MCP-resource + generic-resource-proxy shape
+  remains the intended long-term design; adding a `dhis2://target` resource to the bridge
+  and a resource proxy to kodo is a follow-up that can replace the tool-call path without
+  changing the endpoint contract.
+- Remote/cloud kodo works via the existing bearer auth (`auth_token`) + `cors_origins`;
+  the panel requires https for non-loopback hosts.
+- Playwright E2E lives in `extension/e2e/` (mock tier + a live tier that runs the full
+  loop against a real model and play42, read-only). Verified prompts live in
+  `docs/guides/extension-prompts.md`.
+- Still future, per this design: writes (per-action confirmation, PAT/profile channel
+  only), Web Store packaging, Firefox/Safari targets. (PAT-minting from the live session
+  shipped read-only in round 2 — see the next Status section.)
+
+## Status (2026-07-11): round 2 — "Use my login" (PAT-first, read-only)
+
+The "drive the active DHIS2 login" verdict above (read-only first; mint a PAT from the live
+session; writes last) is now **implemented read-only**. What shipped on top of the round-1 base:
+
+- **"Use my login" bind flow** (`extension/components/BindFlow.tsx` + `TargetBanner.tsx`,
+  `lib/bindRecipe.ts`, `lib/binding.ts`, `lib/bindApi.ts`). When the active tab matches the
+  assistant target, the panel offers **Use my login**. A consent card states the scope in plain
+  words — **read-only (GET)**, **expires in 30 days**, **stored in the kodo project's DHIS2
+  profile** — with no "allow writes" toggle for a read-only assistant. On confirm, a PAT is minted
+  **entirely in the target tab's own security context** (`chrome.scripting.executeScript`, MAIN
+  world, `POST /api/apiToken` with the live session cookie): the token never touches the service
+  worker or the page's JS — only the extracted `response.key` / `response.uid` come back. kodo then
+  installs it via `POST /api/assistant/bind` (below). The banner shows **Acting as \<user\> (your
+  login)**, with **Unbind** (revoke in the tab + remove the profile) and **Rebind**.
+- **PAT-first, session fallback.** A `404/405/501` mint (PAT unavailable) offers a **session-cookie
+  fallback**: it requests the optional `cookies` permission (user gesture) for the target origin,
+  reads the `JSESSIONID` cookie, and installs it as an `auth = "session"` profile. `401` prompts
+  **"Sign in to \<name\> in this tab first"**. The fallback rides a **new `session` auth kind in
+  `dhis2w-client`/`d2w`** (see `../dhis2w-utils/REVIEW-SESSION-AUTH.md`); `d2w profile add … --auth
+  session` reads `DHIS2_SESSION_COOKIE` from the env, mirroring the PAT `DHIS2_PAT` path.
+- **Backend `bind`/`unbind` in kodo, still domain-generic** (`routers/serving/assistant.py`).
+  `GET /api/assistant` now also echoes a **sanitized `[assistant.bind]` recipe** — the browser-side
+  mint paths/payload/extraction fields plus only the mode *names*; a mode's argv + `secret_env` stay
+  server-side. `POST /api/assistant/bind` / `/unbind` run the named mode's argv with the secret in
+  `secret_env` (never argv), redacted from captured output, serialized on a lock, verify-cache
+  invalidated after. kodo still learns no DHIS2 — the recipe is opaque project config the DHIS2
+  template fills (`[assistant.bind]` / `[assistant.bind.modes.*]`).
+- **Declared probe recipes replace the round-1 hardcoded endpoints.** The "Who am I here?" session
+  read (`lib/sessionReads.ts`) now runs the project-declared `[assistant.probe]` (paths + dotted
+  field map + label) echoed by `GET /api/assistant`, instead of fixed `/api/me` + `/api/system/info`
+  literals — so kodo core carries no DHIS2 paths.
+- **Identity labels.** Page context now distinguishes the **Browser session user** (who is viewing
+  the tab) from the **Tool account** (which credential the tools use), and the system prompt teaches
+  the model to answer "who am I" from the browser user while reporting the tool account only when
+  asked. After a bind the two converge (the PAT acts as the logged-in user).
+- **Tool results are compact.** Tool-call/result markers render as collapsed chips with compact JSON,
+  expandable on click, instead of dumping raw payloads inline.
+- **Backend switcher.** Settings can hold multiple kodo backends (Add/Remove backend); the binding
+  record is scoped per-backend id.
+- **E2E:** a live-tier `binds to the browser login` spec (`extension/e2e/live/live.spec.ts`) drives
+  the whole flow against real play42: log in as admin, mint a read-only PAT in the tab, install it
+  (`profiles.toml` flips `auth = "pat"`), chat as the bound account, verify over the PAT profile,
+  then unbind (token revoked, profile removed). The raw token never leaves the browser, so the test
+  asserts the read-only scope via the consent copy + read-only chip rather than replaying the token.
+
+Still future (unchanged): **writes** (per-action confirmation, PAT/profile channel only, mind CSRF),
+the `dhis2://target` MCP resource + generic resource proxy, and packaging (Web Store unlisted, pinned
+key, Firefox `sidebar_action`).
+
 ## Short version
 
 Use the extension as a browser UI/client. Keep kodo as the local backend, model
