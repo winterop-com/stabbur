@@ -11,7 +11,18 @@ app wiring) can target them via ``serving.get_manager`` for ``dependency_overrid
 """
 
 # Order matters — specific routes before proxy's /v1 catch-all (see module docstring).
-from kodo.routers.serving import core, chat, voice, proxy  # noqa: F401,I001 - register routes, in order
+from kodo.routers.serving import core, chat, assistant, voice, proxy  # noqa: F401,I001 - register routes, in order
 from kodo.routers.serving._base import get_conf, get_http, get_lifecycle_lock, get_manager, router
 
-__all__ = ["router", "core", "chat", "voice", "proxy", "get_manager", "get_http", "get_conf", "get_lifecycle_lock"]
+__all__ = [
+    "router",
+    "core",
+    "chat",
+    "assistant",
+    "voice",
+    "proxy",
+    "get_manager",
+    "get_http",
+    "get_conf",
+    "get_lifecycle_lock",
+]

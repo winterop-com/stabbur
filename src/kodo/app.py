@@ -114,6 +114,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncExitStack() as mcp_stack:
         proj = project.load()
         app.state.system_prompt = proj.system_prompt if proj else ""
+        # The project's [assistant] target metadata, echoed by /api/assistant for UI clients
+        # (kodo never interprets it); None outside a project or when the block is absent.
+        app.state.assistant = proj.assistant if proj else None
         # The model the UI auto-loads on open: the project's bound model (a project is a
         # reproducible assistant: model + prompt + tools), or — outside a project — the machine
         # default (`kodo config set model`), so free-play serve --ui still opens on a model.
@@ -169,6 +172,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.project_model = None
     app.state.chat_voice = None
     app.state.voice_enabled = True
+    # Target-instance metadata for /api/assistant (the project's [assistant] block), and the 60s
+    # TTL cache of its last verify probe. Both populated by lifespan when a project loads.
+    app.state.assistant = None
+    app.state.assistant_verified = None
 
     if settings.cors_origins:
         app.add_middleware(

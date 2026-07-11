@@ -471,6 +471,466 @@ async def test_audio_speech_unknown_model_404s(client: AsyncClient) -> None:
     assert "unknown" in r.json()["detail"].lower()
 
 
+async def test_api_assistant_404_when_none(client: AsyncClient) -> None:
+    # No project [assistant] block → the endpoint 404s (the panel then hides the target chip).
+    r = await client.get("/api/assistant")
+    assert r.status_code == 404
+
+
+async def test_api_assistant_echoes_statics_and_extra_keys_not_verify(app: FastAPI, client: AsyncClient) -> None:
+    from kodo.project import AssistantInfo
+
+    # Lifespan doesn't run under ASGITransport; set app.state directly (like the other tests).
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "play42",
+            "base_url": "https://demo/x",
+            "auth": "basic",
+            "readonly": True,
+            "source": "d2w profile play42",
+            "region": "eu",  # extra key must ride along
+            "verify": {"tool": "dhis2__dhis2_cli", "args": {"args": ["profile", "verify", "play42"]}},
+        }
+    )
+    body = (await client.get("/api/assistant")).json()
+    assert body["name"] == "play42" and body["base_url"] == "https://demo/x" and body["readonly"] is True
+    assert body["source"] == "d2w profile play42" and body["region"] == "eu"  # extras echoed
+    assert "verify" not in body  # the verify spec is an execution detail, never echoed
+    assert body["can_verify"] is False and body["verified"] is None  # no toolset attached
+
+
+class _FakeToolset:
+    """A minimal stand-in for MCPToolset: a names list + a scripted call_structured."""
+
+    def __init__(self, names: list[str], result: Any = None, exc: Exception | None = None) -> None:
+        self.names = names
+        self._result = result
+        self._exc = exc
+        self.calls = 0
+
+    async def call_structured(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+        self.calls += 1
+        if self._exc is not None:
+            raise self._exc
+        return self._result
+
+
+def _dhis2_assistant() -> Any:
+    from kodo.project import AssistantInfo
+
+    return AssistantInfo.model_validate(
+        {
+            "name": "play42",
+            "base_url": "https://demo/x",
+            "verify": {"tool": "dhis2__dhis2_cli", "args": {"args": ["profile", "verify", "play42"]}, "timeout": 5.0},
+        }
+    )
+
+
+async def test_api_assistant_can_verify_reflects_tool_presence(app: FastAPI, client: AsyncClient) -> None:
+    app.state.assistant = _dhis2_assistant()
+    # Toolset attached, but without the verify tool → can_verify stays False.
+    app.state.toolset = _FakeToolset(names=["other__thing"])
+    assert (await client.get("/api/assistant")).json()["can_verify"] is False
+    # Toolset attached with the verify tool → can_verify True.
+    app.state.toolset = _FakeToolset(names=["dhis2__dhis2_cli"])
+    assert (await client.get("/api/assistant")).json()["can_verify"] is True
+
+
+async def test_api_assistant_verify_happy_path(app: FastAPI, client: AsyncClient) -> None:
+    app.state.assistant = _dhis2_assistant()
+    app.state.toolset = _FakeToolset(names=["dhis2__dhis2_cli"], result={"ok": True, "server": "play42"})
+    body = (await client.get("/api/assistant", params={"verify": 1})).json()
+    assert body["can_verify"] is True
+    assert body["verified"]["ok"] is True
+    assert body["verified"]["data"] == {"ok": True, "server": "play42"}
+    assert isinstance(body["verified"]["checked_at"], (int, float))
+
+
+async def test_api_assistant_verify_unknown_tool_is_ok_false_200(app: FastAPI, client: AsyncClient) -> None:
+    # call_structured raising (unknown tool / timeout) is a data state, not an API error: 200 + ok=False.
+    app.state.assistant = _dhis2_assistant()
+    app.state.toolset = _FakeToolset(names=["dhis2__dhis2_cli"], exc=KeyError("dhis2__dhis2_cli"))
+    r = await client.get("/api/assistant", params={"verify": 1})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["verified"]["ok"] is False and body["verified"]["error"]
+
+
+async def test_api_assistant_verify_no_toolset_is_ok_false_200(app: FastAPI, client: AsyncClient) -> None:
+    # ?verify=1 with a spec but no toolset → ok=False (nothing to run), still HTTP 200.
+    app.state.assistant = _dhis2_assistant()
+    app.state.toolset = None
+    r = await client.get("/api/assistant", params={"verify": 1})
+    assert r.status_code == 200
+    assert r.json()["verified"]["ok"] is False
+
+
+async def test_api_assistant_verify_uses_ttl_cache(app: FastAPI, client: AsyncClient) -> None:
+    # A fresh cached outcome (< 60s) is returned without re-running the tool.
+    import time
+
+    from kodo.routers.serving.assistant import AssistantVerified
+
+    app.state.assistant = _dhis2_assistant()
+    fake = _FakeToolset(names=["dhis2__dhis2_cli"], result={"live": True})
+    app.state.toolset = fake
+    cached = AssistantVerified(ok=True, data={"cached": True}, checked_at=time.time())
+    app.state.assistant_verified = (cached.checked_at, cached)
+    body = (await client.get("/api/assistant", params={"verify": 1})).json()
+    assert body["verified"]["data"] == {"cached": True}  # served from cache
+    assert fake.calls == 0  # the tool was not re-run
+
+
+def test_api_assistant_response_mirrors_info_fields() -> None:
+    # AssistantResponse hand-mirrors AssistantInfo's fields (minus verify); a field added to
+    # AssistantInfo must not silently vanish from the echo contract.
+    from kodo.project import AssistantInfo
+    from kodo.routers.serving.assistant import AssistantResponse
+
+    info_fields = set(AssistantInfo.model_fields) - {"verify"}
+    assert info_fields <= set(AssistantResponse.model_fields)
+
+
+async def test_api_assistant_reserved_extra_keys_do_not_crash(app: FastAPI, client: AsyncClient) -> None:
+    # A project extra key named after a response field (can_verify / verified) must be overridden
+    # by kodo's computed values, not raise TypeError (-> 500) or pollute the response.
+    from kodo.project import AssistantInfo
+
+    app.state.assistant = AssistantInfo.model_validate({"name": "x", "can_verify": True, "verified": "spoofed"})
+    r = await client.get("/api/assistant")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["can_verify"] is False  # computed (no toolset), not the echoed extra
+    assert body["verified"] is None  # computed, not the echoed extra
+
+
+async def test_api_assistant_concurrent_verify_probes_once(app: FastAPI, client: AsyncClient) -> None:
+    # Two callers racing an empty cache share one probe (single-flight lock), so panel polling
+    # cannot double-hit a rate-limited target instance.
+    import asyncio
+
+    class _SlowToolset(_FakeToolset):
+        async def call_structured(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            return {"live": True}
+
+    app.state.assistant = _dhis2_assistant()
+    fake = _SlowToolset(names=["dhis2__dhis2_cli"])
+    app.state.toolset = fake
+    a, b = await asyncio.gather(
+        client.get("/api/assistant", params={"verify": 1}),
+        client.get("/api/assistant", params={"verify": 1}),
+    )
+    assert a.json()["verified"]["data"] == {"live": True}
+    assert b.json()["verified"]["data"] == {"live": True}
+    assert fake.calls == 1  # one probe served both
+
+
+async def test_api_assistant_echoes_probe_and_sanitized_bind(app: FastAPI, client: AsyncClient) -> None:
+    # probe is echoed verbatim (it is FOR the client to run); bind is echoed sanitized — the
+    # browser-side mint recipe plus only the mode NAMES (a mode's argv/secret_env are server-side).
+    import json as _json
+
+    from kodo.project import AssistantInfo
+
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "play42",
+            "base_url": "https://demo/x",
+            "probe": {
+                "paths": ["/api/me.json?fields=name", "/api/system/info.json"],
+                "fields": {"name": ["0.name"]},
+                "label": "Browsing as {name}",
+            },
+            "bind": {
+                "mint_path": "/api/apiToken",
+                "session_cookie": "JSESSIONID",
+                "modes": {
+                    "session": {"command": ["tool", "s", "{base_url}"], "secret_env": "COOKIE"},
+                    "pat": {"command": ["tool", "p", "{base_url}"], "secret_env": "PAT"},
+                },
+            },
+        }
+    )
+    body = (await client.get("/api/assistant")).json()
+    assert body["probe"]["paths"][0] == "/api/me.json?fields=name"
+    assert body["probe"]["label"] == "Browsing as {name}"
+    assert body["can_bind"] is True
+    assert body["bind"]["mint_path"] == "/api/apiToken"
+    assert body["bind"]["modes"] == ["pat", "session"]  # names only, sorted
+    dumped = _json.dumps(body["bind"])
+    assert "secret_env" not in dumped and "command" not in dumped  # execution details never echoed
+
+    # A bind block with no runnable mode → can_bind False, but the recipe still echoes.
+    app.state.assistant = AssistantInfo.model_validate({"name": "y", "bind": {"mint_path": "/api/x"}})
+    body2 = (await client.get("/api/assistant")).json()
+    assert body2["can_bind"] is False and body2["bind"]["modes"] == []
+
+
+async def test_api_assistant_bind_404_without_bind(app: FastAPI, client: AsyncClient) -> None:
+    from kodo.project import AssistantInfo
+
+    # No assistant metadata at all → 404.
+    assert (await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "x"})).status_code == 404
+    # Assistant present but no [assistant.bind] → 404.
+    app.state.assistant = AssistantInfo.model_validate({"name": "x"})
+    assert (await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "x"})).status_code == 404
+
+
+async def test_api_assistant_bind_bad_requests(app: FastAPI, client: AsyncClient) -> None:
+    import sys
+
+    from kodo.project import AssistantInfo
+
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "x",
+            "base_url": "https://d/x",
+            "bind": {"modes": {"pat": {"command": [sys.executable, "-c", "import sys"], "secret_env": "X"}}},
+        }
+    )
+    assert (await client.post("/api/assistant/bind", json={"mode": "nope", "secret": "s"})).status_code == 400
+    assert (await client.post("/api/assistant/bind", json={"mode": "pat", "secret": ""})).status_code == 400
+    big = "a" * (16384 + 1)
+    assert (await client.post("/api/assistant/bind", json={"mode": "pat", "secret": big})).status_code == 400
+
+
+async def test_api_assistant_bind_runs_mode_and_redacts_secret(
+    app: FastAPI, client: AsyncClient, tmp_path: Path
+) -> None:
+    # A bind mode runs its argv with the secret in secret_env (never on the argv), templates
+    # {base_url} from AssistantInfo, redacts the secret from captured output, and invalidates verify.
+    import sys
+    import time
+
+    from kodo.project import AssistantInfo
+
+    proof = tmp_path / "proof.txt"
+    code = (
+        "import os,sys\n"
+        "open(sys.argv[1],'w').write(os.environ.get('MY_SECRET','')+'|'+sys.argv[2])\n"
+        "print('leaked',os.environ.get('MY_SECRET',''))\n"
+    )
+    secret = "SUPERSECRET123"
+    info = AssistantInfo.model_validate(
+        {
+            "name": "play42",
+            "base_url": "https://demo.example/x",
+            "bind": {
+                "modes": {
+                    "pat": {
+                        "command": [sys.executable, "-c", code, str(proof), "{base_url}"],
+                        "secret_env": "MY_SECRET",
+                    }
+                }
+            },
+        }
+    )
+    app.state.assistant = info
+    app.state.assistant_verified = (time.time(), object())  # a stale outcome a successful bind must clear
+    r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": secret})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True and body["exit_code"] == 0
+    assert proof.read_text() == f"{secret}|https://demo.example/x"  # secret via env, base_url templated
+    assert info.bind is not None
+    assert all(secret not in arg for arg in info.bind.modes["pat"].command)  # never on argv
+    assert "***" in body["stdout"] and secret not in body["stdout"]  # redacted from output
+    assert app.state.assistant_verified is None  # verify cache invalidated
+
+
+async def test_api_assistant_unbind_runs_and_requires_command(
+    app: FastAPI, client: AsyncClient, tmp_path: Path
+) -> None:
+    import sys
+
+    from kodo.project import AssistantInfo
+
+    marker = tmp_path / "unbound.txt"
+    code = "import sys\nopen(sys.argv[1],'w').write('unbound')\n"
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "x",
+            "bind": {
+                "modes": {
+                    "pat": {
+                        "command": [sys.executable, "-c", "import sys"],
+                        "secret_env": "X",
+                        "unbind_command": [sys.executable, "-c", code, str(marker)],
+                    },
+                    "session": {"command": [sys.executable, "-c", "import sys"], "secret_env": "Y"},  # no unbind
+                }
+            },
+        }
+    )
+    r = await client.post("/api/assistant/unbind", json={"mode": "pat"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert marker.read_text() == "unbound"
+    # A mode with no unbind_command → 400.
+    assert (await client.post("/api/assistant/unbind", json={"mode": "session"})).status_code == 400
+
+
+async def test_api_assistant_bind_cross_site_blocked(client: AsyncClient) -> None:
+    # Mutating POSTs under /api are covered by the cross-site guard before the handler runs, so a
+    # drive-by page can't run a bind mode / install a credential on the local server.
+    r = await client.post(
+        "/api/assistant/bind", json={"mode": "pat", "secret": "s"}, headers={"sec-fetch-site": "cross-site"}
+    )
+    assert r.status_code == 403
+    r = await client.post("/api/assistant/unbind", json={"mode": "pat"}, headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
+
+
+async def test_api_assistant_bind_missing_command_is_127_not_500(app: FastAPI, client: AsyncClient) -> None:
+    # A mode whose argv[0] doesn't exist is a data state, not a crash: BindResult ok=False with
+    # exit_code 127 (a shell's "command not found"), never an HTTP 500.
+    from kodo.project import AssistantInfo
+
+    app.state.assistant = AssistantInfo.model_validate(
+        {"name": "x", "bind": {"modes": {"pat": {"command": ["kodo-definitely-missing-xyz"], "secret_env": "X"}}}}
+    )
+    r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "s"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is False and body["exit_code"] == 127
+    assert "command not found" in body["stderr"]
+
+
+async def test_api_assistant_bind_caps_chatty_output(app: FastAPI, client: AsyncClient) -> None:
+    # A mode that floods stdout is capped (first 16384 bytes) with a truncation marker, so it can't
+    # blow up RAM / the JSON response / the redaction scan.
+    import sys
+
+    from kodo.project import AssistantInfo
+
+    code = "import sys\nsys.stdout.write('A' * 200000)\n"
+    app.state.assistant = AssistantInfo.model_validate(
+        {"name": "x", "bind": {"modes": {"pat": {"command": [sys.executable, "-c", code], "secret_env": "X"}}}}
+    )
+    r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "s"})
+    assert r.status_code == 200, r.text
+    stdout = r.json()["stdout"]
+    assert stdout.endswith("... [truncated]")
+    assert len(stdout) <= 16384 + len("... [truncated]")
+
+
+async def test_api_assistant_bind_no_double_substitution(app: FastAPI, client: AsyncClient, tmp_path: Path) -> None:
+    # Single-pass templating: a value that itself contains a literal "{name}" is never re-substituted.
+    # Here base_url embeds "{name}", so the rendered argv keeps it verbatim (not replaced by the name).
+    import sys
+
+    from kodo.project import AssistantInfo
+
+    proof = tmp_path / "argv.txt"
+    code = "import sys\nopen(sys.argv[1], 'w').write(sys.argv[2])\n"
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "REALNAME",
+            "base_url": "https://demo/{name}",
+            "bind": {
+                "modes": {"pat": {"command": [sys.executable, "-c", code, str(proof), "{base_url}"], "secret_env": "X"}}
+            },
+        }
+    )
+    r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "s"})
+    assert r.status_code == 200, r.text
+    assert proof.read_text() == "https://demo/{name}"  # literal {name} preserved, not -> REALNAME
+
+
+async def test_api_assistant_bind_timeout_kills_process_group(
+    app: FastAPI, client: AsyncClient, tmp_path: Path
+) -> None:
+    # On timeout the whole process GROUP is killed, so a grandchild the mode forked (which carries the
+    # secret in its env) does not survive as an orphan — a plain proc.kill() would leave it behind.
+    import os
+    import sys
+    import time
+
+    from kodo.project import AssistantInfo
+
+    pidfile = tmp_path / "grandchild.pid"
+    code = (
+        "import subprocess, sys, time\n"
+        "gc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "open(sys.argv[1], 'w').write(str(gc.pid))\n"
+        "time.sleep(60)\n"
+    )
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "x",
+            "bind": {
+                "modes": {
+                    "pat": {"command": [sys.executable, "-c", code, str(pidfile)], "secret_env": "X", "timeout": 1.0}
+                }
+            },
+        }
+    )
+    r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "s"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and "timed out" in body["stderr"]
+    gc_pid = int(pidfile.read_text())  # the mode did fork a grandchild
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        try:
+            os.kill(gc_pid, 0)
+        except ProcessLookupError:
+            break  # reaped — the group kill got the grandchild too
+        time.sleep(0.05)
+    else:
+        pytest.fail("grandchild survived the timeout kill (orphaned by a non-group kill)")
+
+
+async def test_api_assistant_echoes_unbind_notes(app: FastAPI, client: AsyncClient) -> None:
+    # A mode's user-facing unbind_note is echoed keyed by mode (guidance, not an execution detail);
+    # command/secret_env stay excluded, and a mode's extra="allow" fields never ride into the echo.
+    import json as _json
+
+    from kodo.project import AssistantInfo
+
+    app.state.assistant = AssistantInfo.model_validate(
+        {
+            "name": "x",
+            "bind": {
+                "modes": {
+                    "pat": {
+                        "command": ["tool", "{base_url}"],
+                        "secret_env": "PAT",
+                        "unbind_note": "restore the demo profile",
+                        "extra_flag": "should-not-echo",
+                    },
+                    "session": {"command": ["tool"], "secret_env": "COOKIE"},  # no note
+                }
+            },
+        }
+    )
+    body = (await client.get("/api/assistant")).json()
+    assert body["bind"]["unbind_notes"] == {"pat": "restore the demo profile"}  # only the mode with a note
+    dumped = _json.dumps(body["bind"])
+    assert "secret_env" not in dumped and "command" not in dumped and "should-not-echo" not in dumped
+
+
+def test_truncate_detail_preserves_large_json_and_passes_non_json() -> None:
+    # A large JSON tool detail stays valid JSON under the 2000-char cap (string values capped, JSON
+    # structure intact) so the UI's collapsible chips still parse it; non-JSON is a plain hard cut.
+    import json as _json
+
+    from kodo.routers.serving.chat import _truncate_detail
+
+    detail = _json.dumps({"result": "x" * 5000, "n": 7})
+    assert len(detail) > 2000
+    out = _truncate_detail(detail)
+    assert len(out) <= 2000
+    parsed = _json.loads(out)  # still valid JSON
+    assert parsed["n"] == 7 and parsed["result"].endswith("...")
+
+    non_json = "not json " * 500
+    assert _truncate_detail(non_json) == non_json[:2000]  # unchanged behavior for non-JSON
+    assert _truncate_detail("hello") == "hello"  # small details pass straight through
+
+
 async def test_audio_speech_openai_alias_maps_to_default_voice(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
