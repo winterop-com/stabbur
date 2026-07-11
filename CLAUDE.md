@@ -22,6 +22,15 @@ the intended home; moving to a different machine or drive is just a change to
 
 ## Stack & conventions
 
+- **`uv` is the one and only tool runner and installer.** Every command, script, doc,
+  and README uses `uv` — `uv tool install`, `uv run`, `uv sync`, `uvx`. NEVER use bare
+  `pip` (or `python -m pip`); at absolute worst use `uv pip`, but prefer `uv sync` /
+  `uv add`. This applies to install instructions shown to users too.
+- **Proprietary, all rights reserved** (see `LICENSE`) — copyright Morten Hansen. The repo
+  is source-available, NOT open-source: no one may use/run/redistribute it without written
+  permission. Do NOT publish kodo (or the bundled `kodo-mcp-*`) to public PyPI; the
+  `Private :: Do Not Upload` classifier enforces this. Install is from source via
+  `uv tool install` from the repo/git, never `pip install kodo`.
 - Python 3.13, `uv` (with the `uv_build` backend), **src layout**.
 - **Typer** CLI; entry point `kodo = "kodo.cli:app"` (guarded via `kodo.cli:main`).
 - **FastAPI + Pydantic + pydantic-settings** for the browse/serve layer.

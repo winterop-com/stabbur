@@ -4,6 +4,19 @@ version = "0.1.0"
 description = "Kodo — build a local LLM library, then run, chat, and serve it — fully on-box"
 readme = "README.md"
 requires-python = ">=3.13"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+keywords = ["llm", "local-llm", "self-hosted", "mcp", "agent", "dhis2", "fastapi", "huggingface"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "fastapi[standard]>=0.138.2",
     "fastmcp>=3.4.2",
@@ -93,6 +106,12 @@ web = [
 benchmark = [
     "kodo-benchmark",
 ]
+
+[project.urls]
+Homepage = "https://winterop-com.github.io/kodo/"
+Repository = "https://github.com/winterop-com/kodo"
+Documentation = "https://winterop-com.github.io/kodo/"
+Issues = "https://github.com/winterop-com/kodo/issues"
 
 [project.scripts]
 kodo = "kodo.cli:main"
