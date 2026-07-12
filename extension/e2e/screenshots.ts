@@ -5,19 +5,22 @@
 //
 // Two kinds of images are produced:
 //
-//   1. Panel-detail shots (01-08) — the panel driven through each documented state against MOCK
+//   1. Panel-detail shots (01-11) — the panel driven through each documented state against MOCK
 //      backends on ephemeral ports, written panel-sized to docs/img/extension/NN-name.png. These
 //      use the DHIS2-flavored build (.output/chrome-mv3-dhis2) so the header reads "kodo for
 //      DHIS2"; the mock machinery is fixtures.ts + mockServer.ts, exactly the mock E2E tier's.
+//      09-11 cover the Round 3 write flow: the "Allow writes" bind consent, and the mid-chat
+//      Approve/Deny confirmation card (pending, then auto-denied on timeout).
 //
-//   2. Hero shots (hero-1..3) — the product story: the panel docked NEXT TO the real DHIS2
+//   2. Hero shots (hero-1..3, hero-4-generic) — the product story: the panel docked NEXT TO the real DHIS2
 //      instance. Playwright can't dock the native side panel, so each hero is an HONEST COMPOSITE
 //      of two real screenshots — the live play42 UI (~1100x800) on the left and the panel
 //      (400x800) on the right, joined by a thin divider. Both halves are real pixels; only the
 //      side-by-side arrangement is synthesized. The panel's target banner / Who-am-I run against
 //      the REAL logged-in play42 tab (mock kodo backend, real probe), so the identity shown is
 //      genuinely read from play42. If play42 is unreachable the page half falls back to the
-//      TargetSiteMock (noted in the log) rather than failing the run.
+//      TargetSiteMock (noted in the log) rather than failing the run. hero-4-generic uses the
+//      GENERIC build next to Hacker News (a local stand-in if HN is unreachable) — no DHIS2 banner.
 //
 // It is intentionally hermetic and repeatable for the panel: no real `kodo serve`, no fixed port,
 // a pinned viewport, and a forced light theme so re-running produces stable framing.
@@ -52,6 +55,35 @@ const PLAY_ORIGIN = new URL(PLAY_BASE_URL).origin;
 
 // Prefer the DHIS2-flavored build for the branded panel; fall back to the generic build.
 const DHIS2_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-dhis2");
+// The generic (unbranded "kodo") build — used for the generic Hacker News composite.
+const GENERIC_EXTENSION_PATH = EXTENSION_PATH; // .output/chrome-mv3
+
+// A real public site for the generic hero page half. Reachable? -> real pixels; else a local
+// stand-in front page (noted in the log) so the run never depends on external connectivity.
+const HN_BASE_URL = "https://news.ycombinator.com";
+
+// A minimal offline stand-in for the Hacker News front page, used only when HN is unreachable.
+// It stands in for "any general web page next to the panel"; the report flags when it was used.
+const HN_STANDIN_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:Verdana,Geneva,sans-serif}
+  body{background:#f6f6ef;color:#000}
+  .top{background:#ff6600;padding:4px 8px;font-size:13px;font-weight:bold;color:#000}
+  .top small{font-weight:normal}
+  ol{margin:10px 0 0 26px;font-size:13px;line-height:1.9}
+  li{padding:2px 0}
+  a{color:#000;text-decoration:none}
+  .sub{color:#828282;font-size:11px}
+</style></head><body>
+  <div class="top">Hacker News <small>(offline stand-in)</small></div>
+  <ol>
+    <li>Show HN: A local-first vector database written in Rust <span class="sub">(github.com) 214 points, 96 comments</span></li>
+    <li>The hidden cost of context switching for engineers <span class="sub">(blog.example.org) 168 points, 74 comments</span></li>
+    <li>How we cut our build times by 70% <span class="sub">(eng.example.com) 141 points, 58 comments</span></li>
+    <li>A deep dive into modern CPU branch prediction <span class="sub">(example.dev) 129 points, 41 comments</span></li>
+    <li>Launch HN: A privacy-first analytics tool <span class="sub">(example.io) 97 points, 133 comments</span></li>
+    <li>Why SQLite is the database of the decade <span class="sub">(notes.example.net) 88 points, 62 comments</span></li>
+  </ol>
+</body></html>`;
 
 /** Wipe all persisted state so one scenario's binding record / transcript never leaks into the next. */
 async function resetStorage(context: BrowserContext, extensionId: string): Promise<void> {
@@ -101,6 +133,20 @@ async function playReachable(): Promise<boolean> {
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
     const r = await fetch(`${PLAY_BASE_URL}/api/system/info.json`, { signal: controller.signal });
+    return r.status < 500;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Is Hacker News reachable? (Best-effort; a non-5xx answer counts.) */
+async function hnReachable(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const r = await fetch(`${HN_BASE_URL}/`, { signal: controller.signal });
     return r.status < 500;
   } catch {
     return false;
@@ -424,8 +470,123 @@ async function main(): Promise<void> {
       await panel.close();
     }
 
+    // 09 — bind consent for a WRITE-enabled assistant: the "Allow writes" toggle, checked.
+    {
+      const kodo = new KodoMock();
+      const target = new TargetSiteMock();
+      await kodo.start();
+      await target.start();
+      try {
+        kodo.state.phase = "ready";
+        target.infoBody = { version: "2.42", systemName: "Play Sierra Leone" };
+        target.meBody = { name: "Admin User", username: "admin" };
+
+        await resetStorage(context, extensionId);
+        // readonly:false surfaces the "Allow writes" toggle on the consent card.
+        kodo.state.assistant = { ...bindAssistant(target.baseUrl()), readonly: false };
+        await seedSettings(context, extensionId, {
+          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          activeBackendId: "default",
+        });
+        const panel = await openPanel(context, extensionId);
+        await panel.getByPlaceholder(/Message \(Enter to send/).waitFor({ timeout: 15_000 });
+        const tab = await context.newPage();
+        await tab.goto(`${target.baseUrl()}/dhis`);
+        await tab.bringToFront();
+        await panel.getByTestId("bind-use-my-login").waitFor({ timeout: 15_000 });
+        await panel.getByTestId("bind-use-my-login").click();
+        await panel.getByTestId("bind-consent").waitFor({ timeout: 10_000 });
+        // Enable writes: the consent copy flips to "read-write" (mints the full-method PAT).
+        await panel.getByTestId("bind-allow-writes").check();
+        await panel.getByText(/read-write/).waitFor({ timeout: 10_000 });
+        await snap(panel, "09-bind-allow-writes");
+        await tab.close();
+        await panel.close();
+      } finally {
+        await kodo.stop();
+        await target.stop();
+      }
+    }
+
+    // 10 — mid-chat write confirmation: the inline Approve/Deny card, pending a decision.
+    {
+      await resetStorage(context, extensionId);
+      const kodo = new KodoMock();
+      await kodo.start();
+      try {
+        kodo.state.phase = "ready";
+        kodo.state.confirmWaitMs = 30_000; // hold the stream paused long enough to capture the pending card
+        kodo.state.chatFrames = [
+          { type: "token", text: "This will write a data value to the instance.\n\n" },
+          {
+            type: "confirm",
+            id: "c-doc-approve",
+            tool: "dhis2__dhis2_cli",
+            args: { request: "POST /api/dataValues?de=FTRrcoaog83&pe=202607&ou=DiszpKrYNg8&value=42" },
+          },
+        ];
+        kodo.state.chatGapMs = 20;
+        await seedSettings(context, extensionId, {
+          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          activeBackendId: "default",
+        });
+        const panel = await openPanel(context, extensionId);
+        await panel.getByPlaceholder(/Message \(Enter to send/).waitFor({ timeout: 15_000 });
+        await panel.getByPlaceholder(/Message \(Enter to send/).fill("Set the malaria cases value for July to 42.");
+        await panel.getByRole("button", { name: "Send" }).click();
+        await panel.getByTestId("chat-confirm").waitFor({ timeout: 15_000 });
+        await panel.getByTestId("chat-confirm-approve").waitFor({ timeout: 10_000 });
+        await snap(panel, "10-confirm-approve");
+        await panel.close();
+      } finally {
+        await kodo.stop();
+      }
+    }
+
+    // 11 — the same confirmation auto-denied on timeout (the KODO_CONFIRM_TIMEOUT fail-safe), the
+    //      model then continues and reports it left the instance unchanged.
+    {
+      await resetStorage(context, extensionId);
+      const kodo = new KodoMock();
+      await kodo.start();
+      try {
+        kodo.state.phase = "ready";
+        kodo.state.confirmWaitMs = 500; // resolve as a timeout with no client action
+        kodo.state.chatFrames = [
+          { type: "token", text: "This would delete a data element.\n\n" },
+          {
+            type: "confirm",
+            id: "c-doc-deny",
+            tool: "dhis2__dhis2_cli",
+            args: { request: "DELETE /api/dataElements/FTRrcoaog83" },
+          },
+        ];
+        kodo.state.confirmDeniedTail = [
+          { type: "token", text: "\nThe write was declined, so I left the instance unchanged." },
+          { type: "done" },
+        ];
+        kodo.state.chatGapMs = 20;
+        await seedSettings(context, extensionId, {
+          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          activeBackendId: "default",
+        });
+        const panel = await openPanel(context, extensionId);
+        await panel.getByPlaceholder(/Message \(Enter to send/).waitFor({ timeout: 15_000 });
+        await panel.getByPlaceholder(/Message \(Enter to send/).fill("Delete the old malaria data element.");
+        await panel.getByRole("button", { name: "Send" }).click();
+        await panel.getByTestId("chat-confirm-outcome").waitFor({ timeout: 15_000 });
+        await panel.getByText(/left the instance unchanged/).waitFor({ timeout: 10_000 });
+        await snap(panel, "11-confirm-declined");
+        await panel.close();
+      } finally {
+        await kodo.stop();
+      }
+    }
+
     console.log("\nPanel-detail shots written. Building hero composites...");
     await heroShots(context, extensionId, scratchDir);
+    console.log("\nBuilding the generic (Hacker News) composite...");
+    await genericShots(scratchDir);
     console.log("\nAll screenshots written to docs/img/extension/.");
   } finally {
     for (const p of context.pages()) await p.close().catch(() => {});
@@ -582,6 +743,96 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
   } finally {
     if (playTab) await playTab.close().catch(() => {});
     await target.stop();
+  }
+}
+
+/**
+ * The generic hero composite: the GENERIC (unbranded "kodo") build's panel docked next to a general
+ * web page — Hacker News — chatting about the front page with page context on, against a generic
+ * mock backend (no assistant metadata, so no target banner / verify / bind). Launches its own
+ * persistent context loaded with the generic build (main() runs the DHIS2 build). If Hacker News is
+ * unreachable the page half falls back to a local stand-in front page (logged), so the run never
+ * depends on external connectivity.
+ */
+async function genericShots(scratchDir: string): Promise<void> {
+  if (!existsSync(GENERIC_EXTENSION_PATH)) {
+    console.warn(`note: generic build missing at ${GENERIC_EXTENSION_PATH}; skipping the generic Hacker News shot.`);
+    return;
+  }
+  const dir = userDataDir("kodo-ext-generic-shots-");
+  const context = await chromium.launchPersistentContext(dir, {
+    channel: "chromium",
+    headless: process.env.HEADED !== "1",
+    viewport: VIEWPORT,
+    colorScheme: "light",
+    args: [
+      `--disable-extensions-except=${GENERIC_EXTENSION_PATH}`,
+      `--load-extension=${GENERIC_EXTENSION_PATH}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+    ],
+  });
+  try {
+    const extensionId = await resolveExtensionId(context);
+    console.log(`generic extension id: ${extensionId} (build: ${path.basename(GENERIC_EXTENSION_PATH)})`);
+
+    // Page half: the real Hacker News front page if reachable, else a local stand-in.
+    const pagePng = path.join(scratchDir, "hn-front.png");
+    const pageTab = await context.newPage();
+    await pageTab.setViewportSize(HERO_PAGE);
+    if (await hnReachable()) {
+      await pageTab.goto(`${HN_BASE_URL}/`, { timeout: 30_000, waitUntil: "domcontentloaded" }).catch(() => {});
+      await pageTab.waitForTimeout(1500);
+      console.log("  generic: used the REAL Hacker News front page.");
+    } else {
+      await pageTab.setContent(HN_STANDIN_HTML, { waitUntil: "load" });
+      await pageTab.waitForTimeout(200);
+      console.warn("  generic: Hacker News unreachable; used a local stand-in front page.");
+    }
+    await pageTab.screenshot({ path: pagePng, fullPage: false });
+    await pageTab.close();
+
+    // Panel half: a generic backend (assistant "missing" -> no banner / verify / bind), page context
+    // on, chatting about the front page.
+    const kodo = new KodoMock();
+    await kodo.start();
+    try {
+      kodo.state.phase = "ready";
+      kodo.state.assistant = "missing";
+      kodo.state.chatFrames = [
+        { type: "token", text: "The Hacker News front page right now is a mix of:\n\n" },
+        {
+          type: "token",
+          text: "- a couple of new open-source releases\n- a systems / performance deep-dive\n- a product launch and a few discussion threads\n\n",
+        },
+        { type: "token", text: "Want me to summarize any single story, or pull the comments for one?" },
+        { type: "done" },
+      ];
+      kodo.state.chatGapMs = 15;
+      await seedSettings(context, extensionId, {
+        backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+        activeBackendId: "default",
+        pageContextEnabled: true,
+        pageTextEnabled: false,
+      });
+      const panel = await openPanel(context, extensionId, HERO_PANEL);
+      const composer = panel.getByPlaceholder(/Message \(Enter to send/);
+      await composer.waitFor({ timeout: 15_000 });
+      await composer.fill("What's on the front page right now? Give me the gist.");
+      await panel.getByRole("button", { name: "Send" }).click();
+      await panel.getByText(/summarize any single story/).waitFor({ timeout: 15_000 });
+      await panel.getByRole("button", { name: "Send" }).waitFor({ timeout: 15_000 });
+      const panelPng = path.join(scratchDir, "panel-generic.png");
+      await snapTo(panel, panelPng);
+      await composite(context, pagePng, panelPng, "hero-4-generic");
+      await panel.close();
+    } finally {
+      await kodo.stop();
+    }
+  } finally {
+    for (const p of context.pages()) await p.close().catch(() => {});
+    await context.close().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 

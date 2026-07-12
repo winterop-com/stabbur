@@ -140,6 +140,19 @@ credentials the tools run as, from the assistant metadata).
 See the [prompt catalog](extension-prompts.md) for prompts verified against these
 toggles.
 
+## Any page (generic)
+
+None of this is DHIS2-specific. The **generic** build (`.output/chrome-mv3`, branding just
+"kodo") is the same panel with no target banner, no Verify, and no bind — it sits next to
+*any* page and answers about it through page context. Ask it to summarize an article, pull
+the gist of a feed, or explain a selection, and it grounds the answer in the current tab.
+
+<figure markdown>
+![The generic kodo panel docked next to the Hacker News front page, summarizing it](../img/extension/hero-4-generic.png)
+<figcaption>The generic panel next to the Hacker News front page — page context on, no
+DHIS2 target or bind, just chat grounded in the page.</figcaption>
+</figure>
+
 ## Assistant targets
 
 A **project with an `[assistant]` block** (e.g. the `dhis2` template) advertises itself
@@ -195,8 +208,10 @@ The happy path mints a **personal access token** entirely in the tab's own conte
 
 ![Bound state: an Acting as admin (your login) chip with Rebind and Unbind](../img/extension/06-bind-acting-as.png)
 
-**Read-only, honestly.** For a read-only assistant the token is minted GET-only; writes
-are a deliberate future step behind an explicit "Allow writes" consent, not the default.
+**Read-only by default.** For a read-only assistant the token is minted GET-only. A
+write-enabled assistant can instead mint a **read-write** token behind an explicit "Allow
+writes" consent — and every write is then gated by a per-action confirmation. See
+[Writes, gated](#writes-gated) below.
 
 **Session-cookie fallback.** Some instances won't mint a PAT (older versions, or the
 endpoint disabled). The panel then offers to share your **live session cookie** instead
@@ -215,6 +230,40 @@ fallback is opt-in.
   scaffolded credential back, re-copy it (e.g. `cp` the template profile back into the
   project) or rerun the project's profile setup.
 
+## Writes, gated
+
+A **write-enabled** assistant (its `[assistant]` block declares it is not read-only) can
+act on the instance, not just read it. Writes are never silent: they are gated in two
+places — an up-front consent when you bind, and a per-action confirmation on every single
+write.
+
+1. **Bind with writes.** When the assistant is write-enabled, the "Use my login" consent
+   card grows an **Allow writes** toggle. Leave it off for a GET-only token (the default);
+   turn it on to mint a **read-write** PAT (the full `GET/POST/PUT/PATCH/DELETE` method
+   set). The session-cookie fallback is inherently full-authority, so it carries the same
+   toggle — there the per-action confirmation is the guardrail, not the token scope.
+
+    ![Bind consent for a write-enabled assistant, with Allow writes toggled on](../img/extension/09-bind-allow-writes.png)
+
+2. **Confirm every write.** When the model calls a write tool, kodo **holds the call** and
+   the panel shows an inline **Approve / Deny** card naming the exact tool and arguments
+   (e.g. `dhis2__dhis2_cli(POST /api/dataValues ...)`). Nothing runs until you decide.
+
+    ![An inline Approve/Deny confirmation card for a POST write, awaiting a decision](../img/extension/10-confirm-approve.png)
+
+3. **Deny is safe.** Denying returns `error: user declined this action` to the model as the
+   tool result; the model reads it and continues (it does not retry blindly). The stream is
+   never aborted — approving simply resumes it with the tool's real result.
+
+4. **Fail-safe on timeout.** If a confirmation is left unanswered it **auto-denies** after
+   `KODO_CONFIRM_TIMEOUT` (300s by default) — the card shows *Auto-denied (timed out)* and
+   the model continues as if you had denied it.
+
+    ![The same confirmation auto-denied after the timeout, model continuing](../img/extension/11-confirm-declined.png)
+
+The non-interactive one-shot (`kodo chat -p`) has no card to click, so it **fail-safe-denies
+every write** unless you pass `--allow-writes` — an explicit opt-in for scripted runs.
+
 ## Troubleshooting
 
 | Symptom | Cause & fix |
@@ -229,13 +278,16 @@ fallback is opt-in.
 ---
 
 !!! info "Regenerating the screenshots"
-    The panel-detail images (`NN-*.png`) are generated headlessly against mock backends
-    (no real `kodo serve`, ephemeral ports, a pinned light-theme viewport) using the
-    DHIS2-flavored build. The **hero composites** (`hero-*.png`) join two real
-    screenshots — the live play42 UI and the panel — side by side; the panel's target
-    banner and Who-am-I run against the real logged-in play42 tab (a mock kodo backend
-    with the real probe recipe). If play42 is unreachable the page half falls back to a
-    mock target.
+    The panel-detail images (`NN-*.png`, `01`-`11`) are generated headlessly against mock
+    backends (no real `kodo serve`, ephemeral ports, a pinned light-theme viewport) using
+    the DHIS2-flavored build. `09`-`11` cover the write flow: the "Allow writes" bind
+    consent, the mid-chat Approve/Deny confirmation card (pending), and the same card
+    auto-denied on timeout. The **hero composites** (`hero-*.png`) join two real
+    screenshots side by side; `hero-1`-`hero-3` pair the live play42 UI with the panel
+    (its target banner and Who-am-I run against the real logged-in play42 tab, a mock kodo
+    backend with the real probe recipe — if play42 is unreachable the page half falls back
+    to a mock target). `hero-4-generic` pairs the **generic** build's panel with the
+    Hacker News front page (a local stand-in if Hacker News is unreachable).
 
     ```bash
     cd extension && bun run screenshots
