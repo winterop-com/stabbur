@@ -7,7 +7,7 @@
 //
 //   1. Panel-detail shots (01-11) — the panel driven through each documented state against MOCK
 //      backends on ephemeral ports, written panel-sized to docs/img/extension/NN-name.png. These
-//      use the DHIS2-flavored build (.output/chrome-mv3-dhis2) so the header reads "kodo for
+//      use the DHIS2-flavored build (.output/chrome-mv3-dhis2) so the header reads "heim for
 //      DHIS2"; the mock machinery is fixtures.ts + mockServer.ts, exactly the mock E2E tier's.
 //      09-11 cover the Round 3 write flow: the "Allow writes" bind consent, and the mid-chat
 //      Approve/Deny confirmation card (pending, then auto-denied on timeout).
@@ -17,12 +17,12 @@
 //      of two real screenshots — the live play42 UI (~1100x800) on the left and the panel
 //      (400x800) on the right, joined by a thin divider. Both halves are real pixels; only the
 //      side-by-side arrangement is synthesized. The panel's target banner / Who-am-I run against
-//      the REAL logged-in play42 tab (mock kodo backend, real probe), so the identity shown is
+//      the REAL logged-in play42 tab (mock heim backend, real probe), so the identity shown is
 //      genuinely read from play42. If play42 is unreachable the page half falls back to the
 //      TargetSiteMock (noted in the log) rather than failing the run. hero-4-generic uses the
 //      GENERIC build next to Hacker News (a local stand-in if HN is unreachable) — no DHIS2 banner.
 //
-// It is intentionally hermetic and repeatable for the panel: no real `kodo serve`, no fixed port,
+// It is intentionally hermetic and repeatable for the panel: no real `heim serve`, no fixed port,
 // a pinned viewport, and a forced light theme so re-running produces stable framing.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -39,7 +39,7 @@ import {
   seedSettings,
   userDataDir,
 } from "./fixtures";
-import { KodoMock, TargetSiteMock, bindAssistant, reservePort, type ChatFrame } from "./mockServer";
+import { HeimMock, TargetSiteMock, bindAssistant, reservePort, type ChatFrame } from "./mockServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -55,7 +55,7 @@ const PLAY_ORIGIN = new URL(PLAY_BASE_URL).origin;
 
 // Prefer the DHIS2-flavored build for the branded panel; fall back to the generic build.
 const DHIS2_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-dhis2");
-// The generic (unbranded "kodo") build — used for the generic Hacker News composite.
+// The generic (unbranded "heim") build — used for the generic Hacker News composite.
 const GENERIC_EXTENSION_PATH = EXTENSION_PATH; // .output/chrome-mv3
 
 // A real public site for the generic hero page half. Reachable? -> real pixels; else a local
@@ -107,8 +107,8 @@ async function openPanel(
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto(`chrome-extension://${extensionId}/${PANEL_PATH}`);
   await page.waitForLoadState("domcontentloaded");
-  // Substring name match — the DHIS2 build's heading reads "kodo for DHIS2".
-  await page.getByRole("heading", { name: "kodo" }).first().waitFor({ timeout: 15_000 });
+  // Substring name match — the DHIS2 build's heading reads "heim for DHIS2".
+  await page.getByRole("heading", { name: "heim" }).first().waitFor({ timeout: 15_000 });
   return page;
 }
 
@@ -226,13 +226,13 @@ async function tryRealHero2Panel(
   panelPng: string,
 ): Promise<boolean> {
   await resetStorage(context, extensionId);
-  const kodo = new KodoMock();
-  await kodo.start();
+  const heim = new HeimMock();
+  await heim.start();
   try {
-    kodo.state.phase = "ready";
-    kodo.state.assistant = bindAssistant(PLAY_BASE_URL);
+    heim.state.phase = "ready";
+    heim.state.assistant = bindAssistant(PLAY_BASE_URL);
     await seedSettings(context, extensionId, {
-      backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+      backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
       activeBackendId: "default",
     });
     const panel = await openPanel(context, extensionId, HERO_PANEL);
@@ -255,7 +255,7 @@ async function tryRealHero2Panel(
     console.warn(`  hero-2: real probe unavailable (${err instanceof Error ? err.message : String(err)}); using mock.`);
     return false;
   } finally {
-    await kodo.stop();
+    await heim.stop();
   }
 }
 
@@ -267,13 +267,13 @@ async function mockHero2Panel(
   panelPng: string,
 ): Promise<void> {
   await resetStorage(context, extensionId);
-  const kodo = new KodoMock();
-  await kodo.start();
+  const heim = new HeimMock();
+  await heim.start();
   try {
-    kodo.state.phase = "ready";
-    kodo.state.assistant = bindAssistant(target.baseUrl());
+    heim.state.phase = "ready";
+    heim.state.assistant = bindAssistant(target.baseUrl());
     await seedSettings(context, extensionId, {
-      backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+      backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
       activeBackendId: "default",
     });
     const panel = await openPanel(context, extensionId, HERO_PANEL);
@@ -288,7 +288,7 @@ async function mockHero2Panel(
     await tab.close();
     await panel.close();
   } finally {
-    await kodo.stop();
+    await heim.stop();
   }
 }
 
@@ -298,12 +298,12 @@ async function main(): Promise<void> {
     throw new Error(`Built extension not found at ${extPath}. Run \`bun run build:dhis2\` first.`);
   }
   if (extPath !== DHIS2_EXTENSION_PATH) {
-    console.warn(`note: DHIS2 build missing, using generic build at ${extPath} (panel branding will read "kodo").`);
+    console.warn(`note: DHIS2 build missing, using generic build at ${extPath} (panel branding will read "heim").`);
   }
   mkdirSync(OUT_DIR, { recursive: true });
-  const scratchDir = mkdtempSync(path.join(scratchRoot(), "kodo-ext-heroshots-"));
+  const scratchDir = mkdtempSync(path.join(scratchRoot(), "heim-ext-heroshots-"));
 
-  const dir = userDataDir("kodo-ext-shots-");
+  const dir = userDataDir("heim-ext-shots-");
   const context = await chromium.launchPersistentContext(dir, {
     channel: "chromium",
     headless: process.env.HEADED !== "1",
@@ -329,7 +329,7 @@ async function main(): Promise<void> {
         activeBackendId: "default",
       });
       const panel = await openPanel(context, extensionId);
-      await panel.getByText(/kodo is not reachable/).waitFor({ timeout: 15_000 });
+      await panel.getByText(/heim is not reachable/).waitFor({ timeout: 15_000 });
       await snap(panel, "01-connection-disconnected");
       await panel.close();
     }
@@ -337,10 +337,10 @@ async function main(): Promise<void> {
     // 02 / 03 — chat with a streamed answer + a JSON tool chip (collapsed, then expanded).
     {
       await resetStorage(context, extensionId);
-      const kodo = new KodoMock();
-      await kodo.start();
+      const heim = new HeimMock();
+      await heim.start();
       try {
-        kodo.state.phase = "ready";
+        heim.state.phase = "ready";
         const frames: ChatFrame[] = [
           { type: "token", text: "I checked the DHIS2 instance for you.\n\n" },
           { type: "tool", kind: "call", detail: "dhis2__dhis2_cli(GET /api/organisationUnits?fields=id&paging=false)" },
@@ -352,10 +352,10 @@ async function main(): Promise<void> {
           { type: "token", text: "There are **1332** organisation units in the hierarchy." },
           { type: "done" },
         ];
-        kodo.state.chatFrames = frames;
-        kodo.state.chatGapMs = 20;
+        heim.state.chatFrames = frames;
+        heim.state.chatGapMs = 20;
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
         });
         const panel = await openPanel(context, extensionId);
@@ -371,25 +371,25 @@ async function main(): Promise<void> {
         await snap(panel, "03-chat-tool-expanded");
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
       }
     }
 
     // 04 / 05 / 06 — assistant target banner + the "Use my login" bind flow.
     {
-      const kodo = new KodoMock();
+      const heim = new HeimMock();
       const target = new TargetSiteMock();
-      await kodo.start();
+      await heim.start();
       await target.start();
       try {
-        kodo.state.phase = "ready";
+        heim.state.phase = "ready";
         target.infoBody = { version: "2.42", systemName: "Play Sierra Leone" };
         target.meBody = { name: "Admin User", username: "admin" };
 
         await resetStorage(context, extensionId);
-        kodo.state.assistant = bindAssistant(target.baseUrl());
+        heim.state.assistant = bindAssistant(target.baseUrl());
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
         });
         const panel = await openPanel(context, extensionId);
@@ -414,7 +414,7 @@ async function main(): Promise<void> {
         await tab.close();
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
         await target.stop();
       }
     }
@@ -422,8 +422,8 @@ async function main(): Promise<void> {
     // 07 — backend switcher with two backends.
     {
       await resetStorage(context, extensionId);
-      const a = new KodoMock();
-      const b = new KodoMock();
+      const a = new HeimMock();
+      const b = new HeimMock();
       await a.start();
       await b.start();
       try {
@@ -472,20 +472,20 @@ async function main(): Promise<void> {
 
     // 09 — bind consent for a WRITE-enabled assistant: the "Allow writes" toggle, checked.
     {
-      const kodo = new KodoMock();
+      const heim = new HeimMock();
       const target = new TargetSiteMock();
-      await kodo.start();
+      await heim.start();
       await target.start();
       try {
-        kodo.state.phase = "ready";
+        heim.state.phase = "ready";
         target.infoBody = { version: "2.42", systemName: "Play Sierra Leone" };
         target.meBody = { name: "Admin User", username: "admin" };
 
         await resetStorage(context, extensionId);
         // readonly:false surfaces the "Allow writes" toggle on the consent card.
-        kodo.state.assistant = { ...bindAssistant(target.baseUrl()), readonly: false };
+        heim.state.assistant = { ...bindAssistant(target.baseUrl()), readonly: false };
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
         });
         const panel = await openPanel(context, extensionId);
@@ -503,7 +503,7 @@ async function main(): Promise<void> {
         await tab.close();
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
         await target.stop();
       }
     }
@@ -511,12 +511,12 @@ async function main(): Promise<void> {
     // 10 — mid-chat write confirmation: the inline Approve/Deny card, pending a decision.
     {
       await resetStorage(context, extensionId);
-      const kodo = new KodoMock();
-      await kodo.start();
+      const heim = new HeimMock();
+      await heim.start();
       try {
-        kodo.state.phase = "ready";
-        kodo.state.confirmWaitMs = 30_000; // hold the stream paused long enough to capture the pending card
-        kodo.state.chatFrames = [
+        heim.state.phase = "ready";
+        heim.state.confirmWaitMs = 30_000; // hold the stream paused long enough to capture the pending card
+        heim.state.chatFrames = [
           { type: "token", text: "This will write a data value to the instance.\n\n" },
           {
             type: "confirm",
@@ -525,9 +525,9 @@ async function main(): Promise<void> {
             args: { request: "POST /api/dataValues?de=FTRrcoaog83&pe=202607&ou=DiszpKrYNg8&value=42" },
           },
         ];
-        kodo.state.chatGapMs = 20;
+        heim.state.chatGapMs = 20;
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
         });
         const panel = await openPanel(context, extensionId);
@@ -539,20 +539,20 @@ async function main(): Promise<void> {
         await snap(panel, "10-confirm-approve");
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
       }
     }
 
-    // 11 — the same confirmation auto-denied on timeout (the KODO_CONFIRM_TIMEOUT fail-safe), the
+    // 11 — the same confirmation auto-denied on timeout (the HEIM_CONFIRM_TIMEOUT fail-safe), the
     //      model then continues and reports it left the instance unchanged.
     {
       await resetStorage(context, extensionId);
-      const kodo = new KodoMock();
-      await kodo.start();
+      const heim = new HeimMock();
+      await heim.start();
       try {
-        kodo.state.phase = "ready";
-        kodo.state.confirmWaitMs = 500; // resolve as a timeout with no client action
-        kodo.state.chatFrames = [
+        heim.state.phase = "ready";
+        heim.state.confirmWaitMs = 500; // resolve as a timeout with no client action
+        heim.state.chatFrames = [
           { type: "token", text: "This would delete a data element.\n\n" },
           {
             type: "confirm",
@@ -561,13 +561,13 @@ async function main(): Promise<void> {
             args: { request: "DELETE /api/dataElements/FTRrcoaog83" },
           },
         ];
-        kodo.state.confirmDeniedTail = [
+        heim.state.confirmDeniedTail = [
           { type: "token", text: "\nThe write was declined, so I left the instance unchanged." },
           { type: "done" },
         ];
-        kodo.state.chatGapMs = 20;
+        heim.state.chatGapMs = 20;
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
         });
         const panel = await openPanel(context, extensionId);
@@ -579,7 +579,7 @@ async function main(): Promise<void> {
         await snap(panel, "11-confirm-declined");
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
       }
     }
 
@@ -599,7 +599,7 @@ async function main(): Promise<void> {
 /**
  * The three hero composites: the panel docked next to the real play42 instance. Captures the play
  * page halves once (login page, then dashboard), keeps the logged-in dashboard tab open for the
- * real Who-am-I in hero-2, drives each panel state against a mock kodo, and composites. Resilient:
+ * real Who-am-I in hero-2, drives each panel state against a mock heim, and composites. Resilient:
  * a play outage falls back to the TargetSiteMock page half; a single hero failure is logged and the
  * others still run.
  */
@@ -651,11 +651,11 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
     // hero-1 — dashboard + panel chatting about the page (page context on).
     try {
       await resetStorage(context, extensionId);
-      const kodo = new KodoMock();
-      await kodo.start();
+      const heim = new HeimMock();
+      await heim.start();
       try {
-        kodo.state.phase = "ready";
-        kodo.state.chatFrames = [
+        heim.state.phase = "ready";
+        heim.state.chatFrames = [
           { type: "token", text: "This is the DHIS2 demo dashboard. The visible widgets cover:\n\n" },
           {
             type: "token",
@@ -664,9 +664,9 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
           { type: "token", text: "Ask me to pull the underlying numbers for any of these with the DHIS2 tools." },
           { type: "done" },
         ];
-        kodo.state.chatGapMs = 15;
+        heim.state.chatGapMs = 15;
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
           pageContextEnabled: true,
           pageTextEnabled: false,
@@ -683,7 +683,7 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
         await composite(context, dashPng, panelPng, "hero-1-dashboard");
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
       }
     } catch (err) {
       console.warn(`note: hero-1 failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -710,13 +710,13 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
     // the consent close-up needs a tab match, which the mock target provides deterministically).
     try {
       await resetStorage(context, extensionId);
-      const kodo = new KodoMock();
-      await kodo.start();
+      const heim = new HeimMock();
+      await heim.start();
       try {
-        kodo.state.phase = "ready";
-        kodo.state.assistant = bindAssistant(target.baseUrl());
+        heim.state.phase = "ready";
+        heim.state.assistant = bindAssistant(target.baseUrl());
         await seedSettings(context, extensionId, {
-          backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+          backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
           activeBackendId: "default",
         });
         const panel = await openPanel(context, extensionId, HERO_PANEL);
@@ -735,7 +735,7 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
         await tab.close();
         await panel.close();
       } finally {
-        await kodo.stop();
+        await heim.stop();
       }
     } catch (err) {
       console.warn(`note: hero-3 failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -747,7 +747,7 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
 }
 
 /**
- * The generic hero composite: the GENERIC (unbranded "kodo") build's panel docked next to a general
+ * The generic hero composite: the GENERIC (unbranded "heim") build's panel docked next to a general
  * web page — Hacker News — chatting about the front page with page context on, against a generic
  * mock backend (no assistant metadata, so no target banner / verify / bind). Launches its own
  * persistent context loaded with the generic build (main() runs the DHIS2 build). If Hacker News is
@@ -759,7 +759,7 @@ async function genericShots(scratchDir: string): Promise<void> {
     console.warn(`note: generic build missing at ${GENERIC_EXTENSION_PATH}; skipping the generic Hacker News shot.`);
     return;
   }
-  const dir = userDataDir("kodo-ext-generic-shots-");
+  const dir = userDataDir("heim-ext-generic-shots-");
   const context = await chromium.launchPersistentContext(dir, {
     channel: "chromium",
     headless: process.env.HEADED !== "1",
@@ -794,12 +794,12 @@ async function genericShots(scratchDir: string): Promise<void> {
 
     // Panel half: a generic backend (assistant "missing" -> no banner / verify / bind), page context
     // on, chatting about the front page.
-    const kodo = new KodoMock();
-    await kodo.start();
+    const heim = new HeimMock();
+    await heim.start();
     try {
-      kodo.state.phase = "ready";
-      kodo.state.assistant = "missing";
-      kodo.state.chatFrames = [
+      heim.state.phase = "ready";
+      heim.state.assistant = "missing";
+      heim.state.chatFrames = [
         { type: "token", text: "The Hacker News front page right now is a mix of:\n\n" },
         {
           type: "token",
@@ -808,9 +808,9 @@ async function genericShots(scratchDir: string): Promise<void> {
         { type: "token", text: "Want me to summarize any single story, or pull the comments for one?" },
         { type: "done" },
       ];
-      kodo.state.chatGapMs = 15;
+      heim.state.chatGapMs = 15;
       await seedSettings(context, extensionId, {
-        backends: [{ id: "default", name: "Default", baseUrl: kodo.baseUrl(), token: "" }],
+        backends: [{ id: "default", name: "Default", baseUrl: heim.baseUrl(), token: "" }],
         activeBackendId: "default",
         pageContextEnabled: true,
         pageTextEnabled: false,
@@ -827,7 +827,7 @@ async function genericShots(scratchDir: string): Promise<void> {
       await composite(context, pagePng, panelPng, "hero-4-generic");
       await panel.close();
     } finally {
-      await kodo.stop();
+      await heim.stop();
     }
   } finally {
     for (const p of context.pages()) await p.close().catch(() => {});

@@ -2,7 +2,7 @@
 // needs-model -> Load -> loading -> ready.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, MOCK_MODEL, reservePort } from "../mockServer";
+import { HeimMock, MOCK_MODEL, reservePort } from "../mockServer";
 
 test.describe("connection lifecycle", () => {
   test("disconnected, then auto-connects once the server comes up", async ({ context, extensionId }) => {
@@ -12,12 +12,12 @@ test.describe("connection lifecycle", () => {
     await seedSettings(context, extensionId, { baseUrl, token: "" });
     const panel = await openPanel(context, extensionId);
 
-    await expect(panel.getByText(/kodo is not reachable/)).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByText(/heim is not reachable/)).toBeVisible({ timeout: 15_000 });
     await expect(panel.getByText(/Retrying automatically every 3s/)).toBeVisible();
 
     // Bring the server up on that exact port; the 3s auto-retry should connect
     // within a couple of windows.
-    const mock = new KodoMock();
+    const mock = new HeimMock();
     mock.state.phase = "ready";
     await mock.start(port);
     try {
@@ -28,7 +28,7 @@ test.describe("connection lifecycle", () => {
   });
 
   test("needs-token, then connects after the token is entered", async ({ context, extensionId }) => {
-    const mock = new KodoMock();
+    const mock = new HeimMock();
     await mock.start();
     try {
       mock.state.token = "s3cret";
@@ -36,7 +36,7 @@ test.describe("connection lifecycle", () => {
       await seedSettings(context, extensionId, { baseUrl: mock.baseUrl(), token: "" });
       const panel = await openPanel(context, extensionId);
 
-      await expect(panel.getByText("This kodo server requires an access token.")).toBeVisible({
+      await expect(panel.getByText("This heim server requires an access token.")).toBeVisible({
         timeout: 15_000,
       });
       await panel.getByPlaceholder("Bearer token").fill("s3cret");
@@ -49,7 +49,7 @@ test.describe("connection lifecycle", () => {
   });
 
   test("needs-model -> Load -> loading -> ready", async ({ context, extensionId }) => {
-    const mock = new KodoMock();
+    const mock = new HeimMock();
     await mock.start();
     try {
       mock.state.phase = "stopped";

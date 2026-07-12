@@ -94,7 +94,7 @@ export function App() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
-  const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("kodo.tts_voice") || "");
+  const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("heim.tts_voice") || "");
   const [health, setHealth] = useState<DoctorReport | null>(null);
   const [loadingName, setLoadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -348,7 +348,7 @@ export function App() {
     [status?.model, pick],
   );
 
-  // Project auto-load: in a project dir (kodo.toml [project].model), boot straight
+  // Project auto-load: in a project dir (heim.toml [project].model), boot straight
   // into the bound model on first open — the manifest is a reproducible assistant
   // (model + system prompt + tools). Fires once, only if nothing's loaded and the
   // model is actually in the library; the user can still switch afterwards.
@@ -753,8 +753,8 @@ export function App() {
   // TTS voice (a global preference for the Listen button): "" = default OuteTTS.
   const chooseVoice = useCallback((name: string) => {
     setTtsVoice(name);
-    if (name) localStorage.setItem("kodo.tts_voice", name);
-    else localStorage.removeItem("kodo.tts_voice");
+    if (name) localStorage.setItem("heim.tts_voice", name);
+    else localStorage.removeItem("heim.tts_voice");
   }, []);
 
   // --- attachments (image / audio) ---
@@ -857,7 +857,7 @@ export function App() {
         )}
         <PanelGroup
           direction="horizontal"
-          autoSaveId="kodo-layout"
+          autoSaveId="heim-layout"
           className="h-full min-w-0 flex-1 overflow-hidden"
         >
         {/* Left rail: collapsible + resizable. Kept in sync with sidebarOpen so
@@ -1080,7 +1080,7 @@ export function App() {
                     onRemove={removeAttachment}
                   />
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
-                    kodo runs your model locally. Responses may be inaccurate.
+                    heim runs your model locally. Responses may be inaccurate.
                   </p>
                 </div>
               </div>

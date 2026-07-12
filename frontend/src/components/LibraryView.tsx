@@ -385,7 +385,7 @@ function ModelCard({
 
 /**
  * Full-panel "Models" browser: every library model as a card, grouped by format
- * (like `kodo ls`). Clicking a card loads it and drops into chat; the loaded one
+ * (like `heim ls`). Clicking a card loads it and drops into chat; the loaded one
  * is marked. Cards carry editable user tags, with a tag filter bar on top.
  */
 export function LibraryView({
@@ -534,11 +534,11 @@ export function LibraryView({
               ) : models.length === 0 && error ? (
                 <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-6 text-sm text-destructive">
                   Couldn't read the library: {error}. Check the drive is mounted and{" "}
-                  <code className="font-mono">KODO_LIBRARY_ROOT</code> is set, then retry.
+                  <code className="font-mono">HEIM_LIBRARY_ROOT</code> is set, then retry.
                 </div>
               ) : models.length === 0 ? (
                 <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-                  No chat models yet. Pull one with <code className="font-mono">kodo pull</code>.
+                  No chat models yet. Pull one with <code className="font-mono">heim pull</code>.
                 </div>
               ) : grouped.length === 0 ? (
                 <div className="px-1 py-4 text-sm text-muted-foreground">No chat models match the selected tags.</div>

@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from kodo import agent, tools
+from heim import agent, tools
 
 
 class _StubToolset:

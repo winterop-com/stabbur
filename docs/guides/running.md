@@ -8,16 +8,16 @@ any OpenAI client attaches the same way.
 | GGUF   | llama.cpp `llama-server` | cross-platform |
 | MLX    | `mlx_lm.server`          | Apple Silicon only |
 
-`kodo chat` talks to that server's `/v1` behind a full-screen TUI; `kodo serve`
+`heim chat` talks to that server's `/v1` behind a full-screen TUI; `heim serve`
 runs the web server and proxies `/v1` for the browser UI (and external clients).
-kodo spawns and manages the runtime for you either way.
+heim spawns and manages the runtime for you either way.
 
 ## Serve a model (OpenAI `/v1`)
 
 ```bash
-kodo serve --ui                       # browse + chat in the browser (loads models on demand)
-kodo serve --model <name>             # lock the server to one model; stable /v1 endpoint
-kodo serve --model <name> --port 9000 # pin the port
+heim serve --ui                       # browse + chat in the browser (loads models on demand)
+heim serve --model <name>             # lock the server to one model; stable /v1 endpoint
+heim serve --model <name> --port 9000 # pin the port
 ```
 
 `serve --model` boots straight into one model and exposes a stable
@@ -27,15 +27,15 @@ switch models from the browser. Point any OpenAI client at the printed URL.
 ## Chat
 
 ```bash
-kodo chat <name>                      # clean streaming REPL (/exit to quit)
-kodo chat <name> -p "Summarize MoE"   # one-shot: prints only the answer (pipeable)
-kodo chat <name> -p "..." -n 256      # cap generated tokens
+heim chat <name>                      # clean streaming REPL (/exit to quit)
+heim chat <name> -p "Summarize MoE"   # one-shot: prints only the answer (pipeable)
+heim chat <name> -p "..." -n 256      # cap generated tokens
 ```
 
 The `-p/--prompt` one-shot mirrors `claude -p` — clean stdout for scripting:
 
 ```bash
-kodo chat gemma-4-12B-it-QAT-GGUF -p "Say hi" 2>/dev/null | tee out.txt
+heim chat gemma-4-12B-it-QAT-GGUF -p "Say hi" 2>/dev/null | tee out.txt
 ```
 
 The interactive REPL is a full Textual TUI. Press **Ctrl+P** for the command palette or type
@@ -47,4 +47,4 @@ live (`/set temperature 0.7`), `/export` the transcript, and more.
 
 Use the full `<publisher>/<repo>` name or just the final part; add `--format` to
 disambiguate if the same model exists in multiple formats. If a name isn't in the
-library but is in a source store, the error tells you the `kodo library pull` to run.
+library but is in a source store, the error tells you the `heim library pull` to run.

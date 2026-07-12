@@ -1,4 +1,4 @@
-# kodo roadmap
+# heim roadmap
 
 Forward-looking plans and ideas. Kept out of `CLAUDE.md` so it doesn't load into
 every session's context. `CLAUDE.md` holds the durable project rules, architecture,
@@ -10,13 +10,13 @@ history + `docs/` are the record) — this file is only open threads.
 The MV3 side-panel extension shipped at `extension/` (branch `feat/chrome-extension`):
 WXT + the shared SPA chat core, connection state machine, typed-SSE chat, DHIS2 page context +
 target match/mismatch via the new generic `GET /api/assistant`, narrow same-origin session reads,
-remote-kodo bearer support, and a two-tier Playwright E2E suite (mock + live against play42,
+remote-heim bearer support, and a two-tier Playwright E2E suite (mock + live against play42,
 read-only). Verified prompt catalog: `docs/guides/extension-prompts.md`. Design + status deltas:
 **[`CHROME.md`](CHROME.md)** (see its Status sections).
 
 **Round 2 shipped (2026-07-11):** the **"Use my login"** bind flow — read-only PAT minted in the
 target tab's own context (`POST /api/apiToken`), installed via a domain-generic `POST
-/api/assistant/bind` (kodo runs `d2w profile add … --auth pat --local` with the token in env),
+/api/assistant/bind` (heim runs `d2w profile add … --auth pat --local` with the token in env),
 with a plain-language consent card, unbind (revoke + profile removal), and a **session-cookie
 fallback** riding a new `session` auth kind in `dhis2w-client`/`d2w` (shipped in **dhis2w 1.0.0**
 on PyPI, so `uvx dhis2w-mcp-bridge` and `d2w profile add --auth session` work out of the box). Also: declared
@@ -30,13 +30,13 @@ mutating tool call across all chat surfaces (web `serve --ui`, the Chrome side p
 TUI): a write-enabled assistant prompts Approve/Deny before each gated call, and a declined call
 returns `error: user declined this action` so the model continues. Backend: an awaitable
 `on_confirm` in the agent loop, a `confirm`/`confirm_resolved` SSE event pair, and `POST
-/api/chat/confirm` resolving a per-generation future (300s -> auto-deny, `KODO_CONFIRM_TIMEOUT`).
-The scripted `kodo chat -p` has no confirm channel, so it **fail-safe denies** gated writes unless
-`--allow-writes` is passed. The gate is **generic and fail-safe**: kodo reads each MCP tool's
+/api/chat/confirm` resolving a per-generation future (300s -> auto-deny, `HEIM_CONFIRM_TIMEOUT`).
+The scripted `heim chat -p` has no confirm channel, so it **fail-safe denies** gated writes unless
+`--allow-writes` is passed. The gate is **generic and fail-safe**: heim reads each MCP tool's
 `readOnlyHint` and requires confirmation for any tool not marked read-only, defaulting
 **unannotated** tools to needs-confirmation; the policy is a tri-state `all|writes|none` that
 defaults from the assistant (readonly/free-play -> `none`, write-enabled -> `writes`). No DHIS2
-logic entered kodo core. On the DHIS2 side: the **write bind** mints a `methods_full` PAT when the
+logic entered heim core. On the DHIS2 side: the **write bind** mints a `methods_full` PAT when the
 assistant is write-enabled (the binding records read-vs-write scope, shown in the extension's
 Acting-as chip), and the session-cookie fallback may also write (a session credential can't be
 method-scoped, so the confirmation gate is its guardrail). CSRF: an optional `X-XSRF-TOKEN`
@@ -54,14 +54,14 @@ Open follow-ups, roughly in order:
   assistant the fail-safe gate prompts on **every** dhis2 call — reads included, not just
   mutations. The **typed `dhis2w-mcp` (>= 1.3.0) now fixes this**: it stamps `readOnlyHint=True` on
   its ~104 read operations (verified — `metadata_data_element_get` True, `..._create` False), which
-  kodo's gate already honors, so a write assistant on that server confirms only writes. The
+  heim's gate already honors, so a write assistant on that server confirms only writes. The
   tradeoff is its ~315-tool surface (heavy for small models). The default single-tool bridge still
   can't be annotated per-op (one dynamic tool), and the `dhis2w-mcp-router` is a 2-tool dispatcher
   whose generic `call_tool` can't be read-only — so on those, reads-prompt remains inherent
   (friction, not danger — reads are safe and shown). Pair with
   the write-reliability work below.
 - **MCP resource for the target** — now unblocked: **dhis2w 1.0.0 has shipped**. Add a
-  `dhis2://target` resource to `dhis2w-mcp-bridge` + a generic MCP-resource proxy in kodo,
+  `dhis2://target` resource to `dhis2w-mcp-bridge` + a generic MCP-resource proxy in heim,
   replacing the `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
 - **Packaging** — Web Store (unlisted first), pinned manifest key, Firefox `sidebar_action` target
   via the WXT multi-target build.
@@ -110,21 +110,21 @@ completion token.
 
 - **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes audio fine, but
   Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the audio. **Code
-  investigation (2026-07-05):** kodo's path looks correct — `capabilities()` reads the projector's
+  investigation (2026-07-05):** heim's path looks correct — `capabilities()` reads the projector's
   `clip.has_audio_encoder` flag to detect audio, `build_command` passes `--mmproj <projector>`
   uniformly (llama-server's mtmd handles vision + audio; installed llama-server is b9870, which has
   audio support), and the agent sends OpenAI `input_audio` parts. So the fault is most likely
-  **downstream of kodo** — llama.cpp/mtmd support for these specific architectures (Ultravox's
+  **downstream of heim** — llama.cpp/mtmd support for these specific architectures (Ultravox's
   Whisper-style encoder, Voxtral) — or a projector-selection edge case (`pick_gguf` finds the mmproj
   by a `mmproj*` filename; a repo naming it otherwise would be missed → no `--mmproj` → audio fails).
   **Verification plan (needs a small audio-specialist GGUF in the library — still blocked):**
   (1) pull one + its projector; (2) confirm `capabilities()` reports `audio=True` and which mmproj;
   (3) run `llama-server -m <model> --mmproj <audio-proj>` and curl an `input_audio` request to
-  isolate kodo vs llama.cpp; (4) if it fails llama-server-alone → upstream issue; if it works alone
-  → fix kodo's mmproj-pick (match by `clip.has_audio_encoder`, not filename) or the content shape.
+  isolate heim vs llama.cpp; (4) if it fails llama-server-alone → upstream issue; if it works alone
+  → fix heim's mmproj-pick (match by `clip.has_audio_encoder`, not filename) or the content shape.
 
-- **`kodo-mcp-web` browser path can't pin DNS.** [deferred residual — only matters if exposing
-  kodo beyond a trusted LAN] The static fetch path is fixed (resolve once, vet, connect to the
+- **`heim-mcp-web` browser path can't pin DNS.** [deferred residual — only matters if exposing
+  heim beyond a trusted LAN] The static fetch path is fixed (resolve once, vet, connect to the
   pinned IP with Host/SNI on the real hostname; blocklist is `not is_global`, covering CGNAT),
   but the Playwright path only re-vets each request via interception — Chromium resolves its own
   connections, so a rebinding window remains there. A full fix would fulfill intercepted routes
@@ -153,16 +153,16 @@ completion token.
 ## Other open ideas
 
 - **Chat export.** `/export` and `/export --thinking` ship in the TUI. Still open: PDF export (the
-  web UI has it) and a non-interactive `kodo chat --save` for the `-p` one-shot path.
+  web UI has it) and a non-interactive `heim chat --save` for the `-p` one-shot path.
 - **Rich tags — the last mile.** The normalized tag registry (`{tag: {color, icon, …}}` +
   `GET /api/tags/registry`) already ships; the UI prefers a registry color, else a name-derived one.
-  Open: a color-picker / `kodo library tag --color`, and a curated default tag set seeded from
+  Open: a color-picker / `heim library tag --color`, and a curated default tag set seeded from
   `docs/guides/models.md`.
-- **More MCP servers** — a `kodo-mcp-http` (allowlisted fetch) and a git server, on the same
-  `kodo-mcp-*` template (dependency-light, stdio-only, `pydantic-settings` config, sandbox/allowlist
+- **More MCP servers** — a `heim-mcp-http` (allowlisted fetch) and a git server, on the same
+  `heim-mcp-*` template (dependency-light, stdio-only, `pydantic-settings` config, sandbox/allowlist
   anything that executes or fetches).
-- **Want-list drive rebuild.** `kodo library manifest`/`sync` ship. A natural next step: a
-  `--verify`/repair pass that re-pulls only models failing `kodo library verify --deep`.
+- **Want-list drive rebuild.** `heim library manifest`/`sync` ship. A natural next step: a
+  `--verify`/repair pass that re-pulls only models failing `heim library verify --deep`.
 
 ## North-star
 
@@ -171,13 +171,13 @@ Chrome side panel:
 
 ```
 Chrome extension (side panel, shadcn chat)
-  → kodo (serve --ui --model X): runs the model + MCP client + agent loop
+  → heim (serve --ui --model X): runs the model + MCP client + agent loop
       → MCP server from ../dhis2w-utils  → DHIS2 instance
 ```
 
 **Build order:**
 
-1. **Phase 1 — kodo + web chat UI + generic tool/MCP support.** Done: the library, pull/run/chat,
+1. **Phase 1 — heim + web chat UI + generic tool/MCP support.** Done: the library, pull/run/chat,
    `serve --ui` and locked `serve --ui --model X`, the `/v1` proxy, the agent loop + MCP client
    pointable at any server, the bundled toolset, voice, and the Textual TUI.
 2. **Phase 2 — DHIS2 + Chrome extension** [built 2026-07-10, pending review]: the MV3 side-panel

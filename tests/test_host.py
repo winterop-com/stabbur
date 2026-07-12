@@ -1,10 +1,10 @@
-"""Tests for the OS-aware helpers in :mod:`kodo.host`."""
+"""Tests for the OS-aware helpers in :mod:`heim.host`."""
 
 from pathlib import Path
 
 import pytest
 
-from kodo import host
+from heim import host
 
 
 def test_os_detection_is_mutually_exclusive(monkeypatch: pytest.MonkeyPatch) -> None:

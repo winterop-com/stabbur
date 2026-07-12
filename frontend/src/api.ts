@@ -1,5 +1,5 @@
-// Thin client for kodo's server: status/library/load + a hand-rolled SSE chat
-// loop against /api/chat (kodo's tool-aware endpoint). /api/chat emits its own
+// Thin client for heim's server: status/library/load + a hand-rolled SSE chat
+// loop against /api/chat (heim's tool-aware endpoint). /api/chat emits its own
 // event envelope (token/tool/error/done), NOT raw OpenAI SSE, so we parse that.
 
 import { apiFetch } from "@/lib/http";
@@ -62,7 +62,7 @@ export interface Status {
   n_ctx: number | null;
   error: string | null;
   default_system_prompt: string;
-  project_model: string | null; // the project's bound model (kodo.toml), to auto-load on open
+  project_model: string | null; // the project's bound model (heim.toml), to auto-load on open
   default_chat_voice: string | null; // the project's [project] chat_voice; UI defaults the Listen voice to it
   voice_enabled: boolean; // the project's [voice] enabled; false hides the Voice surface (text-only assistant)
   runtime_load_timeout: number; // seconds a load may take; the UI polls at least this long
@@ -164,7 +164,7 @@ export const setModelTags = (model: string, tags: string[]) =>
     body: JSON.stringify({ model, tags }),
   }).then(json<{ model: string; tags: string[] }>);
 
-/** The tag style registry ({tag: {color, icon, description}}); set via `kodo library tag-style`. */
+/** The tag style registry ({tag: {color, icon, description}}); set via `heim library tag-style`. */
 export const getTagRegistry = () => apiFetch("/api/tags/registry").then(json<TagRegistry>);
 
 /** List the MCP tools attached to the server (empty if none configured). */

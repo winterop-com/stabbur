@@ -1,4 +1,4 @@
-"""Tests for `kodo library verify` — on-disk integrity checks."""
+"""Tests for `heim library verify` — on-disk integrity checks."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from kodo import library
-from kodo.models import ModelFormat
+from heim import library
+from heim.models import ModelFormat
 
 
 def _gguf_model(tmp_path: Path, *, empty: bool = False, with_card: bool = True) -> library.LibraryModel:
@@ -17,7 +17,7 @@ def _gguf_model(tmp_path: Path, *, empty: bool = False, with_card: bool = True) 
     gguf.write_bytes(b"" if empty else b"weights")
     if with_card:
         (repo / "README.md").write_text("# card")
-    sidecar = repo / ".kodo"
+    sidecar = repo / ".heim"
     sidecar.mkdir()
     (sidecar / "metadata.json").write_text('{"card": "README.md", "size_bytes": 7, "file_count": 2}')
     return library.LibraryModel(name="pub/Foo-GGUF", model_format=ModelFormat.gguf, path=repo, load_target=gguf)

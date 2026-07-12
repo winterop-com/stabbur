@@ -1,14 +1,14 @@
 // TargetBanner tab-match: a tab under a DIFFERENT origin than the assistant's
 // base_url shows the mismatch banner; a tab under the SAME origin shows matched.
 //
-// `mock` serves the kodo API and is the assistant's base_url origin. `other` is a
+// `mock` serves the heim API and is the assistant's base_url origin. `other` is a
 // second http origin (a different port) used to load a non-matching web page.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock } from "../mockServer";
+import { HeimMock } from "../mockServer";
 
-const mock = new KodoMock();
-const other = new KodoMock();
+const mock = new HeimMock();
+const other = new HeimMock();
 
 test.beforeAll(async () => {
   await mock.start();

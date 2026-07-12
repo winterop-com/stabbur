@@ -1,5 +1,5 @@
-// A tiny in-process kodo API mock for the mock E2E tier. It speaks just enough of
-// the kodo contract (GET /api/status, POST /api/load/{name}, GET /api/tools,
+// A tiny in-process heim API mock for the mock E2E tier. It speaks just enough of
+// the heim contract (GET /api/status, POST /api/load/{name}, GET /api/tools,
 // POST /api/chat SSE, GET /api/assistant) for the extension panel to drive, and
 // exposes a mutable `state` so each test scripts its own scenario.
 //
@@ -49,7 +49,7 @@ export interface MockState {
   statusError: string | null;
   /** runtime_load_timeout advertised in status. */
   loadTimeout: number;
-  /** When true, every mutating POST answers 403 (kodo cross-site guard). */
+  /** When true, every mutating POST answers 403 (heim cross-site guard). */
   block403Post: boolean;
   /** POST /api/load: ms after which phase auto-advances to ready (loading -> ready). */
   loadReadyAfterMs: number;
@@ -149,7 +149,7 @@ export async function reservePort(): Promise<number> {
   });
 }
 
-export class KodoMock {
+export class HeimMock {
   state: MockState = defaultState();
   private server: Server | null = null;
   private loadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -304,7 +304,7 @@ export class KodoMock {
     // Non-API GET: serve a tiny stub HTML page (used for tab-match tests).
     if (method === "GET") {
       res.writeHead(200, { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" });
-      res.end(`<!doctype html><title>kodo mock ${path}</title><body>stub page</body>`);
+      res.end(`<!doctype html><title>heim mock ${path}</title><body>stub page</body>`);
       return;
     }
 

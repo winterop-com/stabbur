@@ -1,4 +1,4 @@
-// Typed client for GET /api/assistant. A 404 means the kodo project carries no
+// Typed client for GET /api/assistant. A 404 means the heim project carries no
 // [assistant] metadata -> the panel runs in generic mode (returns null).
 
 import { apiFetch } from "@/lib/http";
@@ -35,7 +35,7 @@ export interface AssistantBindEcho {
   [key: string]: unknown;
 }
 
-/** Assistant metadata bound to the kodo project (shape is open — extra keys pass through). */
+/** Assistant metadata bound to the heim project (shape is open — extra keys pass through). */
 export interface AssistantInfo {
   name?: string;
   base_url?: string;

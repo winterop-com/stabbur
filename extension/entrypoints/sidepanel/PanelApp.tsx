@@ -161,7 +161,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     return cachedWhoAmI(tabId, true); // explicit button click always re-probes
   }
 
-  // Snapshot the active kodo backend when a bind flow starts, so a mid-flow backend switch can't
+  // Snapshot the active heim backend when a bind flow starts, so a mid-flow backend switch can't
   // redirect the minted token to a different server (BindFlow freezes this at consent-confirm).
   function captureTarget(): BindBackendTarget {
     const b = activeBackend(settings);

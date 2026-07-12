@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from kodo import arch
-from kodo.models import ModelFormat
+from heim import arch
+from heim.models import ModelFormat
 
 
 def test_architectures_are_generative() -> None:

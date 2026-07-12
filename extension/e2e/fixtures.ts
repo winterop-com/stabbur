@@ -26,8 +26,8 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const SCRATCH =
-  process.env.KODO_E2E_SCRATCH ??
-  "/private/tmp/claude-502/-Users-morteoh-dev-local-kodo/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
+  process.env.HEIM_E2E_SCRATCH ??
+  "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 /**
  * Absolute path to the built, unpacked extension. The live tier needs the TEST-ONLY e2e build
@@ -50,7 +50,7 @@ export function scratchRoot(): string {
 }
 
 /** A fresh, uniquely-named user-data dir under the scratch root (caller cleans it up). */
-export function userDataDir(prefix = "kodo-ext-e2e-"): string {
+export function userDataDir(prefix = "heim-ext-e2e-"): string {
   return mkdtempSync(path.join(scratchRoot(), prefix));
 }
 
@@ -156,7 +156,7 @@ export async function openPanel(context: BrowserContext, extensionId: string): P
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/${PANEL_PATH}`);
   await page.waitForLoadState("domcontentloaded");
-  await page.getByRole("heading", { name: "kodo" }).first().waitFor({ timeout: 15_000 });
+  await page.getByRole("heading", { name: "heim" }).first().waitFor({ timeout: 15_000 });
   return page;
 }
 
@@ -180,7 +180,7 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
   if (await panel.evaluate((p) => chrome.permissions.contains({ origins: [p] }), pattern)) return true;
   await panel.evaluate((p) => {
     const b = document.createElement("button");
-    b.id = "__kodo_grant_host";
+    b.id = "__heim_grant_host";
     b.textContent = "grant host"; // needs text + size or Playwright's click never finds it actionable
     b.style.cssText = "position:fixed;bottom:0;left:0;z-index:9999;width:120px;height:32px";
     b.addEventListener("click", () => {
@@ -191,7 +191,7 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
     document.body.appendChild(b);
   }, pattern);
   await panel
-    .locator("#__kodo_grant_host")
+    .locator("#__heim_grant_host")
     .click({ timeout: 10_000 })
     .catch(() => {});
   // Race the (possibly wedged) request against a hard external deadline so the caller can't hang.
@@ -206,7 +206,7 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
   ]);
   console.log(`[grant-host] host permission for ${origin} granted=${granted}`);
   if (granted)
-    await panel.evaluate(() => document.getElementById("__kodo_grant_host")?.remove()).catch(() => {});
+    await panel.evaluate(() => document.getElementById("__heim_grant_host")?.remove()).catch(() => {});
   return granted;
 }
 

@@ -19,7 +19,7 @@ export interface ConnectionSnapshot {
   phase: ConnectionPhase;
   status: Status | null;
   error: string | null;
-  /** True once a mutating POST returned 403 (kodo cross-site guard). */
+  /** True once a mutating POST returned 403 (heim cross-site guard). */
   guardBlocked: boolean;
   /** ms-epoch the current load began, for elapsed display. */
   loadStartedAt: number | null;
@@ -219,7 +219,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
           clearTimer();
           emit({
             phase: "needs-model",
-            error: "Blocked by kodo's cross-site guard",
+            error: "Blocked by heim's cross-site guard",
             guardBlocked: true,
             loadStartedAt: null,
             loadDeadline: null,

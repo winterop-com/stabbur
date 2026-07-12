@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from kodo.library import LibraryModel
-from kodo.models import ModelFormat
-from kodo.runtime import supervisor
-from kodo.server import ServerManager
+from heim.library import LibraryModel
+from heim.models import ModelFormat
+from heim.runtime import supervisor
+from heim.server import ServerManager
 
 
 def _model(path: Path) -> LibraryModel:
@@ -59,7 +59,7 @@ def test_load_is_serialized_across_threads(tmp_path: Path, monkeypatch: pytest.M
             active -= 1
         return [sys.executable, "-c", "import time; time.sleep(30)"]  # long-lived so spawn succeeds
 
-    monkeypatch.setattr("kodo.server.runtime.build_command", slow_build)
+    monkeypatch.setattr("heim.server.runtime.build_command", slow_build)
     m1 = LibraryModel(name="pub/A", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "a")
     m2 = LibraryModel(name="pub/B", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "b")
     threads = [threading.Thread(target=manager.load, args=(m,)) for m in (m1, m2)]

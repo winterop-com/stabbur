@@ -204,7 +204,7 @@ export function SettingsPanel({
             <div className="mt-2 rounded-md border border-border bg-background/40 p-2">
               <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="text-[11px] font-medium text-muted-foreground">
-                  Project default (kodo.toml){settings.systemPrompt === null ? " · in use" : ""}
+                  Project default (heim.toml){settings.systemPrompt === null ? " · in use" : ""}
                 </span>
                 {settings.systemPrompt !== null && (
                   <button

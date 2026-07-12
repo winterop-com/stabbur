@@ -15,13 +15,13 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from kodo import chat_tui, runtime
-from kodo.chat_tui._widgets import ConfirmModal
-from kodo.chat_tui.app import _confirm_policy
-from kodo.library import LibraryModel
-from kodo.models import ModelFormat
-from kodo.project import AssistantInfo, Project
-from kodo.runtime.sampling import ModelSampling
+from heim import chat_tui, runtime
+from heim.chat_tui._widgets import ConfirmModal
+from heim.chat_tui.app import _confirm_policy
+from heim.library import LibraryModel
+from heim.models import ModelFormat
+from heim.project import AssistantInfo, Project
+from heim.runtime.sampling import ModelSampling
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +43,7 @@ def _fake_runtime(model: LibraryModel) -> runtime.RuntimeProc:
         base="http://127.0.0.1:9",
         port=9,
         cmd=["llama-server"],
-        state_dir=Path("/tmp/kodo-fake-runtime"),
+        state_dir=Path("/tmp/heim-fake-runtime"),
         log_fh=None,
     )
     rt.model = model
@@ -158,7 +158,7 @@ class _StubToolset:
         return self
 
     async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> Any:
-        from kodo import tools  # noqa: PLC0415
+        from heim import tools  # noqa: PLC0415
 
         self.calls.append(name)
         return tools.ToolResult(text="wrote")

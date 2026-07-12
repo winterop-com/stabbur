@@ -2,9 +2,9 @@
 // leaves no error, and an error frame surfaces recoverably.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, type ChatFrame } from "../mockServer";
+import { HeimMock, type ChatFrame } from "../mockServer";
 
-const mock = new KodoMock();
+const mock = new HeimMock();
 
 test.beforeAll(async () => {
   await mock.start();

@@ -1,7 +1,7 @@
 """Tests for the write-enabled DHIS2 template + the generic ``extra_secret`` bind plumbing.
 
 Wave 2 (Round 3) adds a second, optional secret to a bind mode: ``BindMode.extra_secret_env`` (a
-generic secondary env var kodo exports but never interprets) and ``BindRequest.extra_secret`` (the
+generic secondary env var heim exports but never interprets) and ``BindRequest.extra_secret`` (the
 value the caller hands it). The ``dhis2-write`` template wires the session mode's
 ``extra_secret_env`` to ``DHIS2_SESSION_XSRF`` so a session bind can carry the CSRF token DHIS2
 requires on writes into the stored d2w profile — the only place the DHIS2 name appears.
@@ -19,11 +19,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
-from kodo import project
-from kodo.app import create_app
-from kodo.config import Settings
-from kodo.project import AssistantInfo, BindMode
-from kodo.project.templates import TEMPLATES
+from heim import project
+from heim.app import create_app
+from heim.config import Settings
+from heim.project import AssistantInfo, BindMode
+from heim.project.templates import TEMPLATES
 
 
 @pytest.fixture
@@ -93,7 +93,7 @@ def test_extra_secret_env_survives_render_load_round_trip(tmp_path: Path) -> Non
     )
     text = project.render_manifest(model="m", assistant=info)
     tomllib.loads(text)  # valid TOML
-    p = tmp_path / "kodo.toml"
+    p = tmp_path / "heim.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant is not None
@@ -106,12 +106,12 @@ def test_extra_secret_env_survives_render_load_round_trip(tmp_path: Path) -> Non
 
 
 def test_dhis2_write_template_scaffolds_and_round_trips(tmp_path: Path) -> None:
-    # Scaffolding the write template (validate -> render, as _write_project does) writes a kodo.toml
+    # Scaffolding the write template (validate -> render, as _write_project does) writes a heim.toml
     # whose load() round-trips the session mode's DHIS2_SESSION_XSRF extra secret.
     tmpl = TEMPLATES["dhis2-write"]
     assert tmpl.assistant is not None
     info = AssistantInfo.model_validate(tmpl.assistant)
-    p = tmp_path / "kodo.toml"
+    p = tmp_path / "heim.toml"
     p.write_text(project.render_manifest(model=tmpl.model, system_prompt=tmpl.system_prompt, assistant=info))
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant is not None and loaded.assistant.bind is not None
@@ -249,7 +249,7 @@ async def test_bind_extra_secret_ignored_when_mode_has_no_extra_env(
 
 async def test_bind_extra_secret_size_capped(app: FastAPI, client: AsyncClient) -> None:
     # extra_secret is bounded by the same _MAX_SECRET cap as secret (400, not an unbounded env blob).
-    from kodo.routers.serving.assistant import _MAX_SECRET
+    from heim.routers.serving.assistant import _MAX_SECRET
 
     info = AssistantInfo.model_validate(
         {

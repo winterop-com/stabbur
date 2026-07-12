@@ -5,11 +5,11 @@
 
 import type { Conversation } from "@/lib/types";
 
-const CONVERSATIONS_KEY = "kodo.conversations";
-const THEME_KEY = "kodo.theme";
+const CONVERSATIONS_KEY = "heim.conversations";
+const THEME_KEY = "heim.theme";
 
 export interface Settings {
-  // null = use the project default (kodo.toml); "" = explicitly no system prompt;
+  // null = use the project default (heim.toml); "" = explicitly no system prompt;
   // a string = override. Kept distinct so a project's prompt applies by default.
   systemPrompt: string | null;
   maxTokens: number | null;

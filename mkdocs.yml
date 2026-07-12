@@ -1,8 +1,8 @@
-site_name: kodo
+site_name: heim
 site_description: Build a full local LLM library, then run, chat, and serve it — fully on-box.
-site_url: https://winterop-com.github.io/kodo/
-repo_url: https://github.com/winterop-com/kodo
-repo_name: winterop-com/kodo
+site_url: https://winterop-com.github.io/heim/
+repo_url: https://github.com/winterop-com/heim
+repo_name: winterop-com/heim
 docs_dir: docs
 site_dir: site
 

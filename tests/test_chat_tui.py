@@ -9,10 +9,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kodo import chat_tui, runtime
-from kodo.library import LibraryModel
-from kodo.models import ModelFormat
-from kodo.runtime.sampling import ModelSampling
+from heim import chat_tui, runtime
+from heim.library import LibraryModel
+from heim.models import ModelFormat
+from heim.runtime.sampling import ModelSampling
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def _fake_runtime(model: LibraryModel, base: str = "http://127.0.0.1:9", port: i
         base=base,
         port=port,
         cmd=["llama-server"],
-        state_dir=Path("/tmp/kodo-fake-runtime"),
+        state_dir=Path("/tmp/heim-fake-runtime"),
         log_fh=None,
     )
     rt.model = model

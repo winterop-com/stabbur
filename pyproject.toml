@@ -1,7 +1,7 @@
 [project]
-name = "kodo"
-version = "0.1.0"
-description = "Kodo — build a local LLM library, then run, chat, and serve it — fully on-box"
+name = "heim"
+version = "0.3.0"
+description = "Heim — build a local LLM library, then run, chat, and serve it — fully on-box"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "LicenseRef-Proprietary"
@@ -9,7 +9,6 @@ license-files = ["LICENSE"]
 keywords = ["llm", "local-llm", "self-hosted", "mcp", "agent", "dhis2", "fastapi", "huggingface"]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "Private :: Do Not Upload",
     "Programming Language :: Python :: 3.13",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
@@ -23,24 +22,14 @@ dependencies = [
     "hf-xet>=1.5.1",
     "httpx>=0.28.1",
     "huggingface-hub>=1.21.0",
-    # Bundled first-party MCP tool servers (pure-stdlib / light) — kodo ships with a
-    # working tool set out of the box, so these are base deps, not extras. They're
-    # workspace members (see [tool.uv.sources]); a plain PyPI `pip install kodo` can't
-    # resolve them because they're unpublished. That's by design: kodo is installed from
-    # this workspace (`uv sync` / `uv tool install -e .`), where they resolve as editable
-    # siblings — a standalone PyPI wheel is not a supported install path. The heavier
-    # `kodo-mcp-web` (Playwright) and the dev-only `kodo-benchmark` are extras instead.
-    "kodo-mcp-datetime",
-    "kodo-mcp-exec",
-    "kodo-mcp-files",
-    "kodo-mcp-git",
-    "kodo-mcp-memory",
-    "kodo-mcp-network",
-    "kodo-mcp-http",
-    "kodo-mcp-search",
-    "kodo-mcp-shell",
-    "kodo-mcp-weather-yr",
-    "kodo-mcp-utils",
+    # The bundled first-party MCP tool servers are now VENDORED into this package (see
+    # `src/heim/mcp_servers/*`) rather than being separate `heim-mcp-*` workspace members.
+    # heim ships a working tool set out of the box with zero unpublished `heim-*` runtime
+    # deps, so `pip install heim` resolves cleanly. Their console scripts + `heim.plugins`
+    # entry points are declared on this distribution below; the third-party libraries the
+    # base servers import (fastmcp, pluginkit, httpx, pydantic, pydantic-settings) are
+    # listed here. The heavier web reader (Playwright/trafilatura) stays in the `web` extra.
+    "pydantic>=2.0",
     # Kokoro-82M (ONNX) — the lightweight, cross-platform in-chat voice. A base dep (not an
     # extra) so "Listen"/speak works out of the box on every install; the design treats it as
     # always-available, and it's self-contained (kokoro-onnx bundles espeak-ng via
@@ -56,7 +45,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Apple-Silicon MLX runtimes. Optional + platform-gated: kodo spawns these as
+# Apple-Silicon MLX runtimes. Optional + platform-gated: heim spawns these as
 # OpenAI servers (it does not import them), and they have no Linux wheels, so
 # they must never be hard deps. mlx-vlm serves multimodal MLX checkpoints that
 # text-only mlx-lm can't load. Install with `uv sync --extra mlx` on an M-series
@@ -75,7 +64,7 @@ mlx = [
 # in-chat voice, no longer an opt-in extra. See the note there.
 
 # Full voice runtime via mlx-audio (Apple Silicon): Dia (dialogue + cloning), Kokoro,
-# Qwen3-TTS, and Whisper STT, served through mlx-audio's OpenAI /v1/audio server which kodo
+# Qwen3-TTS, and Whisper STT, served through mlx-audio's OpenAI /v1/audio server which heim
 # spawns + proxies. mlx-audio is gated (mlx, Apple-only, no Linux wheels); its per-model
 # helpers (misaki G2P for Kokoro, soundfile) are cross-platform. On Linux, the base
 # Kokoro-ONNX dep covers TTS. Install with `uv sync --extra voice` on an M-series Mac.
@@ -90,63 +79,86 @@ voice = [
     "transformers>=5.5,<5.13; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
-# Web reader MCP server (kodo-mcp-web): reads a page in a headless browser and returns
-# Markdown. Optional because Playwright + Chromium are heavy (a ~150 MB browser via
-# `playwright install chromium`), unlike the bundled stdlib servers. Install with
-# `uv sync --extra web` (or `make install-web`, which also fetches the browser). The pure
-# stdlib/light servers stay bundled in [project.dependencies]; this one is opt-in.
+# Web reader MCP server (vendored at `src/heim/mcp_servers/web`): reads a page in a headless
+# browser and returns Markdown. Optional because Playwright + Chromium are heavy (a ~150 MB
+# browser via `playwright install chromium`), unlike the bundled stdlib servers. Install with
+# `uv sync --extra web` (or `make install-web`, which also fetches the browser). The server's
+# code ships in the base wheel, but these heavy libraries are pulled in only via this extra;
+# without them the `heim-mcp-web` console script errors on import rather than at install.
 web = [
-    "kodo-mcp-web",
+    "playwright>=1.47",
+    "trafilatura>=1.12",
 ]
 
-# Benchmarking / eval harness (kodo-benchmark): contributes the `kodo benchmark` command
-# for measuring model quality across a suite. It's a dev/eval tool, not part of the runtime
-# an end user needs to chat or serve, so it's opt-in rather than a base dependency (which
-# also keeps it out of the app's wheel Requires-Dist). Install with `uv sync --extra benchmark`
-# (or add `benchmark` to the `uv tool install -e .[...]` extras to expose `kodo benchmark`
-# on the global command).
-benchmark = [
-    "kodo-benchmark",
-]
+# Benchmarking / eval harness (vendored at `src/heim/benchmark`): contributes the `heim
+# benchmark` command for measuring model quality across a suite. Its code + `heim.plugins`
+# entry point ship in the base wheel; all its third-party deps (fastmcp, httpx, pluginkit,
+# pydantic, typer) are already base deps, so this extra adds nothing on PyPI. It's retained
+# as a named extra so `uv sync --extra benchmark` (and `make install`) stay valid, and so
+# the Docker-sandboxed executor (`heim-sandbox`, a dev-only workspace member — see
+# [dependency-groups]) is present in the dev environment where benchmarks actually run.
+benchmark = []
 
 [project.urls]
-Homepage = "https://winterop-com.github.io/kodo/"
-Repository = "https://github.com/winterop-com/kodo"
-Documentation = "https://winterop-com.github.io/kodo/"
-Issues = "https://github.com/winterop-com/kodo/issues"
+Homepage = "https://winterop-com.github.io/heim/"
+Repository = "https://github.com/winterop-com/heim"
+Documentation = "https://winterop-com.github.io/heim/"
+Issues = "https://github.com/winterop-com/heim/issues"
 
 [project.scripts]
-kodo = "kodo.cli:main"
+heim = "heim.cli:main"
+# Vendored MCP tool servers — heim spawns these by console-script name (see
+# `heim.tools._bin_dir`/`_mcp_env`); it never imports them. Each points at the
+# vendored subpackage's re-exported `main`.
+heim-mcp-datetime = "heim.mcp_servers.datetime:main"
+heim-mcp-exec = "heim.mcp_servers.exec:main"
+heim-mcp-files = "heim.mcp_servers.files:main"
+heim-mcp-git = "heim.mcp_servers.git:main"
+heim-mcp-http = "heim.mcp_servers.http:main"
+heim-mcp-memory = "heim.mcp_servers.memory:main"
+heim-mcp-network = "heim.mcp_servers.network:main"
+heim-mcp-search = "heim.mcp_servers.search:main"
+heim-mcp-shell = "heim.mcp_servers.shell:main"
+heim-mcp-utils = "heim.mcp_servers.utils:main"
+heim-mcp-weather-yr = "heim.mcp_servers.weather_yr:main"
+heim-mcp-web = "heim.mcp_servers.web:main"
+heim-benchmark = "heim.benchmark:main"
+
+# Vendored plugins — discovered by heim's PluginManager (group "heim.plugins"). The MCP
+# servers advertise themselves (advertise-only, no command); benchmark contributes the
+# `heim benchmark` command group.
+[project.entry-points."heim.plugins"]
+datetime = "heim.mcp_servers.datetime.plugin:PLUGIN"
+exec = "heim.mcp_servers.exec.plugin:PLUGIN"
+files = "heim.mcp_servers.files.plugin:PLUGIN"
+git = "heim.mcp_servers.git.plugin:PLUGIN"
+http = "heim.mcp_servers.http.plugin:PLUGIN"
+memory = "heim.mcp_servers.memory.plugin:PLUGIN"
+network = "heim.mcp_servers.network.plugin:PLUGIN"
+search = "heim.mcp_servers.search.plugin:PLUGIN"
+shell = "heim.mcp_servers.shell.plugin:PLUGIN"
+utils = "heim.mcp_servers.utils.plugin:PLUGIN"
+weather-yr = "heim.mcp_servers.weather_yr.plugin:PLUGIN"
+web = "heim.mcp_servers.web.plugin:PLUGIN"
+benchmark = "heim.benchmark.plugin:PLUGIN"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
-# uv workspace: the app (this package) plus one bundled MCP server per package under
-# packages/kodo-mcp-*/. New servers (e.g. kodo-mcp-weather-yr) are sibling members and
-# join automatically via the glob; add each as a dependency + source below to bundle it.
+# uv workspace: the app (this package) plus the sole remaining member, heim-sandbox — the
+# Docker-sandboxed code executor shared by the vendored `exec` server and benchmark harness.
+# It stays a separate workspace member (dev/test-only, unpublished) so it never becomes a
+# `heim-*` runtime dependency of the wheel; it's pulled into the dev env via [dependency-groups].
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/heim-sandbox"]
 
 [tool.uv.sources]
-kodo-mcp-datetime = { workspace = true }
-kodo-mcp-exec = { workspace = true }
-kodo-mcp-files = { workspace = true }
-kodo-mcp-git = { workspace = true }
-kodo-mcp-memory = { workspace = true }
-kodo-mcp-network = { workspace = true }
-kodo-mcp-http = { workspace = true }
-kodo-benchmark = { workspace = true }
-kodo-sandbox = { workspace = true }
-kodo-mcp-search = { workspace = true }
-kodo-mcp-shell = { workspace = true }
-kodo-mcp-weather-yr = { workspace = true }
-kodo-mcp-utils = { workspace = true }
-kodo-mcp-web = { workspace = true }  # optional (the `web` extra); heavy Playwright deps
+heim-sandbox = { workspace = true }
 
 [tool.fastapi]
 # Let `fastapi dev` / `fastapi run` auto-detect the app.
-entrypoint = "kodo.app:app"
+entrypoint = "heim.app:app"
 
 [tool.ruff]
 target-version = "py313"
@@ -190,7 +202,7 @@ markers = [
 branch = true
 dynamic_context = "test_function"
 relative_files = true
-source = ["kodo", "kodo_mcp_datetime", "kodo_mcp_memory", "kodo_mcp_weather_yr", "kodo_mcp_exec", "kodo_mcp_files", "kodo_benchmark", "kodo_sandbox"]
+source = ["heim", "heim_sandbox"]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:"]
@@ -207,8 +219,9 @@ check_untyped_defs = true
 no_implicit_optional = true
 warn_unused_ignores = true
 strict_equality = true
-# Member roots go on MYPYPATH via the Makefile (glob-expanded) so each flat module
-# (packages/kodo-mcp-*/kodo_mcp_*.py) resolves to a clean, hyphen-free module name.
+# The remaining workspace member (packages/heim-sandbox) goes on MYPYPATH via the Makefile
+# (glob-expanded) so its module resolves under a clean, hyphen-free name. The vendored MCP
+# servers now live under src/heim/mcp_servers/** and resolve via the `src` root below.
 mypy_path = ["src"]
 
 [[tool.mypy.overrides]]
@@ -255,6 +268,11 @@ reportMissingModuleSource = false
 dev = [
     "coverage>=7.14.3",
     "httpx>=0.28.1",
+    # Docker-sandboxed executor shared by the vendored `exec` server + benchmark harness.
+    # A workspace member declared here (not in [project.dependencies] / extras) so it is
+    # installed in the dev/CI environment — where its tests and Docker-backed runs live —
+    # without ever emitting a `Requires-Dist: heim-*` line in the published wheel.
+    "heim-sandbox",
     "mkdocs>=1.6.1",
     "mkdocs-git-revision-date-localized-plugin>=1.3.0",
     "mkdocs-material>=9.7.6",

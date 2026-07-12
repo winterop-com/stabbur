@@ -16,7 +16,7 @@ const OVERALL_LABEL: Record<CheckStatus, string> = {
 
 /**
  * Top-bar system-health indicator: a status dot that opens a dropdown listing
- * the `kodo doctor` checks (runtimes, library, project) — same pattern as the
+ * the `heim doctor` checks (runtimes, library, project) — same pattern as the
  * model picker, so health lives in the bar, not crammed into the settings pane.
  */
 export function HealthMenu({ health }: { health: DoctorReport | null }) {

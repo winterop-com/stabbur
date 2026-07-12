@@ -1,6 +1,6 @@
-"""CLI one-shot (`kodo chat -p`) confirmation-gate wiring.
+"""CLI one-shot (`heim chat -p`) confirmation-gate wiring.
 
-A write-enabled project assistant makes ``kodo chat -p`` gate non-read-only tool calls. The
+A write-enabled project assistant makes ``heim chat -p`` gate non-read-only tool calls. The
 one-shot has no human to confirm, so the gate DENIES by default (fail-safe); ``--allow-writes``
 supplies a blanket auto-approve sink. A read-only or absent assistant leaves everything ungated.
 """
@@ -14,16 +14,16 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from kodo import agent, capabilities, cli, tools
-from kodo import library as library_ops
-from kodo import project as project_mod
-from kodo import runtime as runtime_mod
-from kodo.library import LibraryModel
-from kodo.models import ModelFormat
-from kodo.project import AssistantInfo, Project
-from kodo.runtime import sampling as sampling_mod
-from kodo.runtime import serve_registry
-from kodo.runtime.sampling import ModelSampling
+from heim import agent, capabilities, cli, tools
+from heim import library as library_ops
+from heim import project as project_mod
+from heim import runtime as runtime_mod
+from heim.library import LibraryModel
+from heim.models import ModelFormat
+from heim.project import AssistantInfo, Project
+from heim.runtime import sampling as sampling_mod
+from heim.runtime import serve_registry
+from heim.runtime.sampling import ModelSampling
 
 runner = CliRunner()
 

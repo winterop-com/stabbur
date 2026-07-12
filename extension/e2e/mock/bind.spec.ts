@@ -1,33 +1,33 @@
 // "Use my login" bind flow: the panel mints a scoped credential in the target site's own context
-// (its cookies) and hands kodo only the secret. Drives the flow against a KodoMock (the bind
+// (its cookies) and hands heim only the secret. Drives the flow against a HeimMock (the bind
 // endpoint) plus a TargetSiteMock (a stand-in DHIS2 the content tab opens): consent copy, a happy
 // PAT mint, the 404 -> session-fallback and 401 -> sign-in branches, and unbind (revoke + call).
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, TargetSiteMock, bindAssistant } from "../mockServer";
+import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const kodo = new KodoMock();
+const heim = new HeimMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {
-  await kodo.start();
+  await heim.start();
   await target.start();
 });
 test.afterAll(async () => {
-  await kodo.stop();
+  await heim.stop();
   await target.stop();
 });
 test.beforeEach(() => {
-  kodo.reset();
-  kodo.state.phase = "ready";
+  heim.reset();
+  heim.state.phase = "ready";
   target.reset();
-  kodo.state.assistant = bindAssistant(target.baseUrl());
+  heim.state.assistant = bindAssistant(target.baseUrl());
 });
 
-/** Open the panel (talking to kodo), then a content tab on the target site so the tab matches. */
+/** Open the panel (talking to heim), then a content tab on the target site so the tab matches. */
 async function openWithTargetTab(context: BrowserContext, extensionId: string): Promise<{ panel: Page; tab: Page }> {
-  await seedSettings(context, extensionId, { baseUrl: kodo.baseUrl(), token: "" });
+  await seedSettings(context, extensionId, { baseUrl: heim.baseUrl(), token: "" });
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
   const tab = await context.newPage();
@@ -49,7 +49,7 @@ test("consent card shows the read-only (GET) scope and the expiry", async ({ con
   await tab.close();
 });
 
-test("happy mint: token minted in the tab, kodo records a pat bind, chip appears", async ({ context, extensionId }) => {
+test("happy mint: token minted in the tab, heim records a pat bind, chip appears", async ({ context, extensionId }) => {
   const { panel, tab } = await openWithTargetTab(context, extensionId);
   await panel.getByTestId("bind-use-my-login").click();
   await panel.getByTestId("bind-confirm").click();
@@ -57,7 +57,7 @@ test("happy mint: token minted in the tab, kodo records a pat bind, chip appears
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByTestId("bind-acting-as")).toContainText("Acting as admin");
 
-  const bindCall = kodo.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "pat", secret: "d2p_test" });
   // The target actually minted (its POST /api/apiToken was hit).
   expect(target.mintCalls.length).toBeGreaterThan(0);
@@ -98,7 +98,7 @@ test("unbind revokes the token on the target and records an unbind call", async 
 
   await expect(panel.getByTestId("bind-acting-as")).toHaveCount(0, { timeout: 15_000 });
   expect(target.deleteCalls).toContain("/api/apiToken/u1");
-  const unbindCall = kodo.state.bindCalls.find((c) => c.endpoint === "unbind");
+  const unbindCall = heim.state.bindCalls.find((c) => c.endpoint === "unbind");
   expect(unbindCall?.body).toMatchObject({ mode: "pat" });
   await tab.close();
 });

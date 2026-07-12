@@ -1,0 +1,16 @@
+# A heim project: which libraries it uses + its assistant. Portable (no machine
+# paths). Copy to heim.toml, or run `heim project init`.
+
+# Libraries to read, priority order. "@shared" = the machine default
+# (HEIM_LIBRARY_ROOT). Omit to use just the default.
+libraries = ["models", "@shared"]
+
+[project]
+model = "gemma-4-12B-it-QAT-GGUF"   # a model in one of the libraries above
+system_prompt = ""                  # prepended to every chat; "" = none
+
+# Tools/MCP servers do NOT live here: they go in ./.mcp.json (the standard
+# `mcpServers` JSON that Claude Desktop / Cursor use). Add one with
+# `heim mcp add <name>` — see `heim mcp list` for the catalog.
+
+# Serve/runtime overrides also go here (host, port, serve_ui, ...).

@@ -1,8 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
 // Two tiers, selected by --project:
-//   mock  - fast, hermetic; drives the panel against an in-process kodo API mock.
-//   live  - end-to-end against a real `kodo serve` + the public DHIS2 play demo.
+//   mock  - fast, hermetic; drives the panel against an in-process heim API mock.
+//   live  - end-to-end against a real `heim serve` + the public DHIS2 play demo.
 //
 // Extensions require a persistent context and cannot share one across parallel
 // workers cleanly, so we pin workers to 1. The extension is loaded headless via
@@ -32,7 +32,7 @@ export default defineConfig({
     },
     {
       // Prompt-catalog specs: format-parity unit + the UI spot-check driving a real
-      // kodo. NOT part of the default `e2e` (mock) run. The batch verification
+      // heim. NOT part of the default `e2e` (mock) run. The batch verification
       // harness itself is `bun run e2e/prompts/run.ts` (not a Playwright test).
       name: "prompts",
       testDir: "e2e/prompts",

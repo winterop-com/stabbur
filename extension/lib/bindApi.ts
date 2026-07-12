@@ -1,6 +1,6 @@
-// Thin client for the kodo bind endpoints. POST /api/assistant/bind installs a bound credential
+// Thin client for the heim bind endpoints. POST /api/assistant/bind installs a bound credential
 // (running the mode's server-side argv with the secret in its env); POST /api/assistant/unbind
-// reverses it. kodo redacts the secret from the returned output. A non-2xx becomes a structured
+// reverses it. heim redacts the secret from the returned output. A non-2xx becomes a structured
 // failure so the caller renders one shape.
 
 import { apiFetch } from "@/lib/http";
@@ -46,7 +46,7 @@ async function postToTarget(target: BindTarget, path: string, body: Record<strin
 }
 
 /**
- * Install a bound credential on an explicit target, handing kodo the secret for the child env.
+ * Install a bound credential on an explicit target, handing heim the secret for the child env.
  * The single bind contract shared by the panel (target captured when the flow starts, so a
  * mid-mint backend switch can't misroute the token) and the background worker (target built
  * from stored settings).
@@ -58,7 +58,7 @@ export function postBindTo(
   extraSecret?: string,
 ): Promise<BindApiResult> {
   const body: Record<string, unknown> = { mode, secret };
-  // A session-mode write bind ships the captured XSRF token here (kodo redacts it too), so the
+  // A session-mode write bind ships the captured XSRF token here (heim redacts it too), so the
   // bound child can satisfy DHIS2's CSRF check on writes. Omitted for reads and the PAT path.
   if (extraSecret) body.extra_secret = extraSecret;
   return postToTarget(target, "/api/assistant/bind", body);

@@ -1,26 +1,26 @@
 // Write-scoped "Use my login" binds. A writable assistant surfaces an "allow writes" toggle;
 // enabling it records a write-scoped binding (PAT minted with the full method set) that
 // TargetBanner reflects as "writes enabled". A session-mode write bind additionally captures the
-// XSRF token and ships it to kodo as `extra_secret`.
+// XSRF token and ships it to heim as `extra_secret`.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, TargetSiteMock, bindAssistant } from "../mockServer";
+import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const kodo = new KodoMock();
+const heim = new HeimMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {
-  await kodo.start();
+  await heim.start();
   await target.start();
 });
 test.afterAll(async () => {
-  await kodo.stop();
+  await heim.stop();
   await target.stop();
 });
 test.beforeEach(() => {
-  kodo.reset();
-  kodo.state.phase = "ready";
+  heim.reset();
+  heim.state.phase = "ready";
   target.reset();
 });
 
@@ -42,7 +42,7 @@ function sessionOnlyAssistant(baseUrl: string): Record<string, unknown> {
 }
 
 async function openWithTargetTab(context: BrowserContext, extensionId: string): Promise<{ panel: Page; tab: Page }> {
-  await seedSettings(context, extensionId, { baseUrl: kodo.baseUrl(), token: "" });
+  await seedSettings(context, extensionId, { baseUrl: heim.baseUrl(), token: "" });
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
   const tab = await context.newPage();
@@ -91,7 +91,7 @@ test("a PAT write bind records write scope and TargetBanner shows 'writes enable
   context,
   extensionId,
 }) => {
-  kodo.state.assistant = writableAssistant(target.baseUrl());
+  heim.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   await panel.getByTestId("bind-use-my-login").click();
@@ -110,7 +110,7 @@ test("a PAT write bind records write scope and TargetBanner shows 'writes enable
 });
 
 test("a read-only PAT bind shows read-only scope, no writes", async ({ context, extensionId }) => {
-  kodo.state.assistant = writableAssistant(target.baseUrl());
+  heim.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   await panel.getByTestId("bind-use-my-login").click();
@@ -124,7 +124,7 @@ test("a read-only PAT bind shows read-only scope, no writes", async ({ context, 
 });
 
 test("a session write bind captures the XSRF token and sends it as extra_secret", async ({ context, extensionId }) => {
-  kodo.state.assistant = sessionOnlyAssistant(target.baseUrl());
+  heim.state.assistant = sessionOnlyAssistant(target.baseUrl());
   // Seed the live session + CSRF cookies on the target origin so the in-panel capture reads them.
   await context.addCookies([
     { url: target.baseUrl(), name: "JSESSIONID", value: "sess-abc" },
@@ -148,7 +148,7 @@ test("a session write bind captures the XSRF token and sends it as extra_secret"
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled");
 
-  const bindCall = kodo.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "session", extra_secret: "xsrf-xyz" });
   expect(String(bindCall?.body.secret)).toContain("JSESSIONID=sess-abc");
   await tab.close();

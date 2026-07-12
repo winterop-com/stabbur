@@ -1,15 +1,15 @@
-// Multi-backend switcher: the header <select> swaps which kodo the panel talks to.
+// Multi-backend switcher: the header <select> swaps which heim the panel talks to.
 // Covers (1) switching swaps the TargetBanner assistant name, (2) each backend keeps
 // its own conversation transcript, and (3) a legacy flat {baseUrl, token} seed still
 // works — settings are v2-only (no migrate-on-read); seedSettings translates the flat
 // shape into a single v2 backend, so the panel connects and chats normally.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock } from "../mockServer";
+import { HeimMock } from "../mockServer";
 import type { BrowserContext } from "@playwright/test";
 
-const mockA = new KodoMock();
-const mockB = new KodoMock();
+const mockA = new HeimMock();
+const mockB = new HeimMock();
 
 test.beforeAll(async () => {
   await mockA.start();
@@ -71,7 +71,7 @@ test("each backend keeps its own conversation transcript", async ({ context, ext
 
   // Switch to B: its transcript is empty (fresh backend, empty-state prompt shows).
   await panel.getByTestId("backend-switcher").selectOption("b");
-  await expect(panel.getByText("Ask your local kodo assistant anything.")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText("Ask your local heim assistant anything.")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText("message-on-A")).toHaveCount(0);
 
   // Switch back to A: its message is still there.

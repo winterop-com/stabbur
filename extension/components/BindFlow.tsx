@@ -10,7 +10,7 @@ import { postBindTo, type BindApiResult, type BindTarget } from "../lib/bindApi"
 import { setBinding, type Binding } from "../lib/binding";
 import type { SessionResult } from "../lib/sessionReads";
 
-/** The kodo backend a bind is written to, snapshotted when the flow starts. */
+/** The heim backend a bind is written to, snapshotted when the flow starts. */
 export interface BindBackendTarget extends BindTarget {
   backendId: string;
 }
@@ -20,7 +20,7 @@ interface BindFlowProps {
   recipe: BindRecipe;
   /** The target instance base URL (mint runs against this in the tab's context). */
   basePath: string;
-  /** Snapshot the active kodo backend at flow start — freezes {backendId, baseUrl, token} so a
+  /** Snapshot the active heim backend at flow start — freezes {backendId, baseUrl, token} so a
    *  mid-mint backend switch can't misroute the minted token to a different server. */
   captureTarget: () => BindBackendTarget;
   /** Resolve the current tab's signed-in user (for the binding's identity). */
@@ -58,7 +58,7 @@ function originOf(url: string): string | null {
 }
 
 /** The consent + progress card for "Use my login": mint a scoped credential (or fall back to the
- *  live session cookie) entirely in the target site's context, then hand kodo only the secret. */
+ *  live session cookie) entirely in the target site's context, then hand heim only the secret. */
 export function BindFlow({
   assistant,
   recipe,
@@ -206,8 +206,8 @@ export function BindFlow({
               <strong className="text-[var(--foreground)]">
                 a personal access token for your account, {writable && allowWrites ? "read-write" : "read-only (GET)"}
               </strong>
-              , expires in {recipe.expiresInDays} days, stored as a profile in the kodo project. It is minted in this
-              tab using your existing login and never leaves your browser except as the token kodo stores.
+              , expires in {recipe.expiresInDays} days, stored as a profile in the heim project. It is minted in this
+              tab using your existing login and never leaves your browser except as the token heim stores.
             </p>
           </div>
           {writable ? (
@@ -280,7 +280,7 @@ export function BindFlow({
             <KeyRound className="h-3.5 w-3.5" /> Share your live session instead
           </div>
           <p className="text-[var(--muted-foreground)]">
-            This instance would not mint a token, so kodo can use your current login session instead. This asks for the{" "}
+            This instance would not mint a token, so heim can use your current login session instead. This asks for the{" "}
             <strong className="text-[var(--foreground)]">cookies</strong> permission on {originOf(basePath) ?? baseUrl},
             reads the <code>{recipe.sessionCookie}</code> cookie, and keeps it synced. The session dies when you log out
             of {targetName}.

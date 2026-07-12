@@ -1,4 +1,4 @@
-"""Direct tests for :func:`kodo.agent._stream_turn` against real SSE bytes.
+"""Direct tests for :func:`heim.agent._stream_turn` against real SSE bytes.
 
 Every other agent test monkeypatches ``_stream_turn`` wholesale, so the actual SSE
 parser (the ``data:`` framing, cross-chunk arg accumulation, ``include_usage`` final
@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 
-from kodo import agent
+from heim import agent
 
 
 def _chop(body: bytes, size: int) -> list[bytes]:

@@ -1,12 +1,12 @@
-// kodo's cross-site guard: a mutating POST (loading the model) is 403-blocked
+// heim's cross-site guard: a mutating POST (loading the model) is 403-blocked
 // while GETs pass, and the panel surfaces the cors_origins hint with this
 // extension's id.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, MOCK_MODEL } from "../mockServer";
+import { HeimMock, MOCK_MODEL } from "../mockServer";
 
 test("403 on the model-load POST renders the cors_origins hint", async ({ context, extensionId }) => {
-  const mock = new KodoMock();
+  const mock = new HeimMock();
   await mock.start();
   try {
     mock.state.phase = "stopped"; // needs-model, so the panel offers a Load button

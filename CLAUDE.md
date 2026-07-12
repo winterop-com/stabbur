@@ -15,10 +15,10 @@ backing up from **Hugging Face**, **Ollama**, and **LM Studio**. Browse the
 library via a Typer CLI and a small FastAPI service; chat with any model, with
 tool/MCP support. North star: a local, self-hosted DHIS2 assistant (see `ROADMAP.md`).
 
-The library location is set via `KODO_LIBRARY_ROOT` (required — kodo refuses to
+The library location is set via `HEIM_LIBRARY_ROOT` (required — heim refuses to
 run without one rather than silently using a local folder). An external drive is
 the intended home; moving to a different machine or drive is just a change to
-`KODO_LIBRARY_ROOT`, no code changes required. Model weights must never be committed.
+`HEIM_LIBRARY_ROOT`, no code changes required. Model weights must never be committed.
 
 ## Stack & conventions
 
@@ -28,11 +28,11 @@ the intended home; moving to a different machine or drive is just a change to
   `uv add`. This applies to install instructions shown to users too.
 - **Proprietary, all rights reserved** (see `LICENSE`) — copyright Morten Hansen. The repo
   is source-available, NOT open-source: no one may use/run/redistribute it without written
-  permission. Do NOT publish kodo (or the bundled `kodo-mcp-*`) to public PyPI; the
+  permission. Do NOT publish heim (or the bundled `heim-mcp-*`) to public PyPI; the
   `Private :: Do Not Upload` classifier enforces this. Install is from source via
-  `uv tool install` from the repo/git, never `pip install kodo`.
+  `uv tool install` from the repo/git, never `pip install heim`.
 - Python 3.13, `uv` (with the `uv_build` backend), **src layout**.
-- **Typer** CLI; entry point `kodo = "kodo.cli:app"` (guarded via `kodo.cli:main`).
+- **Typer** CLI; entry point `heim = "heim.cli:app"` (guarded via `heim.cli:main`).
 - **FastAPI + Pydantic + pydantic-settings** for the browse/serve layer.
 - **huggingface_hub** is the canonical HF client (resumable, checksummed).
 - Lint/type/test config mirrors `../../chap-sdk/chapkit`: ruff (120 cols,
@@ -46,7 +46,7 @@ else has a home — put detail there, not here:
 
 - **`docs/architecture.md`** — the module map and internals: sources-vs-library,
   `ModelRef` identity + per-item scan fault isolation, serving/`ServerManager`/proxy,
-  the one-parser-one-writer `kodo.toml`, the import-time HF-cache side effect, the
+  the one-parser-one-writer `heim.toml`, the import-time HF-cache side effect, the
   process supervisor (group kill, pidfile, orphan sweep) and per-library `flock`.
 - **`ROADMAP.md`** — forward-looking plans (north-star DHIS2 assistant, phased build
   order, open issues). Update it when plans change.
@@ -57,17 +57,17 @@ else has a home — put detail there, not here:
 
 ## Libraries & projects (the mental model)
 
-Two distinct, composable concepts (see `kodo.library.roots`):
+Two distinct, composable concepts (see `heim.library.roots`):
 
 - **A Library is a self-contained, portable store**: model files **plus their own
-  metadata** (tags in `<root>/.kodo/tags.json`) — move the drive to another machine
+  metadata** (tags in `<root>/.heim/tags.json`) — move the drive to another machine
   and the tags come along. Nothing about a library is "local" or "external"; it's just
-  a *location*. The **default library** is `KODO_LIBRARY_ROOT` (per-machine config).
-- **A Project (`./kodo.toml`) composes libraries + defines an assistant.** It lists
+  a *location*. The **default library** is `HEIM_LIBRARY_ROOT` (per-machine config).
+- **A Project (`./heim.toml`) composes libraries + defines an assistant.** It lists
   `libraries = [...]` in priority order — project-relative paths plus the `@shared`
   token for the machine default — so it can keep hot models next to it *and* use the big
   archive. `[project]` (model + system prompt) and `[voice]` define the assistant; **tools
-  live in `.mcp.json`** (standard `mcpServers` JSON, see below), not in `kodo.toml`. A project
+  live in `.mcp.json`** (standard `mcpServers` JSON, see below), not in `heim.toml`. A project
   references models **by name**, never by path — so it's portable/committable. Outside a
   project, just the default library is used.
 
@@ -76,12 +76,12 @@ records its `library_root` so tags read/write against the right library. All **p
 data** — models, tags, runtime assets like the Kokoro TTS model (`<root>/tts/kokoro`) —
 lives in a library so it travels with the drive. Two things live outside a library, and
 they're different: **ephemeral machine-local runtime state** (pidfiles + logs under
-`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`; used by `kodo.runtime.supervisor` to
-reap runtimes orphaned by a crashed kodo — a pid means nothing on another machine, so it must
-not travel), and **durable machine config** (`~/.config/kodo/config.toml` via `kodo.userconfig`,
-written by `kodo config` / `kodo setup`: the per-machine `library_root` + `default_model`
+`$XDG_RUNTIME_DIR/heim/runtimes`, else `~/.cache/heim/runtimes`; used by `heim.runtime.supervisor` to
+reap runtimes orphaned by a crashed heim — a pid means nothing on another machine, so it must
+not travel), and **durable machine config** (`~/.config/heim/config.toml` via `heim.userconfig`,
+written by `heim config` / `heim setup`: the per-machine `library_root` + `default_model`
 defaults, the lowest-priority `Settings` source). Keep the three-way split: portable → library;
-transient machine state → XDG runtime/cache; machine defaults → `~/.config/kodo` (XDG config).
+transient machine state → XDG runtime/cache; machine defaults → `~/.config/heim` (XDG config).
 
 ## Library organization
 
@@ -96,12 +96,12 @@ Format-centric for LM Studio / HF; Ollama keeps its native (restorable) layout:
   restorable; shared blobs are preserved on `--move`.
 
 `pull --move` deletes the local source after a verified (byte-for-byte) copy. Every pull
-writes a `.kodo/` sidecar (`metadata.json` + `model-card.md`); for Ollama the card is
+writes a `.heim/` sidecar (`metadata.json` + `model-card.md`); for Ollama the card is
 **generated** from the manifest's text layers (system prompt, template, params, license).
 
 **exFAT** is the recommended filesystem (macOS + Linux read/write; eject cleanly, no
 journaling). No symlinks/hardlinks on exFAT, so dedup is "store once, copy to each
-runtime", never by link. Mount path differs on Linux — set `KODO_LIBRARY_ROOT` per machine.
+runtime", never by link. Mount path differs on Linux — set `HEIM_LIBRARY_ROOT` per machine.
 
 ## Formats & the shared-library direction
 
@@ -114,20 +114,20 @@ convert/fine-tune source, 2-4x the quant). Format is a per-model choice, not "ke
 - Sharing reality: LM Studio reads loose GGUF/MLX directly; Ollama imports a GGUF into its
   own blob store and won't run a loose file in place. So the win is one canonical library
   copy we *install into* whichever runtime, not one file used live by all. All three consumers
-  are fed from the canonical copy: `kodo library install/uninstall <model> --to/--from
+  are fed from the canonical copy: `heim library install/uninstall <model> --to/--from
   {ollama,lmstudio}` (Ollama imports via a Modelfile, LM Studio gets a zero-copy symlink) and
-  mlx_lm runs a loose MLX copy in place; `kodo library formats` reports the per-model policy.
+  mlx_lm runs a loose MLX copy in place; `heim library formats` reports the per-model policy.
 
 ## UI — web-first, plus a Textual terminal chat
 
 The browser is the primary, full-featured surface (library browse + chat), via
-`kodo serve --ui`. The interactive terminal chat (`kodo chat`) is a **Textual TUI**
-(`chat_tui/`) reusing the same runtime + agent loop; `kodo chat -p` is a plain scripted
+`heim serve --ui`. The interactive terminal chat (`heim chat`) is a **Textual TUI**
+(`chat_tui/`) reusing the same runtime + agent loop; `heim chat -p` is a plain scripted
 one-shot (no TUI).
 
-- **`kodo serve --ui`** — full app: browse the library (grouped by format) + chat with any
+- **`heim serve --ui`** — full app: browse the library (grouped by format) + chat with any
   model (pick + switch).
-- **`kodo serve --ui --model <name>`** — *locked* single-model mode: no picker, stable
+- **`heim serve --ui --model <name>`** — *locked* single-model mode: no picker, stable
   OpenAI `/v1`, configurable CORS. The intended backend for the Chrome extension.
 
 Stack: **Vite + React + Tailwind v4 + shadcn/ui**, built with **Bun** (`bun` is the frontend
@@ -135,45 +135,45 @@ package manager + runner — `make frontend` runs `bun install && bun run build`
 lockfile) to `frontend/dist` and served by `serve --ui` (API routes take precedence, SPA is the
 catch-all). **One SPA, four surfaces**
 (build the chat UI once, wrap it): web (`serve --ui`), Chrome extension (MV3 side panel,
-locked `/v1`), and Tauri + Electron desktop wrappers (maneki's pattern; kodo's should also
-launch/embed `kodo serve`). Chat UI uses shadcn's official chat components paired with a
+locked `/v1`), and Tauri + Electron desktop wrappers (maneki's pattern; heim's should also
+launch/embed `heim serve`). Chat UI uses shadcn's official chat components paired with a
 **hand-rolled OpenAI SSE fetch loop** — our backends emit raw OpenAI SSE, which the Vercel
 AI SDK / AI Elements / assistant-ui don't expect (impedance mismatch), so we avoid them.
 
 ## Running models — llama.cpp first, mlx_lm for MLX
 
 Serving is OpenAI-compatible so any client (and our SPA) can attach. Runtimes are
-**external processes kodo spawns**, not imported libs.
+**external processes heim spawns**, not imported libs.
 
 - **GGUF → llama.cpp `llama-server`** — primary, cross-platform, OpenAI `/v1`, tool calling
   (`--jinja` default), and a native router mode (`--models-dir`, hot-swap by name). A C++
   binary (`brew install llama.cpp`).
 - **MLX → `mlx_lm.server` (text) / `mlx_vlm.server` (multimodal)** — Apple Silicon only.
   Vision-capable MLX checkpoints can't be loaded by text-only `mlx_lm` (it errors on the
-  extra params and silently returns empty), so kodo routes them to `mlx-vlm` by the detected
-  `vision` capability (`kodo.capabilities`). The MLX runtimes are an optional, platform-gated
+  extra params and silently returns empty), so heim routes them to `mlx-vlm` by the detected
+  `vision` capability (`heim.capabilities`). The MLX runtimes are an optional, platform-gated
   extra (`uv sync --extra mlx`) — no Linux wheels, so never hard deps; a missing one yields an
   install hint, not a hang.
 - Ollama per-tensor models (e.g. `gemma4:12b-mlx`) need Ollama itself; single-GGUF Ollama
   models run via llama.cpp.
 
-## Tools / MCP (required, even for kodo itself)
+## Tools / MCP (required, even for heim itself)
 
-kodo supports **tool/function calling and acts as an MCP client**, generically (any MCP
-server), not just DHIS2. llama-server does OpenAI-style tool calling (`--jinja`); kodo runs
-the **agent loop** (model emits `tool_call` → kodo executes via the MCP client → feeds the
-result back → continues), streamed to the chat UI. kodo owns the client + loop so every
+heim supports **tool/function calling and acts as an MCP client**, generically (any MCP
+server), not just DHIS2. llama-server does OpenAI-style tool calling (`--jinja`); heim runs
+the **agent loop** (model emits `tool_call` → heim executes via the MCP client → feeds the
+result back → continues), streamed to the chat UI. heim owns the client + loop so every
 surface (web, extension, CLI) stays thin and tools work uniformly. A tool result's text goes
 back as the `tool` message; any **image** it returns (e.g. a Playwright screenshot) is fed to a
 **vision** model as a follow-up user image message so it actually sees it (text-only models get a
 note instead — never the raw image), gated on the detected `vision` capability.
 
-**Config is the ecosystem-standard `mcpServers` JSON** (`kodo.mcpservers`), the same shape
+**Config is the ecosystem-standard `mcpServers` JSON** (`heim.mcpservers`), the same shape
 Claude Desktop / Claude Code / Cursor use — so a server's README snippet pastes straight in.
-Two levels **merge**: machine-global `~/.config/kodo/mcp.json` (what free-play chat gets;
-`kodo mcp add --global`) and per-project `./.mcp.json` (`kodo mcp add`); a project name
-overrides a global one, and CLI `--mcp` layers on top. `kodo.toml` no longer carries tools.
-Bundled first-party servers (`kodo-mcp-*`, base deps) are entered by package name; `kodo setup`
+Two levels **merge**: machine-global `~/.config/heim/mcp.json` (what free-play chat gets;
+`heim mcp add --global`) and per-project `./.mcp.json` (`heim mcp add`); a project name
+overrides a global one, and CLI `--mcp` layers on top. `heim.toml` no longer carries tools.
+Bundled first-party servers (`heim-mcp-*`, base deps) are entered by package name; `heim setup`
 seeds a minimal global default (`datetime`).
 
 ## Gotchas worth knowing

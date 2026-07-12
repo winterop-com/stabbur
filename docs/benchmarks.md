@@ -1,9 +1,9 @@
 # Benchmark leaderboard
 
-How local models score on kodo's coding and tool-use benchmarks. Each cell is the
+How local models score on heim's coding and tool-use benchmarks. Each cell is the
 percentage of problems fully passed (a problem passes only if every check passes).
 
-Regenerate with `kodo benchmark leaderboard` after `kodo benchmark run ... --save`.
+Regenerate with `heim benchmark leaderboard` after `heim benchmark run ... --save`.
 
 | Rank | Model | python | rust | tools-datetime | tools-dhis2 | tools-dhis2-write | tools-utils | Overall |
 |---|---|---|---|---|---|---|---|---|

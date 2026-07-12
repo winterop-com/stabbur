@@ -1,0 +1,24 @@
+name = "tools-weather-yr"
+description = "Tool-use benchmark: answer weather questions by calling the heim-mcp-weather-yr server."
+type = "tool"
+language = "tools"
+# Weather is live and always changing, so these can't assert a temperature — they check the model
+# reaches for the weather tool for the right place and reports back about it (the place name is
+# echoed in the answer). The command's first token is the server (no `env` prefix), so the tool is
+# namespaced `weather_yr__weather_forecast`.
+
+[[problems]]
+id = "weather-oslo"
+difficulty = "basics"
+prompt = "What's the weather in Oslo right now? Use the available tools."
+servers = ["heim-mcp-weather-yr"]
+expect_tool = "weather_yr__weather_forecast"
+expect_answer_contains = "Oslo"
+
+[[problems]]
+id = "rain-bergen"
+difficulty = "intermediate"
+prompt = "Is it likely to rain in Bergen, Norway soon? Check with the weather tools and explain."
+servers = ["heim-mcp-weather-yr"]
+expect_tool = "weather_yr__weather_forecast"
+expect_answer_contains = "Bergen"

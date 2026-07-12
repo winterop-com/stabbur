@@ -1,9 +1,9 @@
-"""Tests for the shared atomic-write helper (kodo.fsatomic)."""
+"""Tests for the shared atomic-write helper (heim.fsatomic)."""
 
 import json
 from pathlib import Path
 
-from kodo import fsatomic
+from heim import fsatomic
 
 
 def test_write_text_roundtrip_creates_parents(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ import { CopyLine } from "./CopyLine";
 
 // Where the "in a DHIS2 project" hint links (the dhis2 flavor only). Absolute so it works
 // from a chrome-extension:// page; opens in a new tab.
-const DHIS2_PROJECT_DOCS_URL = "https://github.com/winterop-com/kodo/blob/main/docs/guides/dhis2-project.md";
+const DHIS2_PROJECT_DOCS_URL = "https://github.com/winterop-com/heim/blob/main/docs/guides/dhis2-project.md";
 
 interface ConnectionGateProps {
   snapshot: ConnectionSnapshot;
@@ -31,8 +31,8 @@ function CorsHint({ extensionId }: { extensionId: string }) {
   return (
     <div className="space-y-2 text-sm">
       <p className="text-[var(--muted-foreground)]">
-        kodo blocked a request from this extension (cross-site guard). Add this line to your kodo config, then
-        restart <code className="font-mono">kodo serve</code>:
+        heim blocked a request from this extension (cross-site guard). Add this line to your heim config, then
+        restart <code className="font-mono">heim serve</code>:
       </p>
       <CopyLine text={`cors_origins = ["chrome-extension://${extensionId}"]`} />
     </div>
@@ -76,7 +76,7 @@ export function ConnectionGate({
         return (
           <Centered>
             <Loader2 className="h-6 w-6 animate-spin text-[var(--muted-foreground)]" />
-            <p className="text-sm text-[var(--muted-foreground)]">Connecting to kodo...</p>
+            <p className="text-sm text-[var(--muted-foreground)]">Connecting to heim...</p>
           </Centered>
         );
 
@@ -85,13 +85,13 @@ export function ConnectionGate({
           <Centered>
             <Plug className="h-6 w-6 text-[var(--muted-foreground)]" />
             <p className="text-sm">
-              kodo is not reachable at <code className="font-mono">{baseUrl}</code> - is{" "}
-              <code className="font-mono">kodo serve --port {portOf(baseUrl)}</code> running?
+              heim is not reachable at <code className="font-mono">{baseUrl}</code> - is{" "}
+              <code className="font-mono">heim serve --port {portOf(baseUrl)}</code> running?
             </p>
             {isDhis2Flavor() ? (
               <p className="text-xs text-[var(--muted-foreground)]">
-                Run <code className="font-mono">kodo serve</code> in your DHIS2 project (a{" "}
-                <code className="font-mono">kodo.toml</code> with a <code className="font-mono">[assistant]</code>{" "}
+                Run <code className="font-mono">heim serve</code> in your DHIS2 project (a{" "}
+                <code className="font-mono">heim.toml</code> with a <code className="font-mono">[assistant]</code>{" "}
                 block).{" "}
                 <a
                   href={DHIS2_PROJECT_DOCS_URL}
@@ -114,7 +114,7 @@ export function ConnectionGate({
       case "needs-token":
         return (
           <Centered>
-            <p className="text-sm">This kodo server requires an access token.</p>
+            <p className="text-sm">This heim server requires an access token.</p>
             <input
               type="password"
               value={token}
@@ -156,7 +156,7 @@ export function ConnectionGate({
               </>
             ) : (
               <p className="text-sm text-[var(--muted-foreground)]">
-                No model is loaded and this project has no bound model. Load one from the kodo web UI, then
+                No model is loaded and this project has no bound model. Load one from the heim web UI, then
                 retry.
               </p>
             )}

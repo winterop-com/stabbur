@@ -68,8 +68,8 @@ export function Sidebar({
     <aside className="flex h-full w-full min-w-0 flex-col border-r border-border bg-muted/40 text-foreground">
       <div className="flex items-center justify-between px-3 py-3">
         <span className="px-1 text-sm font-semibold tracking-tight">
-          <span className="md:hidden">Kodo</span>
-          <span className="hidden md:inline">Kodo Studio</span>
+          <span className="md:hidden">Heim</span>
+          <span className="hidden md:inline">Heim Studio</span>
         </span>
         <div className="flex items-center gap-0.5">
           <Tooltip>

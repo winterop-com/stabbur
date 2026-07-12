@@ -1,0 +1,25 @@
+name = "tools-web"
+description = "Tool-use benchmark: answer questions about a web page by calling the heim-mcp-web server."
+type = "tool"
+language = "tools"
+# Each problem attaches the web reader MCP server and passes only if the model calls
+# read_url with the expected URL AND its answer contains the expected value. Needs the
+# `web` extra + Chromium (`make install-web`); the URLs are small, stable public pages.
+
+[[problems]]
+id = "read-example"
+difficulty = "basics"
+prompt = "Read the page https://example.com and tell me its main heading. Use the available tools."
+servers = ["heim-mcp-web"]
+expect_tool = "web__read_url"
+expect_args = { url = "https://example.com" }
+expect_answer_contains = "Example Domain"
+
+[[problems]]
+id = "read-example-body"
+difficulty = "intermediate"
+prompt = "Fetch https://example.com and summarize what the page says in one sentence. Use the available tools."
+servers = ["heim-mcp-web"]
+expect_tool = "web__read_url"
+expect_args = { url = "https://example.com" }
+expect_answer_contains = "example"

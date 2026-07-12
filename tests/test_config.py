@@ -1,15 +1,15 @@
-"""Tests for Settings sourcing: kodo.toml is primary, env overrides it."""
+"""Tests for Settings sourcing: heim.toml is primary, env overrides it."""
 
 from pathlib import Path
 
 import pytest
 
-from kodo import config
-from kodo.config import Settings
+from heim import config
+from heim.config import Settings
 
 
 def _write_toml(tmp_path: Path, body: str) -> None:
-    (tmp_path / "kodo.toml").write_text(body)
+    (tmp_path / "heim.toml").write_text(body)
 
 
 def test_debug_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,52 +29,52 @@ def test_pinned_runtime_port_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config._runtime_port_override is None
 
 
-def test_settings_read_library_root_from_kodo_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # kodo.toml is the primary config: a top-level key maps to a Settings field.
+def test_settings_read_library_root_from_heim_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # heim.toml is the primary config: a top-level key maps to a Settings field.
     _write_toml(tmp_path, 'library_root = "/data/library"\n[project]\nmodel = "x"\n')
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
 
     assert Settings().library_root == Path("/data/library")
 
 
-def test_kodo_toml_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # kodo.toml outranks .env, so a stale .env cannot shadow the primary config.
+def test_heim_toml_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # heim.toml outranks .env, so a stale .env cannot shadow the primary config.
     _write_toml(tmp_path, 'library_root = "/from/toml"\n')
-    (tmp_path / ".env").write_text("KODO_LIBRARY_ROOT=/from/dotenv\n")
+    (tmp_path / ".env").write_text("HEIM_LIBRARY_ROOT=/from/dotenv\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
 
     assert Settings().library_root == Path("/from/toml")
 
 
-def test_env_var_overrides_kodo_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_env_var_overrides_heim_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A real environment variable is the per-machine escape hatch and still wins.
     _write_toml(tmp_path, 'library_root = "/from/toml"\n')
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("KODO_LIBRARY_ROOT", "/from/env")
+    monkeypatch.setenv("HEIM_LIBRARY_ROOT", "/from/env")
 
     assert Settings().library_root == Path("/from/env")
 
 
 def test_project_tables_do_not_break_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The [project]/[[mcp]] tables belong to kodo.project; Settings must ignore
+    # The [project]/[[mcp]] tables belong to heim.project; Settings must ignore
     # them rather than error on unknown keys.
     _write_toml(
         tmp_path,
-        'library_root = "/data/library"\n[project]\nmodel = "gemma"\n[[mcp]]\ncommand = "kodo-mcp-datetime"\n',
+        'library_root = "/data/library"\n[project]\nmodel = "gemma"\n[[mcp]]\ncommand = "heim-mcp-datetime"\n',
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
 
     settings = Settings()
     assert settings.library_root == Path("/data/library")
 
 
 def _machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
-    """Write a machine config under an isolated XDG_CONFIG_HOME and point kodo at it."""
+    """Write a machine config under an isolated XDG_CONFIG_HOME and point heim at it."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    cfg = tmp_path / "kodo" / "config.toml"
+    cfg = tmp_path / "heim" / "config.toml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
     cfg.write_text(body)
 
@@ -82,34 +82,34 @@ def _machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) 
 def test_machine_config_supplies_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The machine config is the durable per-machine default source (library + default model).
     _machine_config(tmp_path, monkeypatch, 'library_root = "/from/machine"\ndefault_model = "gemma"\n')
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
-    monkeypatch.chdir(tmp_path)  # no kodo.toml/.env here
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)  # no heim.toml/.env here
 
     settings = Settings()
     assert settings.library_root == Path("/from/machine")
     assert settings.default_model == "gemma"
 
 
-def test_kodo_toml_overrides_machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A project pins its own model/library, so kodo.toml outranks the machine default.
+def test_heim_toml_overrides_machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A project pins its own model/library, so heim.toml outranks the machine default.
     _machine_config(tmp_path, monkeypatch, 'library_root = "/from/machine"\n')
     proj = tmp_path / "proj"
     proj.mkdir()
     _write_toml(proj, 'library_root = "/from/toml"\n')
     monkeypatch.chdir(proj)
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
 
     assert Settings().library_root == Path("/from/toml")
 
 
 def test_env_overrides_machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _machine_config(tmp_path, monkeypatch, 'default_model = "from-machine"\n')
-    monkeypatch.setenv("KODO_DEFAULT_MODEL", "from-env")
+    monkeypatch.setenv("HEIM_DEFAULT_MODEL", "from-env")
     assert Settings().default_model == "from-env"
 
 
 def test_userconfig_set_value_roundtrips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import userconfig
+    from heim import userconfig
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     path = userconfig.set_value("default_model", "pub/Model")
@@ -122,7 +122,7 @@ def test_userconfig_set_value_roundtrips(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_resolve_model_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import project
+    from heim import project
 
     _machine_config(tmp_path, monkeypatch, 'default_model = "machine-default"\n')
     monkeypatch.chdir(tmp_path)
@@ -137,9 +137,9 @@ def test_resolve_model_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_cors_origins_accepts_plain_string_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("KODO_CORS_ORIGINS", "chrome-extension://abc")
+    monkeypatch.setenv("HEIM_CORS_ORIGINS", "chrome-extension://abc")
     assert Settings().cors_origins == ["chrome-extension://abc"]
-    monkeypatch.setenv("KODO_CORS_ORIGINS", "a.com, b.com")
+    monkeypatch.setenv("HEIM_CORS_ORIGINS", "a.com, b.com")
     assert Settings().cors_origins == ["a.com", "b.com"]
-    monkeypatch.setenv("KODO_CORS_ORIGINS", '["x.com","y.com"]')
+    monkeypatch.setenv("HEIM_CORS_ORIGINS", '["x.com","y.com"]')
     assert Settings().cors_origins == ["x.com", "y.com"]

@@ -20,7 +20,7 @@ interface TargetBannerProps {
   tabUrl: string | null;
   /** The active backend id (scopes the per-backend binding record). */
   backendId: string;
-  /** Snapshot the active kodo backend for a bind flow (passed through to BindFlow). */
+  /** Snapshot the active heim backend for a bind flow (passed through to BindFlow). */
   captureTarget: () => BindBackendTarget;
   /** Re-fetch assistant metadata with ?verify=1; lifts the updated record into the parent and
    *  returns it. */
@@ -365,7 +365,7 @@ export function TargetBanner({
               {confirmUnbind ? (
                 <div className="text-[var(--muted-foreground)]">
                   {active.bind?.unbind_notes?.[binding.mode] ??
-                    "This removes the bound profile from the kodo project. If an access token was created, revoke it from your account settings on the target instance."}
+                    "This removes the bound profile from the heim project. If an access token was created, revoke it from your account settings on the target instance."}
                 </div>
               ) : null}
             </div>

@@ -1,12 +1,12 @@
-"""Tests for the `kodo doctor` health checks."""
+"""Tests for the `heim doctor` health checks."""
 
 from pathlib import Path
 
 import pytest
 
-from kodo import doctor, library
-from kodo.config import Settings
-from kodo.models import ModelFormat
+from heim import doctor, library
+from heim.config import Settings
+from heim.models import ModelFormat
 
 
 def _settings(tmp_path: Path, *, drive: bool = True) -> Settings:
@@ -17,11 +17,11 @@ def _settings(tmp_path: Path, *, drive: bool = True) -> Settings:
 
 
 def _shared_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """chdir into a project that lists @shared, with KODO_LIBRARY_ROOT removed from the env."""
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    """chdir into a project that lists @shared, with HEIM_LIBRARY_ROOT removed from the env."""
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
     proj = tmp_path / "proj"
     proj.mkdir()
-    (proj / "kodo.toml").write_text('libraries = ["library", "@shared"]\n[project]\nmodel = "x"\n')
+    (proj / "heim.toml").write_text('libraries = ["library", "@shared"]\n[project]\nmodel = "x"\n')
     monkeypatch.chdir(proj)
 
 
@@ -31,7 +31,7 @@ def test_project_warns_when_shared_unreachable(tmp_path: Path, monkeypatch: pyte
     assert "library_root" not in settings.model_fields_set
     shared = [c for c in doctor.check_project(settings) if c.name == "Shared library (@shared)"]
     assert shared and shared[0].status is doctor.CheckStatus.warn
-    assert shared[0].hint and "KODO_LIBRARY_ROOT" in shared[0].hint
+    assert shared[0].hint and "HEIM_LIBRARY_ROOT" in shared[0].hint
 
 
 def test_project_no_shared_warning_when_library_root_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,7 +116,7 @@ def test_check_project_missing_model_warns(tmp_path: Path, monkeypatch: pytest.M
 
 def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # No project and no machine default is plain free-play — surface no checks at all.
-    from kodo import config
+    from heim import config
 
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-xdg"))  # no machine config
@@ -126,12 +126,12 @@ def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_check_project_shows_machine_default_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Outside a project, the machine default model (kodo config set model) is surfaced.
-    from kodo import config, library
+    # Outside a project, the machine default model (heim config set model) is surfaced.
+    from heim import config, library
 
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
     monkeypatch.setattr(library, "find", lambda *_a, **_k: [object()])  # resolves in the library
-    cfg = tmp_path / "kodo" / "config.toml"
+    cfg = tmp_path / "heim" / "config.toml"
     cfg.parent.mkdir(parents=True)
     cfg.write_text('default_model = "pub/Def"\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

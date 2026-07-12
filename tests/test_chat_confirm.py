@@ -18,10 +18,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from kodo import agent
-from kodo.app import create_app
-from kodo.config import Settings
-from kodo.routers import serving
+from heim import agent
+from heim.app import create_app
+from heim.config import Settings
+from heim.routers import serving
 
 
 @pytest.fixture

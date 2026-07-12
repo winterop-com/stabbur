@@ -232,7 +232,7 @@ export function SettingsView({ settings, extensionId, onSave, onClose }: Setting
           <span className="text-xs font-medium text-[var(--muted-foreground)]">Extension ID</span>
           <CopyLine text={extensionId} />
           <p className="text-xs text-[var(--muted-foreground)]">
-            Allow this extension in your kodo config (add to <code className="font-mono">cors_origins</code>):
+            Allow this extension in your heim config (add to <code className="font-mono">cors_origins</code>):
           </p>
           <CopyLine text={`cors_origins = ["chrome-extension://${extensionId}"]`} />
         </div>

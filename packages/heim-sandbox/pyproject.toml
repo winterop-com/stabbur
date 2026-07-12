@@ -1,0 +1,13 @@
+[project]
+name = "heim-sandbox"
+version = "0.3.0"
+description = "Docker-sandboxed code executor shared by heim-benchmark and heim-mcp-exec"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

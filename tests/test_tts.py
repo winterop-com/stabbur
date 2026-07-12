@@ -1,6 +1,6 @@
 """Tests for text-to-speech helpers (Markdown-to-speech cleanup)."""
 
-from kodo.voice import tts
+from heim.voice import tts
 
 
 def test_speech_text_passes_plain_prose_through() -> None:
@@ -16,9 +16,9 @@ def test_speech_text_drops_fenced_code_blocks() -> None:
 
 
 def test_speech_text_unwraps_inline_code_and_links() -> None:
-    out = tts.speech_text("Run `kodo serve` then open [the docs](https://example.com/docs).")
+    out = tts.speech_text("Run `heim serve` then open [the docs](https://example.com/docs).")
     assert "`" not in out
-    assert "kodo serve" in out
+    assert "heim serve" in out
     assert "the docs" in out
     assert "https://example.com" not in out
 

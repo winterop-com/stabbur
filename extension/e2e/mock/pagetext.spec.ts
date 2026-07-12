@@ -3,9 +3,9 @@
 // label. With page text off, the label is absent. The mock records request bodies.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, TargetSiteMock } from "../mockServer";
+import { HeimMock, TargetSiteMock } from "../mockServer";
 
-const mock = new KodoMock();
+const mock = new HeimMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {

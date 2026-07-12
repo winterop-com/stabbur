@@ -6,7 +6,7 @@ import importlib.util
 
 import pytest
 
-from kodo.voice import runtime
+from heim.voice import runtime
 
 
 def test_available_returns_false_when_mlx_audio_absent(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,10 +1,10 @@
-// Bearer-token auth for a LAN-exposed server (V-14). When `kodo serve` binds a non-loopback
+// Bearer-token auth for a LAN-exposed server (V-14). When `heim serve` binds a non-loopback
 // address it requires a token; the SPA is opened via a tokenized URL (`?token=…`, like Jupyter).
 // This module captures that token into localStorage, strips it from the address bar, and wraps
 // `fetch` so every same-origin API call carries `Authorization: Bearer <token>`. On the default
 // loopback bind there's no token and nothing changes.
 
-const TOKEN_KEY = "kodo.authToken";
+const TOKEN_KEY = "heim.authToken";
 const GUARDED = /^\/(api|v1|models)(\/|$)/;
 
 function readStored(): string | null {

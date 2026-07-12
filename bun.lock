@@ -3,10 +3,10 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "kodo-monorepo",
+      "name": "heim-monorepo",
     },
     "extension": {
-      "name": "kodo-extension",
+      "name": "heim-extension",
       "version": "0.1.0",
       "dependencies": {
         "class-variance-authority": "^0.7.1",
@@ -37,7 +37,7 @@
       },
     },
     "frontend": {
-      "name": "kodo-frontend",
+      "name": "heim-frontend",
       "version": "0.0.0",
       "dependencies": {
         "@radix-ui/react-dialog": "^1.1.18",
@@ -48,6 +48,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "highlight.js": "^11.11.1",
+        "lowlight": "^3.3.0",
         "lucide-react": "^1.22.0",
         "mermaid": "^11.16.0",
         "react": "^19.2.0",
@@ -960,9 +961,9 @@
 
     "kleur": ["kleur@3.0.3", "", {}, "sha512-eTIzlVOSUR+JxdDFepEYcBMtZ9Qqdef+rnzWdRZuMbOywu5tO2w2N7rqjoANZ5k9vywhL6Br1VRjUIgTQx4E8w=="],
 
-    "kodo-extension": ["kodo-extension@workspace:extension"],
+    "heim-extension": ["heim-extension@workspace:extension"],
 
-    "kodo-frontend": ["kodo-frontend@workspace:frontend"],
+    "heim-frontend": ["heim-frontend@workspace:frontend"],
 
     "ky": ["ky@1.14.3", "", {}, "sha512-9zy9lkjac+TR1c2tG+mkNSVlyOpInnWdSMiue4F+kq8TwJSgv6o8jhLRg8Ho6SnZ9wOYUq/yozts9qQCfk7bIw=="],
 

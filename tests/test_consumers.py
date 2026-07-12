@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from kodo import consumers
-from kodo.library import LibraryModel
-from kodo.models import ModelFormat
+from heim import consumers
+from heim.library import LibraryModel
+from heim.models import ModelFormat
 
 
 def _gguf(tmp_path: Path, name: str = "unsloth/Qwen3.5-4B-GGUF") -> LibraryModel:
@@ -190,7 +190,7 @@ def test_lmstudio_install_then_uninstall_round_trip(tmp_path: Path, monkeypatch:
     consumers.install_lmstudio(model)  # symlink into LM Studio
     link = lms / model.name
     assert link.is_symlink() and link.resolve() == model.path.resolve()
-    assert consumers.lmstudio_linked_names([root]) == {model.name}  # detected as kodo-linked
+    assert consumers.lmstudio_linked_names([root]) == {model.name}  # detected as heim-linked
 
     consumers.uninstall_lmstudio(model)
     assert not link.exists()  # link gone

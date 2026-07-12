@@ -1,8 +1,8 @@
-"""Tests for the user-tag store (kodo.tags)."""
+"""Tests for the user-tag store (heim.tags)."""
 
 from pathlib import Path
 
-from kodo import tags
+from heim import tags
 
 
 def test_normalize_slugifies() -> None:
@@ -34,7 +34,7 @@ def test_edit_adds_and_removes(tmp_path: Path) -> None:
 
 def test_load_missing_or_corrupt_is_empty(tmp_path: Path) -> None:
     assert tags.load(tmp_path) == {}  # no file
-    path = tmp_path / ".kodo" / "tags.json"
+    path = tmp_path / ".heim" / "tags.json"
     path.parent.mkdir(parents=True)
     path.write_text("{ not json", encoding="utf-8")
     assert tags.load(tmp_path) == {}
@@ -71,7 +71,7 @@ def test_registry_roundtrip_and_drops_empty(tmp_path: Path) -> None:
 
 
 def test_load_registry_ignores_garbage(tmp_path: Path) -> None:
-    (tmp_path / ".kodo").mkdir()
-    (tmp_path / ".kodo" / "tag-registry.json").write_text('{"ok": {"color": "#fff"}, "bad": 5}')
+    (tmp_path / ".heim").mkdir()
+    (tmp_path / ".heim" / "tag-registry.json").write_text('{"ok": {"color": "#fff"}, "bad": 5}')
     reg = tags.load_registry(tmp_path)
     assert set(reg) == {"ok"}  # non-dict entry skipped

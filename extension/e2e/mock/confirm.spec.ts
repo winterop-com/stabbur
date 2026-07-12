@@ -1,13 +1,13 @@
 // Per-action write confirmation: a `confirm` SSE frame renders an inline Approve/Deny card;
 // approving POSTs {approve:true} and the tool result streams in; denying POSTs {approve:false}
 // and the declined result streams in; a `confirm_resolved` clears the card. A timed-out
-// confirmation is shown as auto-denied. Drives the panel against a KodoMock that pauses the
+// confirmation is shown as auto-denied. Drives the panel against a HeimMock that pauses the
 // stream on the confirm frame until the client resolves it.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { KodoMock, type ChatFrame } from "../mockServer";
+import { HeimMock, type ChatFrame } from "../mockServer";
 
-const mock = new KodoMock();
+const mock = new HeimMock();
 
 test.beforeAll(async () => {
   await mock.start();

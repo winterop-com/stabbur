@@ -1,5 +1,5 @@
 {
-  "name": "kodo-monorepo",
+  "name": "heim-monorepo",
   "private": true,
   "workspaces": [
     "frontend",

@@ -7,8 +7,8 @@ import { ToolMarkerChip } from "@/components/ToolMarkerChip";
 
 // Per-backend transcript keys (`${STORAGE_PREFIX}${backendId}`); the bare legacy key
 // held the single pre-multi-backend transcript and is adopted once, then removed.
-const STORAGE_PREFIX = "kodo-ext-conversation:";
-const LEGACY_STORAGE_KEY = "kodo-ext-conversation";
+const STORAGE_PREFIX = "heim-ext-conversation:";
+const LEGACY_STORAGE_KEY = "heim-ext-conversation";
 
 interface ToolEvent {
   kind: "call" | "result";
@@ -392,7 +392,7 @@ export function ChatView({
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3">
         {messages.length === 0 ? (
           <p className="mt-8 text-center text-sm text-[var(--muted-foreground)]">
-            Ask your local kodo assistant anything.
+            Ask your local heim assistant anything.
           </p>
         ) : (
           messages.map((m, i) => <MessageBubble key={i} message={m} onResolveConfirm={resolveConfirm} />)

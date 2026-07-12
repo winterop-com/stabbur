@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from kodo import attach, cli
-from kodo import catalog as catalog_ops
-from kodo import library as library_ops
-from kodo.library import LibraryModel
-from kodo.models import Catalog, ModelEntry, ModelFormat, ModelSource, PullResult
+from heim import attach, cli
+from heim import catalog as catalog_ops
+from heim import library as library_ops
+from heim.library import LibraryModel
+from heim.models import Catalog, ModelEntry, ModelFormat, ModelSource, PullResult
 
 runner = CliRunner()
 
@@ -46,7 +46,7 @@ def _mk_lib_dir(path: Path, *files: tuple[str, bytes]) -> None:
 
 
 def test_library_formats_flags_redundant_and_missing_quant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import library
+    from heim import library
 
     # gguf-only (no note); gguf + safetensors (safetensors redundant); safetensors-only (no quant).
     _mk_lib_dir(tmp_path / "gguf" / "pub" / "OnlyGGUF", ("model.Q4_K_M.gguf", b"g" * 100))
@@ -77,7 +77,7 @@ def test_library_formats_flags_redundant_and_missing_quant(tmp_path: Path, monke
     assert "pub/OnlyGGUF" in out  # gguf-only model is listed...
     assert out.count("redundant safetensors (") == 1  # ...but flagged for exactly one model (Both)
     assert out.count("no ready-to-run quant") == 1  # exactly one safetensors-only model (OnlySafe)
-    assert "kodo library rm pub/Both --format safetensors" in out  # actionable hint
+    assert "heim library rm pub/Both --format safetensors" in out  # actionable hint
     assert f"{both_sft.size_human} reclaimable" in out  # total == only the redundant copy's size
 
 
@@ -112,7 +112,7 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch)
         # input = blank lines accepting the defaults for the kind + system-prompt questions
         first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
         assert first.exit_code == 0, first.output
-        parsed = tomllib.loads(Path("kodo.toml").read_text())
+        parsed = tomllib.loads(Path("heim.toml").read_text())
         assert parsed["project"]["model"] == "unsloth/X-GGUF"
         assert "libraries" not in parsed  # uses the shared library — no project-local store
 
@@ -151,15 +151,15 @@ def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch)
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     # `project show` must surface the bound model, the system prompt, and the *actual*
     # tools (from connecting to the MCP servers) — not just server names.
-    from kodo import mcpservers
-    from kodo import project as project_mod
+    from heim import mcpservers
+    from heim import project as project_mod
 
     proj = project_mod.Project(model="unsloth/X-GGUF", system_prompt="Be concise.")
     monkeypatch.setattr(project_mod, "load", lambda *a, **k: proj)
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
     # Tools now come from the resolved mcp.json layers; stub resolve + the connect so it's hermetic.
     monkeypatch.setattr(
-        mcpservers, "resolve", lambda *a, **k: [mcpservers.McpServer(name="datetime", command="kodo-mcp-datetime")]
+        mcpservers, "resolve", lambda *a, **k: [mcpservers.McpServer(name="datetime", command="heim-mcp-datetime")]
     )
     monkeypatch.setattr(
         cli.project, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None, [])
@@ -172,12 +172,12 @@ def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.Monk
 
 
 def test_project_show_without_manifest_hints_init(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import project as project_mod
+    from heim import project as project_mod
 
     monkeypatch.setattr(project_mod, "load", lambda *a, **k: None)
     result = runner.invoke(cli.app, ["project", "show"])
     assert result.exit_code == 1
-    assert "kodo project init" in result.output
+    assert "heim project init" in result.output
 
 
 def _pull_result(name: str) -> PullResult:
@@ -352,7 +352,7 @@ def test_uninstalled_optional_lists_web_only_when_absent() -> None:
 
 
 def test_mcp_list_shows_optional_web_with_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import plugins
+    from heim import plugins
 
     monkeypatch.setattr(plugins, "advertised_servers", lambda _pm: [])  # simulate web (and all) not installed
     result = runner.invoke(cli.app, ["mcp", "list"])
@@ -369,11 +369,11 @@ def test_voice_import_rejects_all_with_ids() -> None:
 
 def test_config_set_get_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("KODO_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("HEIM_DEFAULT_MODEL", raising=False)
     set_res = runner.invoke(cli.app, ["config", "set", "model", "pub/Model-GGUF"])
     assert set_res.exit_code == 0, set_res.output
     assert "Set model = pub/Model-GGUF" in set_res.output
-    from kodo import userconfig
+    from heim import userconfig
 
     assert userconfig.read()["default_model"] == "pub/Model-GGUF"
     # `get` prints just the raw value (scriptable); `list` shows the whole picture.
@@ -385,7 +385,7 @@ def test_config_set_get_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 def test_config_get_unset_is_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("KODO_CHAT_SERVER", raising=False)
+    monkeypatch.delenv("HEIM_CHAT_SERVER", raising=False)
     got = runner.invoke(cli.app, ["config", "get", "server"])
     assert got.exit_code == 0 and got.output.strip() == ""
 
@@ -399,12 +399,12 @@ def test_config_get_set_reject_unknown_key(tmp_path: Path, monkeypatch: pytest.M
 
 def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.delenv("KODO_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # empty library (find() passes args through)
     lib = tmp_path / "lib"
     res = runner.invoke(cli.app, ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui"])
     assert res.exit_code == 0, res.output
-    from kodo import userconfig
+    from heim import userconfig
 
     stored = userconfig.read()
     assert stored["default_model"] == "pub/M"
@@ -423,7 +423,7 @@ def test_normalize_server_url() -> None:
 
 def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
     # With base_url set, generate() must NOT spawn a runtime (_serve); it POSTs to the given base.
-    from kodo import runtime
+    from heim import runtime
 
     def _boom(_model: object) -> object:
         raise AssertionError("_serve must not be called when base_url is provided")
@@ -442,7 +442,7 @@ def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPa
 
 
 def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import capabilities, runtime
+    from heim import capabilities, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -459,9 +459,9 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import capabilities, runtime
-    from kodo.runtime import serve_registry
-    from kodo.runtime.serve_registry import ServeRecord
+    from heim import capabilities, runtime
+    from heim.runtime import serve_registry
+    from heim.runtime.serve_registry import ServeRecord
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -474,12 +474,12 @@ def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) 
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] == "http://127.0.0.1:9"
-    assert "attaching to running kodo serve" in result.output  # note printed
+    assert "attaching to running heim serve" in result.output  # note printed
 
 
 def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import capabilities, runtime
-    from kodo.runtime import serve_registry
+    from heim import capabilities, runtime
+    from heim.runtime import serve_registry
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -508,7 +508,7 @@ def _stub_httpx_get(monkeypatch: pytest.MonkeyPatch, responses: dict[str, object
 
 def test_chat_tui_server_flag_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
     # --server with no -p now attaches the interactive TUI: no runtime spawn, remote endpoint.
-    from kodo import capabilities, chat_tui, runtime
+    from heim import capabilities, chat_tui, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -528,7 +528,7 @@ def test_chat_tui_server_flag_attaches_without_spawning(monkeypatch: pytest.Monk
 
 def test_chat_tui_server_attaches_without_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
     # The served model doesn't exist locally (and no name was given): attach on server metadata alone.
-    from kodo import chat_tui, runtime
+    from heim import chat_tui, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])
     monkeypatch.setattr(runtime, "load", lambda _m: (_ for _ in ()).throw(AssertionError("must not spawn")))
@@ -545,8 +545,8 @@ def test_chat_tui_server_attaches_without_local_model(monkeypatch: pytest.Monkey
 
 
 def test_probe_remote_falls_back_to_v1_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Not kodo serve (no /api/status): a raw llama-server answers /v1/models.
-    from kodo.cli.chat import _probe_remote
+    # Not heim serve (no /api/status): a raw llama-server answers /v1/models.
+    from heim.cli.chat import _probe_remote
 
     _stub_httpx_get(monkeypatch, {"/v1/models": {"data": [{"id": "/models/foo.gguf"}]}})
     endpoint = _probe_remote("http://127.0.0.1:9999", None, None)
@@ -557,7 +557,7 @@ def test_probe_remote_falls_back_to_v1_models(monkeypatch: pytest.MonkeyPatch) -
 def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from kodo.cli.chat import _probe_remote
+    from heim.cli.chat import _probe_remote
 
     _stub_httpx_get(monkeypatch, {})  # both probes refuse
     with pytest.raises(typer.Exit):
@@ -567,7 +567,7 @@ def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch
 def test_probe_remote_exits_when_serve_has_no_model_and_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from kodo.cli.chat import _probe_remote
+    from heim.cli.chat import _probe_remote
 
     # Unlocked, empty, and nothing to auto-load (no request, no server default) -> exit with a hint.
     _stub_httpx_get(monkeypatch, {"/api/status": {"state": "stopped", "model": None, "locked": False}})
@@ -578,7 +578,7 @@ def test_probe_remote_exits_when_serve_has_no_model_and_no_default(monkeypatch: 
 def test_probe_remote_exits_when_locked_serve_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from kodo.cli.chat import _probe_remote
+    from heim.cli.chat import _probe_remote
 
     # A locked serve loads eagerly; empty means its load failed -> never try to load into it.
     _stub_httpx_get(monkeypatch, {"/api/status": {"state": "stopped", "model": None, "locked": True, "error": "boom"}})
@@ -619,7 +619,7 @@ def _stub_loadable_serve(monkeypatch: pytest.MonkeyPatch, default: str | None) -
 
 def test_probe_remote_autoloads_the_server_default(monkeypatch: pytest.MonkeyPatch) -> None:
     # Idle unlocked serve with a default: attach loads it like the web UI does on open.
-    from kodo.cli.chat import _probe_remote
+    from heim.cli.chat import _probe_remote
 
     posts = _stub_loadable_serve(monkeypatch, default="pub/Default-GGUF")
     endpoint = _probe_remote("http://127.0.0.1:8000", None, None)
@@ -630,7 +630,7 @@ def test_probe_remote_autoloads_the_server_default(monkeypatch: pytest.MonkeyPat
 
 def test_probe_remote_autoload_prefers_the_requested_model(monkeypatch: pytest.MonkeyPatch) -> None:
     # An explicitly requested model wins over the server's default.
-    from kodo.cli.chat import _probe_remote
+    from heim.cli.chat import _probe_remote
 
     posts = _stub_loadable_serve(monkeypatch, default="pub/Default-GGUF")
     endpoint = _probe_remote("http://127.0.0.1:8000", _lib_model("pub/X"), "pub/X")
@@ -640,7 +640,7 @@ def test_probe_remote_autoload_prefers_the_requested_model(monkeypatch: pytest.M
 
 def test_probe_remote_drops_local_metadata_on_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     # The server runs a different model than the locally-resolved one: its metadata would mislead.
-    from kodo.cli.chat import _probe_remote
+    from heim.cli.chat import _probe_remote
 
     _stub_httpx_get(monkeypatch, {"/api/status": {"state": "running", "model": "pub/Other-GGUF"}})
     endpoint = _probe_remote("http://127.0.0.1:8000", _lib_model("pub/X"), "pub/X")
@@ -650,8 +650,8 @@ def test_probe_remote_drops_local_metadata_on_mismatch(monkeypatch: pytest.Monke
 
 def _stub_generate_reply(monkeypatch: pytest.MonkeyPatch, reply: str) -> None:
     """Point a no-tools `-p` chat at a fixed reply (no runtime, no serve)."""
-    from kodo import capabilities, runtime
-    from kodo.runtime import serve_registry
+    from heim import capabilities, runtime
+    from heim.runtime import serve_registry
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -690,11 +690,11 @@ def test_chat_p_raw_flag_forces_raw_on_tty(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_mcp_tools_lists_tools_by_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import mcpservers
+    from heim import mcpservers
 
     servers = [
-        mcpservers.McpServer(name="datetime", command="kodo-mcp-datetime"),
-        mcpservers.McpServer(name="weather-yr", command="kodo-mcp-weather-yr"),
+        mcpservers.McpServer(name="datetime", command="heim-mcp-datetime"),
+        mcpservers.McpServer(name="weather-yr", command="heim-mcp-weather-yr"),
     ]
     monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: servers)
     grouped = {
@@ -711,7 +711,7 @@ def test_mcp_tools_lists_tools_by_server(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_mcp_tools_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kodo import mcpservers
+    from heim import mcpservers
 
     monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: [])
     result = runner.invoke(cli.app, ["mcp", "tools"])

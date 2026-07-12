@@ -1,4 +1,4 @@
-"""Tests for the voice HTTP surface (``kodo.routers.serving.voice``).
+"""Tests for the voice HTTP surface (``heim.routers.serving.voice``).
 
 test_api.py already covers the qwen3-tts 422, the unknown-model 404, and the tts-1 alias;
 these cover the backend-dispatch branches those don't reach, by monkeypatching the engine
@@ -14,8 +14,8 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from kodo.app import create_app
-from kodo.config import Settings
+from heim.app import create_app
+from heim.config import Settings
 
 
 @pytest.fixture
@@ -50,9 +50,9 @@ async def test_speak_kokoro_returns_wav_and_cleans_up_temp(
     # A kokoro:<voice> id routes to the ONNX engine; the endpoint returns audio/wav and must
     # unlink the temp WAV it read (a leak would fill the temp dir over a session).
     wav = _wav_file(tmp_path)
-    monkeypatch.setattr("kodo.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: True)
     monkeypatch.setattr(
-        "kodo.routers.serving.voice.kokoro.synthesize",
+        "heim.routers.serving.voice.kokoro.synthesize",
         lambda text, voice, out_path=None: wav,
     )
     r = await client.post("/api/speak", json={"text": "hello there", "voice": "kokoro:af_heart"})
@@ -65,8 +65,8 @@ async def test_speak_kokoro_returns_wav_and_cleans_up_temp(
 async def test_speak_oute_model_not_in_library_is_404(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # oute:<model> resolves the named model from the library; when nothing matches (or nothing
     # is a TTS model) it must 404, not fall through to a default synthesis.
-    monkeypatch.setattr("kodo.routers.serving.voice.tts.available", lambda: True)
-    monkeypatch.setattr("kodo.routers.serving.voice.library_ops.find", lambda name: [])
+    monkeypatch.setattr("heim.routers.serving.voice.tts.available", lambda: True)
+    monkeypatch.setattr("heim.routers.serving.voice.library_ops.find", lambda name: [])
     r = await client.post("/api/speak", json={"text": "hello", "voice": "oute:no-such-model"})
     assert r.status_code == 404
     assert "no-such-model" in r.json()["detail"]
@@ -74,7 +74,7 @@ async def test_speak_oute_model_not_in_library_is_404(client: AsyncClient, monke
 
 async def test_speak_kokoro_unavailable_is_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # A kokoro voice when the tts extra isn't installed must 503 (install hint), not 500.
-    monkeypatch.setattr("kodo.routers.serving.voice.kokoro.available", lambda: False)
+    monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: False)
     r = await client.post("/api/speak", json={"text": "hello", "voice": "kokoro:af_heart"})
     assert r.status_code == 503
     assert "kokoro" in r.json()["detail"].lower()
@@ -82,7 +82,7 @@ async def test_speak_kokoro_unavailable_is_503(client: AsyncClient, monkeypatch:
 
 async def test_speak_llama_tts_unavailable_is_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # An oute voice when llama-tts isn't installed must 503, not 500.
-    monkeypatch.setattr("kodo.routers.serving.voice.tts.available", lambda: False)
+    monkeypatch.setattr("heim.routers.serving.voice.tts.available", lambda: False)
     r = await client.post("/api/speak", json={"text": "hello", "voice": "oute"})
     assert r.status_code == 503
     assert "llama-tts" in r.json()["detail"].lower()
@@ -107,9 +107,9 @@ async def test_audio_speech_kokoro_happy_path_returns_wav(
     # The default model "kokoro" routes to the kokoro_onnx backend; a stubbed synthesize yields
     # a WAV that passes through the (WAV-noop) exporter unchanged as audio/wav.
     wav = _wav_file(tmp_path)
-    monkeypatch.setattr("kodo.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: True)
     monkeypatch.setattr(
-        "kodo.routers.serving.voice.kokoro.synthesize",
+        "heim.routers.serving.voice.kokoro.synthesize",
         lambda text, voice, out_path=None: wav,
     )
     r = await client.post("/v1/audio/speech", json={"model": "kokoro", "input": "hello world"})
@@ -125,12 +125,12 @@ async def test_audio_speech_mp3_goes_through_export_convert(
     # response_format="mp3" must transcode via audio_export.convert and change the media type
     # (kokoro synthesizes WAV; the exporter is the only thing that produces mp3).
     wav = _wav_file(tmp_path)
-    monkeypatch.setattr("kodo.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: True)
     monkeypatch.setattr(
-        "kodo.routers.serving.voice.kokoro.synthesize",
+        "heim.routers.serving.voice.kokoro.synthesize",
         lambda text, voice, out_path=None: wav,
     )
-    monkeypatch.setattr("kodo.routers.serving.voice.audio_export.convert", lambda data, fmt: b"ID3-fake-mp3")
+    monkeypatch.setattr("heim.routers.serving.voice.audio_export.convert", lambda data, fmt: b"ID3-fake-mp3")
     r = await client.post("/v1/audio/speech", json={"model": "kokoro", "input": "hello", "response_format": "mp3"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "audio/mpeg"  # media type reflects the requested format
@@ -142,7 +142,7 @@ async def test_audio_speech_mlx_backend_unavailable_is_503(
 ) -> None:
     # An mlx-audio model (dia) when the voice runtime isn't installed (Linux / no extra) must
     # 503 with the install hint, not attempt to load and 500.
-    monkeypatch.setattr("kodo.routers.serving.voice.voice_runtime.available", lambda: False)
+    monkeypatch.setattr("heim.routers.serving.voice.voice_runtime.available", lambda: False)
     r = await client.post("/v1/audio/speech", json={"model": "dia", "input": "hello"})
     assert r.status_code == 503
     assert "mlx-audio" in r.json()["detail"].lower()
@@ -156,7 +156,7 @@ async def test_audio_speech_mlx_backend_unavailable_is_503(
 async def test_transcriptions_runtime_unavailable_is_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # Transcription needs mlx-audio; when it's absent the endpoint must 503 before touching the
     # upload, not 500 on a missing import.
-    monkeypatch.setattr("kodo.routers.serving.voice.voice_runtime.available", lambda: False)
+    monkeypatch.setattr("heim.routers.serving.voice.voice_runtime.available", lambda: False)
     r = await client.post(
         "/v1/audio/transcriptions",
         files={"file": ("clip.wav", b"RIFFfake", "audio/wav")},
@@ -169,8 +169,8 @@ async def test_transcriptions_runtime_unavailable_is_503(client: AsyncClient, mo
 async def test_transcriptions_unknown_stt_model_is_404(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # With the runtime available but the requested STT model absent from the library, the
     # endpoint must 404 (resolve the model before transcribing), not run against nothing.
-    monkeypatch.setattr("kodo.routers.serving.voice.voice_runtime.available", lambda: True)
-    monkeypatch.setattr("kodo.routers.serving.voice.library_ops.find", lambda repo: [])
+    monkeypatch.setattr("heim.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr("heim.routers.serving.voice.library_ops.find", lambda repo: [])
     r = await client.post(
         "/v1/audio/transcriptions",
         files={"file": ("clip.wav", b"RIFFfake", "audio/wav")},

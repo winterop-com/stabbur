@@ -1,11 +1,11 @@
-"""Tests for kodo serve discovery (kodo.serve_registry)."""
+"""Tests for heim serve discovery (heim.serve_registry)."""
 
 from pathlib import Path
 
 import pytest
 
-from kodo.runtime import serve_registry
-from kodo.runtime.serve_registry import ServeRecord
+from heim.runtime import serve_registry
+from heim.runtime.serve_registry import ServeRecord
 
 
 def test_register_discover_unregister(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,7 +42,7 @@ def test_pid_reuse_record_is_swept(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     directory = tmp_path / "serves"
     directory.mkdir()
     (directory / "4242.json").write_text(
-        ServeRecord(base_url="http://x", model="pub/X", pid=4242, cmdline="kodo serve --model pub/X").model_dump_json()
+        ServeRecord(base_url="http://x", model="pub/X", pid=4242, cmdline="heim serve --model pub/X").model_dump_json()
     )
     monkeypatch.setattr(serve_registry, "_registry_dir", lambda: directory)
     monkeypatch.setattr(serve_registry, "_pid_alive", lambda _pid: True)  # pid is alive…
@@ -52,7 +52,7 @@ def test_pid_reuse_record_is_swept(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_legacy_record_without_cmdline_is_swept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A record written by an older kodo has no cmdline field; with no identity to verify it's
+    # A record written by an older heim has no cmdline field; with no identity to verify it's
     # treated as stale and swept rather than trusted.
     directory = tmp_path / "serves"
     directory.mkdir()

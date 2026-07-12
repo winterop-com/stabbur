@@ -1,5 +1,5 @@
-// Live-tier harness: writes a throwaway kodo project (bound to a real GGUF model +
-// the DHIS2 CLI bridge, pointed at the public play demo) and runs `kodo serve`
+// Live-tier harness: writes a throwaway heim project (bound to a real GGUF model +
+// the DHIS2 CLI bridge, pointed at the public play demo) and runs `heim serve`
 // against it, so the extension panel can be driven end-to-end.
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -17,8 +17,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-export const REPO_ROOT = "/Users/morteoh/dev/local/kodo";
-export const LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/kodo/library");
+export const REPO_ROOT = "/Users/morteoh/dev/local/heim";
+export const LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/heim/library");
 export const LIVE_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
 export const LIVE_PORT = 4599;
 
@@ -29,7 +29,7 @@ export const FALLBACK_INSTANCES_URL = "https://im.dhis2.org/public/instances";
 
 // System prompts. READ_SYSTEM_PROMPT mirrors the `dhis2` template (read-only play demo);
 // WRITE_SYSTEM_PROMPT mirrors the `dhis2-write` template (read+write local instance). Kept in
-// sync with src/kodo/project/templates.py so the live tiers exercise the shipped prompts.
+// sync with src/heim/project/templates.py so the live tiers exercise the shipped prompts.
 export const READ_SYSTEM_PROMPT =
   "You are a DHIS2 assistant for a connected DHIS2 instance. For questions about DHIS2 data or metadata - counts, UIDs, names, analytics, system details - use the dhis2 tools (the dhis2_cli tool) to look up real values; never invent counts, UIDs, or metadata. To use a name in analytics or a filter, resolve it to a UID first with a metadata search or a filtered list. Messages may begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Treat that context as information the user gave you: answer questions about the current page, its visible content, or the signed-in user directly from it, without calling tools, and answer general questions normally instead of refusing. Two accounts can differ: the 'Browser session user' is the person viewing the page in their browser; your tools authenticate separately as the 'Tool account'. When asked 'who am I', answer with the browser session user from the context when present; report the tool account only when asked which credentials the tools use. Keep answers concise and state the values you retrieved.";
 
@@ -65,8 +65,8 @@ export const DEFAULT_LIVE_OPTIONS: LiveServerOptions = {
 };
 
 const SCRATCH =
-  process.env.KODO_E2E_SCRATCH ??
-  "/private/tmp/claude-502/-Users-morteoh-dev-local-kodo/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
+  process.env.HEIM_E2E_SCRATCH ??
+  "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 /** Reachability preflight: any HTTP response counts as reachable; only a network
  *  failure means the instance is down. Returns null when reachable, else a reason. */
@@ -94,26 +94,26 @@ export function warmBridge(): void {
 }
 
 // The fixture manifest mirrors the dhis2 / dhis2-write template's render_manifest — so the live
-// tiers exercise the same [assistant.probe] + [assistant.bind] blocks a real `kodo project new
+// tiers exercise the same [assistant.probe] + [assistant.bind] blocks a real `heim project new
 // --template {dhis2,dhis2-write}` produces. Only the profile name, base_url, readonly flag, model,
 // and system_prompt vary between the read (play42) and write (local_basic) configs; the probe +
 // mint recipe are identical (matching _dhis2_assistant in templates.py). String.raw keeps the
 // JSON-escaped backslashes in the mint_payload literal. A `project.load` of this text is implicitly
-// asserted by kodo serve booting against it.
-function buildKodoToml(opts: LiveServerOptions): string {
+// asserted by heim serve booting against it.
+function buildHeimToml(opts: LiveServerOptions): string {
   // JSON.stringify emits a valid TOML basic string (escapes ", \\, control chars) for the model +
   // system_prompt, so we never hand-escape the long prompt.
-  return String.raw`# kodo project — a purpose-built assistant (model + system prompt).
+  return String.raw`# heim project — a purpose-built assistant (model + system prompt).
 # Portable + committable: no machine-specific paths. Tools live in .mcp.json.
 
-# Uses your machine library (KODO_LIBRARY_ROOT). To also read a project-local
+# Uses your machine library (HEIM_LIBRARY_ROOT). To also read a project-local
 # store, add:  libraries = ["models", "@shared"]  (relative to this file).
 
 [project]
 model = ${JSON.stringify(opts.model)}
 system_prompt = ${JSON.stringify(opts.systemPrompt)}
 
-# [assistant] - target metadata for UI clients; kodo echoes it, never interprets it.
+# [assistant] - target metadata for UI clients; heim echoes it, never interprets it.
 [assistant]
 name = "${opts.profile}"
 base_url = ${JSON.stringify(opts.baseUrl)}
@@ -187,31 +187,31 @@ export interface LiveServer {
   tailLog: (lines?: number) => string;
 }
 
-/** Create the fixture project and spawn `kodo serve` with CORS allowing the
+/** Create the fixture project and spawn `heim serve` with CORS allowing the
  *  extension origin. Does NOT wait for readiness — the panel drives that. The optional `options`
  *  select the config emitted; omitted fields fall back to the read-only play42 defaults, so the
  *  read tier's `startLiveServer(extensionId)` call is unchanged. */
 export function startLiveServer(extensionId: string, options: Partial<LiveServerOptions> = {}): LiveServer {
   const opts: LiveServerOptions = { ...DEFAULT_LIVE_OPTIONS, ...options };
   const root = existsSync(SCRATCH) ? SCRATCH : tmpdir();
-  const dir = mkdtempSync(path.join(root, "kodo-live-fixture-"));
-  writeFileSync(path.join(dir, "kodo.toml"), buildKodoToml(opts));
+  const dir = mkdtempSync(path.join(root, "heim-live-fixture-"));
+  writeFileSync(path.join(dir, "heim.toml"), buildHeimToml(opts));
   writeFileSync(path.join(dir, ".mcp.json"), buildMcpJson(opts));
   mkdirSync(path.join(dir, ".dhis2"), { recursive: true });
   writeFileSync(path.join(dir, ".dhis2", "profiles.toml"), buildProfilesToml(opts));
 
-  const logPath = path.join(dir, "kodo-serve.log");
+  const logPath = path.join(dir, "heim-serve.log");
   const logFd = openSync(logPath, "a");
 
   const child = spawn(
     "uv",
-    ["run", "--project", REPO_ROOT, "kodo", "serve", "--port", String(LIVE_PORT)],
+    ["run", "--project", REPO_ROOT, "heim", "serve", "--port", String(LIVE_PORT)],
     {
       cwd: dir,
       env: {
         ...process.env,
-        KODO_LIBRARY_ROOT: LIBRARY_ROOT,
-        KODO_CORS_ORIGINS: `chrome-extension://${extensionId}`,
+        HEIM_LIBRARY_ROOT: LIBRARY_ROOT,
+        HEIM_CORS_ORIGINS: `chrome-extension://${extensionId}`,
       },
       detached: true, // own process group, so we can group-kill spawned runtimes
       stdio: ["ignore", logFd, logFd],
@@ -233,7 +233,7 @@ export function startLiveServer(extensionId: string, options: Partial<LiveServer
     } catch {
       /* already gone */
     }
-    // Give kodo's supervisor time to reap the runtime, then hard-kill if needed.
+    // Give heim's supervisor time to reap the runtime, then hard-kill if needed.
     await new Promise((r) => setTimeout(r, 4000));
     try {
       if (child.pid) process.kill(-child.pid, "SIGKILL");

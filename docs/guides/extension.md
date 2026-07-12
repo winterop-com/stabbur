@@ -1,7 +1,7 @@
 # Chrome side panel
 
-The kodo **side panel** puts your local model — and its tools — next to every page
-you browse. It is a thin Chrome MV3 client for a running `kodo serve`: kodo owns the
+The heim **side panel** puts your local model — and its tools — next to every page
+you browse. It is a thin Chrome MV3 client for a running `heim serve`: heim owns the
 model, the agent loop, and the MCP tools; the panel just renders the chat and streams
 the answer. It is the same chat UI the web app ships (one SPA, wrapped as a side
 panel), so Markdown, code highlighting, and tool-call chips all behave identically.
@@ -12,10 +12,10 @@ panel), so Markdown, code highlighting, and tool-call chips all behave identical
 dashboard — with page context on so your question is grounded in the page.</figcaption>
 </figure>
 
-It works with **any** kodo backend:
+It works with **any** heim backend:
 
-- a **generic** `kodo serve` (pick-a-model free-play, or a locked single model), or
-- a **project assistant** — a `kodo.toml` with an `[assistant]` block, such as the
+- a **generic** `heim serve` (pick-a-model free-play, or a locked single model), or
+- a **project assistant** — a `heim.toml` with an `[assistant]` block, such as the
   [`dhis2` template](projects.md#templates) — which adds the target banner, session
   probes, and the "Use my login" bind flow shown below.
 
@@ -28,7 +28,7 @@ The panel is built from the repo, then loaded unpacked (it is not on the Chrome 
 Store yet).
 
 **Two builds, one codebase.** The same source ships in two flavors: the generic
-**kodo** panel and **kodo for DHIS2** (a DHIS2-branded name, description, and icon,
+**heim** panel and **heim for DHIS2** (a DHIS2-branded name, description, and icon,
 plus DHIS2-oriented connection copy). Every feature is in both — only the wording
 differs. Build whichever you want (or both):
 
@@ -40,44 +40,44 @@ cd extension && bun run build:dhis2 # DHIS2   -> extension/.output/chrome-mv3-dh
 Then load it — pick `.output/chrome-mv3` for the generic panel or
 `.output/chrome-mv3-dhis2` to sit next to your DHIS2 work:
 
-1. Start a kodo server on a **pinned port**, e.g. `kodo serve --ui --port 8000`.
+1. Start a heim server on a **pinned port**, e.g. `heim serve --ui --port 8000`.
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. **Load unpacked** -> select `extension/.output/chrome-mv3` (or
    `extension/.output/chrome-mv3-dhis2`).
-4. Click the kodo toolbar icon to open the side panel.
+4. Click the heim toolbar icon to open the side panel.
 
 For the full DHIS2 experience (target banner, Verify, Use my login), serve a project
 scaffolded from the dhis2 template instead of a bare model:
 
 ```bash
-kodo project new --template dhis2 myassistant && cd myassistant
+heim project new --template dhis2 myassistant && cd myassistant
 mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo credentials
-kodo serve --port 8000
+heim serve --port 8000
 ```
 
 ### Allow the extension (cors_origins)
 
 Read-only traffic (status, tools, chat streaming) works immediately. Mutating requests
-— loading a model — are blocked by kodo's cross-site guard until you allow this
+— loading a model — are blocked by heim's cross-site guard until you allow this
 extension's origin. An unpacked extension's id is derived per machine, so it differs on
 every checkout; the panel's **Settings** shows *your* exact id with a copy button, and
 the connection gate detects the 403 symptom and hints the fix. Add the line to your
-kodo config and restart `kodo serve`:
+heim config and restart `heim serve`:
 
 ```toml
 cors_origins = ["chrome-extension://<your-extension-id>"]
 ```
 
-When kodo is not reachable, the panel says so plainly and retries every 3s — no manual
+When heim is not reachable, the panel says so plainly and retries every 3s — no manual
 reconnect needed once the server comes up.
 
-![Connection gate: kodo is not reachable, retrying](../img/extension/01-connection-disconnected.png)
+![Connection gate: heim is not reachable, retrying](../img/extension/01-connection-disconnected.png)
 
 ## Backends
 
-The panel can hold several backends at once — a local generic kodo, a project
+The panel can hold several backends at once — a local generic heim, a project
 assistant, a remote instance — each with its **own base URL, token, and conversation
-history**. When more than one is configured, a switcher appears next to the "kodo"
+history**. When more than one is configured, a switcher appears next to the "heim"
 title in the header; picking one swaps the whole panel (transcript, target banner,
 tools) to that backend.
 
@@ -92,7 +92,7 @@ Add, name, and test backends in **Settings** (the gear icon). Each entry has a b
 URL, an optional token, and a **Test connection** button that pings `/api/status`.
 Loopback hosts (`127.0.0.1` / `localhost`) may use `http`; a **remote** host requires
 `https` (an extension page cannot make plain-http requests to a remote origin — a
-mixed-content block), and remote kodo also wants a bearer token (kodo auto-generates
+mixed-content block), and remote heim also wants a bearer token (heim auto-generates
 `auth_token` when it binds a non-loopback interface).
 
 ![Settings: the backends editor, page-context toggles, and the extension id + cors line](../img/extension/08-settings-backends.png)
@@ -143,12 +143,12 @@ toggles.
 ## Any page (generic)
 
 None of this is DHIS2-specific. The **generic** build (`.output/chrome-mv3`, branding just
-"kodo") is the same panel with no target banner, no Verify, and no bind — it sits next to
+"heim") is the same panel with no target banner, no Verify, and no bind — it sits next to
 *any* page and answers about it through page context. Ask it to summarize an article, pull
 the gist of a feed, or explain a selection, and it grounds the answer in the current tab.
 
 <figure markdown>
-![The generic kodo panel docked next to the Hacker News front page, summarizing it](../img/extension/hero-4-generic.png)
+![The generic heim panel docked next to the Hacker News front page, summarizing it](../img/extension/hero-4-generic.png)
 <figcaption>The generic panel next to the Hacker News front page — page context on, no
 DHIS2 target or bind, just chat grounded in the page.</figcaption>
 </figure>
@@ -184,7 +184,7 @@ chat works exactly the same.
 
 By default a project assistant's tools authenticate as whatever credential the project
 was scaffolded with. **Use my login** lets the tools act as *you* on the target
-instance instead — without ever copying a password into kodo.
+instance instead — without ever copying a password into heim.
 
 The button appears once your active tab matches the target. Clicking it shows a consent
 card: what will be created, its scope, and its lifetime.
@@ -198,12 +198,12 @@ binding to — read-only (GET), 30-day expiry, minted in the tab's own context.<
 ![Consent card: creates a read-only (GET) personal access token, expires in 30 days](../img/extension/05-bind-consent.png)
 
 The happy path mints a **personal access token** entirely in the tab's own context
-(using your existing login) and hands kodo only the secret:
+(using your existing login) and hands heim only the secret:
 
 1. Log in to the instance in a normal tab.
 2. Click **Use my login**, then **Create token** on the consent card.
 3. The panel mints a scoped PAT — **GET-only** for a read-only assistant — with a
-   30-day expiry, stores it in the kodo project's profile, and shows an **Acting as
+   30-day expiry, stores it in the heim project's profile, and shows an **Acting as
    \<you\> (your login)** chip.
 
 ![Bound state: an Acting as admin (your login) chip with Rebind and Unbind](../img/extension/06-bind-acting-as.png)
@@ -245,7 +245,7 @@ write.
 
     ![Bind consent for a write-enabled assistant, with Allow writes toggled on](../img/extension/09-bind-allow-writes.png)
 
-2. **Confirm every write.** When the model calls a write tool, kodo **holds the call** and
+2. **Confirm every write.** When the model calls a write tool, heim **holds the call** and
    the panel shows an inline **Approve / Deny** card naming the exact tool and arguments
    (e.g. `dhis2__dhis2_cli(POST /api/dataValues ...)`). Nothing runs until you decide.
 
@@ -256,35 +256,35 @@ write.
    never aborted — approving simply resumes it with the tool's real result.
 
 4. **Fail-safe on timeout.** If a confirmation is left unanswered it **auto-denies** after
-   `KODO_CONFIRM_TIMEOUT` (300s by default) — the card shows *Auto-denied (timed out)* and
+   `HEIM_CONFIRM_TIMEOUT` (300s by default) — the card shows *Auto-denied (timed out)* and
    the model continues as if you had denied it.
 
     ![The same confirmation auto-denied after the timeout, model continuing](../img/extension/11-confirm-declined.png)
 
-The non-interactive one-shot (`kodo chat -p`) has no card to click, so it **fail-safe-denies
+The non-interactive one-shot (`heim chat -p`) has no card to click, so it **fail-safe-denies
 every write** unless you pass `--allow-writes` — an explicit opt-in for scripted runs.
 
 ## Troubleshooting
 
 | Symptom | Cause & fix |
 | --- | --- |
-| **403 on load / "cross-site guard"** | The extension origin isn't allowed. Add `cors_origins = ["chrome-extension://<your-id>"]` (the gate and Settings show the exact line) and restart `kodo serve`. |
+| **403 on load / "cross-site guard"** | The extension origin isn't allowed. Add `cors_origins = ["chrome-extension://<your-id>"]` (the gate and Settings show the exact line) and restart `heim serve`. |
 | **401 / token prompt** | The server requires auth. Paste the `auth_token` into Settings (Access token); the panel prompts for it automatically. |
 | **Every call 404s** | A trailing slash in the base URL (`.../`) — the panel normalizes it on save, so re-save the backend. |
 | **"No model is loaded" / stuck loading** | A locked project has a model but it isn't running: click **Load \<model\>**. A cold start can take a while (a `409`/loading state is expected); it flips to ready on the next status poll. |
 | **Binding suddenly "expired"** | The target instance rotated or reset (e.g. the DHIS2 **play** demo resets nightly), invalidating the PAT/session. Just **Rebind**. |
-| **Remote kodo won't connect** | A non-loopback base URL must be `https` (mixed-content block). Serve kodo behind TLS or tunnel to `127.0.0.1`. |
+| **Remote heim won't connect** | A non-loopback base URL must be `https` (mixed-content block). Serve heim behind TLS or tunnel to `127.0.0.1`. |
 
 ---
 
 !!! info "Regenerating the screenshots"
     The panel-detail images (`NN-*.png`, `01`-`11`) are generated headlessly against mock
-    backends (no real `kodo serve`, ephemeral ports, a pinned light-theme viewport) using
+    backends (no real `heim serve`, ephemeral ports, a pinned light-theme viewport) using
     the DHIS2-flavored build. `09`-`11` cover the write flow: the "Allow writes" bind
     consent, the mid-chat Approve/Deny confirmation card (pending), and the same card
     auto-denied on timeout. The **hero composites** (`hero-*.png`) join two real
     screenshots side by side; `hero-1`-`hero-3` pair the live play42 UI with the panel
-    (its target banner and Who-am-I run against the real logged-in play42 tab, a mock kodo
+    (its target banner and Who-am-I run against the real logged-in play42 tab, a mock heim
     backend with the real probe recipe — if play42 is unreachable the page half falls back
     to a mock target). `hero-4-generic` pairs the **generic** build's panel with the
     Hacker News front page (a local stand-in if Hacker News is unreachable).

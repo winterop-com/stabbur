@@ -12,8 +12,8 @@ import time
 import httpx
 import pytest
 
-from kodo import library, runtime
-from kodo.models import ModelFormat
+from heim import library, runtime
+from heim.models import ModelFormat
 
 pytestmark = pytest.mark.slow
 

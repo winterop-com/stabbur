@@ -6,12 +6,12 @@ and every data type is a `BaseModel` (no `@dataclass`).
 
 ## Modules
 
-Large concerns are **packages** (a re-exporting `__init__` keeps `from kodo import X` working while
+Large concerns are **packages** (a re-exporting `__init__` keeps `from heim import X` working while
 the internals live in focused submodules); small cross-cutting modules stay top-level.
 
 ```
-src/kodo/
-├── config.py / userconfig.py  # Settings (kodo.toml + KODO_* env) + the durable machine config
+src/heim/
+├── config.py / userconfig.py  # Settings (heim.toml + HEIM_* env) + the durable machine config
 ├── models.py / host.py / locking.py / doctor.py / fsatomic.py  # value types, OS helpers, lock, health, atomic writes
 ├── cli/         # the Typer app, one module per command group (_app/_common + library/project/mcp/
 │                #   voice/config/health/chat/serve) — was one 2400-line cli.py
@@ -19,7 +19,7 @@ src/kodo/
 ├── runtime/     # spawn + run models: runtime (commands), supervisor (reaper), serve_registry, sampling
 ├── voice/       # TTS/STT: kokoro, tts, the mlx-audio runtime, audio export, the voice registry
 ├── chat_tui/    # the Textual terminal chat: _util, _widgets, app (ChatApp)
-├── project.py / scaffold.py / templates.py  # the kodo.toml manifest (one parser+writer) + scaffolding
+├── project.py / scaffold.py / templates.py  # the heim.toml manifest (one parser+writer) + scaffolding
 ├── agent.py / tools.py / mcpservers.py / mcp_catalog.py / plugins.py  # agent loop + MCP client/config
 ├── catalog.py / consumers.py / cards.py / tags.py / arch.py / capabilities.py / wantlist.py  # source + library support
 ├── attach.py / chatui.py / hfcache.py  # media attach, shared chat rendering, HF-cache redirect
@@ -32,7 +32,7 @@ src/kodo/
 ## Two views of "models"
 
 - **Sources** (`catalog` + `sources/`) — what's in the local HF cache, Ollama,
-  and LM Studio stores; the candidates for `kodo library pull`.
+  and LM Studio stores; the candidates for `heim library pull`.
 - **Library** (`library`) — what's on the drive under `library_root`; the
   runnable set. `LibraryModel` carries `load_target` (the exact file/dir to hand
   the runtime) and `mmproj` (multimodal projector, if any).
@@ -69,7 +69,7 @@ rejected `403` unless its origin is in `cors_origins` — that is what a Chrome 
 
 ## Agent loop, tools & the assistant surface
 
-kodo is the **MCP client** and owns the **agent loop**, so every frontend (CLI, web, side
+heim is the **MCP client** and owns the **agent loop**, so every frontend (CLI, web, side
 panel) stays thin. `POST /api/chat` (`routers/serving/chat.py`) runs it server-side: the model
 emits a `tool_call`, `agent.py` executes it via the `tools.MCPToolset` (spawned from the merged
 `mcpServers` config, `mcpservers.py`), feeds the result back as a `tool` message, and continues —
@@ -77,12 +77,12 @@ streaming typed SSE (tokens, reasoning, tool-call chips) to the client. A tool r
 an **image** is fed to a vision model as a follow-up user image message (gated on the detected
 `vision` capability); text-only models get a note instead.
 
-A project can also carry a domain-generic **`[assistant]` block** — target metadata kodo
+A project can also carry a domain-generic **`[assistant]` block** — target metadata heim
 **echoes but never interprets** (`routers/serving/assistant.py`, `project.AssistantInfo`):
 
 - `GET /api/assistant` returns the block verbatim (name / base_url / auth / readonly / source),
   404 if absent. `?verify=1` runs the project-declared **verify** recipe (a named MCP tool call)
-  once and caches the outcome for 60s, so a UI can show a live connection state without kodo
+  once and caches the outcome for 60s, so a UI can show a live connection state without heim
   knowing what "connected" means for the domain.
 - The **probe** recipe is echoed for the *client* to run same-origin in the target tab (e.g. the
   side panel's "Who am I here?").
@@ -92,7 +92,7 @@ A project can also carry a domain-generic **`[assistant]` block** — target met
   browser-side mint recipe and mode *names* are exposed; a mode's argv / `secret_env` stay
   server-side.
 
-This keeps kodo domain-neutral: the DHIS2 assistant is just a project whose `[assistant]` block
+This keeps heim domain-neutral: the DHIS2 assistant is just a project whose `[assistant]` block
 and MCP tools happen to describe a DHIS2 instance. See the
 [Chrome side panel](guides/extension.md) guide for the client half.
 
@@ -109,64 +109,64 @@ Command names are pinned to current upstream (verified mid-2026). See the
 
 ## Configuration & the project manifest
 
-`kodo.toml` is one file with **two readers, by design**:
+`heim.toml` is one file with **two readers, by design**:
 
 - **Machine config** (`config.py`) — `library_root`, `host`/`port`, `cors_origins`,
   `auth_token`, and other per-machine settings. These are `pydantic-settings` fields, so any
-  value can be overridden per machine with a `KODO_*` env var (precedence: CLI args > `KODO_*`
-  env > `kodo.toml` > `.env` > `~/.config/kodo/config.toml`). `library_root` has **no default** —
+  value can be overridden per machine with a `HEIM_*` env var (precedence: CLI args > `HEIM_*`
+  env > `heim.toml` > `.env` > `~/.config/heim/config.toml`). `library_root` has **no default** —
   it is `None` when unset, and every consumer routes through `library.roots()` /
   `library.default_root()`, which raise `LibraryNotConfigured` rather than silently using `./data`.
 - **The project manifest** (`project.py`) — the *portable, committable* assistant definition:
   `[project]` (model + system prompt), `[voice]`, and `libraries` (which stores this project
   composes, in priority order). Tools are separate — the standard `mcpServers` JSON in `.mcp.json`
-  (`mcpservers.py`), merged with the machine-global `~/.config/kodo/mcp.json`. No machine-specific
+  (`mcpservers.py`), merged with the machine-global `~/.config/heim/mcp.json`. No machine-specific
   paths, so a project directory is git-committable and moves between machines.
 
 Despite the two readers, the file has **one parser and one writer** (`project.py`):
 
 - `project.read_raw()` is the single TOML parse. `config.py`'s settings source routes through it
-  too, so a malformed `kodo.toml` fails one way — a clean `ProjectError` — instead of crashing
+  too, so a malformed `heim.toml` fails one way — a clean `ProjectError` — instead of crashing
   differently in each reader.
-- `project.render_manifest()` renders a fresh manifest from values (`kodo project init` / `new`);
+- `project.render_manifest()` renders a fresh manifest from values (`heim project init` / `new`);
   `project.add_mcp()` appends a server and **re-parses the result to validate before writing**,
-  so an edit (`kodo mcp add`) can never leave a half-written or broken `kodo.toml` behind.
+  so an edit (`heim mcp add`) can never leave a half-written or broken `heim.toml` behind.
 
 ### Import-time HF cache (the one deliberate side effect)
 
-`kodo/__init__.py` points the Hugging Face hub cache at `<library_root>/.cache/huggingface` **at
+`heim/__init__.py` points the Hugging Face hub cache at `<library_root>/.cache/huggingface` **at
 import time** (`hfcache.configure()`), so assets some runtimes fetch by repo id — e.g. mlx-audio's
 Dia DAC codec — travel with the drive instead of landing in `~/.cache/huggingface`. This *must*
 run before `huggingface_hub` is imported, because hf_hub freezes its cache path at its own import
-— and importing almost any kodo module transitively imports hf_hub. It is best-effort and guarded:
+— and importing almost any heim module transitively imports hf_hub. It is best-effort and guarded:
 a no-op if the user set `HF_HOME`/`HF_HUB_CACHE`, or there is no mounted, configured library. This
 is the only intentional import-time side effect; everything else is lazy.
 
 ### Serve → worker config handoff
 
-`kodo serve` passes its runtime config to the app through a small set of `KODO_*` env vars
+`heim serve` passes its runtime config to the app through a small set of `HEIM_*` env vars
 (`_export_serve_env`). This env channel is deliberate: with `--reload`, uvicorn imports the app in
 a *fresh subprocess* that has none of the CLI's in-process overrides, so env is the only thing
 that crosses. Centralized in one documented function rather than scattered `os.environ` writes.
 
 ## Process lifecycle & concurrency
 
-Model runtimes are **external processes** kodo spawns, and both the CLI (`runtime.start`) and the
+Model runtimes are **external processes** heim spawns, and both the CLI (`runtime.start`) and the
 server (`ServerManager`) go through one **supervisor** (`runtime/supervisor.py`):
 
 - Each runtime is spawned in its own session (`start_new_session`), so stopping it `killpg`s the
   whole group — the runtime *and* any workers it forked, not just the direct child.
-- Each records a `meta.json` (its pid/pgid/command + the pid of the kodo that owns it) under
-  the XDG runtime/cache dir (`$XDG_RUNTIME_DIR/kodo/runtimes`, else `~/.cache/kodo/runtimes`) —
+- Each records a `meta.json` (its pid/pgid/command + the pid of the heim that owns it) under
+  the XDG runtime/cache dir (`$XDG_RUNTIME_DIR/heim/runtimes`, else `~/.cache/heim/runtimes`) —
   ephemeral, machine-local state (a pid means nothing on another machine, so it deliberately
   does **not** live in a library). On a graceful exit an `atexit` hook stops live
-  runtimes; for an ungraceful death (SIGKILL/OOM), `sweep_orphans()` runs at the next kodo start
-  and reclaims a runtime whose owning kodo is gone (and whose live command still matches — a
-  PID-reuse guard), so a crashed kodo never leaves a model holding memory with no way to reclaim it.
+  runtimes; for an ungraceful death (SIGKILL/OOM), `sweep_orphans()` runs at the next heim start
+  and reclaims a runtime whose owning heim is gone (and whose live command still matches — a
+  PID-reuse guard), so a crashed heim never leaves a model holding memory with no way to reclaim it.
 - The auto-picked runtime port is retried on a bind collision, closing the find-a-free-port race.
 
-Because the CLI and `kodo serve` are expected to run **concurrently** against the same library,
+Because the CLI and `heim serve` are expected to run **concurrently** against the same library,
 mutations that read-modify-write shared files take a per-library advisory lock (`locking.py`, a
-`flock` on `<root>/.kodo/lock`): tag edits and destructive removes can't lose each other's changes
+`flock` on `<root>/.heim/lock`): tag edits and destructive removes can't lose each other's changes
 across processes. Long-running pulls are intentionally not held under this lock (they stage into
 distinct model dirs with an atomic final move).

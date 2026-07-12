@@ -1,13 +1,13 @@
 {
-  "name": "kodo-extension",
+  "name": "heim-extension",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    "build:dhis2": "KODO_FLAVOR=dhis2 wxt build",
-    "build:e2e": "KODO_E2E=1 wxt build",
+    "build:dhis2": "HEIM_FLAVOR=dhis2 wxt build",
+    "build:e2e": "HEIM_E2E=1 wxt build",
     "postinstall": "wxt prepare",
     "e2e": "bun run build && playwright test --project=mock",
     "screenshots": "bun run build && bun run build:dhis2 && bun run e2e/screenshots.ts",

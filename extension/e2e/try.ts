@@ -1,5 +1,5 @@
 // Interactive test drive: launch a HEADED Chromium with the built extension loaded,
-// start a real `kodo serve` (gemma + dhis2 bridge -> play42, read-only), seed the
+// start a real `heim serve` (gemma + dhis2 bridge -> play42, read-only), seed the
 // panel settings, and leave everything running until Ctrl+C.
 //
 //   bun run e2e/try.ts
@@ -19,7 +19,7 @@ const EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
 
 async function main(): Promise<void> {
   console.log("[try] launching headed Chromium with the extension ...");
-  const userDataDir = mkdtempSync(path.join(tmpdir(), "kodo-ext-try-"));
+  const userDataDir = mkdtempSync(path.join(tmpdir(), "heim-ext-try-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: false,
@@ -41,11 +41,11 @@ async function main(): Promise<void> {
   console.log("[try] warming the dhis2 bridge (uvx cache) ...");
   warmBridge();
 
-  console.log("[try] starting kodo serve (gemma-4-12B, play42, read-only) ...");
+  console.log("[try] starting heim serve (gemma-4-12B, play42, read-only) ...");
   const server = startLiveServer(extensionId);
   process.on("SIGINT", () => {
     void (async () => {
-      console.log("\n[try] shutting down kodo serve + browser ...");
+      console.log("\n[try] shutting down heim serve + browser ...");
       await server.stop();
       await context.close().catch(() => {});
       process.exit(0);
@@ -91,10 +91,10 @@ async function main(): Promise<void> {
   }
   console.log("[try] READY.");
   console.log(`[try]   panel tab:   chrome-extension://${extensionId}/sidepanel.html`);
-  console.log("[try]   real side panel: click the kodo icon in the toolbar (puzzle-piece menu)");
+  console.log("[try]   real side panel: click the heim icon in the toolbar (puzzle-piece menu)");
   console.log(`[try]   backend:     http://127.0.0.1:${LIVE_PORT} (gemma-4-12B locked, dhis2 bridge -> play42)`);
   console.log("[try]   page-context + page-text toggles are ON; an HN tab is open for prompt-catalog testing");
-  console.log("[try] Ctrl+C here stops kodo serve and closes the browser.");
+  console.log("[try] Ctrl+C here stops heim serve and closes the browser.");
 
   await new Promise(() => {}); // run until Ctrl+C
 }

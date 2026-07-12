@@ -1,12 +1,12 @@
-"""Tests for the standard mcpServers JSON config (kodo.mcpservers)."""
+"""Tests for the standard mcpServers JSON config (heim.mcpservers)."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from kodo import mcpservers
-from kodo.mcpservers import McpServer
+from heim import mcpservers
+from heim.mcpservers import McpServer
 
 
 def test_read_project_parses_mcpservers(tmp_path: Path) -> None:
@@ -14,7 +14,7 @@ def test_read_project_parses_mcpservers(tmp_path: Path) -> None:
         json.dumps(
             {
                 "mcpServers": {
-                    "datetime": {"command": "kodo-mcp-datetime"},
+                    "datetime": {"command": "heim-mcp-datetime"},
                     "git": {"command": "uvx", "args": ["mcp-server-git"], "env": {"GIT_ROOT": "."}},
                 }
             }
@@ -45,12 +45,12 @@ def test_entry_without_command_raises(tmp_path: Path) -> None:
 
 
 def test_add_and_remove_roundtrip(tmp_path: Path) -> None:
-    p = mcpservers.add(McpServer(name="datetime", command="kodo-mcp-datetime"), glob=False, project_dir=tmp_path)
+    p = mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=False, project_dir=tmp_path)
     assert p == tmp_path / ".mcp.json"
     assert [s.name for s in mcpservers.read_project(tmp_path)] == ["datetime"]
     # Re-adding the same name replaces (idempotent), not duplicates.
     mcpservers.add(
-        McpServer(name="datetime", command="kodo-mcp-datetime", args=["--tz", "UTC"]), glob=False, project_dir=tmp_path
+        McpServer(name="datetime", command="heim-mcp-datetime", args=["--tz", "UTC"]), glob=False, project_dir=tmp_path
     )
     servers = mcpservers.read_project(tmp_path)
     assert len(servers) == 1 and servers[0].args == ["--tz", "UTC"]
@@ -67,12 +67,12 @@ def test_written_file_is_standard_mcpservers_shape(tmp_path: Path) -> None:
 
 def test_resolve_merges_global_then_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    mcpservers.add(McpServer(name="datetime", command="kodo-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
     mcpservers.add(McpServer(name="search", command="global-search"), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
     # Project overrides "search" and adds "files".
     mcpservers.add(McpServer(name="search", command="proj-search"), glob=False, project_dir=proj)
-    mcpservers.add(McpServer(name="files", command="kodo-mcp-files"), glob=False, project_dir=proj)
+    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
-    assert resolved == {"datetime": "kodo-mcp-datetime", "search": "proj-search", "files": "kodo-mcp-files"}
+    assert resolved == {"datetime": "heim-mcp-datetime", "search": "proj-search", "files": "heim-mcp-files"}

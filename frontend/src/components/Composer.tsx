@@ -366,7 +366,7 @@ export function Composer({
             }
           }}
           rows={1}
-          placeholder={ready ? "Message kodo…" : "Select a model to start"}
+          placeholder={ready ? "Message heim…" : "Select a model to start"}
           className="max-h-[200px] w-full resize-none bg-transparent text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>

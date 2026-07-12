@@ -3,8 +3,8 @@
 // re-sync). Persisted in chrome.storage.local, keyed by backend id, so it survives panel reloads and
 // is visible to the background service worker (which keeps a session cookie synced).
 
-const PREFIX = "kodo-ext-binding:";
-const STALE_PREFIX = "kodo-ext-binding-stale:";
+const PREFIX = "heim-ext-binding:";
+const STALE_PREFIX = "heim-ext-binding-stale:";
 
 export interface Binding {
   backendId: string;

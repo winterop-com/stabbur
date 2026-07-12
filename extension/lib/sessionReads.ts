@@ -1,7 +1,7 @@
 // Phase 3: read the user's own session on the active tab's site, entirely in the page's own
 // security context. The injected function receives a base path plus the project-declared probe
 // (paths + field map) and re-validates every path itself -- no arbitrary URL is ever trusted
-// blindly. Generic (kodo interprets nothing): the probe spec comes from the assistant metadata.
+// blindly. Generic (heim interprets nothing): the probe spec comes from the assistant metadata.
 
 export interface SessionInfo {
   username: string;
@@ -12,7 +12,7 @@ export interface SessionInfo {
 
 export type SessionResult = SessionInfo | { error: "unauthenticated" } | null;
 
-/** The project-declared session probe (echoed verbatim by GET /api/assistant; kodo never runs it). */
+/** The project-declared session probe (echoed verbatim by GET /api/assistant; heim never runs it). */
 export interface ProbeSpec {
   /** Same-origin paths to fetch; the first is the identity signal (its failure fails the probe). */
   paths: string[];

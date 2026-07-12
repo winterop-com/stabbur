@@ -53,7 +53,7 @@ function toBase64(blob: Blob): Promise<string> {
   });
 }
 
-/** The registry id kodo uses for a voice model (so the endpoint can resolve its backend). */
+/** The registry id heim uses for a voice model (so the endpoint can resolve its backend). */
 function voiceId(m: VoiceModelInfo): string {
   const n = shortName(m.name).toLowerCase();
   if (n.includes("kokoro")) return "kokoro";
@@ -72,7 +72,7 @@ function defaultTextFor(m: VoiceModelInfo | undefined): string {
     case "dia":
       // Dia's strength is multi-speaker dialogue — default to a two-voice [S1]/[S2] exchange.
       // Keep the nonverbal cue mid-line, not last: Dia clips a trailing cue at end-of-audio.
-      return "[S1] Hey there, welcome to kodo! (laughs) [S2] Everything you hear runs right here on your own machine.";
+      return "[S1] Hey there, welcome to heim! (laughs) [S2] Everything you hear runs right here on your own machine.";
     case "kokoro":
       return "Hi, I'm Kokoro, a small and fast voice running fully on your machine.";
     case "qwen3-tts":
@@ -80,7 +80,7 @@ function defaultTextFor(m: VoiceModelInfo | undefined): string {
     case "outetts":
       return "This is OuteTTS, speaking through llama dot cpp.";
     default:
-      return "Hello from kodo. This voice runs fully on your own machine.";
+      return "Hello from heim. This voice runs fully on your own machine.";
   }
 }
 
@@ -282,7 +282,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   if (ttsModels.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-        No TTS models in the library. Import one with <code className="font-mono">kodo voice import</code>.
+        No TTS models in the library. Import one with <code className="font-mono">heim voice import</code>.
       </div>
     );
   }
@@ -485,7 +485,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           </Button>
           {unsupported ? (
             <span className="text-xs text-muted-foreground">
-              {model?.display_name} isn't runnable in kodo yet.
+              {model?.display_name} isn't runnable in heim yet.
             </span>
           ) : (
             error && <span className="text-xs text-destructive">{error}</span>
@@ -644,7 +644,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
     return (
       <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
         No speech-to-text model in the library. Import Whisper with{" "}
-        <code className="font-mono">kodo voice import</code>.
+        <code className="font-mono">heim voice import</code>.
       </div>
     );
   }
@@ -742,7 +742,7 @@ export function VoiceView() {
           </div>
         ) : models.length === 0 ? (
           <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-            No voice models yet. Import them with <code className="font-mono">kodo voice import --all</code>.
+            No voice models yet. Import them with <code className="font-mono">heim voice import --all</code>.
           </div>
         ) : (
           <div className="space-y-6">

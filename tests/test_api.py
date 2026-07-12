@@ -8,13 +8,13 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from kodo import agent
-from kodo import library as library_ops
-from kodo.app import create_app
-from kodo.config import Settings
-from kodo.library import LibraryModel
-from kodo.models import ModelFormat
-from kodo.routers import serving
+from heim import agent
+from heim import library as library_ops
+from heim.app import create_app
+from heim.config import Settings
+from heim.library import LibraryModel
+from heim.models import ModelFormat
+from heim.routers import serving
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ async def test_status_reports_stopped_when_no_model(client: AsyncClient) -> None
 
 
 async def test_status_exposes_project_model(app: FastAPI, client: AsyncClient) -> None:
-    # /api/status surfaces the project's bound model (kodo.toml [project].model),
+    # /api/status surfaces the project's bound model (heim.toml [project].model),
     # which the web UI auto-loads on open. The lifespan (which sets this from
     # project.load()) doesn't run under ASGITransport, so set app.state directly.
     app.state.project_model = "acme/widget-3b"
@@ -133,8 +133,8 @@ async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest
     import time
 
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
-    monkeypatch.setattr("kodo.routers.serving.chat.library_ops.find", lambda name: [fake])
-    monkeypatch.setattr("kodo.routers.serving.chat.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr("heim.routers.serving.chat.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("heim.routers.serving.chat.runtime.runnable_error", lambda m: None)
 
     active = 0
     max_active = 0
@@ -164,8 +164,8 @@ async def test_load_and_unload_rejected_while_generating(
     # A running generation reserves the runtime (active_generations > 0); load/unload
     # must refuse (409) so the runtime it's streaming from is never swapped/killed.
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
-    monkeypatch.setattr("kodo.routers.serving.chat.library_ops.find", lambda name: [fake])
-    monkeypatch.setattr("kodo.routers.serving.chat.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr("heim.routers.serving.chat.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("heim.routers.serving.chat.runtime.runnable_error", lambda m: None)
     monkeypatch.setattr(app.state.manager, "load", lambda *a, **k: None)
     monkeypatch.setattr(app.state.manager, "stop", lambda *a, **k: None)
 
@@ -197,7 +197,7 @@ async def test_load_unrunnable_model_is_422_not_500(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch, fmt: ModelFormat, is_ollama: bool
 ) -> None:
     # safetensors (convert/fine-tune source) and Ollama-native entries resolve to
-    # a match but aren't runnable by kodo — the API must reject them cleanly (422),
+    # a match but aren't runnable by heim — the API must reject them cleanly (422),
     # not pass them to manager.load and surface a 500 / ValueError traceback.
     p = Path("/tmp/x")
     model = LibraryModel(name="pub/X", model_format=fmt, is_ollama=is_ollama, path=p, load_target=p / "w")
@@ -217,12 +217,12 @@ def test_create_app_autopicks_when_runtime_port_none() -> None:
 
 def test_reload_worker_honors_runtime_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # Simulates a --reload worker: fresh process, no in-memory override, reads
-    # KODO_RUNTIME_PORT that serve() propagated into the environment.
-    from kodo import config
-    from kodo.config import get_settings
+    # HEIM_RUNTIME_PORT that serve() propagated into the environment.
+    from heim import config
+    from heim.config import get_settings
 
     monkeypatch.setattr(config, "_runtime_port_override", None)
-    monkeypatch.setenv("KODO_RUNTIME_PORT", "8124")
+    monkeypatch.setenv("HEIM_RUNTIME_PORT", "8124")
     get_settings.cache_clear()
     try:
         assert create_app().state.manager._port == 8124
@@ -248,7 +248,7 @@ async def test_library_lists_runnable_models(client: AsyncClient, monkeypatch: p
 
 
 async def test_api_doctor_returns_report(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    # /api/doctor mirrors `kodo doctor`: a list of typed health checks.
+    # /api/doctor mirrors `heim doctor`: a list of typed health checks.
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])
     body = (await client.get("/api/doctor")).json()
     assert "checks" in body and isinstance(body["checks"], list)
@@ -395,7 +395,7 @@ async def test_api_speak_unknown_kokoro_voice_is_422(client: AsyncClient, monkey
     # An unknown Kokoro voice id is a client error, not an engine failure: it must 422, not 500.
     from types import SimpleNamespace
 
-    from kodo.routers.serving import voice as voice_router
+    from heim.routers.serving import voice as voice_router
 
     monkeypatch.setattr(voice_router.kokoro, "available", lambda: True)
     monkeypatch.setattr(voice_router.kokoro, "voices", lambda: [SimpleNamespace(id="af_heart")])
@@ -417,7 +417,7 @@ async def test_api_chat_use_tools_flag_drops_tools(
 ) -> None:
     # use_tools=false must run the loop with an empty toolset (for non-tool models),
     # even when the server has MCP tools configured.
-    from kodo.tools import MCPToolset
+    from heim.tools import MCPToolset
 
     class FakeManager:
         current = type("M", (), {"load_target": Path("/models/x")})()
@@ -500,7 +500,7 @@ async def test_locked_unresolvable_model_fails_startup() -> None:
 async def test_status_locked_reads_app_settings_not_global(monkeypatch: pytest.MonkeyPatch) -> None:
     # Global cache claims locked; this app was configured unlocked. The status
     # endpoint must reflect the app's own settings, not the process-wide cache.
-    monkeypatch.setattr("kodo.config.get_settings", lambda: Settings(serve_model="ghost"))
+    monkeypatch.setattr("heim.config.get_settings", lambda: Settings(serve_model="ghost"))
     app = create_app(Settings(serve_model=None))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as inner:
@@ -532,7 +532,7 @@ async def test_api_assistant_404_when_none(client: AsyncClient) -> None:
 
 
 async def test_api_assistant_echoes_statics_and_extra_keys_not_verify(app: FastAPI, client: AsyncClient) -> None:
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     # Lifespan doesn't run under ASGITransport; set app.state directly (like the other tests).
     app.state.assistant = AssistantInfo.model_validate(
@@ -570,7 +570,7 @@ class _FakeToolset:
 
 
 def _dhis2_assistant() -> Any:
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     return AssistantInfo.model_validate(
         {
@@ -624,7 +624,7 @@ async def test_api_assistant_verify_uses_ttl_cache(app: FastAPI, client: AsyncCl
     # A fresh cached outcome (< 60s) is returned without re-running the tool.
     import time
 
-    from kodo.routers.serving.assistant import AssistantVerified
+    from heim.routers.serving.assistant import AssistantVerified
 
     app.state.assistant = _dhis2_assistant()
     fake = _FakeToolset(names=["dhis2__dhis2_cli"], result={"live": True})
@@ -639,8 +639,8 @@ async def test_api_assistant_verify_uses_ttl_cache(app: FastAPI, client: AsyncCl
 def test_api_assistant_response_mirrors_info_fields() -> None:
     # AssistantResponse hand-mirrors AssistantInfo's fields (minus verify); a field added to
     # AssistantInfo must not silently vanish from the echo contract.
-    from kodo.project import AssistantInfo
-    from kodo.routers.serving.assistant import AssistantResponse
+    from heim.project import AssistantInfo
+    from heim.routers.serving.assistant import AssistantResponse
 
     info_fields = set(AssistantInfo.model_fields) - {"verify"}
     assert info_fields <= set(AssistantResponse.model_fields)
@@ -648,8 +648,8 @@ def test_api_assistant_response_mirrors_info_fields() -> None:
 
 async def test_api_assistant_reserved_extra_keys_do_not_crash(app: FastAPI, client: AsyncClient) -> None:
     # A project extra key named after a response field (can_verify / verified) must be overridden
-    # by kodo's computed values, not raise TypeError (-> 500) or pollute the response.
-    from kodo.project import AssistantInfo
+    # by heim's computed values, not raise TypeError (-> 500) or pollute the response.
+    from heim.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate({"name": "x", "can_verify": True, "verified": "spoofed"})
     r = await client.get("/api/assistant")
@@ -687,7 +687,7 @@ async def test_api_assistant_echoes_probe_and_sanitized_bind(app: FastAPI, clien
     # browser-side mint recipe plus only the mode NAMES (a mode's argv/secret_env are server-side).
     import json as _json
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
         {
@@ -724,7 +724,7 @@ async def test_api_assistant_echoes_probe_and_sanitized_bind(app: FastAPI, clien
 
 
 async def test_api_assistant_bind_404_without_bind(app: FastAPI, client: AsyncClient) -> None:
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     # No assistant metadata at all → 404.
     assert (await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "x"})).status_code == 404
@@ -736,7 +736,7 @@ async def test_api_assistant_bind_404_without_bind(app: FastAPI, client: AsyncCl
 async def test_api_assistant_bind_bad_requests(app: FastAPI, client: AsyncClient) -> None:
     import sys
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
         {
@@ -759,7 +759,7 @@ async def test_api_assistant_bind_runs_mode_and_redacts_secret(
     import sys
     import time
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     proof = tmp_path / "proof.txt"
     code = (
@@ -800,7 +800,7 @@ async def test_api_assistant_unbind_runs_and_requires_command(
 ) -> None:
     import sys
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     marker = tmp_path / "unbound.txt"
     code = "import sys\nopen(sys.argv[1],'w').write('unbound')\n"
@@ -840,10 +840,10 @@ async def test_api_assistant_bind_cross_site_blocked(client: AsyncClient) -> Non
 async def test_api_assistant_bind_missing_command_is_127_not_500(app: FastAPI, client: AsyncClient) -> None:
     # A mode whose argv[0] doesn't exist is a data state, not a crash: BindResult ok=False with
     # exit_code 127 (a shell's "command not found"), never an HTTP 500.
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
-        {"name": "x", "bind": {"modes": {"pat": {"command": ["kodo-definitely-missing-xyz"], "secret_env": "X"}}}}
+        {"name": "x", "bind": {"modes": {"pat": {"command": ["heim-definitely-missing-xyz"], "secret_env": "X"}}}}
     )
     r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "s"})
     assert r.status_code == 200, r.text
@@ -857,7 +857,7 @@ async def test_api_assistant_bind_caps_chatty_output(app: FastAPI, client: Async
     # blow up RAM / the JSON response / the redaction scan.
     import sys
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     code = "import sys\nsys.stdout.write('A' * 200000)\n"
     app.state.assistant = AssistantInfo.model_validate(
@@ -875,7 +875,7 @@ async def test_api_assistant_bind_no_double_substitution(app: FastAPI, client: A
     # Here base_url embeds "{name}", so the rendered argv keeps it verbatim (not replaced by the name).
     import sys
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     proof = tmp_path / "argv.txt"
     code = "import sys\nopen(sys.argv[1], 'w').write(sys.argv[2])\n"
@@ -902,7 +902,7 @@ async def test_api_assistant_bind_timeout_kills_process_group(
     import sys
     import time
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     pidfile = tmp_path / "grandchild.pid"
     code = (
@@ -942,7 +942,7 @@ async def test_api_assistant_echoes_unbind_notes(app: FastAPI, client: AsyncClie
     # command/secret_env stay excluded, and a mode's extra="allow" fields never ride into the echo.
     import json as _json
 
-    from kodo.project import AssistantInfo
+    from heim.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
         {
@@ -971,7 +971,7 @@ def test_truncate_detail_preserves_large_json_and_passes_non_json() -> None:
     # structure intact) so the UI's collapsible chips still parse it; non-JSON is a plain hard cut.
     import json as _json
 
-    from kodo.routers.serving.chat import _truncate_detail
+    from heim.routers.serving.chat import _truncate_detail
 
     detail = _json.dumps({"result": "x" * 5000, "n": 7})
     assert len(detail) > 2000
@@ -990,6 +990,6 @@ async def test_audio_speech_openai_alias_maps_to_default_voice(
 ) -> None:
     # Stock OpenAI clients send OpenAI's own model ids ("tts-1"); those must route to the
     # default chat voice (Kokoro backend — 503 here since it's stubbed unavailable), not 404.
-    monkeypatch.setattr("kodo.routers.serving.voice.kokoro.available", lambda: False)
+    monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: False)
     r = await client.post("/v1/audio/speech", json={"model": "tts-1", "input": "hello"})
     assert r.status_code == 503

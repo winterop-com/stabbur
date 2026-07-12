@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from kodo.runtime import supervisor
+from heim.runtime import supervisor
 
 # Binds the given port and sleeps; exits 1 with a bind-error message if the port is taken.
 _BIND_SCRIPT = (
@@ -155,7 +155,7 @@ def _write_meta(root: Path, *, owner_pid: int, proc: subprocess.Popen[bytes], po
     return d
 
 
-# A sentinel owner pid the tests treat as a crashed (dead) kodo. Using a real just-exited pid is
+# A sentinel owner pid the tests treat as a crashed (dead) heim. Using a real just-exited pid is
 # racy — a busy CI runner reuses it, so the owner then looks alive and the orphan is skipped.
 _DEAD_OWNER = 999_999_999
 
@@ -167,7 +167,7 @@ def _owner_dead(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_sweep_reaps_orphan_of_a_dead_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "runtimes"
-    _owner_dead(monkeypatch)  # the recorded owner is treated as a crashed kodo
+    _owner_dead(monkeypatch)  # the recorded owner is treated as a crashed heim
     port = supervisor.find_free_port()
     sleeper = _raw_sleeper(port)
     _stub_ps(monkeypatch, sleeper.pid, " ".join(_bind_cmd(port)))  # live cmdline matches the meta
@@ -193,7 +193,7 @@ def test_sweep_skips_runtime_of_a_live_owner(tmp_path: Path) -> None:
         entry = _write_meta(root, owner_pid=os.getpid(), proc=sleeper, port=port)
         assert supervisor.sweep_orphans() == []
         assert supervisor._pid_alive(sleeper.pid)  # left running
-        assert entry.exists()  # dir preserved (a live kodo owns it)
+        assert entry.exists()  # dir preserved (a live heim owns it)
     finally:
         _reap(sleeper.pid)
 

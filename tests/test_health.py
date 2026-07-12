@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from kodo.app import create_app
+from heim.app import create_app
 
 
 @pytest.fixture

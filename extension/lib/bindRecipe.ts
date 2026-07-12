@@ -1,7 +1,7 @@
 // The browser-side mint recipe. GET /api/assistant echoes a project's [assistant.bind] block
 // (sanitized): the paths, payload template, and dotted extraction fields the extension needs to
 // mint a credential in the target site's own security context (the user's cookies), plus the mode
-// names. Minting never leaves the page: kodo only receives the extracted token via /api/assistant/bind.
+// names. Minting never leaves the page: heim only receives the extracted token via /api/assistant/bind.
 
 import type { AssistantBindEcho } from "./assistantApi";
 import { validSameOriginPath } from "./paths";
@@ -31,7 +31,7 @@ export interface BindRecipe {
 }
 
 /** The (redacted) description written into a minted token so a user can recognize it later. */
-export const MINT_DESCRIPTION = "kodo assistant token";
+export const MINT_DESCRIPTION = "heim assistant token";
 
 /**
  * Parse the echoed bind block into a typed recipe, or null when nothing is usable (neither a

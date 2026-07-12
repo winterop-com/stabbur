@@ -1,4 +1,4 @@
-"""Tests for the want list — `kodo library manifest` (export) and `kodo library sync` (re-pull)."""
+"""Tests for the want list — `heim library manifest` (export) and `heim library sync` (re-pull)."""
 
 from __future__ import annotations
 
@@ -8,22 +8,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from kodo import cli, wantlist
-from kodo import library as library_ops
-from kodo.models import ModelSource, PullResult
+from heim import cli, wantlist
+from heim import library as library_ops
+from heim.models import ModelSource, PullResult
 
 runner = CliRunner()
 
 
 def _hf_model(root: Path, repo: str, *, fmt: str = "gguf", source: str = "huggingface") -> None:
-    """Create a directory model under ``<root>/<fmt>/<repo>`` with a real ``.kodo`` sidecar."""
+    """Create a directory model under ``<root>/<fmt>/<repo>`` with a real ``.heim`` sidecar."""
     weight = "model.Q4_K_M.gguf" if fmt == "gguf" else "model.safetensors"
     model_dir = root / fmt / repo
     model_dir.mkdir(parents=True)
     (model_dir / weight).write_bytes(b"w" * 100)
     if fmt != "gguf":
         (model_dir / "config.json").write_text(json.dumps({"architectures": ["LlamaForCausalLM"]}))
-    sidecar = model_dir / ".kodo"
+    sidecar = model_dir / ".heim"
     sidecar.mkdir()
     meta: dict[str, object] = {"source": source, "name": repo, "size_bytes": 100, "file_count": 1}
     if source == "lmstudio":
@@ -184,7 +184,7 @@ def test_manifest_save_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_ollama_source_bypasses_sidecar(tmp_path: Path) -> None:
-    # Regression: an Ollama model has no .kodo sidecar on the model dir; it must still classify.
+    # Regression: an Ollama model has no .heim sidecar on the model dir; it must still classify.
     _ollama_model(tmp_path, "qwen3:4b")
     (scanned,) = [m for m in library_ops.scan(root=tmp_path)]
     entry = wantlist.entry_for(scanned)

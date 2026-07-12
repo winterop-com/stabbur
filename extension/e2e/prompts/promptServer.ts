@@ -1,4 +1,4 @@
-// Spawns `kodo serve --model <gemma>` locked to a single model with NO project
+// Spawns `heim serve --model <gemma>` locked to a single model with NO project
 // (generic free-play chat) so the prompt harness and the UI spot-check drive the
 // same backend the extension targets. Mirrors e2e/live/liveServer.ts.
 
@@ -7,14 +7,14 @@ import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } fr
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-export const REPO_ROOT = "/Users/morteoh/dev/local/kodo";
-export const DEFAULT_LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/kodo/library");
+export const REPO_ROOT = "/Users/morteoh/dev/local/heim";
+export const DEFAULT_LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/heim/library");
 export const DEFAULT_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
-export const PROMPT_PORT = Number(process.env.KODO_PROMPT_PORT ?? 4611);
+export const PROMPT_PORT = Number(process.env.HEIM_PROMPT_PORT ?? 4611);
 
 const SCRATCH =
-  process.env.KODO_E2E_SCRATCH ??
-  "/private/tmp/claude-502/-Users-morteoh-dev-local-kodo/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
+  process.env.HEIM_E2E_SCRATCH ??
+  "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 export interface PromptServer {
   baseUrl: string;
@@ -36,7 +36,7 @@ export async function waitForReady(baseUrl: string, timeoutMs = 600_000): Promis
     } catch {
       /* not up yet */
     }
-    if (Date.now() > deadline) throw new Error(`kodo serve not ready within ${timeoutMs}ms at ${baseUrl}`);
+    if (Date.now() > deadline) throw new Error(`heim serve not ready within ${timeoutMs}ms at ${baseUrl}`);
     await new Promise((r) => setTimeout(r, 2000));
   }
 }
@@ -50,12 +50,12 @@ interface StartOpts {
 }
 
 /**
- * Start a locked-model kodo serve. When KODO_PROMPT_BASE_URL is set, reuse that
+ * Start a locked-model heim serve. When HEIM_PROMPT_BASE_URL is set, reuse that
  * already-running server instead of spawning (no teardown). Returns a handle whose
  * `stop()` group-kills the spawned server (and reaped runtimes).
  */
 export function startPromptServer(opts: StartOpts = {}): PromptServer {
-  const existing = process.env.KODO_PROMPT_BASE_URL;
+  const existing = process.env.HEIM_PROMPT_BASE_URL;
   if (existing) {
     return { baseUrl: existing, logPath: null, stop: async () => {}, tailLog: () => "(external server)" };
   }
@@ -64,19 +64,19 @@ export function startPromptServer(opts: StartOpts = {}): PromptServer {
   const libraryRoot = opts.libraryRoot ?? DEFAULT_LIBRARY_ROOT;
   const port = opts.port ?? PROMPT_PORT;
   const root = existsSync(SCRATCH) ? SCRATCH : tmpdir();
-  const dir = mkdtempSync(path.join(root, "kodo-prompts-"));
-  const logPath = path.join(dir, "kodo-serve.log");
+  const dir = mkdtempSync(path.join(root, "heim-prompts-"));
+  const logPath = path.join(dir, "heim-serve.log");
   const logFd = openSync(logPath, "a");
 
   const env: Record<string, string> = {
     ...process.env,
-    KODO_LIBRARY_ROOT: libraryRoot,
+    HEIM_LIBRARY_ROOT: libraryRoot,
   };
-  if (opts.corsOrigin) env.KODO_CORS_ORIGINS = opts.corsOrigin;
+  if (opts.corsOrigin) env.HEIM_CORS_ORIGINS = opts.corsOrigin;
 
   const child: ChildProcess = spawn(
     "uv",
-    ["run", "--project", REPO_ROOT, "kodo", "serve", "--model", model, "--port", String(port)],
+    ["run", "--project", REPO_ROOT, "heim", "serve", "--model", model, "--port", String(port)],
     { cwd: dir, env, detached: true, stdio: ["ignore", logFd, logFd] },
   );
 
