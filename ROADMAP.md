@@ -52,8 +52,13 @@ Open follow-ups, roughly in order:
 - **Reads also prompt under the single-tool bridge (the next write-UX step).** The default
   `dhis2w-mcp-bridge` exposes one **unannotated** tool (`dhis2_cli`), so under a write-enabled
   assistant the fail-safe gate prompts on **every** dhis2 call — reads included, not just
-  mutations. The remedy is the typed `dhis2w-mcp-router`, whose per-operation `readOnlyHint` lets
-  reads skip the prompt and only writes confirm. Pair with the write-reliability work below.
+  mutations. **No current dhis2w server fixes this** (verified live, 2026-07-12): the
+  `dhis2w-mcp-router` is a 2-tool dispatcher (`search_tools` / `call_tool`) — its `call_tool` is
+  generic and cannot be marked read-only — and even the 104-tool `dhis2w-mcp` ships **zero**
+  `readOnlyHint` annotations. The real remedy is a **dhis2w change**: annotate read operations with
+  `readOnlyHint=True` (most naturally per-op in `dhis2w-mcp`), which kodo's gate already honors.
+  Until then reads-prompt is inherent (friction, not danger — reads are safe and shown). Pair with
+  the write-reliability work below.
 - **MCP resource for the target** — now unblocked: **dhis2w 1.0.0 has shipped**. Add a
   `dhis2://target` resource to `dhis2w-mcp-bridge` + a generic MCP-resource proxy in kodo,
   replacing the `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
@@ -89,8 +94,8 @@ The current answer to "not trustworthy unattended" is the **round-3 per-action c
 (above): writes only run once the human approves each mutation, so the model's ~57%-best completion
 rate is fronted by a person rather than trusted. That is the guardrail, not the fix.
 
-Next: stronger write models; the typed `dhis2w-mcp-router` as a guarded chokepoint
-(read-only-by-default, per-op `readOnlyHint`) so reads stop prompting and the gate narrows to real
+Next: stronger write models; a dhis2w-side change to annotate read operations with `readOnlyHint`
+(none of the current servers do — see the follow-up above) so kodo's gate narrows prompts to real
 mutations; and richer verification that asserts real DHIS2 state, not just a `LIFECYCLE_OK`
 completion token.
 
