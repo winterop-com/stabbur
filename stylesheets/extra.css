@@ -1,0 +1,8 @@
+/* Data tables (e.g. the benchmark leaderboard) pack many narrow columns, so long
+   inline-code tokens — model names like `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` —
+   otherwise get shredded character-by-character across many lines. Keep code tokens on
+   one line; the table already scrolls horizontally, so this just trades ugly wrapping
+   for a clean scroll. (Prose cells still wrap normally.) */
+.md-typeset table:not([class]) code {
+  white-space: nowrap;
+}

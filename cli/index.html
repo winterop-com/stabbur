@@ -1,0 +1,1886 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Build a full local LLM library, then run, chat, and serve it — fully on-box.">
+      
+      
+      
+        <link rel="canonical" href="https://winterop-com.github.io/heim/cli/">
+      
+      
+        <link rel="prev" href="../guides/dhis2-benchmark-report/">
+      
+      
+        <link rel="next" href="../guides/model-catalog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>CLI reference - heim</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+      <link rel="stylesheet" href="../assets/stylesheets/panzoom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <meta name="panzoom-theme" content="material">
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cli-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="heim" class="md-header__button md-logo" aria-label="heim" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            heim
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CLI reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/winterop-com/heim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    winterop-com/heim
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="heim" class="md-nav__button md-logo" aria-label="heim" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    heim
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/winterop-com/heim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    winterop-com/heim
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/library/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The library
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/pulling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pulling models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/running/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running & chatting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/web-ui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web UI (serve --ui)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice (TTS & STT)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/projects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools (MCP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/how-models-work/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How models work (formats & modalities)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models & compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/direct-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using models directly
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chrome side panel
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Chrome side panel
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/extension-prompts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prompt catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DHIS2 assistant
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DHIS2 assistant
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/dhis2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools & profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/dhis2-project/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worked example
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/dhis2-benchmark-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark report
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#heim-project-init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim project init
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-project-show" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim project show
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-mcp-list-heim-mcp-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim mcp list / heim mcp add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-search-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library search &lt;query&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-ls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library ls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library formats
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-rm-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library rm &lt;name&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-pull-source-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library pull &lt;source&gt; &lt;name&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library manifest
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-sync-wantfile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library sync &lt;wantfile&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-chat-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim chat &lt;name&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-voice-voices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim voice voices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-voice-speak-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim voice speak &lt;text...&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-doctor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim doctor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim serve
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/model-catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model catalog (validated)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark leaderboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#heim-project-init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim project init
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-project-show" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim project show
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-mcp-list-heim-mcp-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim mcp list / heim mcp add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-search-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library search &lt;query&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-ls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library ls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library formats
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-rm-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library rm &lt;name&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-pull-source-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library pull &lt;source&gt; &lt;name&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library manifest
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-library-sync-wantfile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim library sync &lt;wantfile&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-chat-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim chat &lt;name&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-voice-voices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim voice voices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-voice-speak-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim voice speak &lt;text...&gt;
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-doctor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim doctor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heim-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        heim serve
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
+<p>The CLI is the <strong><code>heim</code></strong> command. Everything centers on your <strong>library</strong> — the
+models in your libraries (a project's, or the default <code>HEIM_LIBRARY_ROOT</code>). Run any command
+with <code>--help</code> for full options.</p>
+<p><strong>Global flag:</strong> <code>heim --debug &lt;command&gt;</code> turns on verbose diagnostics — it prints
+the exact model-runtime command and streams the runtime's logs live (instead of
+discarding them), which is the first thing to reach for when <code>heim chat</code>
+reports a model that "exited before becoming ready". (Also settable with
+<code>HEIM_DEBUG=1</code>.)</p>
+<h2 id="heim-project-init"><code>heim project init</code><a class="headerlink" href="#heim-project-init" title="Permanent link">&para;</a></h2>
+<p>Scaffold <strong><code>heim.toml</code></strong> here — heim's primary config (no <code>.env</code> needed) — and
+ensure its model is in the library. The generated file is portable — it lists the
+<code>libraries</code> this project uses (a project-local <code>models/</code> plus <code>@shared</code>, the
+machine default) plus the assistant (<code>[project]</code> model; tools in <code>.mcp.json</code>).
+Idempotent — only pulls the model if it's missing. With no <code>--model</code> it
+offers a small curated set and pulls the choice into the project-local library.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>heim<span class="w"> </span>project<span class="w"> </span>init<span class="w">                                  </span><span class="c1"># pick a curated starter model</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>heim<span class="w"> </span>project<span class="w"> </span>init<span class="w"> </span>--model<span class="w"> </span>unsloth/Qwen3.5-4B-GGUF<span class="w">  </span><span class="c1"># bind a specific model</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>heim<span class="w"> </span>project<span class="w"> </span>init<span class="w"> </span>--copy<span class="w">                           </span><span class="c1"># copy the model into a project-local library/</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>heim<span class="w"> </span>project<span class="w"> </span>init<span class="w"> </span>--git<span class="w">                            </span><span class="c1"># also: git init + a .gitignore (excludes library/ + .env)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>heim<span class="w"> </span>project<span class="w"> </span>init<span class="w"> </span>--force<span class="w">                          </span><span class="c1"># overwrite an existing heim.toml</span>
+</code></pre></div>
+<p><code>heim project new &lt;dir&gt;</code> scaffolds into a fresh directory instead (like <code>cargo new</code>)
+and takes the same <code>--model</code> / <code>--copy</code> / <code>--git</code> / <code>--force</code> flags.</p>
+<p>A project is a <strong>reproducible assistant</strong>: in a project directory both <code>heim chat</code>
+and <code>heim serve --ui</code> default to its model, system prompt, and MCP tool servers —
+so <code>heim serve --ui</code> boots straight into that model, no manual picking.</p>
+<h2 id="heim-project-show"><code>heim project show</code><a class="headerlink" href="#heim-project-show" title="Permanent link">&para;</a></h2>
+<p>Show the active project (<code>heim.toml</code>) in full: the bound model's detail card
+(format, size, capabilities, context, tags, path), the system prompt, and the
+<strong>actual tools</strong> — it connects to the project's MCP servers and lists the tools
+they expose (with descriptions), not just the server names. <code>--card</code> also renders
+the bound model's model card (README).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>heim<span class="w"> </span>project<span class="w"> </span>show
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>heim<span class="w"> </span>project<span class="w"> </span>show<span class="w"> </span>--card<span class="w">    </span><span class="c1"># also print the model card (README)</span>
+</code></pre></div>
+<h2 id="heim-mcp-list-heim-mcp-add"><code>heim mcp list</code> / <code>heim mcp add</code><a class="headerlink" href="#heim-mcp-list-heim-mcp-add" title="Permanent link">&para;</a></h2>
+<p>Browse MCP tool servers and attach them via the standard <code>mcpServers</code> JSON. <code>list</code>
+shows a <strong>curated catalog</strong> (DHIS2, <code>fetch</code>, <code>git</code>, <code>sqlite</code>, <code>filesystem</code>, …) plus any
+installed <code>heim-mcp-*</code> plugins; a <code>✓</code> marks servers already in the current directory's
+<code>.mcp.json</code>. <code>add</code> writes a server entry to <code>./.mcp.json</code> — or the machine-global
+<code>~/.config/heim/mcp.json</code> with <code>--global</code> — printing a <code>setup:</code> hint when the command
+needs config; <code>remove</code> drops one again.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>heim<span class="w"> </span>mcp<span class="w"> </span>list<span class="w">             </span><span class="c1"># curated catalog + installed plugins (ls is an alias)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>heim<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>fetch<span class="w">        </span><span class="c1"># add to ./.mcp.json</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>heim<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>--global<span class="w"> </span>datetime<span class="w">   </span><span class="c1"># add to ~/.config/heim/mcp.json (every chat gets it)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>heim<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>dhis2<span class="w">        </span><span class="c1"># then edit the DHIS2_PROFILE in the entry&#39;s env</span>
+</code></pre></div>
+<p>See <a href="../guides/tools/">Tools (MCP)</a> for the full picture.</p>
+<h2 id="heim-library-search-query"><code>heim library search &lt;query&gt;</code><a class="headerlink" href="#heim-library-search-query" title="Permanent link">&para;</a></h2>
+<p>Search the Hugging Face Hub for new models to pull (most-downloaded first).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>heim<span class="w"> </span>library<span class="w"> </span>search<span class="w"> </span>qwen3<span class="w">            </span><span class="c1"># text search</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>heim<span class="w"> </span>library<span class="w"> </span>search<span class="w"> </span>qwen3<span class="w"> </span>--gguf<span class="w">     </span><span class="c1"># only GGUF (llama.cpp-ready) repos</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>heim<span class="w"> </span>library<span class="w"> </span>search<span class="w"> </span>qwen3<span class="w"> </span>-n<span class="w"> </span><span class="m">30</span><span class="w">      </span><span class="c1"># more results</span>
+</code></pre></div>
+<h2 id="heim-library-ls"><code>heim library ls</code><a class="headerlink" href="#heim-library-ls" title="Permanent link">&para;</a></h2>
+<p>List the models in <strong>your library</strong> — what you've pulled, ready to run — grouped
+by format with sizes across the libraries in scope.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>heim<span class="w"> </span>library<span class="w"> </span>ls
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>heim<span class="w"> </span>library<span class="w"> </span>ls<span class="w"> </span>-d<span class="w">     </span><span class="c1"># detailed cards (caps, context, location, path, tags)</span>
+</code></pre></div>
+<h2 id="heim-library-formats"><code>heim library formats</code><a class="headerlink" href="#heim-library-formats" title="Permanent link">&para;</a></h2>
+<p>One row per model with a column per format present (gguf / mlx / safetensors /
+ollama) and their sizes, plus a NOTE flagging the format-policy cases: a
+<strong>redundant</strong> safetensors copy (a GGUF or MLX build of the same model already
+exists — safetensors is just the convert/fine-tune source and can be dropped) and
+a model that's <strong>only</strong> safetensors (no ready-to-run quant — llama.cpp/mlx_lm
+can't serve it; pull a GGUF or MLX build). The footer totals the space reclaimable
+by removing every redundant safetensors copy.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>heim<span class="w"> </span>library<span class="w"> </span>formats
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>heim<span class="w"> </span>library<span class="w"> </span>rm<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--format<span class="w"> </span>safetensors<span class="w">   </span><span class="c1"># act on a flagged copy</span>
+</code></pre></div>
+<h2 id="heim-library-rm-name"><code>heim library rm &lt;name&gt;</code><a class="headerlink" href="#heim-library-rm-name" title="Permanent link">&para;</a></h2>
+<p>Remove a model from the library — <strong>deletes its files from disk</strong>. Resolves like
+<code>heim chat</code> (use <code>--format</code> to disambiguate a model kept in more than one format);
+all copies of the model are removed (e.g. one on the local disk and one on the
+drive). Ollama models keep any blobs still shared with other installed models.
+Prompts for confirmation unless <code>--yes</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>heim<span class="w"> </span>library<span class="w"> </span>rm<span class="w"> </span>Voxtral-Mini-3B-2507-GGUF<span class="w">          </span><span class="c1"># confirm, then delete</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>heim<span class="w"> </span>library<span class="w"> </span>rm<span class="w"> </span>gemma-4-E4B-it-MLX-4bit<span class="w"> </span>--yes<span class="w">      </span><span class="c1"># skip the prompt</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>heim<span class="w"> </span>library<span class="w"> </span>rm<span class="w"> </span>Qwen3.6-27B<span class="w"> </span>--format<span class="w"> </span>mlx<span class="w">           </span><span class="c1"># disambiguate when kept in two formats</span>
+</code></pre></div>
+<h2 id="heim-library-sources"><code>heim library sources</code><a class="headerlink" href="#heim-library-sources" title="Permanent link">&para;</a></h2>
+<p>Browse models sitting in your <strong>app caches</strong> (Hugging Face cache, Ollama, LM
+Studio) that you could pull into the library. The IN LIBRARY column marks what
+you already have. Non-chat (embedding/vision) and partial entries are hidden
+unless <code>--all</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>heim<span class="w"> </span>library<span class="w"> </span>sources
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>heim<span class="w"> </span>library<span class="w"> </span>sources<span class="w"> </span>-s<span class="w"> </span>ollama<span class="w">       </span><span class="c1"># --source: limit to one source</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>heim<span class="w"> </span>library<span class="w"> </span>sources<span class="w"> </span>--all<span class="w">           </span><span class="c1"># include embedding/vision/partial entries</span>
+</code></pre></div>
+<h2 id="heim-library-pull-source-name"><code>heim library pull &lt;source&gt; &lt;name&gt;</code><a class="headerlink" href="#heim-library-pull-source-name" title="Permanent link">&para;</a></h2>
+<p>Copy a model from a source cache into the library.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>heim<span class="w"> </span>library<span class="w"> </span>pull<span class="w"> </span>lmstudio<span class="w"> </span>&lt;name&gt;
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>heim<span class="w"> </span>library<span class="w"> </span>pull<span class="w"> </span>ollama<span class="w"> </span>gemma4:31b<span class="w"> </span>--move<span class="w">    </span><span class="c1"># delete the local source after a verified copy</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>heim<span class="w"> </span>library<span class="w"> </span>pull<span class="w"> </span>ollama<span class="w"> </span>--all<span class="w">                </span><span class="c1"># import every model from the local store</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>heim<span class="w"> </span>library<span class="w"> </span>pull<span class="w"> </span>lmstudio<span class="w"> </span>--all<span class="w"> </span>--move<span class="w">       </span><span class="c1"># import all, freeing local disk as it goes</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># Hugging Face:</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>heim<span class="w"> </span>library<span class="w"> </span>pull<span class="w"> </span>huggingface<span class="w"> </span>lmstudio-community/gemma-4-12B-it-QAT-GGUF<span class="w"> </span>--include<span class="w"> </span><span class="s1">&#39;*Q4_K_M*&#39;</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>heim<span class="w"> </span>library<span class="w"> </span>pull<span class="w"> </span>huggingface<span class="w"> </span>OuteAI/OuteTTS-0.2-500M-GGUF<span class="w"> </span>--include<span class="w"> </span><span class="s1">&#39;*Q4_K_M*&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">         </span>--vocoder<span class="w"> </span>ggml-org/WavTokenizer<span class="w">          </span><span class="c1"># a TTS model + its vocoder</span>
+</code></pre></div>
+<ul>
+<li><code>--move</code> — relocate (copy, verify byte-for-byte, then delete the local source
+  to free disk). Supported for LM Studio and Ollama.</li>
+<li><code>--all</code> — import every model from that source's local store instead of a single
+  name (the two are mutually exclusive). Idempotent (skips models already in the
+  library, so it doubles as a sync) and resilient (a failing model is logged and
+  the batch continues; exit code is non-zero if any failed).</li>
+<li><code>--include &lt;glob&gt;</code> — Hugging Face only; fetch only matching files (repeatable),
+  e.g. one GGUF quant from a multi-quant repo. Model cards and configs come along.</li>
+<li><code>--vocoder &lt;repo&gt;</code> — Hugging Face only; co-locate a vocoder (e.g. WavTokenizer)
+  with the model so it's recognized as a <strong>text-to-speech</strong> model (see <code>heim voice speak</code>).</li>
+</ul>
+<h2 id="heim-library-manifest"><code>heim library manifest</code><a class="headerlink" href="#heim-library-manifest" title="Permanent link">&para;</a></h2>
+<p>Export your library as a <strong>want list</strong> — a portable, human-editable TOML file of <code>[[model]]</code>
+entries (source + name + format), one per model, enough to re-pull each. Reads each model's
+recorded source from its <code>.heim/</code> sidecar (inferring it for older pulls). Prints to stdout by
+default; <code>--save &lt;file&gt;</code> writes it. No state is kept in the library — the manifest is generated
+on demand, so you keep the file wherever you like (commit it to a repo, copy it to another drive).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>heim<span class="w"> </span>library<span class="w"> </span>manifest<span class="w">                     </span><span class="c1"># print the want list (pipeable)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>heim<span class="w"> </span>library<span class="w"> </span>manifest<span class="w"> </span>--save<span class="w"> </span>models.toml<span class="w">  </span><span class="c1"># write it to a file</span>
+</code></pre></div>
+<p>LM Studio backups (which can't be re-downloaded as such) are recorded as their Hugging Face
+equivalent; Ollama models are recorded as-is; voice models as their registry id.</p>
+<h2 id="heim-library-sync-wantfile"><code>heim library sync &lt;wantfile&gt;</code><a class="headerlink" href="#heim-library-sync-wantfile" title="Permanent link">&para;</a></h2>
+<p>Re-download every model in a want list that's <strong>missing</strong> from your library. Diffs the file
+against your library (models already present are skipped) and pulls the rest via the normal
+per-source paths — the rebuild-a-drive companion to <code>heim library manifest</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>heim<span class="w"> </span>library<span class="w"> </span>sync<span class="w"> </span>models.toml<span class="w">             </span><span class="c1"># pull everything missing</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>heim<span class="w"> </span>library<span class="w"> </span>sync<span class="w"> </span>models.toml<span class="w"> </span>--dry-run<span class="w">   </span><span class="c1"># show the plan, download nothing</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>heim<span class="w"> </span>library<span class="w"> </span>sync<span class="w"> </span>models.toml<span class="w"> </span>--shared<span class="w">    </span><span class="c1"># into the shared/default library</span>
+</code></pre></div>
+<p>One model failing doesn't stop the others; the command exits non-zero if any failed. Ollama
+entries need the model in your <strong>local Ollama store</strong> first (<code>ollama pull &lt;name&gt;</code>), since the
+Ollama pull path copies from there rather than the internet.</p>
+<h2 id="heim-chat-name"><code>heim chat &lt;name&gt;</code><a class="headerlink" href="#heim-chat-name" title="Permanent link">&para;</a></h2>
+<p>Chat with a library model — a full-screen Textual TUI by default, one-shot with <code>-p</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w">                      </span><span class="c1"># interactive full-screen TUI</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;prompt&quot;</span><span class="w">          </span><span class="c1"># one-shot, prints just the answer (pipeable)</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;prompt&quot;</span><span class="w"> </span>-n<span class="w"> </span><span class="m">256</span><span class="w">   </span><span class="c1"># --max-tokens</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--system<span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w">       </span><span class="c1"># session system prompt (overrides heim.toml)</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--mcp<span class="w"> </span>&lt;cmd&gt;<span class="w">          </span><span class="c1"># attach an MCP tool server (repeatable)</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;prompt&quot;</span><span class="w"> </span>--server<span class="w"> </span>http://127.0.0.1:8000<span class="w">   </span><span class="c1"># reuse a running `heim serve`</span>
+</code></pre></div>
+<p>Interactive chat opens a scrolling TUI: markdown replies, collapsible reasoning,
+live tool activity, and a context footer. Enter sends; Shift+Return / Ctrl-J / a
+trailing backslash insert a newline; type a new message while one streams to
+<strong>queue</strong> it; Esc stops. <code>-p</code> stays a plain scripted one-shot (streamed stdout).</p>
+<p><strong>Reuse a loaded model (<code>--server</code>)</strong> — by default each <code>heim chat</code> spawns its own
+runtime and loads the model, so a one-shot pays that load every time. Point <code>-p</code> at a
+running <code>heim serve</code> instead and it attaches to that server's <code>/v1</code>, reusing the
+already-loaded model (tools still run):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>heim<span class="w"> </span>serve<span class="w"> </span>--model<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span><span class="w">        </span><span class="c1"># load the model once, keep it resident</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>heim<span class="w"> </span>chat<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;what is todays date&quot;</span><span class="w">           </span><span class="c1"># instant — no reload</span>
+</code></pre></div>
+<p>A loopback <code>heim serve --model &lt;name&gt;</code> is <strong>auto-detected</strong>: with no <code>--server</code> (and none in
+config), <code>heim chat -p</code> finds a running server locked to that model and attaches to it (a <code>↳
+attaching…</code> note goes to stderr). Set an explicit default with <code>heim config set server &lt;url&gt;</code>
+(or <code>HEIM_CHAT_SERVER</code>); <code>--server</code> overrides. <code>--server</code>/attach apply to the one-shot (<code>-p</code>)
+path; the interactive TUI owns its own runtime.</p>
+<p><strong>Multimodal input</strong> — for vision/audio models, attach files:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;what is this?&quot;</span><span class="w"> </span>--image<span class="w"> </span>photo.jpg<span class="w">    </span><span class="c1"># vision model</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>heim<span class="w"> </span>chat<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;transcribe&quot;</span><span class="w"> </span>--audio<span class="w"> </span>clip.wav<span class="w">         </span><span class="c1"># audio model</span>
+</code></pre></div>
+<p><code>--image</code>/<code>-i</code> and <code>--audio</code>/<code>-a</code> are repeatable. In the REPL you can also just
+<strong>drag a file into the terminal</strong> — the inserted path is detected and attached:
+image/audio go as OpenAI multimodal content (heim warns if the model lacks that
+modality), while <strong>text/code files</strong> (<code>.md</code>, <code>.py</code>, <code>.json</code>, …) are inlined into
+the prompt as fenced blocks, so you can drop a file into <em>any</em> model as context.</p>
+<p>Non-chat models (embeddings, vision encoders) are refused with a clear message —
+heim runs generative LLMs only.</p>
+<h2 id="heim-voice-voices"><code>heim voice voices</code><a class="headerlink" href="#heim-voice-voices" title="Permanent link">&para;</a></h2>
+<p>List the built-in <strong>Kokoro</strong> voices (54 across 9 languages) with their id,
+language, and gender. Kokoro ships built in (no extra to install).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>heim<span class="w"> </span>voice<span class="w"> </span>voices<span class="w">                            </span><span class="c1"># id · name · language · gender</span>
+</code></pre></div>
+<h2 id="heim-voice-speak-text"><code>heim voice speak &lt;text...&gt;</code><a class="headerlink" href="#heim-voice-speak-text" title="Permanent link">&para;</a></h2>
+<p>Text-to-speech. <code>--voice</code>/<code>-v</code> picks a <strong>Kokoro</strong> voice (multi-voice engine; run
+<code>heim voice voices</code> to list them, model downloaded on first use). Otherwise it uses
+<code>llama-tts</code>/OuteTTS — the default, or <code>--model</code> for a library TTS model (see
+<code>heim library pull --vocoder</code>). Markdown/code in the text is reduced to prose first.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>heim<span class="w"> </span>voice<span class="w"> </span>speak<span class="w"> </span>hello<span class="w"> </span>there<span class="w">                 </span><span class="c1"># default voice, play aloud (macOS)</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>heim<span class="w"> </span>voice<span class="w"> </span>speak<span class="w"> </span>-v<span class="w"> </span>af_heart<span class="w"> </span><span class="s2">&quot;hello there&quot;</span><span class="w">   </span><span class="c1"># a specific Kokoro voice</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>heim<span class="w"> </span>voice<span class="w"> </span>speak<span class="w"> </span><span class="s2">&quot;some text&quot;</span><span class="w"> </span>-o<span class="w"> </span>out.wav<span class="w">      </span><span class="c1"># write a WAV instead of playing</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>heim<span class="w"> </span>voice<span class="w"> </span>speak<span class="w"> </span>hi<span class="w"> </span>--model<span class="w"> </span>OuteTTS-0.2-500M-GGUF<span class="w">   </span><span class="c1"># a specific library OuteTTS model</span>
+</code></pre></div>
+<h2 id="heim-setup"><code>heim setup</code><a class="headerlink" href="#heim-setup" title="Permanent link">&para;</a></h2>
+<p>First-run <strong>machine setup</strong> — the write-mode companion to <code>heim doctor</code> (machine scope,
+whereas <code>heim project init</code> scaffolds one project). It persists per-machine defaults to
+<code>~/.config/heim/config.toml</code> (library location + default model), builds the browser UI if
+<a href="https://bun.sh">Bun</a> is present, and prints an OS-specific hint for anything it can't install
+(the llama.cpp binary). Safe to re-run.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>heim<span class="w"> </span>setup<span class="w">                              </span><span class="c1"># interactive first-run setup</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>heim<span class="w"> </span>setup<span class="w"> </span>--library-root<span class="w"> </span>/path<span class="w"> </span>--model<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--yes<span class="w">   </span><span class="c1"># non-interactive</span>
+</code></pre></div>
+<h2 id="heim-config"><code>heim config</code><a class="headerlink" href="#heim-config" title="Permanent link">&para;</a></h2>
+<p>Read and write the <strong>machine defaults</strong> (<code>~/.config/heim/config.toml</code>) — the lowest-priority
+settings source, below <code>HEIM_*</code> env vars and a project <code>heim.toml</code>. Writable keys:
+<code>library-root</code>, <code>model</code> (the default model outside a project), and <code>server</code> (a default
+<code>heim serve</code> URL for <code>heim chat -p</code> to attach to).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>heim<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>library-root<span class="w"> </span>/path/to/your/library<span class="w">   </span><span class="c1"># where your library lives</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>heim<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>model<span class="w"> </span>lmstudio-community/gemma-4-12B-it-QAT-GGUF<span class="w">   </span><span class="c1"># default model</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>heim<span class="w"> </span>config<span class="w"> </span>list<span class="w">                        </span><span class="c1"># show every stored value (ls is an alias)</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>heim<span class="w"> </span>config<span class="w"> </span>get<span class="w"> </span>library-root<span class="w">            </span><span class="c1"># one value</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>heim<span class="w"> </span>config<span class="w"> </span>path<span class="w">                        </span><span class="c1"># print the config file location</span>
+</code></pre></div>
+<h2 id="heim-doctor"><code>heim doctor</code><a class="headerlink" href="#heim-doctor" title="Permanent link">&para;</a></h2>
+<p>Pre-flight system health: are the runtime binaries heim spawns installed
+(<code>llama-server</code>, and <code>mlx_lm.server</code>/<code>mlx_vlm.server</code> on Apple Silicon), is the
+library reachable and non-empty, and does the project point at a present model.
+Exits non-zero if any check fails.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>heim<span class="w"> </span>doctor
+</code></pre></div>
+<h2 id="heim-serve"><code>heim serve</code><a class="headerlink" href="#heim-serve" title="Permanent link">&para;</a></h2>
+<p>Run the web server (browse API + <code>/v1</code> proxy; browser UI with <code>--ui</code>).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>heim<span class="w"> </span>serve<span class="w"> </span>--ui<span class="w">                       </span><span class="c1"># browse + chat, switch models (auto-picks a free port)</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>heim<span class="w"> </span>serve<span class="w"> </span>--ui<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span><span class="w">           </span><span class="c1"># pin the port for a stable URL</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>heim<span class="w"> </span>serve<span class="w"> </span>--ui<span class="w"> </span>--model<span class="w"> </span>&lt;name&gt;<span class="w">        </span><span class="c1"># locked single-model mode (extension backend)</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>heim<span class="w"> </span>serve<span class="w"> </span>--reload<span class="w">                   </span><span class="c1"># dev auto-reload</span>
+</code></pre></div>
+<p>Equivalent Makefile targets: <code>make run</code> and <code>make run MODEL=&lt;name&gt;</code>.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 22:05:41 UTC">July 12, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.tracking", "navigation.instant", "toc.follow", "search.highlight", "search.suggest", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../assets/javascripts/panzoom.min.js"></script>
+      
+        <script src="../assets/javascripts/zoompan.js"></script>
+      
+    
+  </body>
+</html>
