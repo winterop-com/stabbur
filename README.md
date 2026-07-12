@@ -1,5 +1,7 @@
 # heim
 
+[![PyPI](https://img.shields.io/pypi/v/heim?color=006dad&label=PyPI)](https://pypi.org/project/heim/)
+[![CI](https://github.com/winterop-com/heim/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/heim/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fheim-2b7489)](https://winterop-com.github.io/heim/)
 [![Python](https://img.shields.io/badge/python-3.13-3776ab)](https://www.python.org/)
 [![Packaging](https://img.shields.io/badge/install-uv-6340ac)](https://docs.astral.sh/uv/)
