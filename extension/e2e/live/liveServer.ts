@@ -27,6 +27,43 @@ export const PLAY_BASE_URL = "https://play.im.dhis2.org/dev-2-42";
 export const PLAY_PROFILE = "play42";
 export const FALLBACK_INSTANCES_URL = "https://im.dhis2.org/public/instances";
 
+// System prompts. READ_SYSTEM_PROMPT mirrors the `dhis2` template (read-only play demo);
+// WRITE_SYSTEM_PROMPT mirrors the `dhis2-write` template (read+write local instance). Kept in
+// sync with src/kodo/project/templates.py so the live tiers exercise the shipped prompts.
+export const READ_SYSTEM_PROMPT =
+  "You are a DHIS2 assistant for a connected DHIS2 instance. For questions about DHIS2 data or metadata - counts, UIDs, names, analytics, system details - use the dhis2 tools (the dhis2_cli tool) to look up real values; never invent counts, UIDs, or metadata. To use a name in analytics or a filter, resolve it to a UID first with a metadata search or a filtered list. Messages may begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Treat that context as information the user gave you: answer questions about the current page, its visible content, or the signed-in user directly from it, without calling tools, and answer general questions normally instead of refusing. Two accounts can differ: the 'Browser session user' is the person viewing the page in their browser; your tools authenticate separately as the 'Tool account'. When asked 'who am I', answer with the browser session user from the context when present; report the tool account only when asked which credentials the tools use. Keep answers concise and state the values you retrieved.";
+
+export const WRITE_SYSTEM_PROMPT =
+  "You are a DHIS2 assistant that can READ and WRITE metadata on a connected DHIS2 instance via the dhis2 tools (the dhis2_cli tool). For DHIS2 data or metadata - counts, UIDs, names, analytics - use the tools for real values; never invent them. Resolve any name to its UID before acting on it. Before creating, updating, or DELETING anything, state exactly what you are about to change; after a write, confirm the result by reading it back. Prefer NUMBER value types and sensible defaults when creating. Messages may begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Answer questions about the current page or the signed-in user directly from that context, without calling tools, and answer general questions normally instead of refusing. The 'Browser session user' is the person viewing the page; your tools authenticate separately as the 'Tool account' - writes happen as the tool account, so say so when it matters. When asked 'who am I', prefer the browser session user from the context. Keep answers concise and report the UIDs and outcomes you got.";
+
+/** Options controlling the fixture project `startLiveServer` writes + serves. Defaults reproduce
+ *  the read-only play42 configuration the live tier has always used, so existing callers are
+ *  unchanged; the write tier overrides them for a local, mutable instance. */
+export interface LiveServerOptions {
+  /** d2w profile name (also the `[assistant].name`). */
+  profile: string;
+  /** DHIS2 base URL the assistant + profile target. */
+  baseUrl: string;
+  /** `[assistant].readonly` flag — when false the server arms the per-write confirm gate. */
+  readonly: boolean;
+  /** Whether the MCP bridge is launched with `DHIS2_MCP_READONLY=1` (blocks writes at the tool). */
+  mintReadonly: boolean;
+  /** Locked chat model name. */
+  model: string;
+  /** `[project].system_prompt`. */
+  systemPrompt: string;
+}
+
+/** The read-only play42 defaults (today's behavior). */
+export const DEFAULT_LIVE_OPTIONS: LiveServerOptions = {
+  profile: PLAY_PROFILE,
+  baseUrl: PLAY_BASE_URL,
+  readonly: true,
+  mintReadonly: true,
+  model: LIVE_MODEL,
+  systemPrompt: READ_SYSTEM_PROMPT,
+};
+
 const SCRATCH =
   process.env.KODO_E2E_SCRATCH ??
   "/private/tmp/claude-502/-Users-morteoh-dev-local-kodo/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
@@ -56,38 +93,38 @@ export function warmBridge(): void {
   }
 }
 
-// The fixture manifest is the EXACT output of the dhis2 template's render_manifest — so the live
-// tier exercises the same [assistant.probe] + [assistant.bind] blocks a real `kodo project new
-// --template dhis2` produces. String.raw keeps the JSON-escaped backslashes in mint_payload literal.
-// The model / base_url / profile values match the exported constants above (LIVE_MODEL,
-// PLAY_BASE_URL, PLAY_PROFILE); a `project.load` of this text is implicitly asserted by kodo serve
-// booting against it. Regenerate with:
-//   uv run --project /Users/morteoh/dev/local/kodo python -c "from kodo import project; \
-//     from kodo.project.templates import TEMPLATES; t=TEMPLATES['dhis2']; \
-//     print(project.render_manifest(model='lmstudio-community/gemma-4-12B-it-QAT-GGUF', \
-//       system_prompt=t.system_prompt, assistant=project.AssistantInfo.model_validate(t.assistant)))"
-const KODO_TOML = String.raw`# kodo project — a purpose-built assistant (model + system prompt).
+// The fixture manifest mirrors the dhis2 / dhis2-write template's render_manifest — so the live
+// tiers exercise the same [assistant.probe] + [assistant.bind] blocks a real `kodo project new
+// --template {dhis2,dhis2-write}` produces. Only the profile name, base_url, readonly flag, model,
+// and system_prompt vary between the read (play42) and write (local_basic) configs; the probe +
+// mint recipe are identical (matching _dhis2_assistant in templates.py). String.raw keeps the
+// JSON-escaped backslashes in the mint_payload literal. A `project.load` of this text is implicitly
+// asserted by kodo serve booting against it.
+function buildKodoToml(opts: LiveServerOptions): string {
+  // JSON.stringify emits a valid TOML basic string (escapes ", \\, control chars) for the model +
+  // system_prompt, so we never hand-escape the long prompt.
+  return String.raw`# kodo project — a purpose-built assistant (model + system prompt).
 # Portable + committable: no machine-specific paths. Tools live in .mcp.json.
 
 # Uses your machine library (KODO_LIBRARY_ROOT). To also read a project-local
 # store, add:  libraries = ["models", "@shared"]  (relative to this file).
 
 [project]
-model = "lmstudio-community/gemma-4-12B-it-QAT-GGUF"
-system_prompt = "You are a DHIS2 assistant for a connected DHIS2 instance. For questions about DHIS2 data or metadata - counts, UIDs, names, analytics, system details - use the dhis2 tools (the dhis2_cli tool) to look up real values; never invent counts, UIDs, or metadata. To use a name in analytics or a filter, resolve it to a UID first with a metadata search or a filtered list. Messages may begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Treat that context as information the user gave you: answer questions about the current page, its visible content, or the signed-in user directly from it, without calling tools, and answer general questions normally instead of refusing. Two accounts can differ: the 'Browser session user' is the person viewing the page in their browser; your tools authenticate separately as the 'Tool account'. When asked 'who am I', answer with the browser session user from the context when present; report the tool account only when asked which credentials the tools use. Keep answers concise and state the values you retrieved."
+model = ${JSON.stringify(opts.model)}
+system_prompt = ${JSON.stringify(opts.systemPrompt)}
 
 # [assistant] - target metadata for UI clients; kodo echoes it, never interprets it.
 [assistant]
-name = "play42"
-base_url = "https://play.im.dhis2.org/dev-2-42"
+name = "${opts.profile}"
+base_url = ${JSON.stringify(opts.baseUrl)}
 auth = "basic"
-readonly = true
-source = "d2w profile play42"
+readonly = ${opts.readonly ? "true" : "false"}
+source = "d2w profile ${opts.profile}"
 
 [assistant.verify]
 tool = "dhis2__dhis2_cli"
 timeout = 20.0
-args = { args = ["profile", "verify", "play42"] }
+args = { args = ["profile", "verify", "${opts.profile}"] }
 
 [assistant.probe]
 paths = ["/api/me.json?fields=name,username", "/api/system/info.json"]
@@ -109,41 +146,38 @@ methods_full = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 session_cookie = "JSESSIONID"
 
 [assistant.bind.modes.pat]
-command = ["d2w", "profile", "add", "play42", "--url", "{base_url}", "--auth", "pat", "--local"]
+command = ["d2w", "profile", "add", "${opts.profile}", "--url", "{base_url}", "--auth", "pat", "--local"]
 secret_env = "DHIS2_PAT"
-unbind_command = ["d2w", "profile", "remove", "play42", "--local"]
+unbind_command = ["d2w", "profile", "remove", "${opts.profile}", "--local"]
 unbind_note = "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
 timeout = 60.0
 
 [assistant.bind.modes.session]
-command = ["d2w", "profile", "add", "play42", "--url", "{base_url}", "--auth", "session", "--local"]
+command = ["d2w", "profile", "add", "${opts.profile}", "--url", "{base_url}", "--auth", "session", "--local"]
 secret_env = "DHIS2_SESSION_COOKIE"
-unbind_command = ["d2w", "profile", "remove", "play42", "--local"]
+unbind_command = ["d2w", "profile", "remove", "${opts.profile}", "--local"]
 unbind_note = "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
 timeout = 60.0
 `;
+}
 
-const MCP_JSON = JSON.stringify(
-  {
-    mcpServers: {
-      dhis2: {
-        command: "env",
-        args: ["DHIS2_PROFILE=" + PLAY_PROFILE, "DHIS2_MCP_READONLY=1", "uvx", "dhis2w-mcp-bridge"],
-      },
-    },
-  },
-  null,
-  2,
-);
+function buildMcpJson(opts: LiveServerOptions): string {
+  const args = [`DHIS2_PROFILE=${opts.profile}`];
+  if (opts.mintReadonly) args.push("DHIS2_MCP_READONLY=1"); // omit -> bridge runs read-write
+  args.push("uvx", "dhis2w-mcp-bridge");
+  return JSON.stringify({ mcpServers: { dhis2: { command: "env", args } } }, null, 2);
+}
 
-const PROFILES_TOML = `default = "${PLAY_PROFILE}"
+function buildProfilesToml(opts: LiveServerOptions): string {
+  return `default = "${opts.profile}"
 
-[profiles.${PLAY_PROFILE}]
-base_url = ${JSON.stringify(PLAY_BASE_URL)}
+[profiles.${opts.profile}]
+base_url = ${JSON.stringify(opts.baseUrl)}
 auth = "basic"
 username = "admin"
 password = "district"
 `;
+}
 
 export interface LiveServer {
   dir: string;
@@ -154,14 +188,17 @@ export interface LiveServer {
 }
 
 /** Create the fixture project and spawn `kodo serve` with CORS allowing the
- *  extension origin. Does NOT wait for readiness — the panel drives that. */
-export function startLiveServer(extensionId: string): LiveServer {
+ *  extension origin. Does NOT wait for readiness — the panel drives that. The optional `options`
+ *  select the config emitted; omitted fields fall back to the read-only play42 defaults, so the
+ *  read tier's `startLiveServer(extensionId)` call is unchanged. */
+export function startLiveServer(extensionId: string, options: Partial<LiveServerOptions> = {}): LiveServer {
+  const opts: LiveServerOptions = { ...DEFAULT_LIVE_OPTIONS, ...options };
   const root = existsSync(SCRATCH) ? SCRATCH : tmpdir();
   const dir = mkdtempSync(path.join(root, "kodo-live-fixture-"));
-  writeFileSync(path.join(dir, "kodo.toml"), KODO_TOML);
-  writeFileSync(path.join(dir, ".mcp.json"), MCP_JSON);
+  writeFileSync(path.join(dir, "kodo.toml"), buildKodoToml(opts));
+  writeFileSync(path.join(dir, ".mcp.json"), buildMcpJson(opts));
   mkdirSync(path.join(dir, ".dhis2"), { recursive: true });
-  writeFileSync(path.join(dir, ".dhis2", "profiles.toml"), PROFILES_TOML);
+  writeFileSync(path.join(dir, ".dhis2", "profiles.toml"), buildProfilesToml(opts));
 
   const logPath = path.join(dir, "kodo-serve.log");
   const logFd = openSync(logPath, "a");

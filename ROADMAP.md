@@ -81,18 +81,23 @@ default; router/full-server for bigger models); source lives in `~/dev/local/dhi
 
 ## DHIS2 write reliability
 
-Small local models drive DHIS2 **reads** near-perfectly but **writes are much harder**: the
-multi-step create→(rename/link)→delete→confirm lifecycle trips them up, and every model tested left
-residue (incomplete deletes). Size does not help — the 12B gemma is the best writer, while the two
-biggest tested (27B dense, 35B-A3B MoE) tie-or-lose and leave the most residue (they over-generate,
-loop, and drop the completion protocol). Full results (per-model scores + the
-per-problem failure matrix): `docs/guides/dhis2-benchmark-report.md`. Even the best isn't yet
-trustworthy for unattended writes; the `dhis2-write` project keeps a small default and notes
-gemma-4-12B as the stronger write driver.
+Small local models drive DHIS2 **reads** near-perfectly but **writes are much harder**, and the
+honest number is worse than an earlier weak scorer suggested. Under scoring that **verifies real
+DHIS2 state** (create really persisted, then really absent at the end — not just a self-reported
+`LIFECYCLE_OK` token), the strongest writer `gemma-4-12B` completes **0 of 7** lifecycles: it
+reliably *creates* but does not reliably *delete*, leaving residue on every problem. The delete half
+of the multi-step create→(rename/link)→delete lifecycle is where it fails. Full results + the
+scoring correction: `docs/guides/dhis2-benchmark-report.md`.
+
+Crucially, the write **path** is proven end-to-end (a live Chrome-panel test creates a metadata
+object, approved through the gate, and read-back-verifies it persisted) — it is the model's
+autonomous *reliability* that is the bottleneck, not the plumbing. The `dhis2-write` project keeps a
+small default; no local model is yet trustworthy for unattended writes.
 
 The current answer to "not trustworthy unattended" is the **round-3 per-action confirmation gate**
-(above): writes only run once the human approves each mutation, so the model's ~57%-best completion
-rate is fronted by a person rather than trusted. That is the guardrail, not the fix.
+(above): writes only run once the human approves each mutation — and, crucially, can notice an
+*incomplete* cleanup — so the model's weak completion is fronted by a person, not trusted. That is
+the guardrail, not the fix.
 
 Next: stronger write models; a dhis2w-side change to annotate read operations with `readOnlyHint`
 (none of the current servers do — see the follow-up above) so kodo's gate narrows prompts to real

@@ -117,8 +117,17 @@ class _HostContext:
                 async def _recording_call(
                     name: str, args: dict[str, object], timeout: float | None = None
                 ) -> mcp_tools.ToolResult:
-                    calls.append((name, args))
-                    return await original(name, args, timeout=timeout)
+                    # Record the call, then stash its result text under a reserved key so a stateful
+                    # benchmark scorer can inspect outcomes (create/delete success) without changing
+                    # this (name, args) shape — the PluginContext protocol and the read suite both
+                    # depend on it, and expected args never use this key. The literal is kept in sync
+                    # with kodo_benchmark.core.RESULT_ARG_KEY (a deliberate cross-package copy: kodo
+                    # is the host and must not import the benchmark package).
+                    recorded = dict(args)
+                    calls.append((name, recorded))
+                    result = await original(name, args, timeout=timeout)
+                    recorded["__kodo_tool_result__"] = result.text
+                    return result
 
                 toolset.call = _recording_call  # type: ignore[assignment]
                 return await agent.run(

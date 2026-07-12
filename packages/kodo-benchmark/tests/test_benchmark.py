@@ -103,6 +103,184 @@ def test_score_tool_requires_correct_call_and_answer() -> None:
     assert not core.score_tool(problem, [("datetime__day_of_week", {"date": "2026-01-01"})], "Saturday", 0.1).passed
 
 
+# --- stateful DHIS2 write scoring -----------------------------------------
+
+
+class _StubReader:
+    """A stand-in :class:`kodo_benchmark.core.StateReader` returning canned live counts."""
+
+    def __init__(self, counts: dict[tuple[str, str], int] | None = None, unreachable: bool = False) -> None:
+        self._counts = counts or {}
+        self._unreachable = unreachable
+
+    def count(self, resource: str, name: str) -> int | None:
+        return None if self._unreachable else self._counts.get((resource, name), 0)
+
+
+def _call(argv: list[str], result: str = '{"exit_code": 0, "stdout": "{\\"id\\": \\"abc\\"}"}') -> tuple[str, dict]:
+    """A recorded (name, args) tool call with a d2w argv and a result under the reserved key."""
+    return ("env__dhis2_cli", {"args": argv, core.RESULT_ARG_KEY: result})
+
+
+def _write_problem(problem_id: str = "de-create-delete") -> core.Problem:
+    return next(p for p in core.load_suite("tools-dhis2-write").problems if p.id == problem_id)
+
+
+def test_write_suite_loads_with_end_state_expectations() -> None:
+    suite = core.load_suite("tools-dhis2-write")
+    assert suite.type == "tool"
+    problem = _write_problem("de-create-delete")
+    assert problem.expect_absent == [core.ExpectAbsent(type="dataElements", name="KODO_DE1")]
+    # A problem that creates two objects lists both.
+    two = _write_problem("deg-add-member-delete")
+    assert {s.type for s in two.expect_absent} == {"dataElements", "dataElementGroups"}
+
+
+def test_stateful_pass_only_when_created_and_absent_at_end() -> None:
+    problem = _write_problem("de-create-delete")
+    calls = [
+        _call(["metadata", "data-elements", "create", "--name", "KODO_DE1", "--short-name", "KODO_DE1"]),
+        _call(["metadata", "data-elements", "delete", "abc"]),
+    ]
+    reader = _StubReader({("dataElements", "KODO_DE1"): 0})  # gone at end
+    assert core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
+
+
+def test_stateful_fails_when_residue_remains() -> None:
+    problem = _write_problem("de-create-delete")
+    calls = [_call(["metadata", "data-elements", "create", "--name", "KODO_DE1"])]
+    reader = _StubReader({("dataElements", "KODO_DE1"): 1})  # created but never deleted
+    assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
+
+
+def test_stateful_vacuous_pass_is_gone() -> None:
+    problem = _write_problem("de-create-delete")
+    reader = _StubReader({("dataElements", "KODO_DE1"): 0})  # trivially absent
+    # Old scoring passed on "one tool call + token"; now doing NOTHING fails despite absence.
+    assert not core.score_tool_stateful(problem, [], "LIFECYCLE_OK", 0.1, reader).passed
+    # Calling the tool for a READ only (no create verb) + emitting the token also fails now.
+    read_only = [_call(["metadata", "list", "dataElements", "--count"])]
+    assert not core.score_tool_stateful(problem, read_only, "LIFECYCLE_OK", 0.1, reader).passed
+
+
+def test_stateful_fails_when_create_result_errored() -> None:
+    problem = _write_problem("de-create-delete")
+    # A create that returned a non-zero d2w exit code is not evidence the object existed.
+    calls = [_call(["metadata", "data-elements", "create", "--name", "KODO_DE1"], result='{"exit_code": 1}')]
+    reader = _StubReader({("dataElements", "KODO_DE1"): 0})
+    assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
+
+
+def test_stateful_fails_on_decoy_create_of_unrelated_object() -> None:
+    # A create+delete of an UNRELATED object must not pass a problem whose target was never touched
+    # (and is thus trivially absent). The create has to target the EXPECTED object.
+    problem = _write_problem("de-create-delete")  # expects dataElements/KODO_DE1
+    calls = [
+        _call(["metadata", "data-elements", "create", "--name", "KODO_DECOY"]),
+        _call(["metadata", "data-elements", "delete", "abc"]),
+    ]
+    reader = _StubReader({("dataElements", "KODO_DE1"): 0})  # KODO_DE1 trivially absent (never created)
+    assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
+
+
+def test_stateful_ignores_verbs_that_are_only_flag_values() -> None:
+    # "create"/"delete" appearing as a FLAG VALUE (not in the command path before the first --flag)
+    # must not count as a write verb, so a pure read whose argument happens to be "create" fails -
+    # both against a live reader and in the offline (degraded) fallback.
+    problem = _write_problem("de-create-delete")
+    calls = [_call(["metadata", "list", "dataElements", "--filter", "create"])]
+    reader = _StubReader({("dataElements", "KODO_DE1"): 0})
+    assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
+    assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, None).passed
+
+
+def test_stateful_degrades_gracefully_without_a_reader() -> None:
+    problem = _write_problem("de-create-delete")
+    create_and_delete = [
+        _call(["metadata", "data-elements", "create", "--name", "KODO_DE1"]),
+        _call(["metadata", "data-elements", "delete", "abc"]),
+    ]
+    # No reader (offline): fall back to trace verbs + token — both present -> pass.
+    assert core.score_tool_stateful(problem, create_and_delete, "LIFECYCLE_OK", 0.1, None).passed
+    # A reachable-but-down instance (count -> None) also degrades to the same fallback.
+    assert core.score_tool_stateful(
+        problem, create_and_delete, "LIFECYCLE_OK", 0.1, _StubReader(unreachable=True)
+    ).passed
+    # Offline with only a create (no delete verb) -> fail.
+    create_only = [_call(["metadata", "data-elements", "create", "--name", "KODO_DE1"])]
+    assert not core.score_tool_stateful(problem, create_only, "LIFECYCLE_OK", 0.1, None).passed
+
+
+def test_read_suite_scoring_unchanged_with_result_key_present() -> None:
+    # The recording loop now stashes results under a reserved key; the read scorer must ignore it.
+    problem = next(p for p in core.load_suite("tools-datetime").problems if p.id == "day-of-week")
+    calls = [("datetime__day_of_week", {"date": "2026-07-04", core.RESULT_ARG_KEY: "Saturday"})]
+    assert core.score_tool(problem, calls, "It's a Saturday.", 0.1).passed
+
+
+def test_sweep_only_touches_kodo_prefixed_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo_benchmark import dhis2_state
+
+    reader = dhis2_state.Dhis2StateReader(
+        dhis2_state.Dhis2Profile(base_url="http://localhost:8080", username="admin", password="district")
+    )
+    # `like` is a substring match, so a non-KODO_ object can slip into the candidate list.
+    found = [
+        {"id": "u1", "name": "KODO_DE1"},
+        {"id": "u2", "name": "ORG_KODO_DE1"},  # contains KODO_ but does NOT start with it
+        {"id": "u3", "name": "KODO_DE2"},
+    ]
+    deleted: list[str] = []
+
+    def _fake_delete(resource: str, uid: str) -> bool:
+        deleted.append(uid)
+        return True
+
+    monkeypatch.setattr(reader, "_find", lambda resource, name: found)
+    monkeypatch.setattr(reader, "_delete", _fake_delete)
+    removed = reader.sweep("dataElements")
+    assert removed == ["u1", "u3"] and deleted == ["u1", "u3"]  # the non-prefixed one is untouched
+
+
+def test_sweep_skips_when_instance_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo_benchmark import dhis2_state
+
+    reader = dhis2_state.Dhis2StateReader(dhis2_state.Dhis2Profile(base_url="http://x", username="a", password="b"))
+    monkeypatch.setattr(reader, "_find", lambda resource, name: None)  # unreachable
+    assert reader.sweep("dataElements") == []
+    assert dhis2_state.sweep_residue(reader, ["dataElements", "dataElementGroups"]) == {
+        "dataElements": [],
+        "dataElementGroups": [],
+    }
+
+
+def test_profile_resolution_from_servers_and_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from kodo_benchmark import dhis2_state
+
+    monkeypatch.delenv("KODO_BENCH_DHIS2_URL", raising=False)
+    servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
+    assert dhis2_state.profile_from_servers(servers) == "local_basic"
+    profiles = tmp_path / "profiles.toml"
+    profiles.write_text(
+        '[profiles.local_basic]\nbase_url = "http://localhost:8080/"\nusername = "admin"\npassword = "district"\n'
+    )
+    resolved = dhis2_state.load_profile("local_basic", profiles)
+    assert resolved is not None and resolved.base_url == "http://localhost:8080" and resolved.username == "admin"
+    assert dhis2_state.load_profile("missing", profiles) is None
+
+
+def test_sweep_types_derived_from_expect_absent() -> None:
+    from kodo_benchmark import dhis2_state
+
+    suite = core.load_suite("tools-dhis2-write")
+    assert dhis2_state.sweep_types(list(suite.problems)) == [
+        "dataElementGroups",
+        "dataElements",
+        "indicatorGroups",
+        "indicators",
+    ]
+
+
 def test_results_roundtrip_and_leaderboard(tmp_path: Path) -> None:
     suite = core.load_suite("python")
     results = [

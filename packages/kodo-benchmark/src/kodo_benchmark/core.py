@@ -13,7 +13,7 @@ import tomllib
 from importlib import resources
 from pathlib import Path
 from time import monotonic
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 # Re-exported (``import X as X``) so callers can keep importing them from ``core`` — kodo's
 # driver, the MCP app, and tests do.
@@ -24,6 +24,14 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 Difficulty = Literal["basics", "intermediate", "advanced", "expert"]
 ProblemType = Literal["code", "tool"]
+
+#: Reserved args key under which kodo's recording agent-loop (``kodo.cli._app.run_agent``)
+#: stashes each tool call's result text, so a stateful scorer can inspect outcomes without
+#: changing ``run_agent``'s ``(name, args)`` shape — the ``PluginContext`` protocol and the
+#: read suite both rely on that shape. Expected args never use this key, so the read suite's
+#: superset :func:`_args_match` is unaffected. Kept in sync with the same literal in
+#: ``kodo.cli._app`` (a deliberate cross-package literal — kodo must not import this package).
+RESULT_ARG_KEY = "__kodo_tool_result__"
 
 
 # --- suite / result models -------------------------------------------------
@@ -39,11 +47,28 @@ class TestCase(BaseModel):
     expected_stdout: str
 
 
+class ExpectAbsent(BaseModel):
+    """A metadata object a write lifecycle creates then deletes: verify it is ABSENT at the end.
+
+    ``type`` is the DHIS2 API resource (e.g. ``dataElements``); ``name`` is the object's name
+    or ``KODO_`` prefix, queried live with ``filter=name:like:<name>``. A stateful ``tool``
+    problem passes only if the instance reports zero matches at the end of the run — real proof
+    the object was created-then-deleted, not a token the model merely claimed to emit.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    type: str
+    name: str
+
+
 class Problem(BaseModel):
     """A benchmark task, either a ``code`` or a ``tool`` problem.
 
     A ``code`` problem is scored by running a program against its test cases; a ``tool``
-    problem by whether the model calls the expected MCP tool and answers correctly.
+    problem by whether the model calls the expected MCP tool and answers correctly. A ``tool``
+    problem carrying :attr:`expect_absent` is scored *statefully* — verified against real
+    end-state on the live instance (see :func:`score_tool_stateful`).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -62,6 +87,10 @@ class Problem(BaseModel):
     expect_tool: str = ""
     expect_args: dict[str, Any] = Field(default_factory=dict)
     expect_answer_contains: str = ""
+    # stateful (write) tool problems: metadata objects the lifecycle creates then deletes.
+    # Their presence switches scoring to :func:`score_tool_stateful` (real end-state, not a
+    # self-reported token); each must be ABSENT on the live instance at the end of the run.
+    expect_absent: list[ExpectAbsent] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_shape(self) -> Problem:
@@ -235,6 +264,11 @@ def _args_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     return all(actual.get(key) == value for key, value in expected.items())
 
 
+def _display_args(args: dict[str, Any]) -> dict[str, Any]:
+    """Drop the reserved result key so a trace's display doesn't dump whole tool payloads."""
+    return {k: v for k, v in args.items() if k != RESULT_ARG_KEY}
+
+
 def _answer_contains(answer: str, want: str) -> bool:
     """Case-insensitive substring match, tolerant of thousands separators in numbers.
 
@@ -258,7 +292,7 @@ def score_tool(problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer
     tool_ok = any(name == problem.expect_tool and _args_match(problem.expect_args, args) for name, args in calls)
     want = problem.expect_answer_contains
     answer_ok = _answer_contains(answer, want) if want else True
-    made = ", ".join(f"{n}({a})" for n, a in calls) or "(no tool calls)"
+    made = ", ".join(f"{n}({_display_args(a)})" for n, a in calls) or "(no tool calls)"
     cases = [
         CaseResult(
             passed=tool_ok,
@@ -278,6 +312,159 @@ def score_tool(problem: Problem, calls: list[tuple[str, dict[str, Any]]], answer
         difficulty=problem.difficulty,
         type="tool",
         passed=tool_ok and answer_ok,
+        cases=cases,
+        gen_s=gen_s,  # the agent loop interleaves generation and tool exec; count it all as gen
+    )
+
+
+# --- stateful tool scoring (real end-state) --------------------------------
+
+
+class StateReader(Protocol):
+    """Reads live metadata counts so a write lifecycle can be verified against real state.
+
+    The one method a scorer needs; :class:`kodo_benchmark.dhis2_state.Dhis2StateReader` is the
+    concrete DHIS2 implementation. Unit tests stub it. ``count`` returns ``None`` when the
+    instance is unreachable, which degrades scoring to the trace-only signals rather than crashing.
+    """
+
+    def count(self, resource: str, name: str) -> int | None:
+        """Number of ``resource`` objects whose name matches ``name`` (a ``like`` prefix); None if unreachable."""
+        ...
+
+
+_CREATE_VERBS = frozenset({"create"})  # d2w write verb: `metadata <type> create ...`
+_DELETE_VERBS = frozenset({"delete"})  # d2w write verb: `metadata <type> delete <uid>`
+#: A create call whose result text matches this is a *failed* create (non-zero d2w exit code),
+#: so it is NOT counted as evidence the object ever existed mid-lifecycle.
+_FAILED_RESULT = re.compile(r'"exit_code"\s*:\s*[1-9]')
+
+
+def _argv(args: dict[str, Any]) -> list[str]:
+    """The d2w token list the model passed (the bridge tool's ``args`` parameter)."""
+    tokens = args.get("args")
+    return [str(t) for t in tokens] if isinstance(tokens, list) else []
+
+
+def _command_path(argv: list[str]) -> set[str]:
+    """The d2w command tokens BEFORE the first ``--flag`` (group / subgroup / verb), lowercased.
+
+    Stopping at the first flag means a flag VALUE (e.g. ``--name create``, ``--code delete``) can
+    never be mistaken for a verb — the verb only ever lives in the command path, not in an argument.
+    """
+    path: set[str] = set()
+    for tok in argv:
+        if tok.startswith("-"):
+            break
+        path.add(tok.lower())
+    return path
+
+
+def _has_verb(calls: list[tuple[str, dict[str, Any]]], verbs: frozenset[str]) -> bool:
+    """Whether any recorded call's d2w command path (before flags) contains one of ``verbs``."""
+    return any(verbs & _command_path(_argv(args)) for _, args in calls)
+
+
+def _created_ok(calls: list[tuple[str, dict[str, Any]]], name: str) -> bool:
+    """Whether the object called ``name`` was really created.
+
+    Requires a create-verb call whose argv carries ``name`` AND whose stashed result
+    (:data:`RESULT_ARG_KEY`) is not a d2w error. Tying "a create happened" to THIS object is what
+    stops a decoy create+delete of an unrelated object from scoring a pass on a target that is
+    trivially absent because it was never touched (a failed create, or no result, also does not
+    count, so a rejected create can't sneak past the absent-at-end check).
+    """
+    for _, args in calls:
+        argv = _argv(args)
+        if not (_CREATE_VERBS & _command_path(argv)) or name not in argv:
+            continue
+        result = str(args.get(RESULT_ARG_KEY, ""))
+        if result and not _FAILED_RESULT.search(result):
+            return True
+    return False
+
+
+def score_tool_stateful(
+    problem: Problem,
+    calls: list[tuple[str, dict[str, Any]]],
+    answer: str,
+    gen_s: float,
+    reader: StateReader | None,
+) -> ProblemResult:
+    """Score a write ``tool`` problem against REAL end-state, not a self-reported token.
+
+    Primary signal (when ``reader`` is reachable): every :attr:`Problem.expect_absent` object
+    is gone on the live instance at the end AND a create actually succeeded mid-lifecycle — i.e.
+    the object was created-then-deleted. Secondary signals (the expected tool was called, the
+    ``LIFECYCLE_OK`` token was emitted, both write verbs appear in the trace) are recorded and,
+    when the instance is UNREACHABLE, become the fallback verdict so an offline run degrades to a
+    trace-only score instead of crashing. This supersedes the old (vacuous) ``expect_args`` check.
+    """
+    tool_ok = any(name == problem.expect_tool for name, _ in calls)
+    created = _has_verb(calls, _CREATE_VERBS)
+    deleted = _has_verb(calls, _DELETE_VERBS)
+    # Require a successful create of EVERY expected object (not merely "a create happened"), so a
+    # create/delete of an unrelated decoy can't pass on a target that is trivially absent. Only used
+    # on the stateful path (the degraded path below has no expect_absent to tie names to).
+    create_ok = bool(problem.expect_absent) and all(_created_ok(calls, spec.name) for spec in problem.expect_absent)
+    want = problem.expect_answer_contains
+    token_ok = _answer_contains(answer, want) if want else True
+
+    # Live read-back: count each expected object; a None (unreachable) degrades to trace scoring.
+    counts: dict[str, int] = {}
+    degraded = reader is None or not problem.expect_absent
+    if not degraded and reader is not None:
+        for spec in problem.expect_absent:
+            found = reader.count(spec.type, spec.name)
+            if found is None:
+                degraded = True
+                break
+            counts[f"{spec.type}:{spec.name}"] = found
+    absent_ok = not degraded and all(v == 0 for v in counts.values())
+
+    if degraded:
+        passed = tool_ok and created and deleted and token_ok
+        residue = "live state unavailable — scored on trace verbs + token"
+        state_actual = f"created={created} deleted={deleted} token={token_ok}"
+        state_passed = created and deleted
+    else:
+        passed = tool_ok and create_ok and absent_ok
+        residue = "" if absent_ok else "residue remains on the live instance"
+        state_actual = ", ".join(f"{k}={v}" for k, v in counts.items()) or "(nothing to check)"
+        state_passed = absent_ok
+
+    made = ", ".join(f"{n}({_display_args(a)})" for n, a in calls) or "(no tool calls)"
+    cases = [
+        CaseResult(
+            passed=tool_ok,
+            expected=problem.expect_tool,
+            actual=made,
+            error="" if tool_ok else "expected tool not called",
+        ),
+        CaseResult(
+            passed=create_ok if not degraded else created,
+            expected="a create succeeded (object existed mid-lifecycle)",
+            actual=f"create verb={created}, create succeeded={create_ok}",
+            error="" if (create_ok if not degraded else created) else "no successful create in the trace",
+        ),
+        CaseResult(
+            passed=state_passed,
+            expected="all KODO_ objects absent on the live instance at end",
+            actual=state_actual,
+            error=residue,
+        ),
+        CaseResult(
+            passed=token_ok,
+            expected=want,
+            actual=answer[:500],
+            error="" if token_ok else "answer missing expected token",
+        ),
+    ]
+    return ProblemResult(
+        problem_id=problem.id,
+        difficulty=problem.difficulty,
+        type="tool",
+        passed=passed,
         cases=cases,
         gen_s=gen_s,  # the agent loop interleaves generation and tool exec; count it all as gen
     )

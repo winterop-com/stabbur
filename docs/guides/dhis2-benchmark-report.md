@@ -10,11 +10,13 @@ complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 > beating the 27B and 31B models. You do not need a big model to run DHIS2 locally; you need one
 > that reliably calls tools.
 
-> **Writes are a different, much harder story.** No model tested is trustworthy for unattended
-> writes: the best writer completes only **4 of 7** lifecycles, size does not help (the read-only
-> champ collapses to **1/7**), and every model leaves residue on the runs it fails. This is why
-> writes ship behind a **per-action confirmation gate** — the human, not the model, is the safety
-> net. See "[Writes](#writes-create-update-delete)" below.
+> **Writes are a different, much harder story.** Under scoring that verifies **real DHIS2 state**
+> (not just a self-reported completion token), the strongest writer — `gemma-4-12B` — completes
+> **0 of 7** lifecycles: it reliably *creates* objects but does not reliably *delete* them, leaving
+> residue on every problem. A live end-to-end test confirms the write *path* works (a create,
+> approved through the confirmation gate, really persists and read-back-verifies); the *reliability*
+> is the model's limit. This is why writes ship behind a **per-action confirmation gate** — the
+> human, not the model, is the safety net. See "[Writes](#writes-create-update-delete)" below.
 
 !!! note "Re-verified 2026-07-12 (compact-JSON tool output)"
 
@@ -160,13 +162,23 @@ mutate* it — the harder, higher-stakes half. Bottom line: it can't, not yet, n
 ### What was measured
 
 Each of the 7 problems is a **self-cleaning lifecycle**: the model creates one or more metadata
-objects, optionally renames or links them, then **deletes everything it made**, so a passing run
-leaves the instance exactly as it found it. Every test object is prefixed `KODO_`, and the runner
-sweeps any residue between models — a model that abandons a lifecycle mid-way leaves orphaned
-objects behind, which is itself the primary failure signal. A problem passes only if the model
-calls the bridge **and** its final answer contains the instructed `LIFECYCLE_OK` token, which the
-prompt says to emit *only after every step (including the deletes) has succeeded* — so the token is
-a completion protocol, not a self-graded claim the runner takes on faith about individual steps.
+objects, optionally renames or links them, then **deletes everything it made**, so a correct run
+leaves the instance exactly as it found it. Every test object is prefixed `KODO_`.
+
+A problem passes only when the suite **verifies real DHIS2 state**: after the run it reads the live
+instance back and requires that the object was actually created (a real, non-errored create) **and
+is absent at the end** (the delete really happened) — not merely that the model called the tool and
+printed a `LIFECYCLE_OK` token. Between models the runner **sweeps** any `KODO_`-prefixed residue
+directly against the instance, so a model that abandons a lifecycle can't leave orphans that skew
+the next model.
+
+!!! warning "Scoring correction (2026-07-12)"
+    An earlier version of this suite scored a pass on "called the bridge at least once **and** the
+    final answer contains `LIFECYCLE_OK`". That overcounted badly: a model that created objects,
+    never deleted them, and printed the token still passed. The state-verifying scorer and the real
+    residue sweep above replace that proxy — and the "sweep between models" this report previously
+    described was, at the time, aspirational (it now exists in code). The figures below are under
+    the new, state-verified scoring; the earlier proxy numbers ran higher and are superseded.
 
 The bridge runs **read-write** (no `DHIS2_MCP_READONLY`) against a `local_basic` profile
 (`localhost:8080`, admin/district) — never a shared or production instance. Writes cannot target
@@ -184,35 +196,41 @@ The 7 problems, by difficulty:
 | advanced | `deg-add-member-delete` | create a data element **and** a group, add the element to the group, delete both |
 | expert | `indicator-create-delete` | resolve an existing indicator type's UID, create an indicator using it, delete it |
 
-### Write leaderboard
+### Write results (state-verified)
 
-Ranked by score, then speed. All six models are drawn from the tool-capable set above; write
-problems take **far longer** than reads (many tool round-trips per lifecycle — often 3-9 minutes
-per problem), so per-problem times are averages of long multi-step runs, not single calls.
+So far only `gemma-4-12B` — the strongest writer under the old proxy — has been re-run under the
+state-verifying scorer:
 
-| Rank | Model | Score | Avg response/problem | Size |
-|---|---|---|---|---|
-| 1 | `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **4/7** | 265s | 6.7 GB |
-| 2 | `lmstudio-community/Qwen3.6-27B-GGUF` | 3/7 | 251s | 16.3 GB |
-| 2 | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` | 3/7 | 198s | 17.3 GB |
-| 4 | `unsloth/gpt-oss-20b-GGUF` | 2/7 | 218s | 10.8 GB |
-| 5 | `deepreinforce-ai/Ornith-1.0-9B-GGUF` | 1/7 | 315s | 5.2 GB |
-| 5 | `lmstudio-community/Qwen3.6-35B-A3B-GGUF` | 1/7 | 185s | — |
+| Model | Score (state-verified) | What happened |
+|---|---|---|
+| `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **0/7** | creates an object on every problem but never completes the deletes; the sweep removed 7 residual `KODO_` objects afterward |
+
+The earlier proxy leaderboard ranked six models from 4/7 down to 1/7; those figures counted the
+`LIFECYCLE_OK` token rather than real state and are superseded. Re-running the rest under state
+verification is pending — but since the proxy already flattered them and gemma (the proxy's best)
+drops to 0/7 under real verification, the honest expectation is that none clear the bar unattended.
 
 ### What the write results say
 
-**Nobody is safe to leave alone.** The best writer, the 12B gemma, completes 4 of 7 lifecycles;
-the rest land at 3, 2, or 1. Every model left residue on the runs it failed (incomplete deletes) —
-the exact behavior the sweep-between-models step exists to clean up. That is the core reason writes
-ship behind a **per-action confirmation gate**: at a ~57%-best completion rate with residue on the
-misses, the human approving each mutation is the safety mechanism, not the model's judgment.
+**The honest picture is worse than the proxy suggested — and it is the *delete* half that fails.**
+Under real state verification, gemma-4-12B — the strongest writer under the old scoring — completes
+**0 of 7** lifecycles. It reliably *creates* objects but does not reliably *delete* them, so it
+leaves residue on every problem. The old "4/7" counted a completion token the model emitted whether
+or not the deletes actually landed; verifying real state removes that illusion.
 
-**Size does not help — and can hurt.** The 12B gemma out-writes every larger model. The two biggest
-tested tie-or-lose: the 27B dense manages 3/7 and the 35B-A3B MoE only 1/7, both over-generating,
-looping, and dropping the completion protocol on the multi-step problems. Most strikingly, the
-read-only champion — `Ornith-1.0-9B`, a flawless **12/12** on reads — **collapses to 1/7 on
-writes**, passing only the single create-then-delete. Reliable *reading* and reliable *mutating*
-are different skills; a model's read leaderboard rank does not predict its write behavior.
+**The write path works — the model is the bottleneck.** A live end-to-end test drives the Chrome
+panel against this same local instance: bind a write-enabled assistant, ask it to create a data
+element group, approve each confirmation, and an independent authenticated read-back confirms the
+object really persisted. That proves the plumbing (bind -> confirm gate -> approve -> execute ->
+persist -> read-back). The same test shows the delete step is unreliable (it is driven best-effort;
+a deterministic sweep guarantees cleanup). So reads are excellent (12/12), the write *path* is
+proven end-to-end, and write *reliability* is a model limitation the gate **contains** rather than
+solves — the human approving each mutation, and noticing an incomplete cleanup, is the safety net.
+
+**Reliable reading and reliable mutating are different skills.** A model's read rank does not
+predict its writes: `Ornith-1.0-9B` is a flawless 12/12 reader yet was the weakest writer even under
+the flattering proxy. Bigger models did not help under the proxy, and the multi-step
+create-verify-delete lifecycle — not raw capacity — is what trips models up.
 
 **The multi-object step is the wall.** Per problem, every model clears the simple shapes and
 every model fails the compound ones:

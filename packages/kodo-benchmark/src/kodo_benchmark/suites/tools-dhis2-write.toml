@@ -5,15 +5,28 @@ language = "tools"
 # Companion to `tools-dhis2` (read-only): this measures whether a model can safely DRIVE
 # MUTATIONS. Each problem is a self-cleaning LIFECYCLE — it creates objects, optionally
 # renames/links them, then DELETES everything it made, so a run leaves the instance as it
-# found it and re-runs across models don't collide. Every test object is prefixed `KODO_`;
-# the runner sweeps any residue (a model that gives up mid-lifecycle) between models.
+# found it and re-runs across models don't collide. Every test object is prefixed `KODO_`.
 #
 # The bridge runs READ-WRITE (no DHIS2_MCP_READONLY) against the `local_basic` profile
-# (localhost:8080, admin/district) — never point this at a shared/production instance. The
-# single `dhis2_cli` tool is driven by free-form `d2w` argv, so `expect_args` is empty: we
-# score that the model reached for the bridge AND completed the lifecycle (its final answer
-# contains the instructed `LIFECYCLE_OK` token, which a model only emits after finishing).
-# Because the server command starts with `env`, the tool namespaces to `env__dhis2_cli`.
+# (localhost:8080, admin/district) — never point this at a shared/production instance.
+#
+# SCORING IS STATEFUL (see kodo_benchmark.core.score_tool_stateful): each problem lists the
+# objects it creates in `expect_absent`. After the run the benchmark reads the LIVE instance
+# back (via kodo_benchmark.dhis2_state, using the same profile) and passes the problem only if
+# (a) a create actually SUCCEEDED mid-lifecycle and (b) every listed object is ABSENT at the
+# end — real proof of created-then-deleted, not the old vacuous "called the tool once + said a
+# token". The `LIFECYCLE_OK` token and the tool call are recorded as SECONDARY signals; the
+# token is also the fallback verdict when the instance is unreachable (offline runs degrade to
+# trace-only scoring instead of crashing). `expect_args` is intentionally unused — the single
+# `dhis2_cli` tool is driven by free-form `d2w` argv, and the live state check supersedes it.
+#
+# The runner performs a REAL `KODO_` residue sweep (kodo_benchmark.dhis2_state.sweep_residue)
+# before AND after each model's write suite: it lists every `KODO_`-named object of the
+# resource types this suite touches (dataElements, dataElementGroups, indicators,
+# indicatorGroups) and DELETEs them, so a model that abandons a lifecycle can't leave residue
+# that compounds across models. The sweep only ever touches `KODO_`-prefixed objects and skips
+# cleanly if the instance is unreachable. Because the server command starts with `env`, the
+# tool namespaces to `env__dhis2_cli`.
 
 # --- basics: a single create + delete ---
 
@@ -24,6 +37,7 @@ prompt = "Using the available DHIS2 tools, create one aggregate data element wit
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+expect_absent = [{ type = "dataElements", name = "KODO_DE1" }]
 
 [[problems]]
 id = "ig-create-delete"
@@ -32,6 +46,7 @@ prompt = "Using the available DHIS2 tools, create an indicator group named 'KODO
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+expect_absent = [{ type = "indicatorGroups", name = "KODO_IG1" }]
 
 # --- intermediate: create + a second operation + delete ---
 
@@ -42,6 +57,8 @@ prompt = "Using the available DHIS2 tools: create an aggregate NUMBER data eleme
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+# `KODO_DE2` prefix-matches both the original and the renamed `KODO_DE2_v2` (a `like` filter).
+expect_absent = [{ type = "dataElements", name = "KODO_DE2" }]
 
 [[problems]]
 id = "deg-create-delete"
@@ -50,6 +67,7 @@ prompt = "Using the available DHIS2 tools, create a data element group named 'KO
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+expect_absent = [{ type = "dataElementGroups", name = "KODO_DEG1" }]
 
 # --- advanced: create, verify by reading back, then delete ---
 
@@ -60,6 +78,7 @@ prompt = "Using the available DHIS2 tools: create an aggregate NUMBER data eleme
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+expect_absent = [{ type = "dataElements", name = "KODO_DE3" }]
 
 [[problems]]
 id = "deg-add-member-delete"
@@ -68,6 +87,10 @@ prompt = "Using the available DHIS2 tools: create an aggregate NUMBER data eleme
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+expect_absent = [
+    { type = "dataElementGroups", name = "KODO_DEG2" },
+    { type = "dataElements", name = "KODO_DE4" },
+]
 
 # --- expert: resolve a dependency, then create + delete ---
 
@@ -78,3 +101,4 @@ prompt = "Using the available DHIS2 tools: find any existing indicator type and 
 servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
 expect_answer_contains = "LIFECYCLE_OK"
+expect_absent = [{ type = "indicators", name = "KODO_IND1" }]

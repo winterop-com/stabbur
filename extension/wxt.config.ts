@@ -11,6 +11,16 @@ const FRONTEND_SRC = path.resolve(__dirname, "../frontend/src");
 const FLAVOR = process.env.KODO_FLAVOR === "dhis2" ? "dhis2" : "generic";
 const IS_DHIS2 = FLAVOR === "dhis2";
 
+// TEST-ONLY build variant (KODO_E2E=1). It lands in its own output dir (`.output/chrome-mv3-e2e`)
+// and adds the live-tier target origins to the STATIC host_permissions, so the E2E harness's
+// `grantHostPermission` short-circuits (chrome.permissions.contains already true) instead of
+// calling chrome.permissions.request, whose prompt wedges the headless renderer. These origins are
+// NEVER added to the shipped generic/dhis2 builds. Only ever built via `bun run build:e2e`.
+const IS_E2E = process.env.KODO_E2E === "1";
+const E2E_HOST_PERMISSIONS = ["https://play.im.dhis2.org/*", "http://localhost:8080/*"];
+// Output-dir suffix: e2e takes precedence over dhis2 so the three builds never collide.
+const OUT_SUFFIX = IS_E2E ? "-e2e" : IS_DHIS2 ? "-dhis2" : "";
+
 const MANIFEST_NAME = IS_DHIS2 ? "kodo for DHIS2" : "kodo";
 const MANIFEST_DESCRIPTION = IS_DHIS2
   ? "Your local AI assistant for DHIS2 - chat, verify, and act on your instance with your own model"
@@ -36,9 +46,10 @@ const MANIFEST_ICONS = {
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   // The generic build keeps the default `.output/chrome-mv3`; the dhis2 build lands in
-  // `.output/chrome-mv3-dhis2` so both can coexist and the E2E/screenshots tooling can pick
-  // one. The `{{modeSuffix}}` keeps `-dev` on the WXT dev server output as usual.
-  ...(IS_DHIS2 ? { outDirTemplate: "{{browser}}-mv{{manifestVersion}}-dhis2{{modeSuffix}}" } : {}),
+  // `.output/chrome-mv3-dhis2` and the test-only e2e build in `.output/chrome-mv3-e2e`, so all
+  // three coexist and the E2E/screenshots tooling can pick one. The `{{modeSuffix}}` keeps `-dev`
+  // on the WXT dev server output as usual.
+  ...(OUT_SUFFIX ? { outDirTemplate: `{{browser}}-mv{{manifestVersion}}${OUT_SUFFIX}{{modeSuffix}}` } : {}),
   vite: () => ({
     plugins: [tailwindcss()],
     // Bake the flavor into the bundle so app code (lib/flavor.ts) can branch copy on it.
@@ -72,7 +83,9 @@ export default defineConfig({
     // a scoped PAT, which needs no cookie access.
     optional_permissions: ["cookies"],
     optional_host_permissions: ["http://*/*", "https://*/*"],
-    host_permissions: ["http://127.0.0.1/*", "http://localhost/*"],
+    // The e2e variant statically pre-grants the live-tier target origins (see IS_E2E above); the
+    // shipped generic/dhis2 builds keep only the loopback origins.
+    host_permissions: ["http://127.0.0.1/*", "http://localhost/*", ...(IS_E2E ? E2E_HOST_PERMISSIONS : [])],
     side_panel: { default_path: "sidepanel.html" },
     action: { default_title: MANIFEST_NAME },
   },

@@ -3,61 +3,61 @@
   "language": "tools",
   "type": "tool",
   "model": "lmstudio-community/gemma-4-12B-it-QAT-GGUF",
-  "timestamp": "2026-07-05T17:42:47",
-  "load_s": 12.379285500035621,
+  "timestamp": "2026-07-12T19:18:27",
+  "load_s": 31.596546583998133,
   "outcomes": [
     {
       "id": "de-create-delete",
       "difficulty": "basics",
-      "passed": true,
-      "gen_s": 168.70007370901294,
+      "passed": false,
+      "gen_s": 302.73949958299636,
       "exec_s": 0.0
     },
     {
       "id": "ig-create-delete",
       "difficulty": "basics",
-      "passed": true,
-      "gen_s": 386.436283499992,
+      "passed": false,
+      "gen_s": 332.7034964589984,
       "exec_s": 0.0
     },
     {
       "id": "de-rename-delete",
       "difficulty": "intermediate",
       "passed": false,
-      "gen_s": 396.6742126249592,
+      "gen_s": 422.2903600419959,
       "exec_s": 0.0
     },
     {
       "id": "deg-create-delete",
       "difficulty": "intermediate",
-      "passed": true,
-      "gen_s": 384.8219749999698,
+      "passed": false,
+      "gen_s": 525.4310146659991,
       "exec_s": 0.0
     },
     {
       "id": "de-create-verify-delete",
       "difficulty": "advanced",
-      "passed": true,
-      "gen_s": 303.28950866602827,
+      "passed": false,
+      "gen_s": 410.9750429169944,
       "exec_s": 0.0
     },
     {
       "id": "deg-add-member-delete",
       "difficulty": "advanced",
       "passed": false,
-      "gen_s": 176.32750154100358,
+      "gen_s": 57.19680058299855,
       "exec_s": 0.0
     },
     {
       "id": "indicator-create-delete",
       "difficulty": "expert",
       "passed": false,
-      "gen_s": 40.44202650000807,
+      "gen_s": 33.60099204200378,
       "exec_s": 0.0
     }
   ],
-  "gen_s": 1856.6915815409739,
+  "gen_s": 2084.9372062919865,
   "total": 7,
-  "passed": 4,
-  "score": 0.5714285714285714
+  "passed": 0,
+  "score": 0.0
 }

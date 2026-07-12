@@ -21,8 +21,11 @@ from pluginkit import Extension
 from kodo_benchmark import core
 
 if TYPE_CHECKING:
+    from rich.console import Console
+
     from kodo.library import LibraryModel
     from kodo.plugins import PluginContext
+    from kodo_benchmark.dhis2_state import Dhis2StateReader
 
 extension = Extension("kodo")
 
@@ -59,14 +62,64 @@ def _qualifies(context: PluginContext, suite: core.Suite, model: LibraryModel) -
     return True, ""
 
 
+def _make_reader(suite: core.Suite) -> tuple[Dhis2StateReader | None, list[str]]:
+    """Build a live-state reader + the resource types to sweep for a stateful (write) suite.
+
+    Only suites whose problems carry ``expect_absent`` are stateful; anything else (the read
+    suite) gets ``(None, [])`` and is scored unchanged. Best-effort: a missing profile, missing
+    httpx, or any construction error yields ``(None, [])`` so the run degrades to trace scoring.
+    """
+    if not any(p.expect_absent for p in suite.problems):
+        return None, []
+    try:
+        from kodo_benchmark import dhis2_state  # noqa: PLC0415 - optional; only for write suites
+
+        servers = next((p.servers for p in suite.problems if p.servers), [])
+        profile = dhis2_state.load_profile(dhis2_state.profile_from_servers(servers))
+        if profile is None:
+            return None, []
+        return dhis2_state.Dhis2StateReader(profile), dhis2_state.sweep_types(list(suite.problems))
+    except Exception:  # noqa: BLE001 - state scoring is best-effort; never block a run
+        return None, []
+
+
+def _sweep(console: Console, reader: Dhis2StateReader | None, resources: list[str], when: str, model: str) -> None:
+    """Best-effort KODO_ residue sweep around a model's write suite (``when`` = before/after)."""
+    if reader is None or not resources:
+        return
+    try:
+        from kodo_benchmark import dhis2_state  # noqa: PLC0415
+
+        removed = dhis2_state.sweep_residue(reader, resources)
+        total = sum(len(uids) for uids in removed.values())
+        if total:
+            detail = ", ".join(f"{res} {len(uids)}" for res, uids in removed.items() if uids)
+            console.print(f"  [dim]swept {total} KODO_ residue {when} {model} ({detail})[/]")
+    except Exception as exc:  # noqa: BLE001 - a sweep failure must never stop the benchmark
+        console.print(f"  [dim]residue sweep {when} {model} skipped: {exc}[/]")
+
+
 def _run_problem(
-    context: PluginContext, model: LibraryModel, base: str, problem: core.Problem, max_tokens: int | None
+    context: PluginContext,
+    model: LibraryModel,
+    base: str,
+    problem: core.Problem,
+    max_tokens: int | None,
+    reader: Dhis2StateReader | None,
 ) -> core.ProblemResult:
-    """Score one problem against a served model: code via the sandbox, tool via the agent loop."""
+    """Score one problem against a served model: code via the sandbox, tool via the agent loop.
+
+    A ``tool`` problem carrying ``expect_absent`` is scored *statefully* — verified against real
+    end-state on the live instance (``reader``); a plain read ``tool`` problem keeps the trace +
+    answer scoring.
+    """
     if problem.type == "tool":
         start = monotonic()
         calls, answer = context.run_agent(base, model, problem.prompt, problem.servers)
-        return core.score_tool(problem, calls, answer, monotonic() - start)
+        gen_s = monotonic() - start
+        if problem.expect_absent:
+            return core.score_tool_stateful(problem, calls, answer, gen_s, reader)
+        return core.score_tool(problem, calls, answer, gen_s)
     system = _SYSTEM.format(language=problem.language)
     start = monotonic()
     answer = context.complete(base, model, problem.prompt, system=system, max_tokens=max_tokens)
@@ -75,7 +128,12 @@ def _run_problem(
 
 
 def _run_suite_for_model(
-    context: PluginContext, model: LibraryModel, suite: core.Suite, problems: list[core.Problem], max_tokens: int | None
+    context: PluginContext,
+    model: LibraryModel,
+    suite: core.Suite,
+    problems: list[core.Problem],
+    max_tokens: int | None,
+    reader: Dhis2StateReader | None,
 ) -> tuple[list[core.ProblemResult], float]:
     """Serve ``model`` once and score every problem; return the results and the load time."""
     console = context.console
@@ -85,7 +143,7 @@ def _run_suite_for_model(
         load_s = monotonic() - start
         console.print(f"  [dim]loaded in {load_s:.1f}s[/]")
         for problem in problems:
-            result = _run_problem(context, model, base, problem, max_tokens)
+            result = _run_problem(context, model, base, problem, max_tokens, reader)
             mark = "[green]PASS[/]" if result.passed else "[red]FAIL[/]"
             cases = f"{sum(c.passed for c in result.cases)}/{len(result.cases)}"
             timing = f"gen {result.gen_s:.1f}s" + (f" · exec {result.exec_s:.1f}s" if result.exec_s else "")
@@ -151,18 +209,26 @@ def _build_app(context: PluginContext) -> typer.Typer:
                 console.print(f"[yellow]note[/]: {chosen.name} {reason} — running anyway (explicit --model)")
             models = [chosen]
         problems = loaded.problems[:limit] if limit else loaded.problems
+        # For a stateful (write) suite, build a live-state reader once and the resource types to
+        # sweep; None/[] for read or offline suites (scoring then degrades to the trace signals).
+        reader, sweep_resources = _make_reader(loaded)
         for mdl in models:
             if skip_done and core.result_path(results_dir, loaded.name, mdl.name).exists():
                 console.print(f"[dim]skip {mdl.name} (already saved)[/]")
                 continue
             console.print(f"\n[bold]{loaded.name}[/] · {mdl.name} · {len(problems)} problems")
+            # Clear any KODO_ residue a prior model abandoned so it can't compound into this run.
+            _sweep(console, reader, sweep_resources, "before", mdl.name)
             try:
-                results, load_s = _run_suite_for_model(context, mdl, loaded, problems, max_tokens)
+                results, load_s = _run_suite_for_model(context, mdl, loaded, problems, max_tokens, reader)
             except Exception as exc:  # noqa: BLE001 - in a sweep one bad model must not stop the rest
                 console.print(f"  [red]skipped {mdl.name}[/]: {exc}")
+                _sweep(console, reader, sweep_resources, "after", mdl.name)
                 if not all_models:
                     raise
                 continue
+            # Delete this model's own leftovers so the instance is clean for the next model.
+            _sweep(console, reader, sweep_resources, "after", mdl.name)
             report = core.SuiteReport(suite=loaded.name, model=mdl.name, results=results)
             console.print(f"[bold]Score: {report.passed}/{report.total}[/] ([bold]{round(report.score * 100)}%[/])")
             if save:

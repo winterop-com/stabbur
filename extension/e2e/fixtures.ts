@@ -29,8 +29,18 @@ const SCRATCH =
   process.env.KODO_E2E_SCRATCH ??
   "/private/tmp/claude-502/-Users-morteoh-dev-local-kodo/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
-/** Absolute path to the built, unpacked extension. */
-export const EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
+/**
+ * Absolute path to the built, unpacked extension. The live tier needs the TEST-ONLY e2e build
+ * (`.output/chrome-mv3-e2e`, from `bun run build:e2e`) whose static host_permissions pre-grant the
+ * target origins so the headless mint tail can run; when that build is present it wins. The mock
+ * tier only ever builds the generic `.output/chrome-mv3`, so it falls through to it. The e2e build
+ * is otherwise byte-identical to the generic flavor (same code, extra host_permissions), so a
+ * lingering e2e dir never changes mock behavior.
+ */
+const E2E_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-e2e");
+export const EXTENSION_PATH = existsSync(E2E_EXTENSION_PATH)
+  ? E2E_EXTENSION_PATH
+  : path.resolve(HERE, "..", ".output", "chrome-mv3");
 
 const HEADED = process.env.HEADED === "1" || process.env.HEADED === "true";
 
