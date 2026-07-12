@@ -133,10 +133,10 @@ from "Driving the active DHIS2 login" is now **implemented**. What shipped:
   `confirm_tools`), defaulting from the assistant: readonly / free-play -> `none`, write-enabled ->
   `writes`. Consequence to know: the default single-tool `dhis2w-mcp-bridge` (`dhis2_cli`) is
   **unannotated**, so under a write-enabled assistant **every** dhis2 call prompts — reads included.
-  No current dhis2w server changes this (verified 2026-07-12): the `dhis2w-mcp-router` is a 2-tool
-  dispatcher (`search_tools` / `call_tool`, unannotated) and the 104-tool `dhis2w-mcp` carries no
-  `readOnlyHint` either. The real fix is a dhis2w-side change — annotate read ops with
-  `readOnlyHint=True` (per-op in `dhis2w-mcp`), which kodo's gate already honors (tracked in
+  The typed **`dhis2w-mcp` (>= 1.3.0) now stamps `readOnlyHint`** per op (True on its ~104 reads,
+  False on writes), which kodo's gate honors — so a write assistant on that server confirms only
+  writes. The default single-tool bridge can't be annotated per-op, and the router's generic
+  `call_tool` can't either, so on those the reads-also-prompt friction is inherent (tracked in
   `ROADMAP.md`).
 - **Write-enabling bind.** The bind consent now mints a **read-write PAT** (`methods_full`) when the
   assistant is write-enabled (the `bind-allow-writes` path); the binding records read-vs-write scope

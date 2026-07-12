@@ -52,12 +52,13 @@ Open follow-ups, roughly in order:
 - **Reads also prompt under the single-tool bridge (the next write-UX step).** The default
   `dhis2w-mcp-bridge` exposes one **unannotated** tool (`dhis2_cli`), so under a write-enabled
   assistant the fail-safe gate prompts on **every** dhis2 call — reads included, not just
-  mutations. **No current dhis2w server fixes this** (verified live, 2026-07-12): the
-  `dhis2w-mcp-router` is a 2-tool dispatcher (`search_tools` / `call_tool`) — its `call_tool` is
-  generic and cannot be marked read-only — and even the 104-tool `dhis2w-mcp` ships **zero**
-  `readOnlyHint` annotations. The real remedy is a **dhis2w change**: annotate read operations with
-  `readOnlyHint=True` (most naturally per-op in `dhis2w-mcp`), which kodo's gate already honors.
-  Until then reads-prompt is inherent (friction, not danger — reads are safe and shown). Pair with
+  mutations. The **typed `dhis2w-mcp` (>= 1.3.0) now fixes this**: it stamps `readOnlyHint=True` on
+  its ~104 read operations (verified — `metadata_data_element_get` True, `..._create` False), which
+  kodo's gate already honors, so a write assistant on that server confirms only writes. The
+  tradeoff is its ~315-tool surface (heavy for small models). The default single-tool bridge still
+  can't be annotated per-op (one dynamic tool), and the `dhis2w-mcp-router` is a 2-tool dispatcher
+  whose generic `call_tool` can't be read-only — so on those, reads-prompt remains inherent
+  (friction, not danger — reads are safe and shown). Pair with
   the write-reliability work below.
 - **MCP resource for the target** — now unblocked: **dhis2w 1.0.0 has shipped**. Add a
   `dhis2://target` resource to `dhis2w-mcp-bridge` + a generic MCP-resource proxy in kodo,
@@ -99,9 +100,10 @@ The current answer to "not trustworthy unattended" is the **round-3 per-action c
 *incomplete* cleanup — so the model's weak completion is fronted by a person, not trusted. That is
 the guardrail, not the fix.
 
-Next: stronger write models; a dhis2w-side change to annotate read operations with `readOnlyHint`
-(none of the current servers do — see the follow-up above) so kodo's gate narrows prompts to real
-mutations; and richer verification that asserts real DHIS2 state, not just a `LIFECYCLE_OK`
+Next: stronger write models; on the default bridge, reads still prompt (the typed `dhis2w-mcp`
+>= 1.3.0 now annotates `readOnlyHint` so its reads skip the gate, but its ~315-tool surface is
+heavy for small models — see the follow-up above); and richer verification (already shipped) that
+asserts real DHIS2 state, not just a `LIFECYCLE_OK`
 completion token.
 
 ## Open issues
