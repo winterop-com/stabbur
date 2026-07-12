@@ -18,7 +18,8 @@ read-only). Verified prompt catalog: `docs/guides/extension-prompts.md`. Design 
 target tab's own context (`POST /api/apiToken`), installed via a domain-generic `POST
 /api/assistant/bind` (kodo runs `d2w profile add … --auth pat --local` with the token in env),
 with a plain-language consent card, unbind (revoke + profile removal), and a **session-cookie
-fallback** riding a new `session` auth kind in `dhis2w-client`/`d2w`. Also: declared
+fallback** riding a new `session` auth kind in `dhis2w-client`/`d2w` (shipped in **dhis2w 1.0.0**
+on PyPI, so `uvx dhis2w-mcp-bridge` and `d2w profile add --auth session` work out of the box). Also: declared
 `[assistant.probe]` recipes replaced the round-1 hardcoded identity endpoints, browser-user vs
 tool-account identity labels, compact collapsed tool-result chips, and a Settings backend switcher.
 The whole bind flow is covered live against play42 (`extension/e2e/live/live.spec.ts`).
@@ -29,9 +30,9 @@ Open follow-ups, roughly in order:
   (`methods_full`, the `bind-allow-writes` toggle is already wired for a non-readonly assistant),
   behind explicit per-action confirmation, PAT/profile channel only, never ambient cookies; mind
   DHIS2 CSRF. Pair with the write-reliability work below.
-- **MCP resource for the target** — add a `dhis2://target` resource to `dhis2w-mcp-bridge` (once
-  the pre-1.0 dhis2w release lands) + a generic MCP-resource proxy in kodo, replacing the
-  `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
+- **MCP resource for the target** — now unblocked: **dhis2w 1.0.0 has shipped**. Add a
+  `dhis2://target` resource to `dhis2w-mcp-bridge` + a generic MCP-resource proxy in kodo,
+  replacing the `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
 - **Packaging** — Web Store (unlisted first), pinned manifest key, Firefox `sidebar_action` target
   via the WXT multi-target build.
 - **Re-run the tools-dhis2 benchmark against the new tool-output shape.** Tool results now reach
