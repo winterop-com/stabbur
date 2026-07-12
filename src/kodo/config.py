@@ -197,6 +197,14 @@ class Settings(BaseSettings):
     # a chat or benchmark indefinitely. 0 disables the bound (wait forever).
     tool_timeout: float = 120.0
 
+    # Default per-turn generation cap for /api/chat (the tool-aware agent loop) when the
+    # request omits max_tokens. Bounds a small model that runs away on a hard tool question
+    # and never emits a final answer (observed in the DHIS2 benchmark). Generous enough for
+    # normal grounded answers; a client can still pass an explicit max_tokens to override,
+    # and <= 0 disables the cap (unbounded). Only affects /api/chat — the raw /v1 proxy is
+    # untouched, so power users hitting the runtime directly are never clipped.
+    default_max_tokens: int = 4096
+
     # The default library — a self-contained, portable model store (models + their
     # own metadata under ``.kodo/``). Point ``KODO_LIBRARY_ROOT`` at it per machine
     # (e.g. an external drive). A project (``kodo.toml``) can compose additional

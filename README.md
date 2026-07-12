@@ -158,6 +158,7 @@ Precedence (high → low): CLI flags, `KODO_*` env vars, `kodo.toml`, `.env`,
 | `KODO_LIBRARY_ROOT` (or `library_root`)       | the library location (**required**) |
 | `KODO_OLLAMA_MODELS_DIR`, `KODO_LMSTUDIO_MODELS_DIR` | source caches to pull from    |
 | `KODO_HF_TOKEN`                               | HF token (uses your HF login if unset) |
+| `KODO_DEFAULT_MAX_TOKENS` (or `default_max_tokens`) | per-turn `/api/chat` generation cap (default 4096; `0` = unbounded) |
 
 ## Develop
 

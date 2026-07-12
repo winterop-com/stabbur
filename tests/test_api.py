@@ -298,6 +298,60 @@ async def test_api_chat_streams_tokens_and_tool_events(
         app.dependency_overrides.clear()
 
 
+async def test_api_chat_applies_default_max_tokens(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # /api/chat caps generation with the configured default when the client omits max_tokens
+    # (bounds a runaway small model), and honors an explicit value when given.
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    seen: list[int | None] = []
+
+    async def fake_run(
+        base: str, messages: list[dict[str, Any]], toolset: Any, max_tokens: int | None, *a: Any, **_: Any
+    ) -> str:
+        seen.append(max_tokens)
+        return "ok"
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    try:
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+        assert seen[-1] == 4096  # default cap applied when omitted
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "max_tokens": 128})
+        assert seen[-1] == 128  # explicit value wins
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_api_chat_default_max_tokens_zero_is_unbounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # default_max_tokens <= 0 disables the cap (unbounded), for power users who opt out.
+    inner = create_app(Settings(serve_model=None, default_max_tokens=0))
+
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    inner.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    seen: list[int | None] = []
+
+    async def fake_run(
+        base: str, messages: list[dict[str, Any]], toolset: Any, max_tokens: int | None, *a: Any, **_: Any
+    ) -> str:
+        seen.append(max_tokens)
+        return "ok"
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    transport = ASGITransport(app=inner)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        await c.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+    assert seen[-1] is None  # unbounded
+
+
 async def test_api_unload_stops_the_runtime(app: FastAPI, client: AsyncClient) -> None:
     # /api/unload ejects the model by calling manager.stop(), returning stopped status.
     stopped = {"n": 0}

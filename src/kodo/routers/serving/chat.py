@@ -139,6 +139,12 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
             rec = sampling.recommended(current)
             eff_temperature = req.temperature if req.temperature is not None else rec.temperature
             eff_top_p = req.top_p if req.top_p is not None else rec.top_p
+            # A client that omits max_tokens gets the configured default cap so a small model
+            # can't run away on a hard tool question and never emit a final answer; <= 0 disables it.
+            default_cap = request.app.state.settings.default_max_tokens
+            eff_max_tokens = (
+                req.max_tokens if req.max_tokens is not None else (default_cap if default_cap > 0 else None)
+            )
 
             async def produce() -> None:
                 try:
@@ -146,7 +152,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         base,
                         messages,
                         toolset,
-                        req.max_tokens,
+                        eff_max_tokens,
                         on_event,
                         on_token,
                         on_reasoning=on_reasoning,
