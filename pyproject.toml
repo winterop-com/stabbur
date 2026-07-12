@@ -33,8 +33,10 @@ dependencies = [
     "kodo-mcp-datetime",
     "kodo-mcp-exec",
     "kodo-mcp-files",
+    "kodo-mcp-git",
     "kodo-mcp-memory",
     "kodo-mcp-network",
+    "kodo-mcp-http",
     "kodo-mcp-search",
     "kodo-mcp-shell",
     "kodo-mcp-weather-yr",
@@ -130,8 +132,10 @@ members = ["packages/*"]
 kodo-mcp-datetime = { workspace = true }
 kodo-mcp-exec = { workspace = true }
 kodo-mcp-files = { workspace = true }
+kodo-mcp-git = { workspace = true }
 kodo-mcp-memory = { workspace = true }
 kodo-mcp-network = { workspace = true }
+kodo-mcp-http = { workspace = true }
 kodo-benchmark = { workspace = true }
 kodo-sandbox = { workspace = true }
 kodo-mcp-search = { workspace = true }

@@ -13,7 +13,7 @@ It lives at two levels that **merge**:
   (`kodo mcp add`). A project entry overrides a global one of the same name.
 
 The bundled first-party `kodo-mcp-*` servers (`datetime`, `utils`, `memory`,
-`weather-yr`, `search`, `files`, `exec`) are always available (base deps) and entered
+`weather-yr`, `search`, `files`, `git`, `exec`, `http`) are always available (base deps) and entered
 by package name. (The `benchmark` package is a dev tool and does *not* advertise itself
 as an assistant tool.) `kodo.toml` does **not** carry tools.
 
@@ -59,9 +59,21 @@ kodo bundles pure-stdlib/light plugins — always available:
 - **`files`** (`kodo-mcp-files`) — `list_files`, `read_file`, `search_files` under one configured
   root (`KODO_FILES_ROOT`, default the current directory). Every path is contained to the root
   (no `..` escapes); reads refuse binary/oversized files. Read-only unless `KODO_FILES_WRITABLE`.
+- **`git`** (`kodo-mcp-git`) — `git_status`, `git_log`, `git_diff`, `git_show`, `git_branches`,
+  `git_ls_files`, `git_blame` for **read-only** inspection of one repository (`KODO_GIT_REPO_ROOT`,
+  default the current directory). Each tool builds a fixed `git -C <root> …` argv (no arbitrary
+  subcommand passthrough, no `fetch`/`clone`/`push`), path args are contained to the repo (no `..`
+  escapes), and output is timeout- and size-capped. Writes are gated behind `KODO_GIT_ALLOW_WRITE`
+  (off by default; no mutating tool ships today).
 - **`exec`** (`kodo-mcp-exec`) — `run_python(code, stdin)` runs a snippet in a locked-down Docker
   sandbox (no network, read-only filesystem, capped memory/CPU/pids, timeout) and returns its
   output — a calculator / scratchpad. Needs a running Docker daemon.
+- **`http`** (`kodo-mcp-http`) — `http_get(url, headers?)` / `http_head(url, headers?)` fetch an
+  **allowlisted** URL (SSRF-guarded) and return its status, final URL, content-type, and body text
+  (capped). Fail-closed: the allowlist is empty by default, so nothing is reachable until you set
+  `KODO_MCP_HTTP_ALLOWLIST` (a host matches an entry exactly or as a subdomain). Private/loopback
+  hosts are refused, the connection is pinned to the vetted IP (anti-DNS-rebinding), and redirects
+  are re-vetted at every hop; `KODO_MCP_HTTP_ALLOW_PRIVATE=1` opts into internal hosts.
 
 One heavier first-party server is **optional**:
 

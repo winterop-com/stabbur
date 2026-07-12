@@ -29,12 +29,8 @@ CURATED: list[CuratedMcp] = [
         description="Fetch a URL and return its content as markdown.",
     ),
     # (No `time` server — the installed `datetime` plugin already covers time/timezone/calendar.)
-    CuratedMcp(
-        name="git",
-        command="uvx mcp-server-git --repository .",
-        description="Read and inspect a git repository.",
-        setup="point --repository at the repo (default: the current directory)",
-    ),
+    # (No `git` server — the bundled first-party `kodo-mcp-git` plugin covers read-only git
+    # inspection, sandboxed and dependency-light, so the external `mcp-server-git` is redundant.)
     CuratedMcp(
         name="sqlite",
         command="uvx mcp-server-sqlite --db-path ./data.db",

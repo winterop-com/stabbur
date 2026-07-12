@@ -20,6 +20,8 @@ members = [
     "kodo-mcp-datetime",
     "kodo-mcp-exec",
     "kodo-mcp-files",
+    "kodo-mcp-git",
+    "kodo-mcp-http",
     "kodo-mcp-memory",
     "kodo-mcp-network",
     "kodo-mcp-search",
@@ -1471,6 +1473,8 @@ dependencies = [
     { name = "kodo-mcp-datetime" },
     { name = "kodo-mcp-exec" },
     { name = "kodo-mcp-files" },
+    { name = "kodo-mcp-git" },
+    { name = "kodo-mcp-http" },
     { name = "kodo-mcp-memory" },
     { name = "kodo-mcp-network" },
     { name = "kodo-mcp-search" },
@@ -1533,6 +1537,8 @@ requires-dist = [
     { name = "kodo-mcp-datetime", editable = "packages/kodo-mcp-datetime" },
     { name = "kodo-mcp-exec", editable = "packages/kodo-mcp-exec" },
     { name = "kodo-mcp-files", editable = "packages/kodo-mcp-files" },
+    { name = "kodo-mcp-git", editable = "packages/kodo-mcp-git" },
+    { name = "kodo-mcp-http", editable = "packages/kodo-mcp-http" },
     { name = "kodo-mcp-memory", editable = "packages/kodo-mcp-memory" },
     { name = "kodo-mcp-network", editable = "packages/kodo-mcp-network" },
     { name = "kodo-mcp-search", editable = "packages/kodo-mcp-search" },
@@ -1643,6 +1649,42 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.2" },
     { name = "pluginkit", specifier = ">=0.4.7" },
     { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+]
+
+[[package]]
+name = "kodo-mcp-git"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-git" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "pluginkit" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+]
+
+[[package]]
+name = "kodo-mcp-http"
+version = "0.1.0"
+source = { editable = "packages/kodo-mcp-http" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "httpx" },
+    { name = "pluginkit" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
 ]
 
