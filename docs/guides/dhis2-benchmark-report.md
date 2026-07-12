@@ -1,13 +1,20 @@
-# DHIS2 benchmark report (read-only)
+# DHIS2 benchmark report
 
-Which local models can actually drive DHIS2? This report answers that with a reproducible
-benchmark: point each model at the **DHIS2 CLI bridge** and score whether it calls the tool
-and returns the right answer about a live instance. Bottom line up front:
+Which local models can actually drive DHIS2? This report answers that with two reproducible
+benchmarks against the **DHIS2 CLI bridge**: a **read-only** suite (does the model call the tool
+and return the right answer about a live instance?) and a **write** suite (can the model safely
+complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 
-> A **9B** model — `deepreinforce-ai/Ornith-1.0-9B-GGUF` — tops the leaderboard at a perfect
-> **12/12**, and is the **fastest** (~12s/problem) and **smallest** (5.2 GB) model to do so,
+> A **9B** model — `deepreinforce-ai/Ornith-1.0-9B-GGUF` — tops the **read-only** leaderboard at a
+> perfect **12/12**, and is the **fastest** (~12s/problem) and **smallest** (5.2 GB) model to do so,
 > beating the 27B and 31B models. You do not need a big model to run DHIS2 locally; you need one
 > that reliably calls tools.
+
+> **Writes are a different, much harder story.** No model tested is trustworthy for unattended
+> writes: the best writer completes only **4 of 7** lifecycles, size does not help (the read-only
+> champ collapses to **1/7**), and every model leaves residue on the runs it fails. This is why
+> writes ship behind a **per-action confirmation gate** — the human, not the model, is the safety
+> net. See "[Writes](#writes-create-update-delete)" below.
 
 !!! note "Re-verified 2026-07-12 (compact-JSON tool output)"
 
@@ -144,10 +151,107 @@ kodo benchmark leaderboard        # regenerates docs/benchmarks.md
 See [DHIS2 tools & profiles](dhis2.md) for the bridge tiers and prompts, and the
 [model catalog](model-catalog.md) for the models used here.
 
-## Not yet done: writes
+## Writes: create, update, delete
 
-This report covers **read-only** driving. A **write** suite (create / update / delete against a
-throwaway instance, `DHIS2_MCP_READONLY` off) is the natural next step, to see which models can
-*safely* mutate DHIS2. It is currently **blocked**: no local writable DHIS2 was reachable, and
-writes to the shared play demos are refused by design. Start a local instance, then add
-`tools-dhis2-write.toml` alongside this suite.
+The read-only suite above measures *reading* DHIS2. The **write** suite
+(`tools-dhis2-write`, `kodo benchmark run tools-dhis2-write`) measures whether a model can *safely
+mutate* it — the harder, higher-stakes half. Bottom line: it can't, not yet, not unattended.
+
+### What was measured
+
+Each of the 7 problems is a **self-cleaning lifecycle**: the model creates one or more metadata
+objects, optionally renames or links them, then **deletes everything it made**, so a passing run
+leaves the instance exactly as it found it. Every test object is prefixed `KODO_`, and the runner
+sweeps any residue between models — a model that abandons a lifecycle mid-way leaves orphaned
+objects behind, which is itself the primary failure signal. A problem passes only if the model
+calls the bridge **and** its final answer contains the instructed `LIFECYCLE_OK` token, which the
+prompt says to emit *only after every step (including the deletes) has succeeded* — so the token is
+a completion protocol, not a self-graded claim the runner takes on faith about individual steps.
+
+The bridge runs **read-write** (no `DHIS2_MCP_READONLY`) against a `local_basic` profile
+(`localhost:8080`, admin/district) — never a shared or production instance. Writes cannot target
+the public play demos: they are `DHIS2_MCP_PROTECTED_HOSTS` the bridge refuses writes to regardless
+of mode, so this suite requires a local writable DHIS2 (the blocker that once held it up is gone).
+The 7 problems, by difficulty:
+
+| Difficulty | Problem | Lifecycle |
+|---|---|---|
+| basics | `de-create-delete` | create a NUMBER data element, delete it |
+| basics | `ig-create-delete` | create an indicator group, delete it |
+| intermediate | `de-rename-delete` | create a data element, rename it, delete it |
+| intermediate | `deg-create-delete` | create a data element group, delete it |
+| advanced | `de-create-verify-delete` | create a data element, read it back by name for its UID, delete by UID |
+| advanced | `deg-add-member-delete` | create a data element **and** a group, add the element to the group, delete both |
+| expert | `indicator-create-delete` | resolve an existing indicator type's UID, create an indicator using it, delete it |
+
+### Write leaderboard
+
+Ranked by score, then speed. All six models are drawn from the tool-capable set above; write
+problems take **far longer** than reads (many tool round-trips per lifecycle — often 3-9 minutes
+per problem), so per-problem times are averages of long multi-step runs, not single calls.
+
+| Rank | Model | Score | Avg response/problem | Size |
+|---|---|---|---|---|
+| 1 | `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **4/7** | 265s | 6.7 GB |
+| 2 | `lmstudio-community/Qwen3.6-27B-GGUF` | 3/7 | 251s | 16.3 GB |
+| 2 | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` | 3/7 | 198s | 17.3 GB |
+| 4 | `unsloth/gpt-oss-20b-GGUF` | 2/7 | 218s | 10.8 GB |
+| 5 | `deepreinforce-ai/Ornith-1.0-9B-GGUF` | 1/7 | 315s | 5.2 GB |
+| 5 | `lmstudio-community/Qwen3.6-35B-A3B-GGUF` | 1/7 | 185s | — |
+
+### What the write results say
+
+**Nobody is safe to leave alone.** The best writer, the 12B gemma, completes 4 of 7 lifecycles;
+the rest land at 3, 2, or 1. Every model left residue on the runs it failed (incomplete deletes) —
+the exact behavior the sweep-between-models step exists to clean up. That is the core reason writes
+ship behind a **per-action confirmation gate**: at a ~57%-best completion rate with residue on the
+misses, the human approving each mutation is the safety mechanism, not the model's judgment.
+
+**Size does not help — and can hurt.** The 12B gemma out-writes every larger model. The two biggest
+tested tie-or-lose: the 27B dense manages 3/7 and the 35B-A3B MoE only 1/7, both over-generating,
+looping, and dropping the completion protocol on the multi-step problems. Most strikingly, the
+read-only champion — `Ornith-1.0-9B`, a flawless **12/12** on reads — **collapses to 1/7 on
+writes**, passing only the single create-then-delete. Reliable *reading* and reliable *mutating*
+are different skills; a model's read leaderboard rank does not predict its write behavior.
+
+**The multi-object step is the wall.** Per problem, every model clears the simple shapes and
+every model fails the compound ones:
+
+| Problem | difficulty | Models passing (of 6) |
+|---|---|---|
+| `de-create-delete` | basics | 4 |
+| `ig-create-delete` | basics | 4 |
+| `deg-create-delete` | intermediate | 3 |
+| `de-create-verify-delete` | advanced | 2 |
+| `de-rename-delete` | intermediate | 1 |
+| `deg-add-member-delete` | advanced | **0** |
+| `indicator-create-delete` | expert | **0** |
+
+A lone create+delete lands ~4/6. The moment a lifecycle adds a **second linked object**
+(`deg-add-member-delete`: create element + create group + link + delete both) or a **dependency
+resolution** (`indicator-create-delete`: look up an indicator type first, then use its UID), **no
+model completes it**. Even a mid-lifecycle **rename** (`de-rename-delete`) trips five of six. The
+failure is not the individual API call — it is holding a multi-step plan together through to the
+final deletes without losing the thread.
+
+### Reproduce it
+
+```bash
+# a read-write profile against a LOCAL, non-protected instance (never a shared demo)
+DHIS2_PASSWORD=district d2w profile add local_basic \
+  --url http://localhost:8080 --auth basic --username admin --verify
+
+# run the write suite across your tool-capable models
+kodo benchmark run tools-dhis2-write --all --save
+kodo benchmark leaderboard        # regenerates docs/benchmarks.md
+```
+
+The benchmark drives the bridge directly (auto-approving mutations) to measure raw model
+capability. In the interactive surfaces — `kodo serve --ui`, the Chrome side panel, and the
+Textual TUI — the same writes are instead **gated per action**: the assistant prompts the user to
+approve or deny each mutation before it runs (a declined call returns `error: user declined this
+action` and the model continues). The scripted one-shot `kodo chat -p` has no confirm channel, so
+it **fail-safe denies** gated writes unless `--allow-writes` is passed. See `CHROME.md` for the
+gate's design and the `ROADMAP.md` "DHIS2 write reliability" thread for what improves it next
+(stronger write models; the typed `dhis2w-mcp-router` so reads skip the prompt; verification that
+asserts real DHIS2 state, not just the `LIFECYCLE_OK` token).

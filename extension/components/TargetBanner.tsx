@@ -311,6 +311,12 @@ export function TargetBanner({
                   className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[var(--foreground)]"
                 >
                   <UserCheck className="h-3 w-3" /> Acting as {binding.username || "your account"} (your login)
+                  <span
+                    data-testid="bind-scope"
+                    className={binding.writes ? "text-amber-600" : "text-[var(--muted-foreground)]"}
+                  >
+                    - {binding.writes ? "writes enabled" : "read-only"}
+                  </span>
                 </span>
                 {recipe ? (
                   <button

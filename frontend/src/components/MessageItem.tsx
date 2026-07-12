@@ -3,6 +3,7 @@ import { FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatImage } from "@/components/ChatImage";
+import { ConfirmCard } from "@/components/ConfirmCard";
 import { CopyButton } from "@/components/CopyButton";
 import { Markdown } from "@/components/Markdown";
 import { SpeakButton } from "@/components/SpeakButton";
@@ -20,12 +21,15 @@ export function MessageItem({
   streaming,
   canRegenerate,
   onRegenerate,
+  onResolveConfirm,
   ttsVoice,
 }: {
   message: ChatMessage;
   streaming: boolean;
   canRegenerate: boolean;
   onRegenerate: () => void;
+  /** Approve/Deny a pending per-action write confirmation (does not abort the stream). */
+  onResolveConfirm: (id: string, approve: boolean) => void;
   ttsVoice?: string;
 }) {
   if (message.role === "user") {
@@ -82,6 +86,7 @@ export function MessageItem({
   }
 
   const hasTools = message.tools && message.tools.length > 0;
+  const hasConfirms = message.confirms && message.confirms.length > 0;
   const showCursor = streaming && !message.content;
 
   return (
@@ -108,6 +113,14 @@ export function MessageItem({
         </div>
       )}
 
+      {hasConfirms && (
+        <div className="mb-2 flex w-full flex-col gap-1.5">
+          {message.confirms!.map((c) => (
+            <ConfirmCard key={c.id} confirm={c} onResolve={onResolveConfirm} />
+          ))}
+        </div>
+      )}
+
       <div className={cn("w-full", message.error && "text-destructive")}>
         {message.error ? (
           <p className="text-sm">{message.content}</p>
@@ -116,7 +129,7 @@ export function MessageItem({
         ) : showCursor ? (
           <span className="inline-block h-4 w-2 animate-pulse rounded-sm bg-muted-foreground align-middle" />
         ) : (
-          !hasTools && <span className="text-sm text-muted-foreground">…</span>
+          !hasTools && !hasConfirms && <span className="text-sm text-muted-foreground">…</span>
         )}
       </div>
 

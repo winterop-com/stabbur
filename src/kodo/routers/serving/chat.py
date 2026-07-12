@@ -4,7 +4,8 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator
 from contextlib import suppress
-from typing import Any
+from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -70,6 +71,10 @@ class ChatRequest(BaseModel):
     # the project default; None (field absent) falls back to it. Lets a roleplay model
     # run with no assistant framing instead of being forced into "I'm an AI" refusals.
     system_prompt: str | None = None
+    # Per-action write-confirmation policy for this turn. ``None`` (absent) defers to the
+    # server default: "writes" for a non-readonly assistant, "none" for free-play / readonly
+    # (today's ungated behavior). "all" confirms every tool call, "none" gates nothing.
+    confirm_tools: Literal["all", "writes", "none"] | None = None
 
 
 @router.post("/api/chat")
@@ -105,6 +110,15 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     if system_prompt and not (messages and messages[0].get("role") == "system"):
         messages = [{"role": "system", "content": system_prompt}, *messages]
 
+    # Confirmation policy: an explicit request value wins; otherwise a non-readonly assistant
+    # gates writes, while free-play / a readonly assistant stays ungated ("none" = today's
+    # behavior: no confirm channel is wired at all).
+    assistant = getattr(request.app.state, "assistant", None)
+    default_policy: Literal["all", "writes", "none"] = (
+        "none" if (assistant is None or getattr(assistant, "readonly", True)) else "writes"
+    )
+    policy: Literal["all", "writes", "none"] = req.confirm_tools or default_policy
+
     async def events() -> AsyncGenerator[str, None]:
         # Bounded queue = backpressure: when a slow SSE consumer (browser) lets it fill, the
         # async sinks below block on `put`, which pauses agent.run's read from the runtime
@@ -120,6 +134,31 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
 
         async def on_reasoning(text: str) -> None:
             await queue.put({"type": "reasoning", "text": text})
+
+        async def on_confirm(name: str, args: dict[str, Any]) -> bool:
+            # Mint an unguessable id, register a future, and stream a "confirm" event; the client
+            # resolves it via POST /api/chat/confirm. Fail-safe: a timeout (or a cancelled stream)
+            # denies. The id is always popped and a "confirm_resolved" event emitted in `finally`.
+            cid = uuid4().hex
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[bool] = loop.create_future()
+            request.app.state.pending_confirmations[cid] = fut
+            await queue.put({"type": "confirm", "id": cid, "tool": name, "args": _cap_strings(args)})
+            reason = "user"
+            try:
+                return await asyncio.wait_for(fut, timeout=request.app.state.settings.confirm_timeout)
+            except asyncio.TimeoutError:
+                reason = "timeout"
+                return False
+            finally:
+                request.app.state.pending_confirmations.pop(cid, None)
+                approved = fut.done() and not fut.cancelled() and fut.result() is True
+                # put_nowait, not await: this runs in `finally`, including during a cancellation unwind
+                # (client disconnect) when the queue consumer has already stopped draining — an awaited
+                # put could then block the cancellation. The 512-slot queue has ample headroom, so this
+                # best-effort resolved-signal virtually always lands; a full queue just drops it.
+                with suppress(asyncio.QueueFull):
+                    queue.put_nowait({"type": "confirm_resolved", "id": cid, "approved": approved, "reason": reason})
 
         # Reserve the runtime for the whole stream so a load/unload can't swap or kill
         # it mid-generation; read the current model/URL *inside* the reservation.
@@ -165,6 +204,8 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         # (the launch path); harmless for llama-server / mlx-lm.
                         model=str(model_target) if model_target else None,
                         vision=model_vision,
+                        on_confirm=(on_confirm if policy != "none" else None),
+                        confirm_policy=policy,
                     )
                 except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                     await queue.put({"type": "error", "detail": str(exc)})
@@ -189,6 +230,29 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                     await task
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+class ConfirmRequest(BaseModel):
+    """Resolution for a pending /api/chat write-confirmation."""
+
+    id: str
+    approve: bool
+
+
+@router.post("/api/chat/confirm")
+async def chat_confirm(req: ConfirmRequest, request: Request) -> dict[str, bool]:
+    """Resolve a pending write-confirmation for the streaming agent loop.
+
+    The ``id`` is an unguessable server-minted uuid delivered only over the SSE stream (never
+    listed), so possessing it is the authorization to answer that specific gate; this route also
+    inherits the app-level cross-site + bearer guard on ``/api``. Unknown or already-resolved ids
+    (a double answer, or a stream that timed out / disconnected) 404 — the confirmation is gone.
+    """
+    fut = request.app.state.pending_confirmations.get(req.id)
+    if fut is None or fut.done():
+        raise HTTPException(status_code=404, detail="no pending confirmation")
+    fut.set_result(req.approve)
+    return {"ok": True}
 
 
 @router.post("/api/load/{name:path}")

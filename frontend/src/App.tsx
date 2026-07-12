@@ -6,6 +6,7 @@ import { ResizeHandle } from "@/components/ui/resizable";
 
 import {
   buildContent,
+  confirmAction,
   getDoctor,
   getLibrary,
   getStatus,
@@ -53,7 +54,7 @@ import {
   uid,
   type Settings,
 } from "@/lib/store";
-import type { Attachment, ChatMessage, Conversation, ToolMarker } from "@/lib/types";
+import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
 import { useTheme } from "@/lib/useTheme";
 
@@ -501,6 +502,39 @@ export function App() {
                 m.id === assistantId ? { ...m, tools: [...(m.tools ?? []), marker] } : m,
               ),
             }));
+          } else if (evt.type === "confirm") {
+            // The server is holding a write tool call: surface an Approve/Deny card. Do NOT abort
+            // the stream — the server resumes and streams the tool result once a decision lands.
+            const pending: PendingConfirm = { id: evt.id, tool: evt.tool, args: evt.args, status: "pending" };
+            upsertConv(convId, (c) => ({
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === assistantId ? { ...m, confirms: [...(m.confirms ?? []), pending] } : m,
+              ),
+            }));
+          } else if (evt.type === "confirm_resolved") {
+            // A user decision clears the card (the tool call/result chips carry it forward); a
+            // timeout leaves an auto-denied note so the outcome stays visible.
+            upsertConv(convId, (c) => ({
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      confirms:
+                        evt.reason === "timeout"
+                          ? m.confirms?.map((cf) =>
+                              cf.id === evt.id
+                                ? { ...cf, status: "resolved", approved: evt.approved, reason: "timeout" }
+                                : cf,
+                            )
+                          : m.confirms?.filter((cf) => cf.id !== evt.id),
+                    }
+                  : m,
+              ),
+            }));
           } else if (evt.type === "error") {
             upsertConv(convId, (c) => ({
               ...c,
@@ -525,6 +559,16 @@ export function App() {
           }));
         }
       } finally {
+        // The stream is over: strip any confirmation still awaiting a decision (nothing will
+        // resolve it now), keeping only resolved ones (e.g. an auto-denied timeout note).
+        upsertConv(convId, (c) => ({
+          ...c,
+          messages: c.messages.map((m) => {
+            if (m.id !== assistantId || !m.confirms?.length) return m;
+            const kept = m.confirms.filter((cf) => cf.status === "resolved");
+            return { ...m, confirms: kept.length ? kept : undefined };
+          }),
+        }));
         setStreamingConvId(null);
         abortRef.current = null;
       }
@@ -608,6 +652,33 @@ export function App() {
   }, [isStreaming, ready, status?.model, activeConv, upsertConv, runCompletion]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
+
+  // Approve/Deny a pending per-action confirmation. Optimistically flips the card to resolved so
+  // the buttons disable immediately; the server's confirm_resolved echo then removes it. The stream
+  // is NOT aborted — the server resumes and streams the tool result. Located by confirm id across
+  // conversations (only the in-flight assistant turn ever carries a pending one).
+  const resolveConfirm = useCallback((id: string, approve: boolean) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.messages.some((m) => m.confirms?.some((cf) => cf.id === id))
+          ? {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.confirms?.some((cf) => cf.id === id)
+                  ? {
+                      ...m,
+                      confirms: m.confirms.map((cf) =>
+                        cf.id === id ? { ...cf, status: "resolved", approved: approve, reason: "user" } : cf,
+                      ),
+                    }
+                  : m,
+              ),
+            }
+          : c,
+      ),
+    );
+    void confirmAction(id, approve).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
 
   // --- autoscroll: stick to bottom unless the user scrolled up ---
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -976,6 +1047,7 @@ export function App() {
                       streaming={activeStreaming && i === messages.length - 1 && m.role === "assistant"}
                       canRegenerate={!activeStreaming && i === lastAssistantIndex}
                       onRegenerate={regenerate}
+                      onResolveConfirm={resolveConfirm}
                       ttsVoice={effectiveTtsVoice}
                     />
                   ))}

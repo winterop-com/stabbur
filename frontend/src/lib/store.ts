@@ -58,8 +58,16 @@ export function loadConversations(): Conversation[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Conversation[];
     if (!Array.isArray(parsed)) return [];
-    // Back-fill settings for conversations saved before they were per-conversation.
-    return parsed.map((c) => ({ ...c, settings: normalizeSettings(c.settings) }));
+    // Back-fill settings for conversations saved before they were per-conversation, and drop any
+    // still-pending confirmations: they belong to a stream that no longer exists (a reload mid-stream),
+    // so their Approve/Deny buttons would post an id the server already dropped. Resolved notes stay.
+    return parsed.map((c) => ({
+      ...c,
+      settings: normalizeSettings(c.settings),
+      messages: c.messages.map((m) =>
+        m.confirms ? { ...m, confirms: m.confirms.filter((cf) => cf.status !== "pending") } : m,
+      ),
+    }));
   } catch {
     return [];
   }

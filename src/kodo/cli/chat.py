@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import httpx
 import typer
@@ -28,7 +28,25 @@ from kodo.cli._common import (
 from kodo.config import get_settings
 
 if TYPE_CHECKING:
+    from kodo import agent
     from kodo.chat_tui.app import RemoteEndpoint
+
+
+def _confirm_policy(proj: "project.Project | None") -> Literal["all", "writes", "none"]:
+    """The tool-confirmation policy for a session, derived from the project's assistant.
+
+    A write-enabled assistant (an ``[assistant]`` block that is not ``readonly``) gates its
+    non-read-only tool calls behind confirmation (``"writes"``); no project, no assistant, or a
+    read-only assistant gates nothing (``"none"`` — identical to the pre-confirmation behavior).
+    """
+    if proj is None or proj.assistant is None or proj.assistant.readonly:
+        return "none"
+    return "writes"
+
+
+async def _approve_all(name: str, args: dict[str, Any]) -> bool:
+    """A confirmation sink that approves every gated call (the ``--allow-writes`` opt-out)."""
+    return True
 
 
 @app.command()
@@ -76,6 +94,14 @@ def chat(
         bool,
         typer.Option("--raw", help="With -p, never render markdown; print raw text even to a terminal."),
     ] = False,
+    allow_writes: Annotated[
+        bool,
+        typer.Option(
+            "--allow-writes",
+            help="Auto-approve tool write-confirmations in this non-interactive run (a project with a "
+            "write-enabled assistant otherwise DENIES un-confirmable writes).",
+        ),
+    ] = False,
 ) -> None:
     """Chat with a library model: full-screen TUI, one-shot with ``-p``, tools with ``--mcp``.
 
@@ -88,6 +114,11 @@ def chat(
     """
     proj = project.load()
     model_name = project.resolve_model(name, proj)
+    # A write-enabled project assistant gates non-read-only tool calls. In this non-interactive
+    # one-shot there is no human to confirm, so a gated call is DENIED unless --allow-writes
+    # supplies a blanket auto-approve sink (with no project / no assistant / a read-only one the
+    # policy is "none" — nothing is gated, identical to today).
+    confirm_policy = _confirm_policy(proj)
     # Attach to a running server (--server > KODO_CHAT_SERVER / machine config) instead of
     # spawning a runtime — the interactive TUI and one-shot -p both. For the interactive
     # attach the model may exist only on the server, so local resolution is best-effort
@@ -162,7 +193,17 @@ def chat(
         else:
             assert model is not None
             _chat_with_tools(
-                model, mcp_servers, prompt, max_tokens, system_prompt, images, audios, base_url, render=render
+                model,
+                mcp_servers,
+                prompt,
+                max_tokens,
+                system_prompt,
+                images,
+                audios,
+                base_url,
+                render=render,
+                on_confirm=_approve_all if allow_writes else None,
+                confirm_policy=confirm_policy,
             )
     except (RuntimeError, httpx.HTTPError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
@@ -342,6 +383,8 @@ def _chat_with_tools(
     audios: list[str] | None = None,
     base_url: str | None = None,
     render: bool = False,
+    on_confirm: "agent.ConfirmSink | None" = None,
+    confirm_policy: Literal["all", "writes", "none"] = "none",
 ) -> None:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
@@ -456,6 +499,8 @@ def _chat_with_tools(
                 repeat_penalty=rec.repeat_penalty,
                 model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
                 vision=model_vision,
+                on_confirm=on_confirm,
+                confirm_policy=confirm_policy,
             )
             _first_output()
             if render:

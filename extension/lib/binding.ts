@@ -21,6 +21,9 @@ export interface Binding {
   cookieName?: string;
   /** PAT mode: absolute epoch ms the token expires (for the "expired — rebind?" hint). */
   expiresAt?: number;
+  /** Whether the binding was granted write authority (PAT minted with the full method set, or a
+   *  session bind with writes allowed). Optional/absent on older stored bindings -> read-only. */
+  writes?: boolean;
 }
 
 function key(backendId: string): string {

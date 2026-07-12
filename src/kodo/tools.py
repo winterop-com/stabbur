@@ -170,6 +170,7 @@ class MCPToolset:
     def __init__(self) -> None:
         self.schemas: list[dict[str, Any]] = []
         self._owner: dict[str, tuple[Client, str]] = {}  # qualified name → (client, tool name)
+        self._readonly: dict[str, bool] = {}  # qualified name → is-known-read-only (fail-safe False)
         self.errors: list[tuple[str, str]] = []  # (server label, error) for servers that failed to start
 
     async def add(self, client: Client, prefix: str) -> None:
@@ -182,11 +183,24 @@ class MCPToolset:
             schema["function"]["name"] = qualified
             self.schemas.append(schema)
             self._owner[qualified] = (client, tool.name)
+            # readOnlyHint (MCP ToolAnnotations) drives the confirmation gate. None/False/missing all
+            # map to False = "NOT known read-only" = treat as a write that needs confirmation (fail-safe);
+            # only an explicit ``readOnlyHint == True`` yields True.
+            self._readonly[qualified] = bool(getattr(getattr(tool, "annotations", None), "readOnlyHint", None))
 
     @property
     def names(self) -> list[str]:
         """Names of the available (namespaced) tools."""
         return [s["function"]["name"] for s in self.schemas]
+
+    def is_readonly(self, name: str) -> bool:
+        """Whether a namespaced tool is known read-only (its ``readOnlyHint`` annotation was True).
+
+        Fail-safe: an unknown tool, or one with no annotation, returns ``False`` = treat it as a
+        write that needs confirmation. Only an explicit ``readOnlyHint == True`` (recorded in
+        :meth:`add`) yields ``True``, so a missing/ambiguous hint never silently skips the gate.
+        """
+        return self._readonly.get(name, False)
 
     def subset(self, names: set[str]) -> "MCPToolset":
         """A view restricted to ``names`` — for both display *and* execution.
@@ -194,10 +208,13 @@ class MCPToolset:
         Routing (``_owner``) is filtered too, not just ``schemas``: a tool the user disabled must
         not run even if the model calls it from memory/hallucination — ``call()`` returns an
         "unknown tool" error for anything outside the subset (a real consent control, not display-only).
+        The read-only annotations (``_readonly``) are filtered alongside so a narrowed view keeps the
+        confirmation-gate metadata for the tools it keeps.
         """
         view = MCPToolset()
         view._owner = {k: v for k, v in self._owner.items() if k in names}
         view.schemas = [s for s in self.schemas if s["function"]["name"] in names]
+        view._readonly = {k: v for k, v in self._readonly.items() if k in names}
         return view
 
     async def call(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> ToolResult:

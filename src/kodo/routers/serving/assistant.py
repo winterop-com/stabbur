@@ -89,10 +89,14 @@ class AssistantResponse(BaseModel):
 
 
 class BindRequest(BaseModel):
-    """A request to install a bound credential: which mode to run, and the secret to hand it."""
+    """A request to install a bound credential: which mode to run, and the secret(s) to hand it."""
 
     mode: str
     secret: str
+    extra_secret: str | None = None
+    """An optional secondary secret (e.g. a CSRF token alongside a session cookie), handed to the
+    mode's ``extra_secret_env`` when it declares one. Same size cap as ``secret``; never placed on the
+    argv or in logs (redacted from captured output). Ignored when the mode has no ``extra_secret_env``."""
 
 
 class UnbindRequest(BaseModel):
@@ -231,14 +235,23 @@ def _template_argv(argv: list[str], info: AssistantInfo) -> list[str]:
 
 
 async def _run_mode(
-    request: Request, argv: list[str], *, secret_env: str | None, secret: str, timeout: float
+    request: Request,
+    argv: list[str],
+    *,
+    secret_env: str | None,
+    secret: str,
+    extra_secret_env: str | None = None,
+    extra_secret: str | None = None,
+    timeout: float,
 ) -> BindResult:
     """Run a bind/unbind mode's argv once, serialized on ``app.state.assistant_bind_lock``.
 
     The secret (bind only) is passed via ``secret_env`` in the child env, never on the argv, and every
     literal occurrence of the secret string is redacted from the captured output (encoded copies are
-    not covered). A timeout kills the whole process group and reports ok=False. On success the verify
-    cache is invalidated so the panel re-probes the freshly-bound session.
+    not covered). A mode may declare a second env var (``extra_secret_env``); when the caller also
+    supplies ``extra_secret`` it is exported the same way and redacted too. A timeout kills the whole
+    process group and reports ok=False. On success the verify cache is invalidated so the panel
+    re-probes the freshly-bound session.
     """
     state = request.app.state
     lock: asyncio.Lock | None = getattr(state, "assistant_bind_lock", None)
@@ -248,6 +261,8 @@ async def _run_mode(
     env = {**os.environ}
     if secret_env is not None:
         env[secret_env] = secret
+    if extra_secret_env is not None and extra_secret:
+        env[extra_secret_env] = extra_secret
     async with lock:
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -273,8 +288,9 @@ async def _run_mode(
             await proc.wait()
             exit_code, stdout, ok = proc.returncode, "", False
             stderr = f"bind command timed out after {timeout}s"
-        if secret:
-            stdout, stderr = stdout.replace(secret, "***"), stderr.replace(secret, "***")
+        for value in (secret, extra_secret):
+            if value:
+                stdout, stderr = stdout.replace(value, "***"), stderr.replace(value, "***")
         if ok:
             state.assistant_verified = None  # a new/removed credential changes what verify would report
         return BindResult(ok=ok, exit_code=exit_code, stdout=stdout, stderr=stderr)
@@ -303,8 +319,18 @@ async def assistant_bind(request: Request, body: BindRequest) -> BindResult:
         raise HTTPException(status_code=400, detail="secret is required")
     if len(body.secret) > _MAX_SECRET:
         raise HTTPException(status_code=400, detail=f"secret exceeds {_MAX_SECRET} characters")
+    if body.extra_secret is not None and len(body.extra_secret) > _MAX_SECRET:
+        raise HTTPException(status_code=400, detail=f"extra_secret exceeds {_MAX_SECRET} characters")
     argv = _template_argv(spec.command, info)
-    return await _run_mode(request, argv, secret_env=spec.secret_env, secret=body.secret, timeout=spec.timeout)
+    return await _run_mode(
+        request,
+        argv,
+        secret_env=spec.secret_env,
+        secret=body.secret,
+        extra_secret_env=spec.extra_secret_env,
+        extra_secret=body.extra_secret,
+        timeout=spec.timeout,
+    )
 
 
 @router.post("/api/assistant/unbind")

@@ -51,8 +51,17 @@ async function postToTarget(target: BindTarget, path: string, body: Record<strin
  * mid-mint backend switch can't misroute the token) and the background worker (target built
  * from stored settings).
  */
-export function postBindTo(target: BindTarget, mode: string, secret: string): Promise<BindApiResult> {
-  return postToTarget(target, "/api/assistant/bind", { mode, secret });
+export function postBindTo(
+  target: BindTarget,
+  mode: string,
+  secret: string,
+  extraSecret?: string,
+): Promise<BindApiResult> {
+  const body: Record<string, unknown> = { mode, secret };
+  // A session-mode write bind ships the captured XSRF token here (kodo redacts it too), so the
+  // bound child can satisfy DHIS2's CSRF check on writes. Omitted for reads and the PAT path.
+  if (extraSecret) body.extra_secret = extraSecret;
+  return postToTarget(target, "/api/assistant/bind", body);
 }
 
 /** Reverse a bound credential by running the mode's unbind_command (on the active backend). */

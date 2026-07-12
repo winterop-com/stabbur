@@ -205,6 +205,12 @@ class Settings(BaseSettings):
     # untouched, so power users hitting the runtime directly are never clipped.
     default_max_tokens: int = 4096
 
+    # How long a pending write-confirmation (the /api/chat per-action gate) waits for the user
+    # to approve or decline before auto-denying, in seconds. Set via ``KODO_CONFIRM_TIMEOUT``.
+    # Bounds a confirm the user never answers (a closed tab, a walked-away session) so the gated
+    # tool call fails safe instead of holding the agent loop open indefinitely.
+    confirm_timeout: int = 300
+
     # The default library — a self-contained, portable model store (models + their
     # own metadata under ``.kodo/``). Point ``KODO_LIBRARY_ROOT`` at it per machine
     # (e.g. an external drive). A project (``kodo.toml``) can compose additional

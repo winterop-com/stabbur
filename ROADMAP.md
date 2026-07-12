@@ -24,12 +24,36 @@ on PyPI, so `uvx dhis2w-mcp-bridge` and `d2w profile add --auth session` work ou
 tool-account identity labels, compact collapsed tool-result chips, and a Settings backend switcher.
 The whole bind flow is covered live against play42 (`extension/e2e/live/live.spec.ts`).
 
+**Round 3 shipped (2026-07-12): writes, gated.** The round-2 "writes last, behind explicit
+per-action confirmation" plan is now implemented. A **per-action confirmation gate** fronts every
+mutating tool call across all chat surfaces (web `serve --ui`, the Chrome side panel, the Textual
+TUI): a write-enabled assistant prompts Approve/Deny before each gated call, and a declined call
+returns `error: user declined this action` so the model continues. Backend: an awaitable
+`on_confirm` in the agent loop, a `confirm`/`confirm_resolved` SSE event pair, and `POST
+/api/chat/confirm` resolving a per-generation future (300s -> auto-deny, `KODO_CONFIRM_TIMEOUT`).
+The scripted `kodo chat -p` has no confirm channel, so it **fail-safe denies** gated writes unless
+`--allow-writes` is passed. The gate is **generic and fail-safe**: kodo reads each MCP tool's
+`readOnlyHint` and requires confirmation for any tool not marked read-only, defaulting
+**unannotated** tools to needs-confirmation; the policy is a tri-state `all|writes|none` that
+defaults from the assistant (readonly/free-play -> `none`, write-enabled -> `writes`). No DHIS2
+logic entered kodo core. On the DHIS2 side: the **write bind** mints a `methods_full` PAT when the
+assistant is write-enabled (the binding records read-vs-write scope, shown in the extension's
+Acting-as chip), and the session-cookie fallback may also write (a session credential can't be
+method-scoped, so the confirmation gate is its guardrail). CSRF: an optional `X-XSRF-TOKEN`
+double-submit — the extension captures the `XSRF-TOKEN` cookie at a session-write bind and passes
+it via `DHIS2_SESSION_XSRF` into the stored d2w profile (shipped in dhis2w across v41/v42/v43);
+inert when the instance doesn't issue the cookie, so it only future-proofs a hardened one. Live
+write tests run against a local/non-protected instance (play42 refuses writes as a
+`DHIS2_MCP_PROTECTED_HOSTS` host); coverage is mock e2e + the `tools-dhis2-write` benchmark
+(`docs/guides/dhis2-benchmark-report.md`).
+
 Open follow-ups, roughly in order:
 
-- **Write-enabling consent (round 3)** — extend the bind consent to mint a read-write PAT
-  (`methods_full`, the `bind-allow-writes` toggle is already wired for a non-readonly assistant),
-  behind explicit per-action confirmation, PAT/profile channel only, never ambient cookies; mind
-  DHIS2 CSRF. Pair with the write-reliability work below.
+- **Reads also prompt under the single-tool bridge (the next write-UX step).** The default
+  `dhis2w-mcp-bridge` exposes one **unannotated** tool (`dhis2_cli`), so under a write-enabled
+  assistant the fail-safe gate prompts on **every** dhis2 call — reads included, not just
+  mutations. The remedy is the typed `dhis2w-mcp-router`, whose per-operation `readOnlyHint` lets
+  reads skip the prompt and only writes confirm. Pair with the write-reliability work below.
 - **MCP resource for the target** — now unblocked: **dhis2w 1.0.0 has shipped**. Add a
   `dhis2://target` resource to `dhis2w-mcp-bridge` + a generic MCP-resource proxy in kodo,
   replacing the `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
@@ -56,12 +80,19 @@ Small local models drive DHIS2 **reads** near-perfectly but **writes are much ha
 multi-step create→(rename/link)→delete→confirm lifecycle trips them up, and every model tested left
 residue (incomplete deletes). Size does not help — the 12B gemma is the best writer, while the two
 biggest tested (27B dense, 35B-A3B MoE) tie-or-lose and leave the most residue (they over-generate,
-loop, and drop the completion protocol). Full results: `docs/guides/dhis2-benchmark-report.md`. Even
-the best isn't yet trustworthy for unattended writes; the `dhis2-write` project keeps a small default
-and notes gemma-4-12B as the stronger write driver.
+loop, and drop the completion protocol). Full results (per-model scores + the
+per-problem failure matrix): `docs/guides/dhis2-benchmark-report.md`. Even the best isn't yet
+trustworthy for unattended writes; the `dhis2-write` project keeps a small default and notes
+gemma-4-12B as the stronger write driver.
 
-Next: stronger write models; a guarded write chokepoint (`dhis2w-mcp-router` read-only-by-default);
-and richer verification that asserts real DHIS2 state, not just a `LIFECYCLE_OK` completion token.
+The current answer to "not trustworthy unattended" is the **round-3 per-action confirmation gate**
+(above): writes only run once the human approves each mutation, so the model's ~57%-best completion
+rate is fronted by a person rather than trusted. That is the guardrail, not the fix.
+
+Next: stronger write models; the typed `dhis2w-mcp-router` as a guarded chokepoint
+(read-only-by-default, per-op `readOnlyHint`) so reads stop prompting and the gate narrows to real
+mutations; and richer verification that asserts real DHIS2 state, not just a `LIFECYCLE_OK`
+completion token.
 
 ## Open issues
 
@@ -140,5 +171,6 @@ Chrome extension (side panel, shadcn chat)
 2. **Phase 2 — DHIS2 + Chrome extension** [built 2026-07-10, pending review]: the MV3 side-panel
    extension at `extension/`, including page-context and session reads (see the top of this file +
    `CHROME.md`).
-3. **Later** — read-only PAT-minting ("Use my login") shipped in round 2; next is writes, then
-   page-actions via `dhis2w-browser`; packaging/stores.
+3. **Later** — read-only PAT-minting ("Use my login") shipped in round 2; gated writes (per-action
+   confirmation + write bind + CSRF double-submit) shipped in round 3; next is page-actions via
+   `dhis2w-browser`; packaging/stores.

@@ -291,8 +291,8 @@ def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, A
     profile, and the secret is handed over via its ``secret_env``.
     """
 
-    def _mode(auth: str, secret_env: str) -> dict[str, Any]:
-        return {
+    def _mode(auth: str, secret_env: str, extra_secret_env: str | None = None) -> dict[str, Any]:
+        mode: dict[str, Any] = {
             "command": ["d2w", "profile", "add", profile, "--url", "{base_url}", "--auth", auth, "--local"],
             "secret_env": secret_env,
             "unbind_command": ["d2w", "profile", "remove", profile, "--local"],
@@ -300,6 +300,9 @@ def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, A
                 "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
             ),
         }
+        if extra_secret_env is not None:
+            mode["extra_secret_env"] = extra_secret_env
+        return mode
 
     return {
         "name": profile,
@@ -337,7 +340,9 @@ def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, A
             "session_cookie": "JSESSIONID",
             "modes": {
                 "pat": _mode("pat", "DHIS2_PAT"),
-                "session": _mode("session", "DHIS2_SESSION_COOKIE"),
+                # A session bind carries the JSESSIONID cookie plus the CSRF token DHIS2 requires on
+                # writes; the extra secret rides into the stored d2w profile via DHIS2_SESSION_XSRF.
+                "session": _mode("session", "DHIS2_SESSION_COOKIE", extra_secret_env="DHIS2_SESSION_XSRF"),
             },
         },
     }

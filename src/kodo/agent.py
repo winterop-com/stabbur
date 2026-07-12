@@ -7,7 +7,7 @@ the results back, and repeats until the model answers with plain text.
 import json
 from collections.abc import Awaitable, Callable
 from inspect import isawaitable
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -26,6 +26,23 @@ TokenSink = Callable[[str], None | Awaitable[None]]
 # on_usage(usage) receives the server's token accounting for a turn (OpenAI `usage`:
 # prompt_tokens / completion_tokens / total_tokens) so a REPL can show context used.
 UsageSink = Callable[[dict[str, Any]], None]
+# on_confirm(name, args) is consulted before a gated tool call runs; it returns whether the user
+# approved the action. Async-only (the /api/chat + UI path awaits a user decision over a channel),
+# so the loop can suspend on it — a missing sink is treated as a denial (fail-safe) at the gate.
+ConfirmSink = Callable[[str, dict[str, Any]], Awaitable[bool]]
+
+
+def _needs_confirm(policy: Literal["all", "writes", "none"], toolset: MCPToolset, name: str) -> bool:
+    """Whether a tool call must be confirmed under ``policy``.
+
+    ``"all"`` gates every call; ``"writes"`` gates only tools not known read-only (fail-safe —
+    an unknown/unannotated tool is treated as a write); anything else (``"none"``) gates nothing.
+    """
+    if policy == "all":
+        return True
+    if policy == "writes":
+        return not toolset.is_readonly(name)
+    return False
 
 
 async def _emit(sink: Callable[..., None | Awaitable[None]] | None, *args: Any) -> None:
@@ -146,6 +163,8 @@ async def run(
     on_usage: UsageSink | None = None,
     tool_timeout: float | None = None,
     vision: bool = False,
+    on_confirm: ConfirmSink | None = None,
+    confirm_policy: Literal["all", "writes", "none"] = "none",
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -161,6 +180,12 @@ async def run(
     ``vision`` is set when the model can see images: an image a tool returns (e.g. a
     screenshot) is then fed back as a follow-up user image message so the model reads it
     as multimodal input; a text-only model instead gets a note that an image was returned.
+    ``confirm_policy`` gates tool execution behind ``on_confirm``: ``"none"`` (default) runs
+    every tool as before; ``"writes"`` confirms only tools not known read-only (via each tool's
+    ``readOnlyHint`` annotation — an unannotated tool is treated as a write); ``"all"`` confirms
+    every call. When a call is gated, ``on_confirm(name, args)`` is awaited for approval; if it
+    returns falsy (or no ``on_confirm`` is supplied — fail-safe deny), the tool is NOT run and the
+    model gets a ``tool`` turn whose text is exactly ``error: user declined this action``.
     """
     if tool_timeout is None:
         from kodo.config import get_settings  # noqa: PLC0415 - lazy to keep agent import light
@@ -224,10 +249,20 @@ async def run(
                         text=f"error: could not parse tool arguments as JSON ({exc}); resend valid JSON."
                     )
                 else:
-                    try:
-                        result = await toolset.call(c["name"], args, timeout=tool_timeout)
-                    except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) to the model
-                        result = ToolResult(text=f"error: {exc}")
+                    if _needs_confirm(confirm_policy, toolset, c["name"]):
+                        # Gated action: no confirmation channel means deny (fail-safe); otherwise ask.
+                        approved = await on_confirm(c["name"], args) if on_confirm is not None else False
+                    else:
+                        approved = True
+                    if not approved:
+                        # Declined: skip the side-effecting call but still give the model a tool turn
+                        # (mirroring the error-branch shape) so the loop continues with a clear signal.
+                        result = ToolResult(text="error: user declined this action")
+                    else:
+                        try:
+                            result = await toolset.call(c["name"], args, timeout=tool_timeout)
+                        except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) to the model
+                            result = ToolResult(text=f"error: {exc}")
                 display = result.text + (f"  [+{len(result.images)} image(s)]" if result.images else "")
                 await _emit(on_event, "result", display)
                 content = result.text

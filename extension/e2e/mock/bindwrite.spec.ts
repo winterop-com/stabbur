@@ -1,0 +1,155 @@
+// Write-scoped "Use my login" binds. A writable assistant surfaces an "allow writes" toggle;
+// enabling it records a write-scoped binding (PAT minted with the full method set) that
+// TargetBanner reflects as "writes enabled". A session-mode write bind additionally captures the
+// XSRF token and ships it to kodo as `extra_secret`.
+
+import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { KodoMock, TargetSiteMock, bindAssistant } from "../mockServer";
+import type { BrowserContext, Page } from "@playwright/test";
+
+const kodo = new KodoMock();
+const target = new TargetSiteMock();
+
+test.beforeAll(async () => {
+  await kodo.start();
+  await target.start();
+});
+test.afterAll(async () => {
+  await kodo.stop();
+  await target.stop();
+});
+test.beforeEach(() => {
+  kodo.reset();
+  kodo.state.phase = "ready";
+  target.reset();
+});
+
+/** A writable (readonly:false) DHIS2-style assistant pointed at the target site. */
+function writableAssistant(baseUrl: string): Record<string, unknown> {
+  return { ...bindAssistant(baseUrl), readonly: false };
+}
+
+/** A writable, session-only assistant (no PAT mint recipe -> flow opens at the session fallback). */
+function sessionOnlyAssistant(baseUrl: string): Record<string, unknown> {
+  const a = writableAssistant(baseUrl);
+  const bind = { ...(a.bind as Record<string, unknown>) };
+  delete bind.mint_mode;
+  delete bind.mint_path;
+  delete bind.mint_payload;
+  bind.modes = ["session"];
+  a.bind = bind;
+  return a;
+}
+
+async function openWithTargetTab(context: BrowserContext, extensionId: string): Promise<{ panel: Page; tab: Page }> {
+  await seedSettings(context, extensionId, { baseUrl: kodo.baseUrl(), token: "" });
+  const panel = await openPanel(context, extensionId);
+  await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
+  const tab = await context.newPage();
+  await tab.goto(`${target.baseUrl()}/dhis`);
+  await tab.bringToFront();
+  await expect(panel.getByTestId("bind-use-my-login")).toBeVisible({ timeout: 15_000 });
+  return { panel, tab };
+}
+
+/** Best-effort grant of the extension's optional `cookies` permission (already-held host origin +
+ *  cookies). Returns false if the (flaky, headless) permission prompt does not resolve. */
+async function grantCookies(panel: Page, origin: string): Promise<boolean> {
+  const pattern = `${origin}/*`;
+  if (await panel.evaluate((p) => chrome.permissions.contains({ permissions: ["cookies"], origins: [p] }), pattern))
+    return true;
+  await panel.evaluate((p) => {
+    const b = document.createElement("button");
+    b.id = "__grant_cookies";
+    b.textContent = "grant cookies"; // needs text + size or Playwright's click never finds it actionable
+    b.style.cssText = "position:fixed;bottom:0;left:0;z-index:9999;width:140px;height:32px";
+    b.addEventListener("click", () => {
+      void chrome.permissions.request({ permissions: ["cookies"], origins: [p] }).then((g) => {
+        (window as unknown as { __cookiesGranted?: boolean }).__cookiesGranted = g;
+      });
+    });
+    document.body.appendChild(b);
+  }, pattern);
+  await panel
+    .locator("#__grant_cookies")
+    .click({ timeout: 10_000 })
+    .catch(() => {});
+  const granted = await Promise.race([
+    panel
+      .waitForFunction(() => (window as unknown as { __cookiesGranted?: boolean }).__cookiesGranted === true, {
+        timeout: 20_000,
+      })
+      .then(() => true)
+      .catch(() => false),
+    new Promise<boolean>((r) => setTimeout(() => r(false), 22_000)),
+  ]);
+  if (granted) await panel.evaluate(() => document.getElementById("__grant_cookies")?.remove()).catch(() => {});
+  return granted;
+}
+
+test("a PAT write bind records write scope and TargetBanner shows 'writes enabled'", async ({
+  context,
+  extensionId,
+}) => {
+  kodo.state.assistant = writableAssistant(target.baseUrl());
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+
+  await panel.getByTestId("bind-use-my-login").click();
+  await expect(panel.getByTestId("bind-consent")).toBeVisible();
+  // A writable assistant offers the write toggle; enable it before minting.
+  await panel.getByTestId("bind-allow-writes").check();
+  await panel.getByTestId("bind-confirm").click();
+
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled");
+
+  // The full method set reached the target's mint endpoint (write scope was requested).
+  expect(target.mintCalls.length).toBeGreaterThan(0);
+  expect(target.mintCalls[0]).toContain("DELETE");
+  await tab.close();
+});
+
+test("a read-only PAT bind shows read-only scope, no writes", async ({ context, extensionId }) => {
+  kodo.state.assistant = writableAssistant(target.baseUrl());
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+
+  await panel.getByTestId("bind-use-my-login").click();
+  // Leave "allow writes" unchecked -> read-only mint.
+  await panel.getByTestId("bind-confirm").click();
+
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByTestId("bind-scope")).toContainText("read-only");
+  expect(target.mintCalls[0]).not.toContain("DELETE");
+  await tab.close();
+});
+
+test("a session write bind captures the XSRF token and sends it as extra_secret", async ({ context, extensionId }) => {
+  kodo.state.assistant = sessionOnlyAssistant(target.baseUrl());
+  // Seed the live session + CSRF cookies on the target origin so the in-panel capture reads them.
+  await context.addCookies([
+    { url: target.baseUrl(), name: "JSESSIONID", value: "sess-abc" },
+    { url: target.baseUrl(), name: "XSRF-TOKEN", value: "xsrf-xyz" },
+  ]);
+
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+
+  // Pre-grant the cookies permission so confirmFallback's own request is a no-op (no headless
+  // prompt to wedge). If the grant is unavailable in this environment, skip the assertion tail.
+  const origin = new URL(target.baseUrl()).origin;
+  const granted = await grantCookies(panel, origin);
+  test.skip(!granted, "cookies permission grant unavailable headless");
+
+  await panel.getByTestId("bind-use-my-login").click();
+  // Session-only recipe opens straight at the fallback consent, which also offers the write toggle.
+  await expect(panel.getByTestId("bind-fallback")).toBeVisible({ timeout: 15_000 });
+  await panel.getByTestId("bind-allow-writes").check();
+  await panel.getByTestId("bind-fallback-confirm").click();
+
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled");
+
+  const bindCall = kodo.state.bindCalls.find((c) => c.endpoint === "bind");
+  expect(bindCall?.body).toMatchObject({ mode: "session", extra_secret: "xsrf-xyz" });
+  expect(String(bindCall?.body.secret)).toContain("JSESSIONID=sess-abc");
+  await tab.close();
+});

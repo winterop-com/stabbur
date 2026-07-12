@@ -176,6 +176,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # TTL cache of its last verify probe. Both populated by lifespan when a project loads.
     app.state.assistant = None
     app.state.assistant_verified = None
+    # Pending per-action write-confirmations for /api/chat, keyed by an unguessable server-minted
+    # uuid delivered only over the SSE stream. Each future is resolved by POST /api/chat/confirm
+    # (user approve/decline) or auto-denied on timeout; mutated only on the event loop.
+    pending_confirmations: dict[str, asyncio.Future[bool]] = {}
+    app.state.pending_confirmations = pending_confirmations
 
     if settings.cors_origins:
         app.add_middleware(

@@ -7,6 +7,19 @@ export interface ToolMarker {
   detail: string;
 }
 
+/** A per-action write confirmation the server is holding a tool call on. `pending` shows the
+ *  Approve/Deny buttons; `resolved` carries the outcome (a user decision clears itself once the
+ *  server echoes it; a timeout stays as an auto-denied note). Transient by nature — pending ones
+ *  are stripped when the stream ends. */
+export interface PendingConfirm {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  status: "pending" | "resolved";
+  approved?: boolean;
+  reason?: "user" | "timeout";
+}
+
 /** A pending composer attachment. Image/audio are data URLs sent as content
  *  parts (need a vision/audio model); text/doc files are inlined into the prompt
  *  (work with any model), so they carry a filename + decoded contents instead. */
@@ -35,6 +48,7 @@ export interface ChatMessage {
   files?: AttachedFile[]; // attached text/doc files (inlined into the prompt on send)
   reasoning?: string; // reasoning-model thinking (shown collapsed)
   tools?: ToolMarker[];
+  confirms?: PendingConfirm[]; // per-action write confirmations awaiting (or reflecting) a decision
   error?: boolean;
   model?: string; // the model that produced this turn (assistant turns), for export fidelity
   mediaDropped?: number; // inline attachments stripped to fit the storage quota (see saveConversations)

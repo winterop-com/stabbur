@@ -59,9 +59,9 @@ The extension described here now exists at `extension/` (WXT, MV3 side panel; se
 - Playwright E2E lives in `extension/e2e/` (mock tier + a live tier that runs the full
   loop against a real model and play42, read-only). Verified prompts live in
   `docs/guides/extension-prompts.md`.
-- Still future, per this design: writes (per-action confirmation, PAT/profile channel
-  only), Web Store packaging, Firefox/Safari targets. (PAT-minting from the live session
-  shipped read-only in round 2 — see the next Status section.)
+- Later, per this design: writes (per-action confirmation, PAT/profile channel only), Web Store
+  packaging, Firefox/Safari targets. (PAT-minting from the live session shipped read-only in round 2;
+  gated writes shipped in round 3 — see the later Status sections.)
 
 ## Status (2026-07-11): round 2 — "Use my login" (PAT-first, read-only)
 
@@ -109,9 +109,71 @@ session; writes last) is now **implemented read-only**. What shipped on top of t
   then unbind (token revoked, profile removed). The raw token never leaves the browser, so the test
   asserts the read-only scope via the consent copy + read-only chip rather than replaying the token.
 
-Still future (unchanged): **writes** (per-action confirmation, PAT/profile channel only, mind CSRF),
-the `dhis2://target` MCP resource + generic resource proxy, and packaging (Web Store unlisted, pinned
-key, Firefox `sidebar_action`).
+Still future after round 2: the `dhis2://target` MCP resource + generic resource proxy, and
+packaging (Web Store unlisted, pinned key, Firefox `sidebar_action`). **Writes** — the last item on
+the read-vs-write verdict — shipped in round 3; see the next Status section.
+
+## Status (2026-07-12): round 3 — writes, gated by per-action confirmation
+
+The "writes last, behind explicit per-action confirmation, PAT/profile channel, mind CSRF" verdict
+from "Driving the active DHIS2 login" is now **implemented**. What shipped:
+
+- **Per-action confirmation gate, every interactive chat surface.** A write-enabled assistant now
+  prompts the user to **Approve/Deny each gated tool call** before it executes — in the Chrome side
+  panel, the web UI (`kodo serve --ui`), and the Textual TUI, from one backend mechanism. A declined
+  call returns `error: user declined this action` and the model continues (it can retry or explain,
+  it does not crash). This is the guardrail the "writes as the logged-in user" analysis called for:
+  the human, not the model, authorizes each mutation. The non-interactive `kodo chat -p` one-shot has
+  no one to answer the prompt, so it **fail-safe denies** gated writes unless `--allow-writes` is
+  passed (a blanket auto-approve). The one deliberately ungated path is the programmatic eval harness
+  (`kodo-benchmark`), whose self-cleaning write suites must run unattended.
+- **Generic, fail-safe policy — no DHIS2 logic in kodo.** kodo reads each MCP tool's `readOnlyHint`
+  and requires confirmation for any tool **not** marked read-only; an **unannotated** tool defaults
+  to needs-confirmation (fail-safe). The policy is a tri-state `all|writes|none` (request field
+  `confirm_tools`), defaulting from the assistant: readonly / free-play -> `none`, write-enabled ->
+  `writes`. Consequence to know: the default single-tool `dhis2w-mcp-bridge` (`dhis2_cli`) is
+  **unannotated**, so under a write-enabled assistant **every** dhis2 call prompts — reads included.
+  The remedy is the typed `dhis2w-mcp-router`, whose per-operation `readOnlyHint` lets reads skip
+  the prompt (tracked in `ROADMAP.md`).
+- **Write-enabling bind.** The bind consent now mints a **read-write PAT** (`methods_full`) when the
+  assistant is write-enabled (the `bind-allow-writes` path); the binding records read-vs-write scope
+  and the extension's **Acting as** chip shows it. **PAT channel preferred; session-cookie writes
+  allowed but gated** — a session credential can't be method-scoped, so where the fallback is used
+  the confirmation gate is its only guardrail (never ambient authority without the per-action gate).
+- **CSRF double-submit.** An optional `X-XSRF-TOKEN` double-submit: at a session-write bind the
+  extension captures the `XSRF-TOKEN` cookie and passes it via `DHIS2_SESSION_XSRF` into the stored
+  d2w profile (implemented in dhis2w — client `SessionCookieAuth` + core `d2w profile`, across
+  v41/v42/v43). It is **inert** when the instance doesn't issue the cookie (standard DHIS2 API
+  writes don't enforce CSRF today), so it only future-proofs a hardened instance rather than being
+  required now.
+- **Where writes are tested.** Writes can't target play42 — it's a `DHIS2_MCP_PROTECTED_HOSTS` demo
+  host the bridge refuses writes to — so live write coverage runs against a local/non-protected
+  instance via the `dhis2-write` template, plus mock e2e and the `tools-dhis2-write` benchmark
+  (`docs/guides/dhis2-benchmark-report.md`). The benchmark is a sobering read: the best model
+  completes 4 of 7 write lifecycles and the read-only champion collapses to 1/7 — which is exactly
+  why the gate exists.
+
+### The confirmation SSE contract
+
+The gate rides the existing `/api/chat` SSE stream plus one resolving endpoint:
+
+```text
+POST /api/chat            (streaming; unchanged shape, one new event pair)
+  body adds: "confirm_tools": "all"|"writes"|"none"   // optional; defaults from the assistant
+  -> ...token/tool frames as before...
+     {"type":"confirm","id":"<call-id>","tool":"...","detail":{...}}   // gated call pauses here
+     {"type":"confirm_resolved","id":"<call-id>","approved":true|false}
+     ...continues (tool runs, or "error: user declined this action" is fed back)...
+
+POST /api/chat/confirm    resolves the pending call for the in-flight generation
+  body: {"id":"<call-id>","approved":true|false}
+```
+
+The backend holds a **per-generation future** for each gated call; `POST /api/chat/confirm`
+resolves it. If nothing resolves within 300s (`KODO_CONFIRM_TIMEOUT`) the call **auto-denies**
+(fail-safe). The scripted one-shot `kodo chat -p` has no confirm channel, so it fail-safe denies
+gated writes unless `--allow-writes` is passed (which auto-approves). The panel renders a `confirm`
+frame as an Approve/Deny card and POSTs the user's choice to `/api/chat/confirm`.
 
 ## Short version
 
@@ -777,9 +839,15 @@ POST /api/chat
        {"type":"token","text":...}
        {"type":"reasoning","text":...}
        {"type":"tool","kind":"call"|"result","detail":...}
+       {"type":"confirm","id":...,"tool":...,"detail":...}   // gated write; awaits /api/chat/confirm
+       {"type":"confirm_resolved","id":...,"approved":...}
        {"type":"error","detail":...}
        {"type":"done"}
 ```
+
+The `confirm` / `confirm_resolved` pair is the round-3 per-action write gate; the panel renders a
+`confirm` frame as an Approve/Deny card and POSTs the choice to `POST /api/chat/confirm`
+(`{"id":..., "approved":...}`). Full contract in "Status (2026-07-12): round 3".
 
 **Handle 409 "No model loaded".** `POST /api/chat` returns 409 if no model is
 loaded. In a locked project the model loads at server startup; otherwise a model
@@ -1031,6 +1099,7 @@ GET  /api/status
 POST /api/load/{name}        load a model when status shows none (avoids the /api/chat 409)
 GET  /api/tools
 POST /api/chat
+POST /api/chat/confirm       resolve a gated write's Approve/Deny (round-3 confirmation gate)
 POST /api/speak              optional
 GET  /api/voices             optional
 POST /v1/audio/transcriptions optional

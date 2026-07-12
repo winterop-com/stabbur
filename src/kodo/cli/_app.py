@@ -132,6 +132,11 @@ class _HostContext:
                     repeat_penalty=rec.repeat_penalty,
                     model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
                     vision=vision,
+                    # Programmatic eval harness (kodo-benchmark): intentionally UNGATED. There is no
+                    # human to answer a per-action confirmation here, and the write suites are designed
+                    # to run their self-cleaning KODO_-prefixed lifecycles unattended. The confirmation
+                    # gate is for the interactive surfaces (web/extension/TUI) + the CLI one-shot.
+                    confirm_policy="none",
                 )
 
         answer = asyncio.run(_go())

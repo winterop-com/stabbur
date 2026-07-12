@@ -1,11 +1,16 @@
-"""Chat-TUI widgets: the command palette provider and the multi-line chat input."""
+"""Chat-TUI widgets: the command palette provider, confirm modal, and the multi-line chat input."""
 
+import json
 from typing import Any
 
-from textual import events
+from textual import events, on
+from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.command import DiscoveryHit, Hit, Hits, Provider
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import TextArea
+from textual.screen import ModalScreen
+from textual.widgets import Button, Label, Static, TextArea
 
 
 class _KodoCommands(Provider):
@@ -69,6 +74,61 @@ class _KodoCommands(Provider):
                 yield Hit(score, matcher.highlight(title), callback, help=help_text)
 
 
+class ConfirmModal(ModalScreen[bool]):
+    """Ask the user to approve or deny a gated (write) tool call before the agent runs it.
+
+    Dismissed with ``True`` (Approve) or ``False`` (Deny / Escape); the ``on_confirm`` sink in
+    the chat app awaits that value via ``push_screen_wait``. Shows the tool name and a compact,
+    truncated view of the JSON arguments so the user sees what is about to run.
+    """
+
+    DEFAULT_CSS = """
+    ConfirmModal { align: center middle; }
+    ConfirmModal > #confirm-box {
+        width: 72; max-width: 90%; height: auto; padding: 1 2;
+        border: round #fb7185; background: $surface;
+    }
+    ConfirmModal #confirm-title { text-style: bold; color: #fb7185; }
+    ConfirmModal #confirm-args { color: $text-muted; margin: 1 0; }
+    ConfirmModal #confirm-buttons { height: auto; align-horizontal: right; }
+    ConfirmModal #confirm-buttons Button { margin-left: 2; }
+    """
+
+    BINDINGS = [Binding("escape", "deny", "Deny")]
+
+    def __init__(self, name: str, args: dict[str, Any]) -> None:
+        super().__init__()
+        self._tool_name = name
+        self._args = args
+
+    def compose(self) -> ComposeResult:
+        try:
+            rendered = json.dumps(self._args, ensure_ascii=False)
+        except (TypeError, ValueError):
+            rendered = repr(self._args)
+        if not self._args:
+            rendered = "(no arguments)"
+        elif len(rendered) > 500:
+            rendered = rendered[:500] + " …"
+        with Vertical(id="confirm-box"):
+            yield Label(f"Confirm write: {self._tool_name}", id="confirm-title")
+            yield Static(rendered, id="confirm-args")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Deny", variant="error", id="deny")
+                yield Button("Approve", variant="success", id="approve")
+
+    @on(Button.Pressed, "#approve")
+    def _approve(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#deny")
+    def _deny(self) -> None:
+        self.dismiss(False)
+
+    def action_deny(self) -> None:
+        self.dismiss(False)
+
+
 class ChatInput(TextArea):
     """Multi-line input where Enter sends and Shift+Return inserts a newline.
 
@@ -114,4 +174,4 @@ class ChatInput(TextArea):
         await super()._on_key(event)
 
 
-__all__ = ["ChatInput", "_KodoCommands"]
+__all__ = ["ChatInput", "ConfirmModal", "_KodoCommands"]

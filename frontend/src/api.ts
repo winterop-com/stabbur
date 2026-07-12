@@ -133,6 +133,9 @@ export interface ChatOptions {
   enabledTools?: string[];
   /** Authoritative system prompt ("" = none); null/undefined → server's project default. */
   systemPrompt?: string | null;
+  /** Which tool calls require a per-action confirmation. Omit to let the server derive it from the
+   *  bound assistant (the right default for the extension); only set to override that policy. */
+  confirmTools?: "all" | "writes" | "none";
 }
 
 /** A parsed /api/chat SSE event. */
@@ -140,6 +143,8 @@ export type ChatEvent =
   | { type: "token"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "tool"; kind: "call" | "result"; detail: string }
+  | { type: "confirm"; id: string; tool: string; args: Record<string, unknown> }
+  | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }
   | { type: "error"; detail: string }
   | { type: "done" };
 
@@ -315,12 +320,16 @@ export async function* streamChat(
     use_tools: boolean;
     enabled_tools?: string[];
     system_prompt?: string;
+    confirm_tools?: "all" | "writes" | "none";
   } = { messages, use_tools: options.useTools ?? true };
   if (options.maxTokens != null) body.max_tokens = options.maxTokens;
   if (options.temperature != null) body.temperature = options.temperature;
   if (options.topP != null) body.top_p = options.topP;
   if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
   if (options.systemPrompt != null) body.system_prompt = options.systemPrompt; // null → omit (use project default)
+  // Omit confirm_tools unless explicitly overridden so the server derives the policy from the
+  // bound assistant (the extension always omits it).
+  if (options.confirmTools != null) body.confirm_tools = options.confirmTools;
 
   const res = await apiFetch("/api/chat", {
     method: "POST",
@@ -372,6 +381,23 @@ export async function* streamChat(
   if (buffer.trim()) yield* parseLine(buffer);
 }
 
+/**
+ * Resolve a pending tool confirmation for an in-flight chat stream. The server holds the tool
+ * call until this lands (or it times out); the stream then resumes on its own, so callers must
+ * NOT abort the stream. A 404 (unknown or already-resolved id) surfaces as an error.
+ */
+export async function confirmAction(id: string, approve: boolean): Promise<void> {
+  const res = await apiFetch("/api/chat/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, approve }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+}
+
 function parseEvent(evt: unknown): ChatEvent | null {
   if (typeof evt !== "object" || evt === null) return null;
   const e = evt as Record<string, unknown>;
@@ -385,6 +411,20 @@ function parseEvent(evt: unknown): ChatEvent | null {
         type: "tool",
         kind: e.kind === "result" ? "result" : "call",
         detail: typeof e.detail === "string" ? e.detail : "",
+      };
+    case "confirm":
+      return {
+        type: "confirm",
+        id: typeof e.id === "string" ? e.id : "",
+        tool: typeof e.tool === "string" ? e.tool : "",
+        args: e.args !== null && typeof e.args === "object" ? (e.args as Record<string, unknown>) : {},
+      };
+    case "confirm_resolved":
+      return {
+        type: "confirm_resolved",
+        id: typeof e.id === "string" ? e.id : "",
+        approved: e.approved === true,
+        reason: e.reason === "timeout" ? "timeout" : "user",
       };
     case "error":
       return { type: "error", detail: typeof e.detail === "string" ? e.detail : "unknown error" };

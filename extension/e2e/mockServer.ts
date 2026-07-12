@@ -31,6 +31,8 @@ export type ChatFrame =
   | { type: "token"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "tool"; kind: "call" | "result"; detail: string }
+  | { type: "confirm"; id: string; tool: string; args: Record<string, unknown> }
+  | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }
   | { type: "error"; detail: string }
   | { type: "done" };
 
@@ -65,6 +67,15 @@ export interface MockState {
   chatCode: number | null;
   /** Raw request bodies recorded for each POST /api/chat (newest last). */
   chatRequests: string[];
+  /** After a `confirm` frame, the stream blocks until a matching POST /api/chat/confirm arrives
+   *  (or this many ms elapse -> an auto-denied timeout resolution). */
+  confirmWaitMs: number;
+  /** Frames streamed after a confirm resolves APPROVED (the tool result + any follow-up). */
+  confirmApprovedTail: ChatFrame[];
+  /** Frames streamed after a confirm resolves DENIED (or timed out). */
+  confirmDeniedTail: ChatFrame[];
+  /** Parsed bodies recorded for each POST /api/chat/confirm (newest last). */
+  confirmCalls: { id: string; approve: boolean }[];
   /** Response returned by POST /api/assistant/{bind,unbind}. */
   bindResult: { ok: boolean; exit_code: number; stdout: string; stderr: string };
   /** Parsed bodies recorded for each bind/unbind call (newest last). */
@@ -88,6 +99,10 @@ function defaultState(): MockState {
     chatGapMs: 5,
     chatCode: null,
     chatRequests: [],
+    confirmWaitMs: 8000,
+    confirmApprovedTail: [],
+    confirmDeniedTail: [],
+    confirmCalls: [],
     bindResult: { ok: true, exit_code: 0, stdout: "", stderr: "" },
     bindCalls: [],
   };
@@ -273,6 +288,19 @@ export class KodoMock {
       return;
     }
 
+    if (path === "/api/chat/confirm" && method === "POST") {
+      const raw = await readBody(req);
+      let body: { id?: unknown; approve?: unknown } = {};
+      try {
+        body = JSON.parse(raw) as { id?: unknown; approve?: unknown };
+      } catch {
+        body = {};
+      }
+      this.state.confirmCalls.push({ id: String(body.id ?? ""), approve: body.approve === true });
+      this.json(res, 200, { ok: true });
+      return;
+    }
+
     // Non-API GET: serve a tiny stub HTML page (used for tab-match tests).
     if (method === "GET") {
       res.writeHead(200, { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" });
@@ -312,11 +340,41 @@ export class KodoMock {
     for (const frame of this.state.chatFrames) {
       if (clientGone || res.destroyed) return;
       res.write(`data: ${JSON.stringify(frame)}\n\n`);
+      // A `confirm` frame pauses the stream (like the real server holding the tool call) until the
+      // client POSTs /api/chat/confirm, then resolves it and streams the outcome-specific tail.
+      if (frame.type === "confirm") {
+        const approve = await this.waitForConfirm(frame.id, this.state.confirmWaitMs);
+        if (clientGone || res.destroyed) return;
+        const resolved: ChatFrame =
+          approve === null
+            ? { type: "confirm_resolved", id: frame.id, approved: false, reason: "timeout" }
+            : { type: "confirm_resolved", id: frame.id, approved: approve, reason: "user" };
+        res.write(`data: ${JSON.stringify(resolved)}\n\n`);
+        const tail = approve ? this.state.confirmApprovedTail : this.state.confirmDeniedTail;
+        for (const tf of tail) {
+          if (clientGone || res.destroyed) return;
+          if (this.state.chatGapMs > 0) await new Promise((r) => setTimeout(r, this.state.chatGapMs));
+          res.write(`data: ${JSON.stringify(tf)}\n\n`);
+        }
+        if (!clientGone && !res.destroyed) res.end();
+        return;
+      }
       if (this.state.chatGapMs > 0) {
         await new Promise((r) => setTimeout(r, this.state.chatGapMs));
       }
     }
     if (!clientGone && !res.destroyed) res.end();
+  }
+
+  /** Poll for a POST /api/chat/confirm matching `id`; returns the approve flag, or null on timeout. */
+  private async waitForConfirm(id: string, timeoutMs: number): Promise<boolean | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const call = this.state.confirmCalls.find((c) => c.id === id);
+      if (call) return call.approve;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return null;
   }
 }
 

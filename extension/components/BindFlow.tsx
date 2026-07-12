@@ -39,6 +39,11 @@ type Stage =
   | { kind: "fallback" }
   | { kind: "error"; message: string };
 
+// DHIS2 issues its CSRF token in this cookie; a session-mode write bind captures it (alongside the
+// session cookie) so the bound child can pass the CSRF check on POST/PUT/PATCH/DELETE. Reads and the
+// PAT path never need it.
+const XSRF_COOKIE = "XSRF-TOKEN";
+
 function bindError(res: BindApiResult): string {
   const detail = (res.stderr || res.stdout || "").trim();
   return detail ? `Bind failed: ${detail}` : "Bind failed.";
@@ -73,7 +78,7 @@ export function BindFlow({
   async function saveBinding(
     target: BindBackendTarget,
     mode: string,
-    extra: { credentialId?: string; cookieName?: string; expiresAt?: number },
+    extra: { credentialId?: string; cookieName?: string; expiresAt?: number; writes?: boolean },
   ): Promise<void> {
     const session = await resolveSession();
     const signedIn = session && !("error" in session) ? session : null;
@@ -86,6 +91,7 @@ export function BindFlow({
       credentialId: extra.credentialId,
       cookieName: extra.cookieName,
       expiresAt: extra.expiresAt,
+      writes: extra.writes ?? false,
     };
     await setBinding(binding);
   }
@@ -98,7 +104,8 @@ export function BindFlow({
       return;
     }
     setStage({ kind: "working", label: "Requesting a token in this tab…" });
-    const methods = writable && allowWrites ? recipe.methodsFull : recipe.methodsReadonly;
+    const writes = writable && allowWrites;
+    const methods = writes ? recipe.methodsFull : recipe.methodsReadonly;
     // DHIS2's `expire` is an ABSOLUTE epoch-ms timestamp; compute once and reuse for the binding.
     const expiresMs = Date.now() + recipe.expiresInDays * 86_400_000;
     const mint = await executeMint(tabId, basePath, recipe, methods, expiresMs);
@@ -110,7 +117,7 @@ export function BindFlow({
         setStage({ kind: "error", message: bindError(res) });
         return;
       }
-      await saveBinding(target, recipe.mintMode, { credentialId: mint.credentialId, expiresAt: expiresMs });
+      await saveBinding(target, recipe.mintMode, { credentialId: mint.credentialId, expiresAt: expiresMs, writes });
       onBound(target.backendId);
       return;
     }
@@ -160,13 +167,26 @@ export function BindFlow({
       setStage({ kind: "error", message: `No ${recipe.sessionCookie} cookie found — sign in to ${targetName} first.` });
       return;
     }
+    // A session cookie is inherently full-authority; we don't downgrade methods for it (the
+    // per-action confirmation gate is its guardrail). When the user opted into writes, also capture
+    // the XSRF token so the bound child can satisfy DHIS2's CSRF check on writes.
+    const writes = writable && allowWrites;
+    let extraSecret: string | undefined;
+    if (writes) {
+      try {
+        const xsrf = await chrome.cookies.get({ url: basePath, name: XSRF_COOKIE });
+        if (xsrf?.value) extraSecret = xsrf.value;
+      } catch {
+        extraSecret = undefined; // no XSRF cookie readable -> bind without it
+      }
+    }
     setStage({ kind: "working", label: "Installing the session…" });
-    const res = await postBindTo(target, recipe.fallbackMode, `${recipe.sessionCookie}=${value}`);
+    const res = await postBindTo(target, recipe.fallbackMode, `${recipe.sessionCookie}=${value}`, extraSecret);
     if (!res.ok) {
       setStage({ kind: "error", message: bindError(res) });
       return;
     }
-    await saveBinding(target, recipe.fallbackMode, { cookieName: recipe.sessionCookie });
+    await saveBinding(target, recipe.fallbackMode, { cookieName: recipe.sessionCookie, writes });
     onBound(target.backendId);
   }
 
@@ -265,6 +285,17 @@ export function BindFlow({
             reads the <code>{recipe.sessionCookie}</code> cookie, and keeps it synced. The session dies when you log out
             of {targetName}.
           </p>
+          {writable ? (
+            <label className="flex items-center gap-1.5 text-[var(--muted-foreground)]">
+              <input
+                type="checkbox"
+                data-testid="bind-allow-writes"
+                checked={allowWrites}
+                onChange={(e) => setAllowWrites(e.target.checked)}
+              />
+              Allow writes (POST/PUT/PATCH/DELETE); each write asks for confirmation
+            </label>
+          ) : null}
           <div className="flex items-center gap-2">
             <button
               type="button"

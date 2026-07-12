@@ -5,7 +5,7 @@ import random
 import time
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from rich.console import Group
@@ -17,13 +17,25 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, Static, TextArea
 
-from kodo import agent, attach, capabilities
+from kodo import agent, attach, capabilities, project
 from kodo import library as library_ops
 from kodo import runtime as runtime_mod
 from kodo import tools as mcp_tools
 from kodo.chat_tui._util import _GERUNDS, _SAMPLING_FIELDS, _SLASH_COMMANDS, _SPINNER, _fmt_tokens
-from kodo.chat_tui._widgets import ChatInput, _KodoCommands
+from kodo.chat_tui._widgets import ChatInput, ConfirmModal, _KodoCommands
 from kodo.runtime import sampling as sampling_mod
+
+
+def _confirm_policy(proj: project.Project | None) -> Literal["all", "writes", "none"]:
+    """The tool-confirmation policy for a session, derived from the project's assistant.
+
+    A write-enabled assistant (an ``[assistant]`` block that is not ``readonly``) gates its
+    non-read-only tool calls behind confirmation (``"writes"``); no project, no assistant, or a
+    read-only assistant gates nothing (``"none"`` — identical to the pre-confirmation behavior).
+    """
+    if proj is None or proj.assistant is None or proj.assistant.readonly:
+        return "none"
+    return "writes"
 
 
 class RemoteEndpoint(BaseModel):
@@ -92,6 +104,9 @@ class ChatApp(App[None]):
         self._model: library_ops.LibraryModel | None = endpoint.model
         self._servers = servers
         self._max_tokens = max_tokens
+        # Confirmation policy from the loaded project's assistant: a write-enabled assistant gates
+        # its non-read-only tool calls behind the ConfirmModal; otherwise nothing is gated.
+        self._confirm_policy: Literal["all", "writes", "none"] = _confirm_policy(project.load())
         self._apply_model()  # derive _model_name/_format/_target/_base/_sampling/_ctx_max
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}] if system_prompt else []
         self._pending_images: list[str] | None = images
@@ -808,6 +823,10 @@ class ChatApp(App[None]):
                         self.ctx_used = pt + ct
                 self._refresh_status()
 
+            async def on_confirm(name: str, args: dict[str, Any]) -> bool:
+                # Suspend the turn on a modal until the user approves/denies the gated write.
+                return await self.push_screen_wait(ConfirmModal(name, args))
+
             try:
                 reply = await agent.run(
                     self._base,
@@ -825,10 +844,15 @@ class ChatApp(App[None]):
                     repeat_penalty=self._sampling.repeat_penalty,
                     model=self._model_target,  # required by mlx-vlm; ignored by llama-server/mlx-lm
                     vision=self._vision,
+                    on_confirm=on_confirm,
+                    confirm_policy=self._confirm_policy,
                 )
             except asyncio.CancelledError:  # ESC: drop the partial turn, keep the session
                 _stop_think()
                 finalize_reasoning()
+                # A stop mid-confirmation leaves the ConfirmModal on the screen stack; close it.
+                if isinstance(self.screen, ConfirmModal):
+                    self.pop_screen()
                 del self.messages[mark:]
                 answer_w.update(Text("(canceled)", style="yellow"))
                 self._scroll_end()

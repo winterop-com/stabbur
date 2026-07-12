@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState } from "react";
-import { FileText, Send, Square } from "lucide-react";
-import { streamChat, type Msg, type Role } from "@/api";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { FileText, Send, ShieldAlert, Square } from "lucide-react";
+import { confirmAction, streamChat, type Msg, type Role } from "@/api";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/Markdown";
 import { ToolMarkerChip } from "@/components/ToolMarkerChip";
@@ -15,6 +15,18 @@ interface ToolEvent {
   detail: string;
 }
 
+/** A per-action write confirmation the server is holding a tool call on. `pending` shows the
+ *  Approve/Deny buttons; `resolved` carries the outcome (a user decision clears itself once the
+ *  server echoes it; a timeout stays as an auto-denied note). Transient, never persisted. */
+interface PendingConfirm {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  status: "pending" | "resolved";
+  approved?: boolean;
+  reason?: "user" | "timeout";
+}
+
 interface ChatMessage {
   role: Role;
   content: string;
@@ -24,6 +36,20 @@ interface ChatMessage {
   reasoning?: string;
   /** Transient tool call/result markers (not persisted). */
   tools?: ToolEvent[];
+  /** Transient per-action confirmations awaiting (or reflecting) a decision (not persisted). */
+  confirms?: PendingConfirm[];
+}
+
+/** One-line, clipped rendering of a confirmation's args (mirrors the tool-chip digest style). */
+function compactArgs(args: Record<string, unknown>): string {
+  const summarize = (v: unknown): string => {
+    if (Array.isArray(v)) return `[${v.length} items]`;
+    if (v !== null && typeof v === "object") return "{...}";
+    const s = typeof v === "string" ? v : String(v);
+    return s.length > 40 ? `${s.slice(0, 40)}...` : s;
+  };
+  const pairs = Object.entries(args).map(([k, v]) => `${k}: ${summarize(v)}`).join(", ");
+  return pairs.length > 120 ? `${pairs.slice(0, 120)}...` : pairs;
 }
 
 interface ChatViewProps {
@@ -77,10 +103,68 @@ function ToolChip({ event }: { event: ToolEvent }) {
   );
 }
 
+/** Inline Approve/Deny card for a write action the server is holding. Resolving does NOT abort the
+ *  stream — the server resumes and streams the tool result once a decision (or timeout) lands. */
+function ConfirmCard({
+  confirm,
+  onResolve,
+}: {
+  confirm: PendingConfirm;
+  onResolve: (id: string, approve: boolean) => void;
+}) {
+  const args = compactArgs(confirm.args);
+  const resolved = confirm.status === "resolved";
+  const outcome = confirm.reason === "timeout" ? "Auto-denied (timed out)." : confirm.approved ? "Approved." : "Denied.";
+  return (
+    <div
+      data-testid="chat-confirm"
+      className="w-full rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-xs"
+    >
+      <div className="flex items-center gap-1.5 font-medium text-[var(--foreground)]">
+        <ShieldAlert className="h-3.5 w-3.5 text-amber-600" /> Confirm action
+      </div>
+      <div className="mt-1 break-all font-mono text-[var(--muted-foreground)]">
+        <span className="font-medium text-[var(--foreground)]">{confirm.tool}</span>
+        {args ? `(${args})` : null}
+      </div>
+      {resolved ? (
+        <div data-testid="chat-confirm-outcome" className="mt-1 text-[var(--muted-foreground)]">
+          {outcome}
+        </div>
+      ) : (
+        <div className="mt-1.5 flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="chat-confirm-approve"
+            onClick={() => onResolve(confirm.id, true)}
+            className="rounded bg-[var(--primary)] px-2 py-0.5 text-[var(--primary-foreground)]"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            data-testid="chat-confirm-deny"
+            onClick={() => onResolve(confirm.id, false)}
+            className="rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)]"
+          >
+            Deny
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Memoized: patchLast preserves object identity for every message but the streaming one, so
 // earlier bubbles skip re-rendering on each token frame (a long transcript would otherwise
 // reconcile every bubble per token).
-const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMessage }) {
+const MessageBubble = memo(function MessageBubble({
+  message,
+  onResolveConfirm,
+}: {
+  message: ChatMessage;
+  onResolveConfirm: (id: string, approve: boolean) => void;
+}) {
   const isUser = message.role === "user";
   return (
     <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
@@ -95,6 +179,14 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
         <div className="w-full space-y-1">
           {message.tools.map((t, i) => (
             <ToolChip key={i} event={t} />
+          ))}
+        </div>
+      ) : null}
+
+      {message.confirms?.length ? (
+        <div className="w-full space-y-1">
+          {message.confirms.map((c) => (
+            <ConfirmCard key={c.id} confirm={c} onResolve={onResolveConfirm} />
           ))}
         </div>
       ) : null}
@@ -176,6 +268,28 @@ export function ChatView({
     });
   }
 
+  // Approve/Deny a pending confirmation. Stable (setMessages/setError/confirmAction are all stable)
+  // so passing it to the memoized bubbles doesn't bust their memoization. Optimistically flips the
+  // card to resolved so the buttons disable immediately; the server's confirm_resolved echo then
+  // removes it. The stream is NOT aborted — the server resumes and streams the tool result.
+  const resolveConfirm = useCallback((id: string, approve: boolean): void => {
+    setMessages((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev.slice();
+      const last = next[next.length - 1];
+      next[next.length - 1] = {
+        ...last,
+        confirms: last.confirms?.map((c) =>
+          c.id === id ? { ...c, status: "resolved", approved: approve, reason: "user" } : c,
+        ),
+      };
+      return next;
+    });
+    void confirmAction(id, approve).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+    });
+  }, []);
+
   async function send(): Promise<void> {
     const text = input.trim();
     if (!text || streaming) return;
@@ -204,6 +318,25 @@ export function ChatView({
           case "tool":
             patchLast((m) => ({ ...m, tools: [...(m.tools ?? []), { kind: evt.kind, detail: evt.detail }] }));
             break;
+          case "confirm":
+            patchLast((m) => ({
+              ...m,
+              confirms: [...(m.confirms ?? []), { id: evt.id, tool: evt.tool, args: evt.args, status: "pending" }],
+            }));
+            break;
+          case "confirm_resolved":
+            // A user decision clears the card (the tool call/result chips carry it forward); a
+            // timeout leaves an auto-denied note so the outcome is visible.
+            patchLast((m) => ({
+              ...m,
+              confirms:
+                evt.reason === "timeout"
+                  ? m.confirms?.map((c) =>
+                      c.id === evt.id ? { ...c, status: "resolved", approved: evt.approved, reason: "timeout" } : c,
+                    )
+                  : m.confirms?.filter((c) => c.id !== evt.id),
+            }));
+            break;
           case "error":
             setError(evt.detail);
             break;
@@ -216,13 +349,21 @@ export function ChatView({
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      // A stream that produced no reply leaves its empty placeholder bubble; drop it so it
-      // is neither rendered nor replayed to /api/chat as an empty assistant turn.
+      // The stream is over: strip any confirmation still awaiting a decision (nothing will resolve
+      // it now), keeping only resolved ones (e.g. an auto-denied timeout note). A stream that
+      // produced no reply leaves its empty placeholder bubble; drop it so it is neither rendered
+      // nor replayed to /api/chat as an empty assistant turn.
       setMessages((prev) => {
+        if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        return last && last.role === "assistant" && last.content === "" && !last.reasoning && !last.tools?.length
-          ? prev.slice(0, -1)
-          : prev;
+        if (last.role !== "assistant") return prev;
+        const confirms = last.confirms?.filter((c) => c.status === "resolved");
+        const patched: ChatMessage = { ...last, confirms: confirms?.length ? confirms : undefined };
+        const empty = patched.content === "" && !patched.reasoning && !patched.tools?.length && !patched.confirms?.length;
+        if (empty) return prev.slice(0, -1);
+        const next = prev.slice();
+        next[next.length - 1] = patched;
+        return next;
       });
       setStreaming(false);
       abortRef.current = null;
@@ -254,7 +395,7 @@ export function ChatView({
             Ask your local kodo assistant anything.
           </p>
         ) : (
-          messages.map((m, i) => <MessageBubble key={i} message={m} />)
+          messages.map((m, i) => <MessageBubble key={i} message={m} onResolveConfirm={resolveConfirm} />)
         )}
         {streaming && messages[messages.length - 1]?.content === "" ? (
           <div className="flex items-center gap-1 px-1 text-[var(--muted-foreground)]">

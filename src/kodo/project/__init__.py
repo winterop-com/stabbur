@@ -23,7 +23,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 _DEFAULT_PATH = Path("kodo.toml")
 
@@ -141,6 +141,20 @@ _FORBIDDEN_SECRET_ENV = frozenset(
 """Loader-controlling env vars a client-supplied secret must never be routed into (code-exec risk)."""
 
 
+def _validate_secret_env_name(value: str, field: str) -> str:
+    """Validate a client-supplied-secret env-var name: a valid identifier, never loader-controlling.
+
+    Shared by ``secret_env`` and ``extra_secret_env`` so both route a caller's secret only into a
+    plain env var — never ``PATH`` / ``LD_PRELOAD`` / ``DYLD_*``, which would let a caller who aimed
+    the secret there control what the child loads and runs.
+    """
+    if not _SECRET_ENV_RE.match(value):
+        raise ValueError(f"{field} must be a valid environment variable name, got {value!r}")
+    if value in _FORBIDDEN_SECRET_ENV:
+        raise ValueError(f"{field} must not be a loader-controlling variable, got {value!r}")
+    return value
+
+
 class BindMode(BaseModel):
     """One server-side handoff recipe: an argv kodo runs (with the secret in an env var), plus how to undo it.
 
@@ -154,6 +168,11 @@ class BindMode(BaseModel):
 
     command: list[str]
     secret_env: str
+    extra_secret_env: str | None = None
+    """An optional secondary secret env var — a second value (e.g. a CSRF token alongside a session
+    cookie) the caller may hand to this mode's child. Generic: kodo never interprets it, it only
+    exports it into the child env. Validated like ``secret_env`` (a valid identifier, never a
+    loader-controlling variable)."""
     unbind_command: list[str] | None = None
     unbind_note: str | None = None
     timeout: float = Field(default=60.0, gt=0, le=300)
@@ -171,11 +190,21 @@ class BindMode(BaseModel):
         # The secret is client-supplied data handed to the child via this env var; it must be a valid
         # env-var name and must never be a loader-controlling variable (a caller who could aim the
         # secret at PATH / LD_PRELOAD / DYLD_* would control what the child loads and runs).
-        if not _SECRET_ENV_RE.match(value):
-            raise ValueError(f"secret_env must be a valid environment variable name, got {value!r}")
-        if value in _FORBIDDEN_SECRET_ENV:
-            raise ValueError(f"secret_env must not be a loader-controlling variable, got {value!r}")
-        return value
+        return _validate_secret_env_name(value, "secret_env")
+
+    @field_validator("extra_secret_env")
+    @classmethod
+    def _check_extra_secret_env(cls, value: str | None) -> str | None:
+        # Same guarantees as secret_env (identifier, never loader-controlling) when present.
+        return _validate_secret_env_name(value, "extra_secret_env") if value is not None else value
+
+    @model_validator(mode="after")
+    def _distinct_secret_envs(self) -> "BindMode":
+        # The two secrets are exported in order (secret_env first, then extra_secret_env), so reusing
+        # one name would silently overwrite the primary secret with the extra one in the child env.
+        if self.extra_secret_env is not None and self.extra_secret_env == self.secret_env:
+            raise ValueError("extra_secret_env must differ from secret_env")
+        return self
 
 
 class AssistantBind(BaseModel):
