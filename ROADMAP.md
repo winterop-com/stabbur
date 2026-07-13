@@ -49,6 +49,40 @@ write tests run against a local/non-protected instance (play42 refuses writes as
 
 Open follow-ups, roughly in order:
 
+- **Browser identity vs tool-account identity are uncorrelated (a design footgun).** By default the
+  tool channel authenticates as the pinned d2w profile (e.g. `play42` = admin / "John Traore"),
+  **regardless of who is actually logged into the page** the panel is attached to. So the read chat
+  silently acts as the profile, not the viewer — confusing, and potentially dangerous (a user
+  believes they are acting as themselves while reads/writes run as admin). The round-3 identity
+  labels ("Browser session user" vs "Tool account") only *surface* the mismatch; they don't resolve
+  it. "Use my login" is the one path that aligns the two (mint a PAT as the browser user), but it is
+  opt-in and per-session. Decide the default posture before the assistant is pointed at real
+  (non-demo) instances — options: (a) warn/refuse when the tool account != the signed-in browser
+  user for a matched instance; (b) auto-prompt to bind when a logged-in session is detected for the
+  target; (c) make the browser-user binding the default for DHIS2 targets rather than a shared
+  profile. Note: "auto-login the browser using the profile creds" is the wrong fix — it would leak
+  profile secrets to the extension and defeats the purpose of binding to the *human's* identity.
+- **Multi-profile: match the tab URL to the right d2w profile (or a list).** Today heim serve is
+  single-target: one project = one `[assistant]` = one `base_url` = one `DHIS2_PROFILE` pinned at
+  serve start. But d2w profiles already ARE a multi-profile store (`~/.config/dhis2/profiles.toml` —
+  many named profiles, each a base_url + auth). Evolve heim into "a registry of profiles,
+  auto-selected by the page you are on": browse dev → staging → a country's prod and heim uses the
+  matching creds; when several profiles hit the same URL (admin vs clerk role) offer a picker. Cheap
+  parts (mostly present): the extension already knows the active tab URL (page context) and already
+  has a backend-switcher UI to reuse; matching is origin / longest-path prefix against each profile's
+  base_url, returning a list on ties. Real work: (1) profile discovery in heim (read `d2w profile
+  list` / profiles.toml into a registry); (2) a URL-aware endpoint (`/api/assistants` or
+  `/api/assistant?url=<tab>`) so the extension asks "which profile(s) fit this page?"; (3) **per-tab
+  tool routing — the gating decision**, since the bridge is spawned with a fixed `DHIS2_PROFILE`.
+  Routing options: (a) N bridges, one per profile, namespaced (`play42__dhis2_cli`, …) — entirely in
+  heim, but the model sees many tools; (b) a per-call `--profile` arg on `dhis2_cli` / the typed
+  server — cleanest, but a dhis2w change; (c) re-select the profile on tab switch — medium. Extension
+  + matching ≈ a few days; option (a) needs no dhis2w change and is the pragmatic MVP. This subsumes
+  and generalizes the single-target assistant model.
+- **Bind UX: a clear "sign in first" state.** When the browser has no live session for the target,
+  the in-tab PAT mint fails with a bare `status 0` (the POST is redirected to the login page and the
+  fetch comes back opaque). Detect the no-session case (probe the identity endpoint, or classify the
+  redirect) and show "Sign in to `<instance>` first, then Use my login" instead of a raw status.
 - **Reads also prompt under the single-tool bridge (the next write-UX step).** The default
   `dhis2w-mcp-bridge` exposes one **unannotated** tool (`dhis2_cli`), so under a write-enabled
   assistant the fail-safe gate prompts on **every** dhis2 call — reads included, not just
@@ -70,12 +104,16 @@ Open follow-ups, roughly in order:
   in the dhis2 template's model choice predates that change. Likely fine or better (JSON is what
   these models were tool-trained on), but per "actually test every path" the sweep needs a re-run
   before the claim is cited again.
-- **Live-E2E the bind mint tail in-browser.** The live spec asserts login/tab-match/consent but
-  skips the in-tab mint when headless: `chrome.scripting.executeScript` on the play tab needs host
-  access, which comes from `activeTab` at runtime (toolbar click) and cannot be granted reliably
-  headless via `chrome.permissions.request`. The tail is covered by the mock UI spec + an
-  out-of-band live proof with the exact payloads; a real fix is driving the action click via CDP
-  or a test-only granted-permissions profile.
+- **Bind mint tail — resolved, with a dev-tooling note.** The in-tab mint (`chrome.scripting.
+  executeScript` on the target tab) needs host access. At real runtime that comes from `activeTab`
+  when the user opens the side panel via the **toolbar icon** on the target tab — so real installs
+  mint fine. The blocker was only automation, where the panel is opened as a *tab* (no `activeTab`):
+  fixed by the **test-only `HEIM_E2E=1` build**, which puts the target origins in static
+  `host_permissions` (combine with `HEIM_FLAVOR=dhis2` for a branded automation build). The live
+  spec is scoped to the bound-state proof; the full mint→verify→unbind cycle is covered by
+  `e2e/mock/bind.spec.ts` + interactive manual verification. Dev ergonomics follow-up: promote the
+  throwaway `extension/e2e/manual.ts` (headed browser + `heim serve` + extension, wired to play42)
+  into a supported `heim ext-dev` launcher for interactive testing.
 
 The DHIS2 MCP servers it points at are the published PyPI packages (`uvx dhis2w-mcp-bridge` is the
 default; router/full-server for bigger models); source lives in `~/dev/local/dhis2w-utils`.
