@@ -116,7 +116,8 @@ async def test_narrow_to_servers_keeps_shared_and_preserves_readonly() -> None:
     # narrow_to_servers routes through subset(): the resolved target's server + the unowned 'shared'
     # server are kept (the other target hidden), and _readonly survives for every kept tool.
     toolset = await _build_three_servers()
-    view = tools.narrow_to_servers(toolset, {"t1": {"a"}, "t2": {"b"}}, "t1")
+    routing = tools.TargetRouting(explicit={"t1": {"a"}, "t2": {"b"}})
+    view = tools.narrow_to_servers(toolset, routing, "t1")
     assert view.prefixes() == {"a", "shared"}  # 'b' owned by t2 → hidden; 'shared' owned by none → kept
     assert view.is_readonly("a__read") is True
     assert view.is_readonly("a__write") is False
@@ -127,15 +128,25 @@ async def test_narrow_to_servers_keeps_shared_and_preserves_readonly() -> None:
 async def test_narrow_to_servers_hides_other_targets() -> None:
     # A server owned exclusively by another target is hidden from the resolved target's view.
     toolset = await _build_two_servers()
-    view = tools.narrow_to_servers(toolset, {"t1": {"a"}, "t2": {"b"}}, "t1")
+    routing = tools.TargetRouting(explicit={"t1": {"a"}, "t2": {"b"}})
+    view = tools.narrow_to_servers(toolset, routing, "t1")
     assert view.prefixes() == {"a"}  # 'b' belongs to t2, not shared
     assert view.is_readonly("a__read") is True
     assert view.is_readonly("b__read") is False  # dropped -> fail-safe False
 
 
-async def test_narrow_to_servers_single_target_is_noop() -> None:
-    # Fewer than two targets can never hide a tool: free-play (empty map) and a lone target both
-    # return the full toolset untouched (the single-[assistant] compat case).
+async def test_narrow_to_servers_freeplay_and_owns_all_are_noops() -> None:
+    # An empty routing (free-play) and an owns-all target both keep the full toolset untouched
+    # (identity): a tool is only hidden when it is owned *exclusively by another* explicit target.
     toolset = await _build_two_servers()
-    assert tools.narrow_to_servers(toolset, {}, "anything") is toolset
-    assert tools.narrow_to_servers(toolset, {"only": {"a"}}, "only") is toolset
+    assert tools.narrow_to_servers(toolset, tools.TargetRouting(), "anything") is toolset
+    assert tools.narrow_to_servers(toolset, tools.TargetRouting(owns_all={"only"}), "only") is toolset
+
+
+async def test_narrow_to_servers_single_scoped_target_gets_everything() -> None:
+    # A lone scoped target: its explicit set is the whole claimed union, so every other server is shared
+    # -> it resolves to the full toolset (the single-[assistant]-with-mcp_servers case). No tool is hidden.
+    toolset = await _build_two_servers()
+    routing = tools.TargetRouting(explicit={"only": {"a"}})
+    view = tools.narrow_to_servers(toolset, routing, "only")
+    assert view.prefixes() == {"a", "b"}  # 'b' is unclaimed by any *other* target -> shared -> kept

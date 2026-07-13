@@ -130,14 +130,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.chat_voice = proj.chat_voice if proj else None
         app.state.voice_enabled = proj.voice_enabled if proj else True
         resolved = mcpservers.resolve()
-        # Map each target id -> the server names it owns, from the resolved server *names* (not live
-        # clients), computed before connect. A target with mcp_servers=[] owns ALL resolved servers
-        # (the compat rule: today's merged toolset). Per-request routing (a later chunk) reads this.
-        server_names = {s.name for s in resolved}
-        app.state.target_servers = {
-            target_id: (set(target.mcp_servers) if target.mcp_servers else set(server_names))
-            for target_id, target in zip(registry.ids, registry.targets, strict=True)
-        }
+        # Per-target routing table, computed once here (not per request): each target id -> the exact
+        # tool prefixes it owns (its mcp_servers names slugged the way connect namespaces them), plus an
+        # owns-all marker for targets that declared no mcp_servers. narrow_to_servers reads this per turn.
+        app.state.target_routing = mcp_tools.build_target_routing(resolved, registry)
         servers = [s.to_spec() for s in resolved]
         if servers:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
@@ -185,18 +181,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.project_model = None
     app.state.chat_voice = None
     app.state.voice_enabled = True
-    # Target-instance metadata for /api/assistant (the project's [assistant] block), and the 60s
-    # TTL cache of its last verify probe. Both populated by lifespan when a project loads.
+    # Target-instance metadata for /api/assistant (the project's [assistant] block). Populated by
+    # lifespan when a project loads.
     app.state.assistant = None
-    app.state.assistant_verified = None  # compat single-slot cache for /api/assistant
-    # Per-target verify state for /api/assistants/{id}: one (checked_at, AssistantVerified) slot and one
+    # Per-target verify state (used by BOTH the /api/assistants/{id} routes and the /api/assistant compat
+    # route, which keys into it by the primary's id): one (checked_at, AssistantVerified) slot and one
     # single-flight lock per registry id, so verifying/binding one target never touches another's cache.
     app.state.assistant_verified_by_id = {}
     app.state.assistant_verify_locks = {}
-    # The full multi-target registry (all [[assistants]]) and, per target id, the set of .mcp.json
-    # server names it owns (empty mcp_servers => owns every resolved server). Populated by lifespan.
+    # The full multi-target registry (all [[assistants]]) and, per target id, the tool prefixes it owns
+    # (a TargetRouting: explicit prefix sets + an owns-all marker). Populated by lifespan.
     app.state.registry = AssistantRegistry()
-    app.state.target_servers = {}
+    app.state.target_routing = mcp_tools.TargetRouting()
     # Pending per-action write-confirmations for /api/chat, keyed by an unguessable server-minted
     # uuid delivered only over the SSE stream. Each future is resolved by POST /api/chat/confirm
     # (user approve/decline) or auto-denied on timeout; mutated only on the event loop.

@@ -23,7 +23,7 @@ from heim.routers.serving._base import (  # shared router + request deps
 )
 from heim.routers.serving.core import ServerStatus, _status
 from heim.runtime import sampling
-from heim.tools import MCPToolset, narrow_to_servers
+from heim.tools import MCPToolset, TargetRouting, narrow_to_servers
 
 _MAX_DETAIL = 2000  # cap on a tool SSE detail so one giant result can't flood the stream / the UI
 _MAX_DETAIL_STR = 200  # per-string cap when re-dumping a large JSON detail so it stays parseable
@@ -114,8 +114,8 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         else:
             resolved_assistant = registry.primary
             resolved_id = registry.ids[0]
-        target_servers = getattr(request.app.state, "target_servers", {}) or {}
-        toolset = narrow_to_servers(toolset, target_servers, resolved_id)
+        routing = getattr(request.app.state, "target_routing", None) or TargetRouting()
+        toolset = narrow_to_servers(toolset, routing, resolved_id)
     # An explicit allow-list narrows the toolset to the tools the user left enabled (intersecting on
     # top of any target narrowing above).
     if req.enabled_tools is not None:

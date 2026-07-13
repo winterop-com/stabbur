@@ -1,7 +1,6 @@
 """`heim chat` - the terminal chat: interactive TUI, one-shot -p, tools, and serve-attach."""
 
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -30,6 +29,7 @@ from heim.config import get_settings
 
 if TYPE_CHECKING:
     from heim import agent
+    from heim import tools as mcp_tools
     from heim.chat_tui.app import RemoteEndpoint
     from heim.project import AssistantInfo
 
@@ -67,21 +67,6 @@ def _resolve_target(proj: "project.Project | None", target_id: str | None) -> "t
         console.print(f"[red]Unknown target {target_id!r}.[/] Known targets: {known}.")
         raise typer.Exit(1)
     return resolved, target_id
-
-
-def _target_servers(proj: "project.Project | None", resolved_servers: "list[Any]") -> dict[str, set[str]]:
-    """Map each registry target id to the server names it owns (``mcp_servers=[]`` → all resolved servers).
-
-    The no-browser twin of ``app.state.target_servers`` (built in the serve lifespan): the routing table
-    :func:`heim.tools.narrow_to_servers` consumes to keep a target's turn to its own servers plus shared.
-    """
-    if proj is None or not proj.registry.targets:
-        return {}
-    all_names = {s.name for s in resolved_servers}
-    return {
-        tid: (set(t.mcp_servers) if t.mcp_servers else set(all_names))
-        for tid, t in zip(proj.registry.ids, proj.registry.targets, strict=True)
-    }
 
 
 async def _approve_all(name: str, args: dict[str, Any]) -> bool:
@@ -161,6 +146,13 @@ def chat(
     tool schema instead of calling it).
     """
     proj = project.load()
+    # --target narrows the toolset (and derives the confirm policy) only on the scripted -p path for now;
+    # the interactive Textual TUI connects its own toolset and would gate on the target while still
+    # exposing sibling write tools, so refuse it there rather than half-apply it. (prompt is None == the
+    # interactive TUI, local or --server attach.)
+    if target is not None and prompt is None:
+        console.print("[red]--target requires -p for now[/] — the interactive chat TUI always uses the primary target.")
+        raise typer.Exit(1)
     model_name = project.resolve_model(name, proj)
     # Resolve the registry target this session routes to (--target, else the primary): its readonly flag
     # drives the confirm policy and its server set narrows the tools (below). A write-enabled target
@@ -197,9 +189,14 @@ def chat(
     mcp_servers: list[tuple[str | None, list[str], dict[str, str]]] = (
         [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in resolved_servers] if tools else []
     )
-    # Per-target routing table (id -> owned server names); --target narrows the connected toolset to its
-    # servers + shared ones. Empty outside a multi-target project → no narrowing (full toolset).
-    target_servers = _target_servers(proj, resolved_servers)
+    # Per-target routing table (id -> owned tool prefixes); --target narrows the connected toolset to its
+    # servers + shared ones. Built by the one production helper the serve lifespan uses, so the CLI and
+    # web narrow identically. Empty outside a project → no narrowing (full toolset).
+    from heim import tools as mcp_tools  # noqa: PLC0415
+
+    target_routing = (
+        mcp_tools.build_target_routing(resolved_servers, proj.registry) if proj else mcp_tools.TargetRouting()
+    )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     # Capabilities are unknowable without a local copy (remote attach): load media unwarned.
     caps = capabilities.capabilities(model) if model is not None else None
@@ -258,7 +255,7 @@ def chat(
                 render=render,
                 on_confirm=_approve_all if allow_writes else None,
                 confirm_policy=confirm_policy,
-                target_servers=target_servers,
+                target_routing=target_routing,
                 target_id=resolved_target_id,
             )
     except (RuntimeError, httpx.HTTPError) as exc:
@@ -441,7 +438,7 @@ def _chat_with_tools(
     render: bool = False,
     on_confirm: "agent.ConfirmSink | None" = None,
     confirm_policy: Literal["all", "writes", "none"] = "none",
-    target_servers: Mapping[str, set[str]] | None = None,
+    target_routing: "mcp_tools.TargetRouting | None" = None,
     target_id: str | None = None,
 ) -> None:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
@@ -452,9 +449,9 @@ def _chat_with_tools(
     loaded model instead of spawning a runtime. With ``render`` set (interactive ``-p``),
     the answer is buffered and printed as rendered markdown instead of streamed raw.
 
-    ``target_servers`` + ``target_id`` (a multi-target ``--target``) narrow the connected toolset to that
-    target's servers plus shared ones, but only on the scripted ``-p`` path — the interactive Textual TUI
-    connects its own toolset and stays on the full (primary) set for now.
+    ``target_routing`` + ``target_id`` (a multi-target ``--target``) narrow the connected toolset to that
+    target's servers plus shared ones. This only reaches the scripted ``-p`` path — ``--target`` is refused
+    for the interactive Textual TUI (it connects its own toolset), so that path always uses the full set.
     """
     import asyncio  # noqa: PLC0415
 
@@ -544,8 +541,8 @@ def _chat_with_tools(
         nonlocal turn_labeled
         assert prompt is not None  # only entered when -p supplied a prompt
         async with mcp_tools.connect(servers) as toolset:
-            if target_servers and target_id is not None:
-                toolset = mcp_tools.narrow_to_servers(toolset, target_servers, target_id)
+            if target_routing is not None and target_id is not None:
+                toolset = mcp_tools.narrow_to_servers(toolset, target_routing, target_id)
             turn_labeled = True  # -p mode: stdout is just the answer, no label
             _think()
             await agent.run(

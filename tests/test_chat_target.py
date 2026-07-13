@@ -15,12 +15,17 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from heim import agent, tools
+from heim import agent, mcpservers, tools
 from heim.app import create_app
 from heim.config import Settings
 from heim.project import AssistantInfo
 from heim.routers import serving
 from heim.targets import AssistantRegistry
+
+
+def _servers(*names: str) -> list[mcpservers.McpServer]:
+    """Resolved ``McpServer``s (only name/command matter for prefix routing; nothing is spawned)."""
+    return [mcpservers.McpServer(name=n, command="x") for n in names]
 
 
 @pytest.fixture
@@ -83,14 +88,6 @@ def _two_target_registry() -> AssistantRegistry:
     )
 
 
-def _target_servers(registry: AssistantRegistry, all_servers: set[str]) -> dict[str, set[str]]:
-    """The app-state routing table: id -> owned servers (mcp_servers=[] owns all), like the serve lifespan."""
-    return {
-        tid: (set(t.mcp_servers) if t.mcp_servers else set(all_servers))
-        for tid, t in zip(registry.ids, registry.targets, strict=True)
-    }
-
-
 def _events(text: str) -> list[dict[str, Any]]:
     """Parse the SSE data events from a buffered /api/chat response body."""
     return [json.loads(line[len("data: ") :]) for line in text.splitlines() if line.startswith("data: ")]
@@ -132,12 +129,24 @@ async def _run(
     return captured, resp
 
 
-def _configure(app: FastAPI, toolset: tools.MCPToolset, registry: AssistantRegistry) -> None:
-    """Wire the app state a serve lifespan would: toolset, registry, routing table, primary alias."""
+def _configure(
+    app: FastAPI,
+    toolset: tools.MCPToolset,
+    registry: AssistantRegistry,
+    resolved: list[mcpservers.McpServer] | None = None,
+) -> None:
+    """Wire the app state a serve lifespan would: toolset, registry, routing table, primary alias.
+
+    The routing table is built via the *production* helper (``tools.build_target_routing``) from the
+    resolved ``McpServer``s — the same path the serve lifespan uses — so the test seeds real slugged
+    prefixes, not ``toolset.prefixes()`` shortcuts. ``resolved`` defaults to the three-server toolset.
+    """
     app.state.toolset = toolset
     app.state.registry = registry
     app.state.assistant = registry.primary
-    app.state.target_servers = _target_servers(registry, toolset.prefixes())
+    app.state.target_routing = tools.build_target_routing(
+        resolved if resolved is not None else _servers("play42", "staging", "datetime"), registry
+    )
 
 
 # --- explicit target narrows to its servers + shared (others hidden) --------------------------
@@ -154,6 +163,58 @@ async def test_explicit_target_narrows_to_its_servers_plus_shared(
     # 'staging' owns 'staging'; 'datetime' is shared (owned by no target) → both kept, 'play42' hidden.
     assert captured["prefixes"] == {"staging", "datetime"}
     assert captured["names"] == ["datetime__now", "staging__write_thing"]
+
+
+async def test_hyphenated_server_name_isolation(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The load-bearing case: a target's mcp_servers name is the RAW .mcp.json name ('dhis2-prod'), while
+    # connect namespaces its tools under the SLUGGED prefix ('dhis2_prod'). The routing must map name ->
+    # slug (via the production helper) or the narrowing would leak the sibling's tools.
+    toolset = tools.MCPToolset()
+    await toolset.add(_FakeClient([_FakeTool("read", True)]), "dhis2_prod")  # type: ignore[arg-type]
+    await toolset.add(_FakeClient([_FakeTool("write_thing", False)]), "dhis2_staging")  # type: ignore[arg-type]
+    registry = AssistantRegistry(
+        targets=[
+            AssistantInfo(name="dhis2-prod", mcp_servers=["dhis2-prod"], readonly=True),
+            AssistantInfo(name="dhis2-staging", mcp_servers=["dhis2-staging"], readonly=False),
+        ]
+    )
+    _configure(app, toolset, registry, resolved=_servers("dhis2-prod", "dhis2-staging"))
+    captured, resp = await _run(
+        app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}], "target": "dhis2-prod"}
+    )
+    assert resp.status_code == 200
+    # 'dhis2-prod' owns only its own tools; the hyphen->underscore slug is handled, so staging stays hidden.
+    assert captured["prefixes"] == {"dhis2_prod"}
+    assert captured["names"] == ["dhis2_prod__read"]
+
+
+async def test_mixed_scoped_and_owns_all_keeps_shared_shared(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A scoped target A (explicit ['dhis2A']) alongside an owns-all target B: the shared 'datetime' server
+    # stays shared (A keeps it), and B still resolves to everything. Owns-all does NOT swallow the shared.
+    toolset = tools.MCPToolset()
+    await toolset.add(_FakeClient([_FakeTool("read", True)]), "dhis2A")  # type: ignore[arg-type]
+    await toolset.add(_FakeClient([_FakeTool("now", True)]), "datetime")  # type: ignore[arg-type]
+    registry = AssistantRegistry(
+        targets=[
+            AssistantInfo(name="scoped", mcp_servers=["dhis2A"], readonly=True),
+            AssistantInfo(name="catchall", mcp_servers=[], readonly=True),  # owns-all
+        ]
+    )
+    _configure(app, toolset, registry, resolved=_servers("dhis2A", "datetime"))
+    cap_a, resp_a = await _run(
+        app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}], "target": "scoped"}
+    )
+    assert resp_a.status_code == 200
+    assert cap_a["prefixes"] == {"dhis2A", "datetime"}  # scoped gets its own + the shared datetime
+    cap_b, resp_b = await _run(
+        app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}], "target": "catchall"}
+    )
+    assert resp_b.status_code == 200
+    assert cap_b["prefixes"] == {"dhis2A", "datetime"}  # owns-all target resolves to everything
 
 
 async def test_none_target_narrows_to_primary_plus_shared(
@@ -174,7 +235,7 @@ async def test_freeplay_no_registry_keeps_full_toolset(
     app.state.toolset = await _make_toolset()
     app.state.registry = AssistantRegistry()
     app.state.assistant = None
-    app.state.target_servers = {}
+    app.state.target_routing = tools.TargetRouting()
     captured, resp = await _run(app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}]})
     assert resp.status_code == 200
     assert captured["prefixes"] == {"play42", "staging", "datetime"}
@@ -193,11 +254,11 @@ async def test_unknown_target_is_400(app: FastAPI, client: AsyncClient, monkeypa
 async def test_single_assistant_compat_narrowing_is_noop(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A single [assistant] with no mcp_servers owns ALL resolved servers (target_servers = full set),
+    # A single [assistant] with no mcp_servers is recorded owns-all (not pre-expanded to every prefix),
     # so narrowing keeps every tool — existing single-target behavior is preserved.
     registry = AssistantRegistry(targets=[AssistantInfo(name="play42", mcp_servers=[], readonly=True)])
     _configure(app, await _make_toolset(), registry)
-    assert app.state.target_servers == {"play42": {"play42", "staging", "datetime"}}
+    assert app.state.target_routing == tools.TargetRouting(owns_all={"play42"})
     captured, resp = await _run(app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}]})
     assert resp.status_code == 200
     assert captured["prefixes"] == {"play42", "staging", "datetime"}

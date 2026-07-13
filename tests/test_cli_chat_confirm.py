@@ -143,3 +143,12 @@ def test_readonly_assistant_is_ungated(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 0, result.output
     assert toolset.calls == ["srv__write"]
     assert not _declined(staged)
+
+
+def test_target_without_prompt_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    # --target only narrows on the scripted -p path; the interactive TUI would gate on the target while
+    # exposing sibling write tools, so it is refused there (no -p) with a clear error, exit code 1.
+    monkeypatch.setattr(project_mod, "load", lambda *a, **k: _write_enabled())
+    result = runner.invoke(cli.app, ["chat", "pub/Foo-GGUF", "--target", "prod"])
+    assert result.exit_code == 1
+    assert "--target requires -p" in result.output
