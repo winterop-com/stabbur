@@ -10,7 +10,7 @@
 // extensions.
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -32,15 +32,25 @@ const SCRATCH =
 /**
  * Absolute path to the built, unpacked extension. The live tier needs the TEST-ONLY e2e build
  * (`.output/chrome-mv3-e2e`, from `bun run build:e2e`) whose static host_permissions pre-grant the
- * target origins so the headless mint tail can run; when that build is present it wins. The mock
- * tier only ever builds the generic `.output/chrome-mv3`, so it falls through to it. The e2e build
- * is otherwise byte-identical to the generic flavor (same code, extra host_permissions), so a
- * lingering e2e dir never changes mock behavior.
+ * target origins so the headless mint tail can run. The NEWEST build wins: each tier builds its
+ * own flavor right before running (`e2e` -> generic, `e2e:live` -> e2e build), so comparing build
+ * times routes each tier to its fresh output — and a lingering e2e dir from an earlier
+ * `build:e2e`/screenshots run can never shadow a newer generic build with stale code (the two
+ * flavors are only byte-identical until the next source change).
  */
 const E2E_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-e2e");
-export const EXTENSION_PATH = existsSync(E2E_EXTENSION_PATH)
-  ? E2E_EXTENSION_PATH
-  : path.resolve(HERE, "..", ".output", "chrome-mv3");
+const GENERIC_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
+
+function builtAt(dir: string): number {
+  try {
+    return statSync(path.join(dir, "manifest.json")).mtimeMs;
+  } catch {
+    return -1;
+  }
+}
+
+export const EXTENSION_PATH =
+  builtAt(E2E_EXTENSION_PATH) >= builtAt(GENERIC_EXTENSION_PATH) ? E2E_EXTENSION_PATH : GENERIC_EXTENSION_PATH;
 
 const HEADED = process.env.HEADED === "1" || process.env.HEADED === "true";
 
