@@ -12,7 +12,7 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -193,6 +193,18 @@ class MCPToolset:
         """Names of the available (namespaced) tools."""
         return [s["function"]["name"] for s in self.schemas]
 
+    def prefixes(self) -> set[str]:
+        """The server prefixes present in this toolset (the ``<prefix>`` of each ``<prefix>__<tool>``).
+
+        Lets a caller reason about tools *per server* (e.g. registry-target routing) without re-parsing
+        the ``__`` naming convention itself — the one place that knows the convention stays :meth:`add`.
+        """
+        return {name.split("__", 1)[0] for name in self._owner}
+
+    def names_for_prefixes(self, prefixes: set[str]) -> set[str]:
+        """Qualified tool names whose server prefix is in ``prefixes`` — a ready :meth:`subset` argument."""
+        return {name for name in self._owner if name.split("__", 1)[0] in prefixes}
+
     def is_readonly(self, name: str) -> bool:
         """Whether a namespaced tool is known read-only (its ``readOnlyHint`` annotation was True).
 
@@ -254,6 +266,28 @@ class MCPToolset:
             return payload
         data = getattr(result, "data", None)
         return data if data is not None else _result_text(result)
+
+
+def narrow_to_servers(toolset: MCPToolset, target_servers: Mapping[str, set[str]], target_id: str) -> MCPToolset:
+    """Narrow ``toolset`` to a registry target's servers plus any shared (unowned) servers.
+
+    ``target_servers`` maps each registry target id to the set of server prefixes it owns (a target with
+    ``mcp_servers=[]`` is expanded to *all* servers when this map is built). For the turn's resolved
+    ``target_id`` the kept tools are those whose server prefix is either owned by that target OR owned by
+    **no** target at all (shared/global servers like ``datetime``/``playwright``); tools owned exclusively
+    by another target are hidden. Routes through :meth:`MCPToolset.subset`, so the ``_readonly``
+    (confirmation-gate) metadata survives for every kept tool.
+
+    Fewer than two targets is a no-op (``toolset`` returned unchanged): a tool is only ever hidden when it
+    is owned *exclusively by another* target, which needs at least two — so free-play (empty map) and the
+    single-``[assistant]`` compat case (one target owning everything) both keep the full toolset.
+    """
+    if len(target_servers) <= 1:
+        return toolset
+    owned_union: set[str] = set().union(*target_servers.values())
+    resolved = target_servers.get(target_id, set())
+    shared = toolset.prefixes() - owned_union
+    return toolset.subset(toolset.names_for_prefixes(resolved | shared))
 
 
 @asynccontextmanager

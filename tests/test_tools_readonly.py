@@ -78,3 +78,64 @@ async def test_subset_preserves_readonly_for_kept_names() -> None:
     # A dropped tool is no longer recorded -> fail-safe False, and absent from the map.
     assert "srv__hint_none" not in view._readonly
     assert view.is_readonly("srv__hint_none") is False
+
+
+async def _build_two_servers() -> tools.MCPToolset:
+    """A toolset over two servers ('a' and 'b'), each with a readonly + a write tool."""
+    toolset = tools.MCPToolset()
+    for prefix in ("a", "b"):
+        client = _FakeClient([_FakeTool("read", _Annotations(True)), _FakeTool("write", _Annotations(False))])
+        await toolset.add(client, prefix)  # type: ignore[arg-type]
+    return toolset
+
+
+async def test_prefixes_lists_server_namespaces() -> None:
+    # prefixes() reports the <prefix> of each <prefix>__<tool>, so a caller never re-parses "__".
+    toolset = await _build_two_servers()
+    assert toolset.prefixes() == {"a", "b"}
+    assert tools.MCPToolset().prefixes() == set()
+
+
+async def test_names_for_prefixes_selects_qualified_names() -> None:
+    # names_for_prefixes() returns a ready subset() argument: every tool under the given prefixes.
+    toolset = await _build_two_servers()
+    assert toolset.names_for_prefixes({"a"}) == {"a__read", "a__write"}
+    assert toolset.names_for_prefixes({"a", "b"}) == {"a__read", "a__write", "b__read", "b__write"}
+    assert toolset.names_for_prefixes({"missing"}) == set()
+
+
+async def _build_three_servers() -> tools.MCPToolset:
+    """A toolset over two target-owned servers ('a', 'b') plus a shared one ('shared')."""
+    toolset = await _build_two_servers()
+    client = _FakeClient([_FakeTool("read", _Annotations(True)), _FakeTool("write", _Annotations(False))])
+    await toolset.add(client, "shared")  # type: ignore[arg-type]
+    return toolset
+
+
+async def test_narrow_to_servers_keeps_shared_and_preserves_readonly() -> None:
+    # narrow_to_servers routes through subset(): the resolved target's server + the unowned 'shared'
+    # server are kept (the other target hidden), and _readonly survives for every kept tool.
+    toolset = await _build_three_servers()
+    view = tools.narrow_to_servers(toolset, {"t1": {"a"}, "t2": {"b"}}, "t1")
+    assert view.prefixes() == {"a", "shared"}  # 'b' owned by t2 → hidden; 'shared' owned by none → kept
+    assert view.is_readonly("a__read") is True
+    assert view.is_readonly("a__write") is False
+    assert view.is_readonly("shared__read") is True
+    assert view.is_readonly("b__read") is False  # dropped → fail-safe False
+
+
+async def test_narrow_to_servers_hides_other_targets() -> None:
+    # A server owned exclusively by another target is hidden from the resolved target's view.
+    toolset = await _build_two_servers()
+    view = tools.narrow_to_servers(toolset, {"t1": {"a"}, "t2": {"b"}}, "t1")
+    assert view.prefixes() == {"a"}  # 'b' belongs to t2, not shared
+    assert view.is_readonly("a__read") is True
+    assert view.is_readonly("b__read") is False  # dropped -> fail-safe False
+
+
+async def test_narrow_to_servers_single_target_is_noop() -> None:
+    # Fewer than two targets can never hide a tool: free-play (empty map) and a lone target both
+    # return the full toolset untouched (the single-[assistant] compat case).
+    toolset = await _build_two_servers()
+    assert tools.narrow_to_servers(toolset, {}, "anything") is toolset
+    assert tools.narrow_to_servers(toolset, {"only": {"a"}}, "only") is toolset
