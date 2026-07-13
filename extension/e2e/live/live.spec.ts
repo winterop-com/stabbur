@@ -242,7 +242,12 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
       const outcome = panel.getByTestId("bind-acting-as").or(panel.getByTestId("bind-error"))
         .or(panel.getByTestId("bind-fallback")).or(panel.getByTestId("bind-unauthenticated"));
       await expect(outcome.first()).toBeVisible({ timeout: 120_000 });
-      const stage = (await panel.getByTestId("bind-flow").innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      // count() resolves immediately; a bare innerText() here would wait UNBOUNDED (no global
+      // actionTimeout) for a bind-flow that unmounts on success — a 30-minute hang, not an error.
+      const flowOpen = (await panel.getByTestId("bind-flow").count()) > 0;
+      const stage = flowOpen
+        ? (await panel.getByTestId("bind-flow").innerText({ timeout: 5_000 }).catch(() => "")).replace(/\s+/g, " ").trim()
+        : "";
       console.log(`[live-bind] post-confirm stage: ${stage || "(bound; bind-flow closed)"}`);
       // The bind reached bound state headless (an outcome rendered above; the bind-flow closed) —
       // that is the gap-#2 proof: the mint tail now RUNS, mints, installs, and binds headless
