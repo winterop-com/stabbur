@@ -10,7 +10,7 @@ re-exported so ``heim.cli.<name>`` keeps working for tests and callers. Everythi
 this package is listed in ``__all__``.
 """
 
-from heim.cli import chat, config, health, library, mcp, project, serve, voice
+from heim.cli import chat, config, ext_dev, health, library, mcp, project, serve, voice
 from heim.cli._app import _mount_plugins, app, main
 from heim.cli._common import _normalize_server_url, _uninstalled_optional
 from heim.cli.project import _pick_model_interactive, _pick_tools_interactive
@@ -23,6 +23,7 @@ __all__ = [
     # command-group modules — imported to register their commands on the Typer app
     "chat",
     "config",
+    "ext_dev",
     "health",
     "library",
     "mcp",

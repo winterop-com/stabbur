@@ -148,9 +148,9 @@ the wrong fix — it would leak profile secrets to the extension and defeats bin
   fixed by the **test-only `HEIM_E2E=1` build**, which puts the target origins in static
   `host_permissions` (combine with `HEIM_FLAVOR=dhis2` for a branded automation build). The live
   spec is scoped to the bound-state proof; the full mint→verify→unbind cycle is covered by
-  `e2e/mock/bind.spec.ts` + interactive manual verification. Dev ergonomics follow-up: promote the
-  throwaway `extension/e2e/manual.ts` (headed browser + `heim serve` + extension, wired to play42)
-  into a supported `heim ext-dev` launcher for interactive testing.
+  `e2e/mock/bind.spec.ts` + interactive manual verification. Interactive dev drive: `heim ext-dev`
+  (headed Chromium + a real `heim serve` + the extension, `--multi` for the two-target play fixture),
+  the supported launcher over the `extension/e2e/try.ts` engine.
 
 The DHIS2 MCP servers it points at are the published PyPI packages (`uvx dhis2w-mcp-bridge` is the
 default; router/full-server for bigger models); source lives in `~/dev/local/dhis2w-utils`.
