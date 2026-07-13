@@ -306,6 +306,114 @@ def test_load_rejects_bad_probe_path_as_projecterror(tmp_path: Path) -> None:
         project.load(p)
 
 
+def test_single_assistant_loads_as_one_target_registry(tmp_path: Path) -> None:
+    # A single [assistant] table is the compat case: it becomes a one-target registry whose primary is
+    # the aliased `assistant`, and mcp_servers defaults to [] (the "owns all servers" marker).
+    p = tmp_path / "heim.toml"
+    p.write_text('[project]\nmodel = "m"\n\n[assistant]\nname = "play42"\nbase_url = "https://demo/x"\n')
+    proj = project.load(p)
+    assert proj is not None
+    assert proj.registry.ids == ["play42"]
+    assert proj.assistant is proj.registry.primary
+    assert proj.assistant is not None and proj.assistant.name == "play42"
+    assert proj.assistant.mcp_servers == []  # default: owns all servers
+
+
+def test_assistants_array_loads_all_targets_in_order(tmp_path: Path) -> None:
+    # [[assistants]] parses N targets in declaration order; the primary is the first, ids are derived.
+    p = tmp_path / "heim.toml"
+    p.write_text(
+        '[project]\nmodel = "m"\n\n'
+        '[[assistants]]\nname = "play42"\nbase_url = "https://demo/dev-2-42"\nmcp_servers = ["play42"]\n\n'
+        '[[assistants]]\nname = "staging"\nbase_url = "https://demo/staging"\nmcp_servers = ["staging"]\n'
+    )
+    proj = project.load(p)
+    assert proj is not None
+    assert proj.registry.ids == ["play42", "staging"]
+    assert [t.name for t in proj.registry.targets] == ["play42", "staging"]
+    assert proj.registry.targets[0].mcp_servers == ["play42"]
+    assert proj.assistant is not None and proj.assistant is proj.registry.primary
+    assert proj.assistant.name == "play42"
+
+
+def test_both_assistant_shapes_present_raises(tmp_path: Path) -> None:
+    # [assistant] and [[assistants]] together is ambiguous (which is primary?) — a clean ProjectError.
+    p = tmp_path / "heim.toml"
+    p.write_text('[project]\nmodel = "m"\n\n[assistant]\nname = "a"\n\n[[assistants]]\nname = "b"\n')
+    with pytest.raises(project.ProjectError, match="both"):
+        project.load(p)
+
+
+def test_assistants_table_not_array_raises(tmp_path: Path) -> None:
+    # A [assistants] *table* (not the array-of-tables [[assistants]]) is a manifest mistake, caught cleanly.
+    p = tmp_path / "heim.toml"
+    p.write_text('[project]\nmodel = "m"\n\n[assistants]\nname = "a"\n')
+    with pytest.raises(project.ProjectError, match="array of tables"):
+        project.load(p)
+
+
+def test_malformed_target_in_array_raises_projecterror(tmp_path: Path) -> None:
+    # One malformed target (a bad verify) fails like any manifest value — a clean ProjectError, not a
+    # traceback — and the error is raised for the array path just as for a single [assistant].
+    p = tmp_path / "heim.toml"
+    p.write_text(
+        '[project]\nmodel = "m"\n\n'
+        '[[assistants]]\nname = "good"\nbase_url = "https://demo/a"\n\n'
+        '[[assistants]]\nname = "bad"\n\n[assistants.verify]\ntimeout = 5.0\n'  # missing required `tool`
+    )
+    with pytest.raises(project.ProjectError, match="invalid value"):
+        project.load(p)
+
+
+def test_render_manifest_round_trips_assistants_array(tmp_path: Path) -> None:
+    # render (single writer) -> tomllib -> load (single parser) is closed for N targets, including
+    # mcp_servers, an extra key, and the nested verify/bind sub-tables under [[assistants]].
+    from heim.targets import AssistantRegistry
+
+    targets = [
+        AssistantInfo.model_validate(
+            {
+                "name": "play42",
+                "base_url": "https://demo/dev-2-42",
+                "mcp_servers": ["play42"],
+                "readonly": True,
+                "region": "eu",  # extra key rides along
+                "verify": {"tool": "play42__dhis2_cli", "args": {"args": ["profile", "verify"]}},
+            }
+        ),
+        AssistantInfo.model_validate(
+            {
+                "name": "staging",
+                "base_url": "https://demo/staging",
+                "mcp_servers": ["staging"],
+                "bind": {"modes": {"pat": {"command": ["tool", "add", "--url", "{base_url}"], "secret_env": "TOK"}}},
+            }
+        ),
+    ]
+    text = project.render_manifest(model="m", registry=AssistantRegistry(targets=targets))
+    tomllib.loads(text)  # valid TOML
+    assert "[[assistants]]" in text
+    p = tmp_path / "heim.toml"
+    p.write_text(text)
+    loaded = project.load(p)
+    assert loaded is not None
+    assert loaded.registry.targets == targets  # full closed round-trip, extras and all
+    assert loaded.registry.ids == ["play42", "staging"]
+
+
+def test_render_manifest_single_assistant_stays_table_not_array(tmp_path: Path) -> None:
+    # The `assistant=` shim keeps the byte-compatible single [assistant] table (no [[assistants]], and no
+    # redundant mcp_servers/id keys), so existing scaffolds render unchanged.
+    info = AssistantInfo.model_validate({"name": "play42", "base_url": "https://demo/x"})
+    text = project.render_manifest(model="m", assistant=info)
+    assert "[assistant]" in text and "[[assistants]]" not in text
+    assert "mcp_servers" not in text and "\nid = " not in text
+    p = tmp_path / "heim.toml"
+    p.write_text(text)
+    loaded = project.load(p)
+    assert loaded is not None and loaded.assistant == info
+
+
 def test_read_raw_is_the_single_parser(tmp_path: Path) -> None:
     # read_raw underlies both the manifest (load) and the machine settings (heim.config), so a
     # malformed file raises one clean ProjectError rather than crashing differently in each.

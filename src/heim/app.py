@@ -19,6 +19,7 @@ from heim.config import Settings, get_settings
 from heim.routers import catalog, health, serving
 from heim.runtime import supervisor
 from heim.server import ServerManager
+from heim.targets import AssistantRegistry
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
@@ -114,9 +115,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncExitStack() as mcp_stack:
         proj = project.load()
         app.state.system_prompt = proj.system_prompt if proj else ""
-        # The project's [assistant] target metadata, echoed by /api/assistant for UI clients
-        # (heim never interprets it); None outside a project or when the block is absent.
-        app.state.assistant = proj.assistant if proj else None
+        # The project's assistant target(s). `registry` holds all of them ([[assistants]]); `assistant`
+        # stays the primary (registry.primary) so every existing consumer (/api/assistant, confirm
+        # policy) is untouched. Both empty/None outside a project or when no assistant block is present.
+        registry = proj.registry if proj else AssistantRegistry()
+        app.state.registry = registry
+        app.state.assistant = registry.primary
         # The model the UI auto-loads on open: the project's bound model (a project is a
         # reproducible assistant: model + prompt + tools), or — outside a project — the machine
         # default (`heim config set model`), so free-play serve --ui still opens on a model.
@@ -125,7 +129,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
         app.state.voice_enabled = proj.voice_enabled if proj else True
-        servers = [s.to_spec() for s in mcpservers.resolve()]
+        resolved = mcpservers.resolve()
+        # Map each target id -> the server names it owns, from the resolved server *names* (not live
+        # clients), computed before connect. A target with mcp_servers=[] owns ALL resolved servers
+        # (the compat rule: today's merged toolset). Per-request routing (a later chunk) reads this.
+        server_names = {s.name for s in resolved}
+        app.state.target_servers = {
+            target_id: (set(target.mcp_servers) if target.mcp_servers else set(server_names))
+            for target_id, target in zip(registry.ids, registry.targets, strict=True)
+        }
+        servers = [s.to_spec() for s in resolved]
         if servers:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
         try:
@@ -176,6 +189,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # TTL cache of its last verify probe. Both populated by lifespan when a project loads.
     app.state.assistant = None
     app.state.assistant_verified = None
+    # The full multi-target registry (all [[assistants]]) and, per target id, the set of .mcp.json
+    # server names it owns (empty mcp_servers => owns every resolved server). Populated by lifespan.
+    app.state.registry = AssistantRegistry()
+    app.state.target_servers = {}
     # Pending per-action write-confirmations for /api/chat, keyed by an unguessable server-minted
     # uuid delivered only over the SSE stream. Each future is resolved by POST /api/chat/confirm
     # (user approve/decline) or auto-denied on timeout; mutated only on the event loop.

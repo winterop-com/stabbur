@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from heim.project import (
     ALLOWED_COMMAND_PLACEHOLDERS,
@@ -81,6 +81,7 @@ class AssistantResponse(BaseModel):
     auth: str | None = None
     readonly: bool | None = None
     source: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
     can_verify: bool = False
     verified: AssistantVerified | None = None
     probe: dict[str, Any] | None = None

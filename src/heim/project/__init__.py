@@ -23,7 +23,15 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 _DEFAULT_PATH = Path("heim.toml")
 
@@ -33,6 +41,18 @@ _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+\Z")
 Anchored with ``\\Z`` (not ``$``) so a trailing newline can't sneak through — ``$`` matches *before*
 a final ``\\n``, so ``"pat\\n"`` would look bare and emit an unquoted key with a raw newline (invalid
 TOML), breaking the single-writer round-trip invariant."""
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+"""Runs of non-``[a-z0-9]`` characters, collapsed to a single ``-`` when slugifying a target name."""
+
+
+def _slugify(name: str) -> str:
+    """A URL/id-safe slug of ``name``: lower-cased, non-alphanumeric runs collapsed to ``-``, trimmed.
+
+    Used to derive a target's stable ``id`` from its display name (``"Play 42"`` -> ``"play-42"``);
+    returns ``""`` when nothing alphanumeric survives, so the caller can fall back to a positional id.
+    """
+    return _SLUG_RE.sub("-", name.lower()).strip("-")
 
 
 class AssistantVerify(BaseModel):
@@ -277,9 +297,30 @@ class AssistantInfo(BaseModel):
     auth: str | None = None
     readonly: bool | None = None
     source: str | None = None
+    mcp_servers: list[str] = Field(default_factory=list)
+    """The ``.mcp.json`` server names whose namespaced tools route to this target. Empty (the default,
+    and the single-``[assistant]`` compat case) means the target owns *all* resolved servers — today's
+    merged toolset. Naming servers here is how N targets partition the tools between them."""
     verify: AssistantVerify | None = None
     probe: AssistantProbe | None = None
     bind: AssistantBind | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def id(self) -> str:
+        """A stable id derived from ``name`` (slugified), or ``"target-0"`` when unnamed.
+
+        This is the target's *own* id; :class:`heim.targets.AssistantRegistry` makes it collision-safe
+        across a registry (a duplicate gets a ``-2`` suffix, an unnamed non-first target ``target-<i>``),
+        so read ids off the registry (``registry.ids`` / ``by_id``) when more than one target is in play.
+        """
+        return (_slugify(self.name) if self.name else "") or "target-0"
+
+
+# Defined here (not imported at module top) so the project <-> targets import cycle resolves under either
+# order: AssistantInfo is defined above, so targets can import it; AssistantRegistry is defined there before
+# it imports us back. Project's `registry` field needs the concrete class, so import it now.
+from heim.targets import AssistantRegistry  # noqa: E402
 
 
 class Project(BaseModel):
@@ -296,8 +337,25 @@ class Project(BaseModel):
     # token ``@shared`` for the machine's default library (``library_root``). Empty
     # → just the default library. See :func:`heim.library.roots`.
     libraries: list[str] = []
-    # Target-instance metadata for UI clients (``[assistant]``); ``None`` when the block is absent.
+    # Target-instance metadata for UI clients; ``assistant`` is the **primary** target (the compat alias
+    # every existing consumer reads), ``registry`` holds all targets (``[[assistants]]``) in priority order.
+    # ``None`` / empty when no ``[assistant]`` or ``[[assistants]]`` block is present.
     assistant: AssistantInfo | None = None
+    registry: AssistantRegistry = Field(default_factory=AssistantRegistry)
+
+    @model_validator(mode="after")
+    def _sync_assistant_and_registry(self) -> "Project":
+        """Keep ``assistant`` (the primary alias) and ``registry`` consistent however a Project is built.
+
+        ``load()`` passes a fully-built ``registry``; older callers (and tests) pass a single ``assistant``.
+        Whichever side is given, derive the other so ``proj.assistant is proj.registry.primary`` always
+        holds — existing consumers keep reading ``assistant`` untouched.
+        """
+        if not self.registry.targets and self.assistant is not None:
+            self.registry = AssistantRegistry(targets=[self.assistant])
+        elif self.registry.targets and self.assistant is None:
+            self.assistant = self.registry.primary
+        return self
 
 
 class ProjectError(RuntimeError):
@@ -334,20 +392,43 @@ def load(path: Path = _DEFAULT_PATH) -> Project | None:
     project = data.get("project", {})
     voice = data.get("voice", {})
     libraries = data.get("libraries", [])
-    assistant = data.get("assistant")
+    single = data.get("assistant")
+    array = data.get("assistants")
+    # One shape or the other, never both — otherwise which is the primary is ambiguous.
+    if single is not None and array is not None:
+        raise ProjectError(f"{path} declares both [assistant] and [[assistants]]; use one or the other")
     try:
+        # Each target is validated inside the try so a malformed one (bad verify, bad probe path, …)
+        # fails like any other manifest value — a clean ProjectError, not a traceback.
+        registry = _build_registry(single, array, path)
         return Project(
             model=project.get("model"),
             system_prompt=project.get("system_prompt", ""),
             chat_voice=project.get("chat_voice"),
             voice_enabled=bool(voice.get("enabled", True)) if isinstance(voice, dict) else True,
             libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
-            # A malformed [assistant] block (e.g. a bad verify) must fail like any other manifest
-            # value — a clean ProjectError, not a traceback — so it's validated inside the try.
-            assistant=AssistantInfo.model_validate(assistant) if assistant is not None else None,
+            registry=registry,
         )
     except (TypeError, ValidationError) as exc:
         raise ProjectError(f"{path} has an invalid value: {exc}") from exc
+
+
+def _build_registry(single: Any, array: Any, path: Path) -> AssistantRegistry:
+    """Build the assistant registry from a single ``[assistant]`` table or an ``[[assistants]]`` array.
+
+    A single table becomes a one-target registry (the compat case); an array becomes one target per entry
+    in declaration order. A ``[assistants]`` *table* (not an array-of-tables) is a manifest mistake and is
+    rejected with a clear :class:`ProjectError`.
+    """
+    if array is not None:
+        if not isinstance(array, list):
+            raise ProjectError(
+                f"{path}: [[assistants]] must be an array of tables (use [[assistants]], not [assistants])"
+            )
+        return AssistantRegistry(targets=[AssistantInfo.model_validate(entry) for entry in array])
+    if single is not None:
+        return AssistantRegistry(targets=[AssistantInfo.model_validate(single)])
+    return AssistantRegistry()
 
 
 def resolve_model(explicit: str | None, proj: "Project | None") -> str | None:
@@ -426,6 +507,41 @@ def _render_submodel(header: str, data: dict[str, Any], inline_table_keys: froze
     return lines
 
 
+def _assistant_render_dict(assistant: "AssistantInfo") -> dict[str, Any]:
+    """The ``exclude_none`` model dump minus the keys the writer never emits (``id`` / empty ``mcp_servers``).
+
+    ``id`` is derived on load, so writing it would be redundant and would collide with the computed field on
+    the next parse; an empty ``mcp_servers`` is the compat default, so dropping it keeps a single
+    ``[assistant]`` render byte-identical to the pre-multi-target output.
+    """
+    data = assistant.model_dump(exclude_none=True)
+    data.pop("id", None)
+    if not data.get("mcp_servers"):
+        data.pop("mcp_servers", None)
+    return data
+
+
+def _render_assistant_tables(header: str, data: dict[str, Any], lines: list[str]) -> None:
+    """Append the verify / probe / bind sub-tables for one assistant to ``lines`` (``header`` is its prefix).
+
+    Shared by the single ``[assistant]`` and the ``[[assistants]]`` array paths — only the header prefix
+    differs (``assistant`` vs ``assistants``), so the nested sub-table rendering stays one implementation.
+    """
+    verify = data.pop("verify", None)
+    probe = data.pop("probe", None)
+    bind = data.pop("bind", None)
+    lines.extend(f"{_render_key(key)} = {_render_assistant_value(key, value)}" for key, value in data.items())
+    if verify is not None:
+        lines.extend(_render_submodel(f"{header}.verify", verify, frozenset({"args"})))
+    if probe is not None:
+        lines.extend(_render_submodel(f"{header}.probe", probe, frozenset({"fields"})))
+    if bind is not None:
+        modes = bind.pop("modes", {})
+        lines.extend(_render_submodel(f"{header}.bind", bind))
+        for name, mode in modes.items():
+            lines.extend(_render_submodel(f"{header}.bind.modes.{_render_key(name)}", mode))
+
+
 def _render_assistant(assistant: "AssistantInfo") -> str:
     """Render the ``[assistant]`` table (plus ``[assistant.verify]`` / ``[assistant.probe]`` / ``[assistant.bind]``).
 
@@ -433,24 +549,26 @@ def _render_assistant(assistant: "AssistantInfo") -> str:
     :func:`_render_key`; the sub-tables (verify / probe / bind, with a table per bind mode) are
     rendered after every top-level ``[assistant]`` key so the flat keys close before any sub-table opens.
     """
-    data = assistant.model_dump(exclude_none=True)
-    verify = data.pop("verify", None)
-    probe = data.pop("probe", None)
-    bind = data.pop("bind", None)
     lines = [
         "# [assistant] - target metadata for UI clients; heim echoes it, never interprets it.",
         "[assistant]",
     ]
-    lines.extend(f"{_render_key(key)} = {_render_assistant_value(key, value)}" for key, value in data.items())
-    if verify is not None:
-        lines.extend(_render_submodel("assistant.verify", verify, frozenset({"args"})))
-    if probe is not None:
-        lines.extend(_render_submodel("assistant.probe", probe, frozenset({"fields"})))
-    if bind is not None:
-        modes = bind.pop("modes", {})
-        lines.extend(_render_submodel("assistant.bind", bind))
-        for name, mode in modes.items():
-            lines.extend(_render_submodel(f"assistant.bind.modes.{_render_key(name)}", mode))
+    _render_assistant_tables("assistant", _assistant_render_dict(assistant), lines)
+    return "\n".join(lines) + "\n"
+
+
+def _render_assistants(targets: "list[AssistantInfo]") -> str:
+    """Render N targets as a TOML ``[[assistants]]`` array-of-tables (each with its nested sub-tables).
+
+    Each entry opens a fresh ``[[assistants]]`` element; its verify / probe / bind sub-tables attach to that
+    element via the ``assistants.*`` header prefix (TOML binds them to the most recent array entry). This is
+    the multi-target write path; a single target is still rendered as a plain ``[assistant]`` table via
+    :func:`_render_assistant` to keep the common case byte-identical.
+    """
+    lines = ["# [[assistants]] - target metadata for UI clients; heim echoes it, never interprets it."]
+    for target in targets:
+        lines.extend(["", "[[assistants]]"])
+        _render_assistant_tables("assistants", _assistant_render_dict(target), lines)
     return "\n".join(lines) + "\n"
 
 
@@ -461,6 +579,7 @@ def render_manifest(
     local_library_dir: str | None = None,
     chat_voice: str | None = None,
     assistant: "AssistantInfo | None" = None,
+    registry: "AssistantRegistry | None" = None,
 ) -> str:
     """Render a fresh ``heim.toml`` from values (used by ``project init`` / ``project new``).
 
@@ -484,7 +603,15 @@ def render_manifest(
     # Kokoro (tiny) is the default speak-replies voice for every project, so any assistant
     # can talk back without loading a second multi-GB model.
     voice_line = f"chat_voice = {json.dumps(chat_voice)}  # spoken-reply voice (Kokoro)\n" if chat_voice else ""
-    assistant_block = f"\n{_render_assistant(assistant)}" if assistant is not None else ""
+    # A registry (multiple targets) writes the [[assistants]] array; a single `assistant=` keeps the
+    # byte-identical [assistant] table. A one-target registry still writes the array form (it came from
+    # [[assistants]]); the single-table form is reserved for the `assistant=` shim so scaffolds are stable.
+    if registry is not None and registry.targets:
+        assistant_block = f"\n{_render_assistants(registry.targets)}"
+    elif assistant is not None:
+        assistant_block = f"\n{_render_assistant(assistant)}"
+    else:
+        assistant_block = ""
     return (
         "# heim project — a purpose-built assistant (model + system prompt).\n"
         "# Portable + committable: no machine-specific paths. Tools live in .mcp.json.\n\n"
