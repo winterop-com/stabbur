@@ -1,7 +1,7 @@
 // GET /api/assistant: a 404 shows no target banner; a 200 with can_verify shows
 // the banner + Verify, and the verified-ok / verified-error outcomes render.
 
-import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 
 import { HeimMock, TargetSiteMock } from "../mockServer";
 
@@ -57,6 +57,8 @@ test("verify ok renders the assistant banner and a verified indicator", async ({
   await expect(panel.getByText("play42", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText("read-only")).toBeVisible();
 
+  // Verify moved into the expanded detail; expand first.
+  await expandTarget(panel);
   await panel.getByRole("button", { name: "Verify" }).click();
   await expect(panel.getByText("Verified.")).toBeVisible({ timeout: 10_000 });
 });
@@ -72,6 +74,8 @@ test("no probe declared: no 'Who am I here?' button", async ({ context, extensio
   };
   const panel = await openReady(context, extensionId);
   await expect(panel.getByText("play42", { exact: true })).toBeVisible({ timeout: 15_000 });
+  // Expand so the (absent-because-no-probe) "Who am I here?" would be visible if it existed.
+  await expandTarget(panel);
   await expect(panel.getByRole("button", { name: "Who am I here?" })).toHaveCount(0);
 });
 
@@ -95,6 +99,8 @@ test("probe declared: the button resolves the signed-in user on the target tab",
     },
   };
   const panel = await openReady(context, extensionId);
+  await expect(panel.getByText("play42", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByRole("button", { name: "Who am I here?" })).toBeVisible({ timeout: 15_000 });
 
   const tab = await context.newPage();
@@ -123,6 +129,8 @@ test("verify error renders the failure detail", async ({ context, extensionId })
   };
 
   const panel = await openReady(context, extensionId);
+  await expect(panel.getByText("play42", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await panel.getByRole("button", { name: "Verify" }).click();
   await expect(panel.getByText(/Verification failed: profile verify failed: 401/)).toBeVisible({
     timeout: 10_000,

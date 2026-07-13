@@ -21,7 +21,8 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { type Page } from "@playwright/test";
-import { test, expect, openPanel, seedSettings, grantHostPermission } from "../fixtures";
+import { test, expect, openPanel, seedSettings, grantHostPermission, expandTarget } from "../fixtures";
+import { TAB_MATCHED } from "../../lib/bannerText";
 import {
   LIVE_PORT,
   PLAY_BASE_URL,
@@ -37,7 +38,7 @@ import {
 } from "./liveServer";
 
 const BASE_URL = `http://127.0.0.1:${LIVE_PORT}`;
-const MATCH_TEXT = "This tab matches the assistant target.";
+const MATCH_TEXT = TAB_MATCHED;
 const SHOTS = process.env.HEIM_DRIVE_SHOTS ?? "";
 
 let shotIndex = 0;
@@ -113,7 +114,11 @@ test.describe.serial("multi-target registry against real heim + play42/play41", 
       await gotoTab(tab, `${PLAY_BASE_URL}/dhis-web-dashboard/`);
       await expect(panel.getByText(MATCH_TEXT)).toBeVisible({ timeout: 60_000 });
       await expect(panel.getByText("play42", { exact: true })).toBeVisible({ timeout: 30_000 });
-      await shot(panel, "on-play42");
+      await shot(panel, "banner-collapsed"); // the new default: compact status line
+
+      // Verify moved into the expanded target detail; expand before clicking.
+      await expandTarget(panel);
+      await shot(panel, "banner-expanded"); // chevron opened: metadata + Verify + session detail
 
       // Per-target verify over play42's own profile-verify tool (play42__dhis2_cli against /dev-2-42).
       await panel.getByRole("button", { name: "Verify" }).click();
@@ -132,6 +137,7 @@ test.describe.serial("multi-target registry against real heim + play42/play41", 
       // Per-target verify on play41 — only when the instance is actually serving (its verify hits
       // /dev-2-41 for real). On the degraded path this round-trip would 503, so skip just this.
       if (play41Up) {
+        await expandTarget(panel);
         await panel.getByRole("button", { name: "Verify" }).click();
         await expect(panel.getByText("Verified.")).toBeVisible({ timeout: 180_000 });
         await shot(panel, "play41-verified");

@@ -5,6 +5,7 @@
 // existing assistant.spec / bind.spec / tabmatch.spec, which keep passing unchanged.
 
 import { test, expect, openPanel, seedSettings, PANEL_PATH } from "../fixtures";
+import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant, bindAssistantTarget } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
@@ -29,7 +30,7 @@ test.beforeEach(() => {
   siteB.reset();
 });
 
-const MATCH_TEXT = "This tab matches the assistant target.";
+const MATCH_TEXT = TAB_MATCHED;
 
 /** A minimal registry entry (no probe / bind recipe), enough to drive selection + the chat body. */
 function simpleTarget(id: string, name: string, baseUrl: string): Record<string, unknown> {

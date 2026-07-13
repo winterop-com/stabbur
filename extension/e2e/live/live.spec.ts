@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { test, expect, openPanel, seedSettings, grantHostPermission } from "../fixtures";
+import { test, expect, openPanel, seedSettings, grantHostPermission, expandTarget } from "../fixtures";
 import {
   countLlamaServers,
   LIVE_MODEL,
@@ -127,12 +127,14 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
       console.log(`[live] org-units answer: ${answer.replace(/\s+/g, " ").trim()}`);
       expect(answer).toMatch(/\d/);
 
-      // Verify the target instance (runs the profile-verify tool server-side).
+      // Verify the target instance (runs the profile-verify tool server-side). Verify lives in the
+      // expanded target detail now; expand before clicking.
+      await expandTarget(panel);
       await panel.getByRole("button", { name: "Verify" }).click();
       await expect(panel.getByText("Verified.")).toBeVisible({ timeout: 60_000 });
 
       // A tab under a different origin than the assistant target -> the collapsed one-line
-      // mismatch state (the full amber comparison lives behind Details).
+      // mismatch state (the full amber comparison lives behind the chevron).
       const tab = await context.newPage();
       await tab.goto("https://example.com/", { timeout: 30_000 });
       await tab.bringToFront();

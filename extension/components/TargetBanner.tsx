@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, ExternalLink, Loader2, LogIn, Pencil, ShieldCheck, User, UserCheck } from "lucide-react";
+import {
+  BadgeCheck,
+  ChevronDown,
+  ExternalLink,
+  Loader2,
+  LogIn,
+  Pencil,
+  ShieldCheck,
+  User,
+  UserCheck,
+} from "lucide-react";
 import type { AssistantTarget } from "../lib/assistantApi";
+import { TAB_MATCHED, TAB_MISMATCH_DETAIL, TAB_UNKNOWN, tabMismatchOneLiner } from "../lib/bannerText";
 import { match } from "../lib/tabTarget";
 import { formatSession, type SessionInfo, type SessionResult } from "../lib/sessionReads";
 import { executeRevoke, parseRecipe, substitute } from "../lib/bindRecipe";
@@ -102,8 +113,10 @@ export function TargetBanner({
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [session, setSession] = useState<SessionResult>(null);
   const [loadingSession, setLoadingSession] = useState(false);
-  // On a non-matching tab the target block collapses to its one-line state; Details expands it.
-  const [showDetails, setShowDetails] = useState(false);
+  // The target block is a compact status line by default in EVERY state; the chevron (target-expand)
+  // reveals the metadata, verify, session, and full binding controls. Collapsed on each mount (no
+  // persistence) so the block never eats the ~360px panel.
+  const [expanded, setExpanded] = useState(false);
   const [binding, setBinding] = useState<Binding | null>(null);
   const [bindingStale, setBindingStale] = useState(false);
   const [dismissed, setDismissed] = useState<BindDismissal | null>(null);
@@ -171,8 +184,6 @@ export function TargetBanner({
   // below can depend on it — hooks must run before the assistant===null early return).
   const baseUrl = assistant && typeof assistant.base_url === "string" ? assistant.base_url : null;
   const tab = match(tabUrl, baseUrl);
-  // Collapse everything but the one-line mismatch notice on unrelated pages (Details expands).
-  const compact = tab === "mismatch" && !showDetails;
   const canBind = assistant?.can_bind === true && recipe !== null;
   const targetName = assistant?.name ?? "the instance";
 
@@ -219,6 +230,20 @@ export function TargetBanner({
     : expired
       ? `Your ${targetName} login expired; rebind?`
       : `Use your ${targetName} login?`;
+
+  // A single amber line that pierces the collapsed banner so an expired/drift/sign-in/no-access hint
+  // is never hidden behind the chevron — the most urgent one wins. Suppressed while the bind card is
+  // open (it already frames the same drift/expiry) and when expanded (the detail below covers it).
+  const sessionError = session && "error" in session ? session.error : null;
+  const warningLine = driftRebind
+    ? `You are now signed in as ${sessionInfo?.username || sessionInfo?.name || "a different user"}; rebind?`
+    : expired
+      ? "Binding expired — rebind?"
+      : sessionError === "unauthenticated"
+        ? "Not signed in on this tab."
+        : sessionError === "no_access"
+          ? 'heim has no access to this site yet — click "Who am I here?" to grant it.'
+          : null;
 
   // Auto-probe on panel open against a matched tab: this is the drift re-check (compare the live
   // browser identity against binding.username) and the identity the auto-offer needs. Guarded to run
@@ -400,158 +425,204 @@ export function TargetBanner({
 
   return (
     <div className="space-y-2 border-b border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs">
+      {/* Compact header (always visible): name + scope, a short tab-state chip, the acting-as chip,
+          and the chevron. Collapsed by default in every state so the block never eats the panel. */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
           <span className="truncate font-medium text-[var(--foreground)]">{active.name ?? "Assistant"}</span>
           {active.readonly ? (
             <span className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">
               <ShieldCheck className="h-3 w-3" /> read-only
             </span>
           ) : null}
+          {tab === "matched" ? (
+            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] text-emerald-600">
+              {TAB_MATCHED}
+            </span>
+          ) : tab === "mismatch" ? (
+            <span className="truncate text-[10px] text-[var(--muted-foreground)]">
+              {tabMismatchOneLiner(active.name ?? "target")}
+            </span>
+          ) : (
+            <span className="text-[10px] text-[var(--muted-foreground)]">{TAB_UNKNOWN}</span>
+          )}
+          {binding ? (
+            <span
+              data-testid="bind-acting-as"
+              title={`Acting as your ${active.name ?? "target"} login — ${binding.writes ? "writes enabled" : "read-only"}`}
+              className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]"
+            >
+              <UserCheck className="h-3 w-3" /> Acting as {binding.username || "your account"}
+            </span>
+          ) : null}
         </div>
-        {!compact && active.can_verify ? (
-          <button
-            type="button"
-            onClick={() => void verify()}
-            disabled={verifying}
-            className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
-          >
-            {verifying ? <Loader2 className="h-3 w-3 animate-spin" /> : <BadgeCheck className="h-3 w-3" />}
-            Verify
-          </button>
-        ) : null}
+        <button
+          type="button"
+          data-testid="target-expand"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? "Hide target details" : "Show target details"}
+          className="shrink-0 rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+        >
+          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
       </div>
 
-      {!compact ? (
-        <div className="space-y-0.5 text-[var(--muted-foreground)]">
-          {baseUrl ? (
+      {/* One amber line that pierces the collapse so an expired/drift/sign-in/no-access hint is never
+          hidden. Suppressed while the bind card is open (it says the same) and when expanded (the full
+          session/binding detail below covers it). */}
+      {!expanded && !showBindFlow && warningLine ? <div className="text-amber-600">{warningLine}</div> : null}
+
+      {/* Bind ACTION area — renders regardless of collapse: the auto-offered / manual consent card
+          and its trigger are actions, not status. */}
+      {showBindFlow || (canBind && tab === "matched" && !binding) ? (
+        <div className="space-y-2">
+          {!binding && !showBindFlow ? (
             <button
               type="button"
-              onClick={() => openUrl(baseUrl)}
-              className="inline-flex items-center gap-1 hover:text-[var(--foreground)] hover:underline"
+              data-testid="bind-use-my-login"
+              onClick={openManualBind}
+              className="inline-flex items-center gap-1 rounded border border-[var(--primary)] px-2 py-0.5 text-[var(--foreground)] hover:bg-[var(--accent)]"
             >
-              <span className="truncate">{baseUrl}</span>
-              <ExternalLink className="h-3 w-3 shrink-0" />
+              <LogIn className="h-3 w-3" /> Use my login
             </button>
           ) : null}
-          {active.auth ? <div>auth: {active.auth}</div> : null}
-          {active.source ? <div>source: {active.source}</div> : null}
+          {showBindFlow && recipe && baseUrl ? (
+            // key={bindFlowSource}: remount on a mode switch (manual <-> upgrade <-> auto) so the
+            // fresh source's initialAllowWrites/replaceCredentialId props seed a NEW instance's
+            // state. Without it, switching source on the mounted flow leaves allowWrites stale-false
+            // while replaceCredentialId updates -> a read-only mint that still revokes the old token.
+            <BindFlow
+              key={bindFlowSource ?? "none"}
+              assistant={active}
+              route={{ targetId: active.id, compat }}
+              recipe={recipe}
+              basePath={baseUrl}
+              captureTarget={captureTarget}
+              resolveSession={probeSession}
+              getActiveTabId={getActiveTabId}
+              onBound={(id) => void onBound(id)}
+              onCancel={closeBindFlow}
+              headline={
+                bindFlowSource === "auto"
+                  ? offerHeadline
+                  : bindFlowSource === "upgrade"
+                    ? `Re-mint your ${targetName} token with write access?`
+                    : undefined
+              }
+              initialAllowWrites={bindFlowSource === "upgrade"}
+              replaceCredentialId={
+                bindFlowSource === "upgrade" && upgradeCredentialId ? upgradeCredentialId : undefined
+              }
+              replaceUnrevocable={bindFlowSource === "upgrade" && !upgradeCredentialId}
+            />
+          ) : null}
         </div>
       ) : null}
 
-      {/* Tab-match state. On a NON-matching tab the assistant is not relevant to this page, so the
-          whole block collapses to this one line (plus a Details toggle) — a DHIS2 assistant should
-          not shout DHIS2 metadata at every unrelated site. The single-target model behind this is
-          the roadmap's multi-target registry follow-up. */}
-      <div className="text-[var(--muted-foreground)]">
-        {tab === "matched" ? (
-          <span className="text-emerald-600">This tab matches the assistant target.</span>
-        ) : tab === "mismatch" ? (
-          <div className="space-y-0.5">
-            {/* Neutral while collapsed: on an unrelated page nothing is WRONG — the warning tone
-                is reserved for the expanded view, where the near-miss case (wrong instance of the
-                same product) is what the tab/target comparison exists to expose. */}
-            <span className={compact ? "" : "text-amber-600"}>
-              {compact
-                ? `Not a ${active.name ?? "target"} page. `
-                : "This tab does not match the assistant target. "}
+      {/* Expanded detail (chevron): metadata, verification, session, and the full binding controls. */}
+      {expanded ? (
+        <div className="space-y-2">
+          <div className="space-y-0.5 text-[var(--muted-foreground)]">
+            {baseUrl ? (
               <button
                 type="button"
-                data-testid="target-details-toggle"
-                onClick={() => setShowDetails((v) => !v)}
-                className="underline hover:text-[var(--foreground)]"
+                onClick={() => openUrl(baseUrl)}
+                className="inline-flex items-center gap-1 hover:text-[var(--foreground)] hover:underline"
               >
-                {showDetails ? "Hide details" : "Details"}
+                <span className="truncate">{baseUrl}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" />
               </button>
-            </span>
-            {!compact ? (
-              <>
-                <div className="truncate">tab: {tabUrl}</div>
-                <div className="truncate">target: {baseUrl}</div>
-              </>
             ) : null}
+            {active.auth ? <div>auth: {active.auth}</div> : null}
+            {active.source ? <div>source: {active.source}</div> : null}
           </div>
-        ) : (
-          <span>Tab target unknown.</span>
-        )}
-      </div>
 
-      {/* Verification result */}
-      {!compact && verifyError ? (
-        <div className="text-[var(--destructive)]">Verify request failed: {verifyError}</div>
-      ) : null}
-      {!compact && verified ? (
-        <div className={verifiedOk ? "text-emerald-600" : "text-[var(--destructive)]"}>
-          {verifiedOk
-            ? "Verified."
-            : verified.ok
-              ? "Verification reported a failure."
-              : `Verification failed: ${verified.error ?? "unknown error"}`}
-          {flat ? (
-            <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[var(--muted-foreground)]">
-              {Object.entries(flat).map(([k, v]) => (
-                <div key={k} className="contents">
-                  <dt className="font-medium">{k}</dt>
-                  <dd className="truncate">{typeof v === "string" ? v : JSON.stringify(v)}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : verified.data ? (
-            <details className="mt-1">
-              <summary className="cursor-pointer text-[var(--muted-foreground)]">raw</summary>
-              <pre className="mt-1 max-h-40 overflow-auto rounded bg-[var(--background)] p-2 whitespace-pre-wrap">
-                {JSON.stringify(verified.data, null, 2)}
-              </pre>
-            </details>
+          {tab === "mismatch" ? (
+            <div className="space-y-0.5 text-amber-600">
+              <div>{TAB_MISMATCH_DETAIL}</div>
+              <div className="truncate">tab: {tabUrl}</div>
+              <div className="truncate">target: {baseUrl}</div>
+            </div>
           ) : null}
-        </div>
-      ) : null}
 
-      {/* Session info — only for backends that declared a probe */}
-      {!compact && active.probe ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
-          <button
-            type="button"
-            onClick={() => void whoAmI()}
-            disabled={loadingSession}
-            className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
-          >
-            {loadingSession ? <Loader2 className="h-3 w-3 animate-spin" /> : <User className="h-3 w-3" />}
-            Who am I here?
-          </button>
-          {session && !("error" in session) ? (
-            <span className="text-[var(--muted-foreground)]">
-              {formatSession(session as SessionInfo, active.probe?.label)}
-            </span>
-          ) : session && "error" in session ? (
-            <span className="text-amber-600">
-              {session.error === "unauthenticated"
-                ? "Not signed in on this tab."
-                : session.error === "no_access"
-                  ? "heim has no access to this site yet — click \"Who am I here?\" to grant it."
-                  : "Could not read your session on this tab."}
-            </span>
+          {active.can_verify ? (
+            <button
+              type="button"
+              onClick={() => void verify()}
+              disabled={verifying}
+              className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
+            >
+              {verifying ? <Loader2 className="h-3 w-3 animate-spin" /> : <BadgeCheck className="h-3 w-3" />}
+              Verify
+            </button>
           ) : null}
-        </div>
-      ) : null}
 
-      {/* Login binding — "Use my login" / bound state */}
-      {!compact && (binding || (canBind && tab === "matched")) ? (
-        <div className="space-y-2 border-t border-[var(--border)] pt-2">
+          {verifyError ? <div className="text-[var(--destructive)]">Verify request failed: {verifyError}</div> : null}
+          {verified ? (
+            <div className={verifiedOk ? "text-emerald-600" : "text-[var(--destructive)]"}>
+              {verifiedOk
+                ? "Verified."
+                : verified.ok
+                  ? "Verification reported a failure."
+                  : `Verification failed: ${verified.error ?? "unknown error"}`}
+              {flat ? (
+                <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[var(--muted-foreground)]">
+                  {Object.entries(flat).map(([k, v]) => (
+                    <div key={k} className="contents">
+                      <dt className="font-medium">{k}</dt>
+                      <dd className="truncate">{typeof v === "string" ? v : JSON.stringify(v)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : verified.data ? (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[var(--muted-foreground)]">raw</summary>
+                  <pre className="mt-1 max-h-40 overflow-auto rounded bg-[var(--background)] p-2 whitespace-pre-wrap">
+                    {JSON.stringify(verified.data, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Session info — only for backends that declared a probe */}
+          {active.probe ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
+              <button
+                type="button"
+                onClick={() => void whoAmI()}
+                disabled={loadingSession}
+                className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
+              >
+                {loadingSession ? <Loader2 className="h-3 w-3 animate-spin" /> : <User className="h-3 w-3" />}
+                Who am I here?
+              </button>
+              {session && !("error" in session) ? (
+                <span className="text-[var(--muted-foreground)]">
+                  {formatSession(session as SessionInfo, active.probe?.label)}
+                </span>
+              ) : session && "error" in session ? (
+                <span className="text-amber-600">
+                  {session.error === "unauthenticated"
+                    ? "Not signed in on this tab."
+                    : session.error === "no_access"
+                      ? "heim has no access to this site yet — click \"Who am I here?\" to grant it."
+                      : "Could not read your session on this tab."}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Full binding controls: scope, write-scope upgrade, Rebind, Unbind. */}
           {binding ? (
-            <div className="space-y-2">
+            <div className="space-y-2 border-t border-[var(--border)] pt-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span
-                  data-testid="bind-acting-as"
-                  className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[var(--foreground)]"
+                  data-testid="bind-scope"
+                  className={binding.writes ? "text-amber-600" : "text-[var(--muted-foreground)]"}
                 >
-                  <UserCheck className="h-3 w-3" /> Acting as {binding.username || "your account"} (your login)
-                  <span
-                    data-testid="bind-scope"
-                    className={binding.writes ? "text-amber-600" : "text-[var(--muted-foreground)]"}
-                  >
-                    - {binding.writes ? "writes enabled" : "read-only"}
-                  </span>
+                  {binding.writes ? "writes enabled" : "read-only"}
                 </span>
                 {canUpgradeWrites ? (
                   <button
@@ -608,9 +679,7 @@ export function TargetBanner({
                   </button>
                 )}
               </div>
-              {expired ? (
-                <div className="text-amber-600">Binding expired — rebind?</div>
-              ) : null}
+              {expired ? <div className="text-amber-600">Binding expired — rebind?</div> : null}
               {confirmUnbind ? (
                 <div className="text-[var(--muted-foreground)]">
                   {active.bind?.unbind_notes?.[binding.mode] ??
@@ -618,46 +687,6 @@ export function TargetBanner({
                 </div>
               ) : null}
             </div>
-          ) : showBindFlow ? null : (
-            <button
-              type="button"
-              data-testid="bind-use-my-login"
-              onClick={openManualBind}
-              className="inline-flex items-center gap-1 rounded border border-[var(--primary)] px-2 py-0.5 text-[var(--foreground)] hover:bg-[var(--accent)]"
-            >
-              <LogIn className="h-3 w-3" /> Use my login
-            </button>
-          )}
-
-          {showBindFlow && recipe && baseUrl ? (
-            // key={bindFlowSource}: remount on a mode switch (manual <-> upgrade <-> auto) so the
-            // fresh source's initialAllowWrites/replaceCredentialId props seed a NEW instance's
-            // state. Without it, switching source on the mounted flow leaves allowWrites stale-false
-            // while replaceCredentialId updates -> a read-only mint that still revokes the old token.
-            <BindFlow
-              key={bindFlowSource ?? "none"}
-              assistant={active}
-              route={{ targetId: active.id, compat }}
-              recipe={recipe}
-              basePath={baseUrl}
-              captureTarget={captureTarget}
-              resolveSession={probeSession}
-              getActiveTabId={getActiveTabId}
-              onBound={(id) => void onBound(id)}
-              onCancel={closeBindFlow}
-              headline={
-                bindFlowSource === "auto"
-                  ? offerHeadline
-                  : bindFlowSource === "upgrade"
-                    ? `Re-mint your ${targetName} token with write access?`
-                    : undefined
-              }
-              initialAllowWrites={bindFlowSource === "upgrade"}
-              replaceCredentialId={
-                bindFlowSource === "upgrade" && upgradeCredentialId ? upgradeCredentialId : undefined
-              }
-              replaceUnrevocable={bindFlowSource === "upgrade" && !upgradeCredentialId}
-            />
           ) : null}
         </div>
       ) : null}

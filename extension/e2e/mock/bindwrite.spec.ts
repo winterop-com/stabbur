@@ -3,7 +3,8 @@
 // TargetBanner reflects as "writes enabled". A session-mode write bind additionally captures the
 // XSRF token and ships it to heim as `extra_secret`.
 
-import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
+import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
@@ -50,7 +51,7 @@ async function openWithTargetTab(context: BrowserContext, extensionId: string): 
   await tab.bringToFront();
   // The login-binding section renders once the panel sees the tab matching the target. For a
   // logged-in matched tab the consent (or session fallback) card then auto-offers on its own.
-  await expect(panel.getByText("This tab matches the assistant target.")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(TAB_MATCHED)).toBeVisible({ timeout: 15_000 });
   return { panel, tab };
 }
 
@@ -102,6 +103,7 @@ test("a PAT write bind records write scope and TargetBanner shows 'writes enable
   await panel.getByTestId("bind-confirm").click();
 
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel); // bind-scope lives in the expanded binding controls
   await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled");
 
   // The full method set reached the target's mint endpoint (write scope was requested).
@@ -119,6 +121,7 @@ test("a read-only PAT bind shows read-only scope, no writes", async ({ context, 
   await panel.getByTestId("bind-confirm").click();
 
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("read-only");
   expect(target.mintCalls[0]).not.toContain("DELETE");
   await tab.close();
@@ -147,6 +150,7 @@ test("a session write bind captures the XSRF token and sends it as extra_secret"
   await panel.getByTestId("bind-fallback-confirm").click();
 
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled");
 
   const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
@@ -169,6 +173,7 @@ test("write-scope re-mint: a read-only PAT binding on a write assistant upgrades
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel); // scope + upgrade affordance live in the expanded binding controls
   await expect(panel.getByTestId("bind-scope")).toContainText("read-only");
   const mintsBeforeUpgrade = target.mintCalls.length;
 
@@ -201,6 +206,8 @@ test("write-scope re-mint: switching an open Rebind card to Enable writes re-min
   // Land a read-only PAT binding first (auto-offered consent, writes left unchecked).
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("read-only", { timeout: 15_000 });
   const mintsBefore = target.mintCalls.length;
 
@@ -230,6 +237,8 @@ test("write-scope re-mint: a writes-scoped binding shows no upgrade affordance",
   await panel.getByTestId("bind-allow-writes").check();
   await panel.getByTestId("bind-confirm").click();
 
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled", { timeout: 15_000 });
   await expect(panel.getByTestId("bind-upgrade-writes")).toHaveCount(0);
   await tab.close();
@@ -242,6 +251,7 @@ test("write-scope re-mint: a read-only assistant never offers the upgrade", asyn
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("read-only");
   await expect(panel.getByTestId("bind-upgrade-writes")).toHaveCount(0);
   await tab.close();
@@ -253,6 +263,8 @@ test("write-scope re-mint: a failed re-mint leaves the read-only binding intact"
 
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("read-only", { timeout: 15_000 });
 
   // The re-mint now fails: the session raced away, so the mint POST redirects to the login page.
@@ -300,9 +312,10 @@ test("write-scope re-mint: a session-mode binding shows no upgrade affordance", 
   const tab = await context.newPage();
   await tab.goto(`${target.baseUrl()}/dhis`);
   await tab.bringToFront();
-  await expect(panel.getByText("This tab matches the assistant target.")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(TAB_MATCHED)).toBeVisible({ timeout: 15_000 });
 
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("read-only");
   await expect(panel.getByTestId("bind-upgrade-writes")).toHaveCount(0);
   await tab.close();

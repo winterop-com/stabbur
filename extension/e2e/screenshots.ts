@@ -33,12 +33,14 @@ import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import {
   EXTENSION_PATH,
   PANEL_PATH,
+  expandTarget,
   grantHostPermission,
   resolveExtensionId,
   scratchRoot,
   seedSettings,
   userDataDir,
 } from "./fixtures";
+import { TAB_MATCHED } from "../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant, reservePort, type ChatFrame } from "./mockServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -244,7 +246,8 @@ async function tryRealHero2Panel(
       throw new Error(`failed to grant host permission for ${PLAY_ORIGIN}`);
     }
     await playTab.bringToFront();
-    await panel.getByText("This tab matches the assistant target.").waitFor({ timeout: 20_000 });
+    await panel.getByText(TAB_MATCHED).waitFor({ timeout: 20_000 });
+    await expandTarget(panel);
     await panel.getByRole("button", { name: "Who am I here?" }).click();
     await panel.getByText(/Browsing as /).waitFor({ timeout: 20_000 });
     await snapTo(panel, panelPng);
@@ -281,7 +284,8 @@ async function mockHero2Panel(
     const tab = await context.newPage();
     await tab.goto(`${target.baseUrl()}/dhis`);
     await tab.bringToFront();
-    await panel.getByText("This tab matches the assistant target.").waitFor({ timeout: 15_000 });
+    await panel.getByText(TAB_MATCHED).waitFor({ timeout: 15_000 });
+    await expandTarget(panel);
     await panel.getByRole("button", { name: "Who am I here?" }).click();
     await panel.getByText(/Browsing as /).waitFor({ timeout: 15_000 });
     await snapTo(panel, panelPng);
@@ -398,7 +402,8 @@ async function main(): Promise<void> {
         await tab.goto(`${target.baseUrl()}/dhis`);
         await tab.bringToFront();
         await panel.getByTestId("bind-use-my-login").waitFor({ timeout: 15_000 });
-        await panel.getByText("This tab matches the assistant target.").waitFor({ timeout: 15_000 });
+        await panel.getByText(TAB_MATCHED).waitFor({ timeout: 15_000 });
+        await expandTarget(panel);
         await panel.getByRole("button", { name: "Who am I here?" }).click();
         await panel.getByText(/Admin User/).waitFor({ timeout: 15_000 });
         await snap(panel, "04-target-unbound");
@@ -725,7 +730,7 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
         await tab.goto(`${target.baseUrl()}/dhis`);
         await tab.bringToFront();
         await panel.getByTestId("bind-use-my-login").waitFor({ timeout: 15_000 });
-        await panel.getByText("This tab matches the assistant target.").waitFor({ timeout: 15_000 });
+        await panel.getByText(TAB_MATCHED).waitFor({ timeout: 15_000 });
         await panel.getByTestId("bind-use-my-login").click();
         await panel.getByTestId("bind-consent").waitFor({ timeout: 10_000 });
         await panel.getByText(/read-only \(GET\)/).waitFor({ timeout: 10_000 });
