@@ -8,7 +8,7 @@ import {
   substitute,
   type BindRecipe,
 } from "../lib/bindRecipe";
-import { postBindTo, type BindApiResult, type BindTarget } from "../lib/bindApi";
+import { postBindTo, type AssistantRoute, type BindApiResult, type BindTarget } from "../lib/bindApi";
 import { setBinding, type Binding } from "../lib/binding";
 import { requestHostAccess } from "../lib/hostAccess";
 import type { SessionResult } from "../lib/sessionReads";
@@ -20,6 +20,8 @@ export interface BindBackendTarget extends BindTarget {
 
 interface BindFlowProps {
   assistant: AssistantInfo;
+  /** Which assistant target the bind writes to (its id scopes the binding record + the bind route). */
+  route: AssistantRoute;
   recipe: BindRecipe;
   /** The target instance base URL (mint runs against this in the tab's context). */
   basePath: string;
@@ -77,6 +79,7 @@ function originOf(url: string): string | null {
  *  live session cookie) entirely in the target site's context, then hand heim only the secret. */
 export function BindFlow({
   assistant,
+  route,
   recipe,
   basePath,
   captureTarget,
@@ -107,6 +110,7 @@ export function BindFlow({
     const signedIn = session && !("error" in session) ? session : null;
     const binding: Binding = {
       backendId: target.backendId,
+      targetId: route.targetId,
       targetBaseUrl: basePath,
       mode,
       username: signedIn?.username ?? "",
@@ -115,6 +119,7 @@ export function BindFlow({
       cookieName: extra.cookieName,
       expiresAt: extra.expiresAt,
       writes: extra.writes ?? false,
+      compat: route.compat,
     };
     await setBinding(binding);
   }
@@ -162,7 +167,7 @@ export function BindFlow({
     const cls = classifyMint(mint.status, mint.token, mint.loginRedirect);
     if (cls === "minted") {
       setStage({ kind: "working", label: "Installing the token…" });
-      const res = await postBindTo(target, recipe.mintMode, mint.token);
+      const res = await postBindTo(target, route, recipe.mintMode, mint.token);
       if (!res.ok) {
         setStage({ kind: "error", message: bindError(res) });
         return;
@@ -257,7 +262,7 @@ export function BindFlow({
       }
     }
     setStage({ kind: "working", label: "Installing the session…" });
-    const res = await postBindTo(target, recipe.fallbackMode, `${recipe.sessionCookie}=${value}`, extraSecret);
+    const res = await postBindTo(target, route, recipe.fallbackMode, `${recipe.sessionCookie}=${value}`, extraSecret);
     if (!res.ok) {
       setStage({ kind: "error", message: bindError(res) });
       return;

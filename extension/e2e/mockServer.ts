@@ -55,9 +55,12 @@ export interface MockState {
   loadReadyAfterMs: number;
   /** POST /api/load explicit HTTP status override (e.g. 409/404); null = normal. */
   loadCode: number | null;
-  /** GET /api/assistant body, or "missing" for a 404. */
+  /** GET /api/assistant body, or "missing" for a 404 (single-assistant compat mode). */
   assistant: Record<string, unknown> | "missing";
-  /** Extra `verified` block attached when GET /api/assistant?verify=1. */
+  /** GET /api/assistants registry (multi-target). null = the endpoint 404s (old heim / compat mode);
+   *  each target must carry `id` + `mcp_servers`. Selection is client-side, so `?url=` is ignored. */
+  assistants: Record<string, unknown>[] | null;
+  /** Extra `verified` block attached when GET /api/assistant(s)?verify=1. */
   assistantVerified: Record<string, unknown> | null;
   /** POST /api/chat: SSE frames to emit in order. */
   chatFrames: ChatFrame[];
@@ -76,10 +79,11 @@ export interface MockState {
   confirmDeniedTail: ChatFrame[];
   /** Parsed bodies recorded for each POST /api/chat/confirm (newest last). */
   confirmCalls: { id: string; approve: boolean }[];
-  /** Response returned by POST /api/assistant/{bind,unbind}. */
+  /** Response returned by POST /api/assistant(s)/{bind,unbind}. */
   bindResult: { ok: boolean; exit_code: number; stdout: string; stderr: string };
-  /** Parsed bodies recorded for each bind/unbind call (newest last). */
-  bindCalls: { endpoint: "bind" | "unbind"; body: Record<string, unknown> }[];
+  /** Parsed bodies recorded for each bind/unbind call (newest last). `targetId` is set for the
+   *  per-target /api/assistants/{id}/... routes, undefined for the compat /api/assistant/... ones. */
+  bindCalls: { endpoint: "bind" | "unbind"; body: Record<string, unknown>; targetId?: string }[];
 }
 
 function defaultState(): MockState {
@@ -94,6 +98,7 @@ function defaultState(): MockState {
     loadReadyAfterMs: 600,
     loadCode: null,
     assistant: "missing",
+    assistants: null,
     assistantVerified: null,
     chatFrames: [{ type: "token", text: "ok" }, { type: "done" }],
     chatGapMs: 5,
@@ -254,6 +259,53 @@ export class HeimMock {
         this.state.phase = "ready";
       }, this.state.loadReadyAfterMs);
       this.json(res, 200, statusBody(this.state));
+      return;
+    }
+
+    // Multi-target registry list. Selection is client-side (the panel runs `selectTarget`), so the
+    // list is served verbatim and `?url=` is ignored. null -> 404 (old heim / single-assistant compat).
+    if (path === "/api/assistants" && method === "GET") {
+      if (this.state.assistants === null) {
+        this.json(res, 404, { detail: "No assistant registry" });
+        return;
+      }
+      this.json(res, 200, { targets: this.state.assistants });
+      return;
+    }
+
+    // One target's metadata (?verify=1 attaches the shared verified block). 404 for an unknown id.
+    const targetGet = /^\/api\/assistants\/([^/]+)$/.exec(path);
+    if (targetGet && method === "GET") {
+      const id = decodeURIComponent(targetGet[1]);
+      const found = (this.state.assistants ?? []).find((t) => t.id === id);
+      if (!found) {
+        this.json(res, 404, { detail: "Unknown target" });
+        return;
+      }
+      const body: Record<string, unknown> = { ...found };
+      if (url.searchParams.get("verify") === "1" && this.state.assistantVerified) {
+        body.verified = this.state.assistantVerified;
+      }
+      this.json(res, 200, body);
+      return;
+    }
+
+    // Per-target bind / unbind (records the target id so tests can assert per-target isolation).
+    const targetBind = /^\/api\/assistants\/([^/]+)\/(bind|unbind)$/.exec(path);
+    if (targetBind && method === "POST") {
+      const raw = await readBody(req);
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        body = {};
+      }
+      this.state.bindCalls.push({
+        endpoint: targetBind[2] === "unbind" ? "unbind" : "bind",
+        body,
+        targetId: decodeURIComponent(targetBind[1]),
+      });
+      this.json(res, 200, this.state.bindResult);
       return;
     }
 
@@ -500,6 +552,21 @@ export class TargetSiteMock {
  * template's [assistant] blocks (see e2e/live/liveServer.ts's TOML literal, which stays in its own
  * format).
  */
+/** A full-recipe assistant registry ENTRY (bindAssistant + a registry id / name / mcp_servers), for the
+ *  multi-target `/api/assistants` list. Points its probe + mint/revoke at `baseUrl` (a TargetSiteMock). */
+export function bindAssistantTarget(
+  id: string,
+  baseUrl: string,
+  overrides: { name?: string; mcp_servers?: string[] } = {},
+): Record<string, unknown> {
+  return {
+    ...bindAssistant(baseUrl),
+    id,
+    name: overrides.name ?? id,
+    mcp_servers: overrides.mcp_servers ?? [id],
+  };
+}
+
 export function bindAssistant(baseUrl: string): Record<string, unknown> {
   return {
     name: "play42",

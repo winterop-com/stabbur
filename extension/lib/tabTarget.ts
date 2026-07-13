@@ -2,6 +2,8 @@
 // Extension/internal pages are ignored so the last real web tab stays "current"
 // while the user interacts with the side panel.
 
+import type { AssistantTarget } from "./assistantApi";
+
 export type TabMatch = "matched" | "mismatch" | "unknown";
 
 function isTrackable(url: string | undefined): url is string {
@@ -85,4 +87,38 @@ export function match(tabUrl: string | null, baseUrl: string | null): TabMatch {
     return "matched";
   }
   return "mismatch";
+}
+
+/**
+ * Ranking key of `baseUrl` against `tabUrl` — its (trailing-slash-stripped) base path length when the
+ * tab falls under it, else null. Reuses `match()` for the origin + path-prefix rule, so a longer (more
+ * specific) base path outranks a broader one; a `/` base ranks 0 (matches anything on the origin).
+ */
+function baseRank(tabUrl: string | null, baseUrl: string | null): number | null {
+  if (match(tabUrl, baseUrl) !== "matched") return null;
+  try {
+    return new URL(baseUrl as string).pathname.replace(/\/+$/, "").length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Select the assistant target(s) a tab URL falls under, most-specific first — the TS twin of
+ * `heim.targets.select` (parity-pinned by mirrored fixtures, see `e2e/mock/tabtarget-parity.spec.ts`).
+ * `matches` is the ranked list (longest base path wins, ties keep declaration order); `selected` is the
+ * single unambiguous pick, or null on a tie / no match so the caller shows a picker (or nothing).
+ */
+export function selectTarget(
+  tabUrl: string | null,
+  targets: AssistantTarget[],
+): { selected: AssistantTarget | null; matches: AssistantTarget[] } {
+  const ranked: { rank: number; order: number; target: AssistantTarget }[] = [];
+  targets.forEach((target, order) => {
+    const rank = baseRank(tabUrl, target.base_url ?? null);
+    if (rank !== null) ranked.push({ rank, order, target });
+  });
+  ranked.sort((a, b) => b.rank - a.rank || a.order - b.order);
+  const matches = ranked.map((r) => r.target);
+  return { selected: matches.length === 1 ? matches[0] : null, matches };
 }

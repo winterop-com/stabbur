@@ -65,3 +65,61 @@ export async function getAssistant(verify = false): Promise<AssistantInfo | null
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return (await res.json()) as AssistantInfo;
 }
+
+/** One assistant target in a multi-target registry: metadata plus its registry-assigned `id` and the
+ *  `.mcp.json` server names whose namespaced tools route to it ([] = compat, all servers). */
+export type AssistantTarget = AssistantInfo & { id: string; mcp_servers: string[] };
+
+/**
+ * The sanitized multi-target registry as returned by GET /api/assistants. `selected` / `matches` are
+ * only present on a `?url=` query (server-side selection); the extension does client-side selection
+ * (see `selectTarget`), so it ignores them. `compat` is set only on the 404 fallback below.
+ */
+export interface AssistantRegistry {
+  targets: AssistantTarget[];
+  selected?: string | null;
+  matches?: string[];
+  /** True when the registry was synthesized from the old single-assistant 404-compat path: bind /
+   *  verify then use the un-scoped /api/assistant* routes instead of /api/assistants/{id}. */
+  compat?: boolean;
+}
+
+const SLUG_RE = /[^a-z0-9]+/g;
+
+/** URL/id-safe slug of a target name — the TS twin of `heim.project._slugify` (lower-cased, runs of
+ *  non-[a-z0-9] collapsed to "-", trimmed). Used only to derive the compat target's id below. */
+export function slugify(name: string): string {
+  return name.toLowerCase().replace(SLUG_RE, "-").replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Fetch the assistant registry (GET /api/assistants). On 404 (old heim without the registry endpoint)
+ * fall back to the single-assistant route and wrap it as a one-entry registry with a derived id (the
+ * slugified name, or `target-0`) and a `compat: true` marker so bind/verify use the /api/assistant*
+ * routes. `url` is forwarded as `?url=` for parity with server-side selection, but the panel selects
+ * client-side and does not pass it.
+ */
+export async function getAssistants(url?: string): Promise<AssistantRegistry> {
+  const path = url ? `/api/assistants?url=${encodeURIComponent(url)}` : "/api/assistants";
+  const res = await apiFetch(path);
+  if (res.status === 404) {
+    const one = await getAssistant();
+    if (!one) return { targets: [], compat: true };
+    const id = (one.name ? slugify(one.name) : "") || "target-0";
+    return { targets: [{ ...one, id, mcp_servers: [] }], compat: true };
+  }
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return (await res.json()) as AssistantRegistry;
+}
+
+/**
+ * Fetch one target's metadata (GET /api/assistants/{id}); pass verify=true for a server-side probe.
+ * Returns null on 404 (unknown id). The compat single-assistant path uses `getAssistant` instead.
+ */
+export async function getAssistantTarget(id: string, verify = false): Promise<AssistantTarget | null> {
+  const path = `/api/assistants/${encodeURIComponent(id)}${verify ? "?verify=1" : ""}`;
+  const res = await apiFetch(path);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return (await res.json()) as AssistantTarget;
+}

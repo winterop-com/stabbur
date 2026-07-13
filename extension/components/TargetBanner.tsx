@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BadgeCheck, ExternalLink, Loader2, LogIn, Pencil, ShieldCheck, User, UserCheck } from "lucide-react";
-import type { AssistantInfo } from "../lib/assistantApi";
+import type { AssistantTarget } from "../lib/assistantApi";
 import { match } from "../lib/tabTarget";
 import { formatSession, type SessionInfo, type SessionResult } from "../lib/sessionReads";
 import { executeRevoke, parseRecipe, substitute } from "../lib/bindRecipe";
@@ -21,15 +21,20 @@ import { postUnbind } from "../lib/bindApi";
 import { BindFlow, type BindBackendTarget } from "./BindFlow";
 
 interface TargetBannerProps {
-  assistant: AssistantInfo | null;
+  /** The selected assistant target this banner acts on (null when there is nothing to act on —
+   *  mid-tie or no registry; the parent renders the picker / nothing then). */
+  target: AssistantTarget | null;
   tabUrl: string | null;
-  /** The active backend id (scopes the per-backend binding record). */
+  /** The active backend id (with the target id, scopes the per-(backend,target) binding record). */
   backendId: string;
+  /** True when the registry came from the 404-compat path: bind / verify use the /api/assistant*
+   *  routes instead of /api/assistants/{id}. */
+  compat: boolean;
   /** Snapshot the active heim backend for a bind flow (passed through to BindFlow). */
   captureTarget: () => BindBackendTarget;
-  /** Re-fetch assistant metadata with ?verify=1; lifts the updated record into the parent and
+  /** Re-fetch this target's metadata with ?verify=1; lifts the updated record into the parent and
    *  returns it. */
-  onVerify: () => Promise<AssistantInfo | null>;
+  onVerify: (targetId: string) => Promise<AssistantTarget | null>;
   /** Read the user's session on the active tab (explicit "Who am I here?" button — force-probes,
    *  bypassing the cache). */
   onWhoAmI: () => Promise<SessionResult>;
@@ -79,15 +84,20 @@ function openUrl(url: string): void {
 
 /** Assistant-target header: metadata, verification, tab-match, session info, and the login binding. */
 export function TargetBanner({
-  assistant,
+  target,
   tabUrl,
   backendId,
+  compat,
   captureTarget,
   onVerify,
   onWhoAmI,
   probeSession,
   getActiveTabId,
 }: TargetBannerProps) {
+  // Local alias: the rest of the banner treats the selected target as "the assistant". `targetId` (the
+  // registry id) joins backendId to scope the per-target binding record and the bind/verify routes.
+  const assistant = target;
+  const targetId = target?.id ?? null;
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [session, setSession] = useState<SessionResult>(null);
@@ -123,26 +133,35 @@ export function TargetBanner({
     setVerifyError(null);
   }, [assistant]);
 
-  // Load + track the per-backend binding; reset the transient bind UI on a backend switch.
+  // Load + track the per-(backend,target) binding; reset the transient bind UI on a backend/target
+  // switch. Skipped when there is no target to act on (mid-tie / no registry).
   useEffect(() => {
     setShowBindFlow(false);
     setBindFlowSource(null);
     setConfirmUnbind(false);
     setBindLoaded(false);
     autoProbedKey.current = null;
-    void Promise.all([getBinding(backendId), getBindingStale(backendId), getBindDismissal(backendId)]).then(
-      ([b, s, d]) => {
-        setBinding(b);
-        setBindingStale(s);
-        setDismissed(d);
-        setBindLoaded(true);
-      },
-    );
-    return watchBinding(backendId, (b, s) => {
+    if (targetId === null) {
+      setBinding(null);
+      setBindingStale(false);
+      setDismissed(null);
+      return;
+    }
+    void Promise.all([
+      getBinding(backendId, targetId),
+      getBindingStale(backendId, targetId),
+      getBindDismissal(backendId, targetId),
+    ]).then(([b, s, d]) => {
+      setBinding(b);
+      setBindingStale(s);
+      setDismissed(d);
+      setBindLoaded(true);
+    });
+    return watchBinding(backendId, targetId, (b, s) => {
       setBinding(b);
       setBindingStale(s);
     });
-  }, [backendId]);
+  }, [backendId, targetId]);
 
   const recipe = useMemo(() => parseRecipe(assistant?.bind ?? null), [assistant?.bind]);
   const verified = assistant?.verified ?? null;
@@ -209,8 +228,8 @@ export function TargetBanner({
   // cancelled probe (tab navigation, assistant swap) must not permanently suppress re-probing.
   const hasProbe = assistant?.probe != null;
   useEffect(() => {
-    if (!hasProbe || tab !== "matched" || !tabUrl) return;
-    const probeKey = `${backendId}|${tabUrl}`;
+    if (!hasProbe || tab !== "matched" || !tabUrl || targetId === null) return;
+    const probeKey = `${backendId}|${targetId}|${tabUrl}`;
     if (autoProbedKey.current === probeKey) return;
     let cancelled = false;
     setLoadingSession(true);
@@ -228,7 +247,7 @@ export function TargetBanner({
     return () => {
       cancelled = true;
     };
-  }, [hasProbe, tab, tabUrl, backendId]);
+  }, [hasProbe, tab, tabUrl, backendId, targetId]);
 
   // Proactive "use your login?" offer: on a matched tab with a live identity and no usable binding
   // (none, or one that drifted to a different user), open the consent card automatically — unless the
@@ -252,12 +271,12 @@ export function TargetBanner({
   const active = assistant;
   const verifiedOk = verified?.ok === true && !reportsFailure(flat);
 
-  async function verify(): Promise<AssistantInfo | null> {
+  async function verify(): Promise<AssistantTarget | null> {
     setVerifying(true);
     setVerifyError(null);
     try {
       // onVerify lifts the updated record into the parent's state (which re-renders us).
-      return await onVerify();
+      return await onVerify(active.id);
     } catch (err) {
       // The verify request itself failed (server restart, 401, 500) -- distinct from a
       // verified.ok=false outcome, which comes back as data.
@@ -285,7 +304,7 @@ export function TargetBanner({
   // Open the bind flow from the manual button/Rebind: an explicit re-engagement, so forget any
   // remembered decline (the auto-offer becomes eligible again).
   function openManualBind(): void {
-    void clearBindDismissal(backendId);
+    void clearBindDismissal(backendId, active.id);
     setDismissed(null);
     setBindFlowSource("manual");
     setShowBindFlow(true);
@@ -303,7 +322,12 @@ export function TargetBanner({
   // user (so we don't re-nag on the next open); a cancel of a MANUAL open is just a close.
   function closeBindFlow(): void {
     if (bindFlowSource === "auto" && sessionInfo?.username) {
-      const d: BindDismissal = { backendId, targetBaseUrl: baseUrl ?? "", username: sessionInfo.username };
+      const d: BindDismissal = {
+        backendId,
+        targetId: active.id,
+        targetBaseUrl: baseUrl ?? "",
+        username: sessionInfo.username,
+      };
       void setBindDismissal(d);
       setDismissed(d);
     }
@@ -325,18 +349,23 @@ export function TargetBanner({
           await executeRevoke(tabId, baseUrl, substitute(recipe.revokePath, { credentialId: binding.credentialId }));
         }
       }
-      await postUnbind(binding.mode);
+      await postUnbind({ targetId: binding.targetId, compat }, binding.mode);
     } finally {
       // Remember the unbind as a decline for the still-signed-in user, so the auto-offer doesn't
       // immediately re-nag right after they chose to unbind; a later different user still re-offers,
       // and the manual button clears it.
       const who = sessionInfo?.username || binding.username;
       if (who) {
-        const d: BindDismissal = { backendId: binding.backendId, targetBaseUrl: baseUrl ?? "", username: who };
+        const d: BindDismissal = {
+          backendId: binding.backendId,
+          targetId: binding.targetId,
+          targetBaseUrl: baseUrl ?? "",
+          username: who,
+        };
         await setBindDismissal(d);
         setDismissed(d);
       }
-      await clearBinding(binding.backendId);
+      await clearBinding(binding.backendId, binding.targetId);
       setUnbinding(false);
       setConfirmUnbind(false);
     }
@@ -349,15 +378,15 @@ export function TargetBanner({
     // immediately reopen the consent card (a card that never closes). Setting it here first means
     // the effect sees the fresh, same-user binding and stays silent. watchBinding remains the
     // ongoing sync.
-    const b = await getBinding(boundBackendId);
+    const b = await getBinding(boundBackendId, active.id);
     if (b) {
       setBinding(b);
       setBindingStale(false);
     }
     setShowBindFlow(false);
     setBindFlowSource(null);
-    // A successful bind supersedes any remembered decline for this backend.
-    void clearBindDismissal(boundBackendId);
+    // A successful bind supersedes any remembered decline for this (backend, target).
+    void clearBindDismissal(boundBackendId, active.id);
     setDismissed(null);
     const updated = await verify(); // re-probe: the freshly-bound credential changes what verify reports
     // Probe-less bind (no session read to name the user): adopt a username from the verify payload
@@ -608,6 +637,7 @@ export function TargetBanner({
             <BindFlow
               key={bindFlowSource ?? "none"}
               assistant={active}
+              route={{ targetId: active.id, compat }}
               recipe={recipe}
               basePath={baseUrl}
               captureTarget={captureTarget}

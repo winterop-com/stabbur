@@ -57,6 +57,9 @@ function compactArgs(args: Record<string, unknown>): string {
 interface ChatViewProps {
   /** Which backend this transcript belongs to; scopes the localStorage key. */
   backendId: string;
+  /** The selected assistant target id whose MCP servers this turn routes to (null = primary + shared,
+   *  or free-play when the backend has no registry). Sent as `target` on each /api/chat turn. */
+  target: string | null;
   pageContextEnabled: boolean;
   onTogglePageContext: (value: boolean) => void;
   /** Sub-option of page context: also attach the visible page text. */
@@ -233,6 +236,7 @@ const MessageBubble = memo(function MessageBubble({
 /** The transcript + composer, sized for a ~360px side panel. */
 export function ChatView({
   backendId,
+  target,
   pageContextEnabled,
   onTogglePageContext,
   pageTextEnabled,
@@ -328,6 +332,7 @@ export function ChatView({
     try {
       for await (const evt of streamChat(toApiMessages(history), controller.signal, {
         useTools: true,
+        target,
       })) {
         switch (evt.type) {
           case "token":

@@ -278,11 +278,14 @@ test("write-scope re-mint: a session-mode binding shows no upgrade affordance", 
   // Seed a read-only SESSION-mode binding BEFORE the tab matches, so no auto-offer fires and the
   // acting-as chip renders from it. A cookie can't be method-scoped, so the upgrade must never
   // appear even though writes is false.
+  // Composite key `${backendId}:${targetId}`: the compat single-assistant target's id is the slugified
+  // name ("play42"), so the panel's per-target watcher/reader sees this seeded binding.
   await panel.evaluate(
     (baseUrl) =>
       chrome.storage.local.set({
-        "heim-ext-binding:default": {
+        "heim-ext-binding:default:play42": {
           backendId: "default",
+          targetId: "play42",
           targetBaseUrl: baseUrl,
           mode: "session",
           username: "admin",

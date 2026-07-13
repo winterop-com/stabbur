@@ -17,17 +17,25 @@ const BINDING_PREFIX = "heim-ext-binding:";
 const DEBOUNCE_MS = 2000; // coalesce a burst of changes into one POST
 const REBIND_CEILING_MS = 30_000; // minimum gap between actual rebind POSTs per backend (anti-treadmill)
 
+// Timers / rate-limits are keyed per (backend, target) since one backend can carry several session
+// bindings (multi-target registry). The key mirrors the storage key's segment after the prefix: the
+// composite `${backendId}:${targetId}` for current records, the bare `${backendId}` for a not-yet-
+// migrated legacy one — so the storage.onChanged removal cleanup (which slices the changed key) lines up.
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastRebindAt = new Map<string, number>();
 // cookieName -> the bindings watching it. Rebuilt from storage on startup + on any binding change.
 let cookieIndex = new Map<string, Binding[]>();
 let cookieListenerAdded = false;
 
-function clearDebounce(backendId: string): void {
-  const t = debounceTimers.get(backendId);
+function timerId(b: Binding): string {
+  return b.targetId ? `${b.backendId}:${b.targetId}` : b.backendId;
+}
+
+function clearDebounce(id: string): void {
+  const t = debounceTimers.get(id);
   if (t) {
     clearTimeout(t);
-    debounceTimers.delete(backendId);
+    debounceTimers.delete(id);
   }
 }
 
@@ -39,20 +47,26 @@ async function rebind(binding: Binding, value: string): Promise<void> {
   const target: BindTarget = { baseUrl: normalizeBaseUrl(backend.baseUrl), token: backend.token || null };
   // postBindTo never throws (a transient failure comes back as a structured result); the next
   // cookie change retries.
-  await postBindTo(target, binding.mode, `${binding.cookieName}=${value}`);
+  await postBindTo(
+    target,
+    { targetId: binding.targetId, compat: binding.compat ?? false },
+    binding.mode,
+    `${binding.cookieName}=${value}`,
+  );
 }
 
 function scheduleRebind(binding: Binding, value: string): void {
-  clearDebounce(binding.backendId);
-  const last = lastRebindAt.get(binding.backendId) ?? 0;
+  const id = timerId(binding);
+  clearDebounce(id);
+  const last = lastRebindAt.get(id) ?? 0;
   // Fire after the 2s debounce, but never sooner than 30s since the last POST — a fast cookie
   // rotation coalesces AND is rate-limited (the newest value still lands, just later).
   const delay = Math.max(DEBOUNCE_MS, REBIND_CEILING_MS - (Date.now() - last));
   debounceTimers.set(
-    binding.backendId,
+    id,
     setTimeout(() => {
-      debounceTimers.delete(binding.backendId);
-      lastRebindAt.set(binding.backendId, Date.now());
+      debounceTimers.delete(id);
+      lastRebindAt.set(id, Date.now());
       void rebind(binding, value);
     }, delay),
   );
@@ -79,8 +93,8 @@ function handleCookieChange(info: chrome.cookies.CookieChangeInfo): void {
       }
       if (!value) {
         // Gone -> drop any pending rebind and flag stale so the panel prompts a rebind.
-        clearDebounce(binding.backendId);
-        await setBindingStale(binding.backendId, true);
+        clearDebounce(timerId(binding));
+        await setBindingStale(binding.backendId, binding.targetId, true);
         continue;
       }
       scheduleRebind(binding, value);
@@ -132,9 +146,10 @@ export default defineBackground(() => {
     // after an unbind.
     for (const k of bindingKeys) {
       if (changes[k].newValue === undefined) {
-        const backendId = k.slice(BINDING_PREFIX.length);
-        clearDebounce(backendId);
-        lastRebindAt.delete(backendId);
+        // The key segment after the prefix is the (backend, target) timer id (see `timerId`).
+        const id = k.slice(BINDING_PREFIX.length);
+        clearDebounce(id);
+        lastRebindAt.delete(id);
       }
     }
     void refreshIndex();
