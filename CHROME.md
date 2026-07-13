@@ -178,6 +178,30 @@ resolves it. If nothing resolves within 300s (`HEIM_CONFIRM_TIMEOUT`) the call *
 gated writes unless `--allow-writes` is passed (which auto-approves). The panel renders a `confirm`
 frame as an Approve/Deny card and POSTs the user's choice to `/api/chat/confirm`.
 
+## Status (2026-07-13): multi-target registry — server side landed
+
+The single `[assistant]` is now a **registry of targets** server-side, ahead of the extension
+wiring. What exists in heim today (extension still consumes the single-target `GET /api/assistant`):
+
+- **N targets in `heim.toml`** — `[[assistants]]`, each an `[assistant]`-shaped block plus
+  `mcp_servers` (the `.mcp.json` bridges whose namespaced tools route to it). A single `[assistant]`
+  still loads as a one-target registry (compat), and `mcp_servers = []` keeps the owns-all rule.
+- **URL-aware endpoints** — `GET /api/assistants` (the sanitized registry) and
+  `GET /api/assistants?url=<tab>` (origin + longest-path-prefix match -> `selected` id or a tie list),
+  the Python twin of the extension's `tabTarget.match`, pinned to parity by mirrored fixtures. The
+  legacy `GET /api/assistant` stays byte-compatible for the current panel.
+- **Per-turn tool routing + confirm** — a chat turn carries a `target` id; tools are narrowed to that
+  target's `mcp_servers` (unowned/global servers stay shared into every turn), and the confirm-policy
+  default follows the selected target's `readonly`. A CLI `--target` picks one off-browser.
+- **`dhis2-multi` template** — two read-only play targets (play42 `/dev-2-42`, play41 `/dev-2-41`) on
+  one host, one bridge each, auto-selected by the active tab once the panel wiring lands.
+- **Project-level MCP disable** — `.mcp.json` honors `"<name>": null` / `{"disabled": true}` to drop a
+  machine-global server (e.g. a stray `playwright`) from a project's toolset.
+
+**Next chunk: the extension.** Auto-select the target on tab switch, a small picker for ties, and
+per-target binding (composite `${backendId}:${targetId}` storage keys) — consuming `GET /api/assistants`
+with a fallback to the single-target endpoint for older heim.
+
 ## Short version
 
 Use the extension as a browser UI/client. Keep heim as the local backend, model

@@ -187,15 +187,21 @@ def _write_project(
     target: Path, choices: _WizardChoices, *, use_local: bool, existing: list[library_ops.LibraryModel], uv: bool
 ) -> None:
     """Write ``heim.toml`` + ``.mcp.json`` (and, for a uv project, pyproject/README + template files)."""
-    # A template may carry [assistant] target metadata (opaque dict) — validate it to AssistantInfo
-    # so render_manifest (the single writer) emits it, or refuses a malformed one up front with
-    # the CLI's clean error contract (ProjectError), not a pydantic traceback mid-scaffold.
+    # A template may carry [assistant] target metadata (opaque dict) — a single ``assistant`` block or
+    # a multi-target ``assistants`` list — validated here to AssistantInfo / an AssistantRegistry so
+    # render_manifest (the single writer) emits it, or refuses a malformed one up front with the CLI's
+    # clean error contract (ProjectError), not a pydantic traceback mid-scaffold.
     assistant = None
-    if choices.template is not None and choices.template.assistant is not None:
-        try:
-            assistant = project.AssistantInfo.model_validate(choices.template.assistant)
-        except ValidationError as exc:
-            raise project.ProjectError(f"template assistant metadata is invalid: {exc}") from exc
+    registry = None
+    tmpl = choices.template
+    try:
+        if tmpl is not None and tmpl.assistants is not None:
+            targets = [project.AssistantInfo.model_validate(a) for a in tmpl.assistants]
+            registry = project.AssistantRegistry(targets=targets)
+        elif tmpl is not None and tmpl.assistant is not None:
+            assistant = project.AssistantInfo.model_validate(tmpl.assistant)
+    except ValidationError as exc:
+        raise project.ProjectError(f"template assistant metadata is invalid: {exc}") from exc
     (target / "heim.toml").write_text(
         project.render_manifest(
             model=choices.model,
@@ -203,6 +209,7 @@ def _write_project(
             local_library_dir=_LOCAL_LIBRARY if use_local else None,
             chat_voice=choices.chat_voice,
             assistant=assistant,
+            registry=registry,
         )
     )
     # Tools go in the standard .mcp.json (not heim.toml). In a uv project the servers are pinned
