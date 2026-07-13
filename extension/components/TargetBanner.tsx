@@ -92,6 +92,8 @@ export function TargetBanner({
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [session, setSession] = useState<SessionResult>(null);
   const [loadingSession, setLoadingSession] = useState(false);
+  // On a non-matching tab the target block collapses to its one-line state; Details expands it.
+  const [showDetails, setShowDetails] = useState(false);
   const [binding, setBinding] = useState<Binding | null>(null);
   const [bindingStale, setBindingStale] = useState(false);
   const [dismissed, setDismissed] = useState<BindDismissal | null>(null);
@@ -150,6 +152,8 @@ export function TargetBanner({
   // below can depend on it — hooks must run before the assistant===null early return).
   const baseUrl = assistant && typeof assistant.base_url === "string" ? assistant.base_url : null;
   const tab = match(tabUrl, baseUrl);
+  // Collapse everything but the one-line mismatch notice on unrelated pages (Details expands).
+  const compact = tab === "mismatch" && !showDetails;
   const canBind = assistant?.can_bind === true && recipe !== null;
   const targetName = assistant?.name ?? "the instance";
 
@@ -389,30 +393,49 @@ export function TargetBanner({
         ) : null}
       </div>
 
-      <div className="space-y-0.5 text-[var(--muted-foreground)]">
-        {baseUrl ? (
-          <button
-            type="button"
-            onClick={() => openUrl(baseUrl)}
-            className="inline-flex items-center gap-1 hover:text-[var(--foreground)] hover:underline"
-          >
-            <span className="truncate">{baseUrl}</span>
-            <ExternalLink className="h-3 w-3 shrink-0" />
-          </button>
-        ) : null}
-        {active.auth ? <div>auth: {active.auth}</div> : null}
-        {active.source ? <div>source: {active.source}</div> : null}
-      </div>
+      {!compact ? (
+        <div className="space-y-0.5 text-[var(--muted-foreground)]">
+          {baseUrl ? (
+            <button
+              type="button"
+              onClick={() => openUrl(baseUrl)}
+              className="inline-flex items-center gap-1 hover:text-[var(--foreground)] hover:underline"
+            >
+              <span className="truncate">{baseUrl}</span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </button>
+          ) : null}
+          {active.auth ? <div>auth: {active.auth}</div> : null}
+          {active.source ? <div>source: {active.source}</div> : null}
+        </div>
+      ) : null}
 
-      {/* Tab-match state */}
+      {/* Tab-match state. On a NON-matching tab the assistant is not relevant to this page, so the
+          whole block collapses to this one line (plus a Details toggle) — a DHIS2 assistant should
+          not shout DHIS2 metadata at every unrelated site. The single-target model behind this is
+          the roadmap's multi-target registry follow-up. */}
       <div className="text-[var(--muted-foreground)]">
         {tab === "matched" ? (
           <span className="text-emerald-600">This tab matches the assistant target.</span>
         ) : tab === "mismatch" ? (
           <div className="space-y-0.5">
-            <span className="text-amber-600">This tab does not match the assistant target.</span>
-            <div className="truncate">tab: {tabUrl}</div>
-            <div className="truncate">target: {baseUrl}</div>
+            <span className="text-amber-600">
+              This tab does not match the assistant target.{" "}
+              <button
+                type="button"
+                data-testid="target-details-toggle"
+                onClick={() => setShowDetails((v) => !v)}
+                className="underline hover:text-[var(--foreground)]"
+              >
+                {showDetails ? "Hide details" : "Details"}
+              </button>
+            </span>
+            {!compact ? (
+              <>
+                <div className="truncate">tab: {tabUrl}</div>
+                <div className="truncate">target: {baseUrl}</div>
+              </>
+            ) : null}
           </div>
         ) : (
           <span>Tab target unknown.</span>
@@ -420,10 +443,10 @@ export function TargetBanner({
       </div>
 
       {/* Verification result */}
-      {verifyError ? (
+      {!compact && verifyError ? (
         <div className="text-[var(--destructive)]">Verify request failed: {verifyError}</div>
       ) : null}
-      {verified ? (
+      {!compact && verified ? (
         <div className={verifiedOk ? "text-emerald-600" : "text-[var(--destructive)]"}>
           {verifiedOk
             ? "Verified."
@@ -451,7 +474,7 @@ export function TargetBanner({
       ) : null}
 
       {/* Session info — only for backends that declared a probe */}
-      {active.probe ? (
+      {!compact && active.probe ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
           <button
             type="button"
@@ -479,7 +502,7 @@ export function TargetBanner({
       ) : null}
 
       {/* Login binding — "Use my login" / bound state */}
-      {binding || (canBind && tab === "matched") ? (
+      {!compact && (binding || (canBind && tab === "matched")) ? (
         <div className="space-y-2 border-t border-[var(--border)] pt-2">
           {binding ? (
             <div className="space-y-2">

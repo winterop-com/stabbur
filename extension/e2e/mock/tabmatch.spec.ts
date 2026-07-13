@@ -36,13 +36,19 @@ test("mismatch then matched tab drive the banner state", async ({ context, exten
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByText("play42")).toBeVisible({ timeout: 15_000 });
 
-  // A tab under a different origin (the `other` server) -> mismatch.
+  // A tab under a different origin (the `other` server) -> mismatch. On an unrelated page the
+  // target block collapses to the one-line notice: no metadata rows until Details is expanded.
   const tab = await context.newPage();
   await tab.goto(`${other.baseUrl()}/some/page`);
   await tab.bringToFront();
   await expect(panel.getByText("This tab does not match the assistant target.")).toBeVisible({
     timeout: 15_000,
   });
+  await expect(panel.getByText("auth: basic")).toHaveCount(0);
+  await expect(panel.getByText(/^source: /)).toHaveCount(0);
+  await panel.getByTestId("target-details-toggle").click();
+  await expect(panel.getByText("auth: basic")).toBeVisible();
+  await panel.getByTestId("target-details-toggle").click(); // collapse again before the match step
 
   // Navigate the same tab under the assistant's own origin -> matched.
   await tab.goto(`${mock.baseUrl()}/dev-2-42/dhis-web-dashboard`);
