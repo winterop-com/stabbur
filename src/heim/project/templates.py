@@ -295,7 +295,10 @@ def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, A
         mode: dict[str, Any] = {
             "command": ["d2w", "profile", "add", profile, "--url", "{base_url}", "--auth", auth, "--local"],
             "secret_env": secret_env,
-            "unbind_command": ["d2w", "profile", "remove", profile, "--local"],
+            # --yes: d2w >= 1.3 confirms interactively; heim runs bind commands with stdin closed,
+            # so without it the prompt reads EOF, the remove aborts, and the PAT-holding profile
+            # silently survives the unbind.
+            "unbind_command": ["d2w", "profile", "remove", profile, "--local", "--yes"],
             "unbind_note": (
                 "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
             ),
