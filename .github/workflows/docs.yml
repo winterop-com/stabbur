@@ -2,16 +2,14 @@ name: Docs
 
 # Build the mkdocs site and publish it to the gh-pages branch (GitHub Pages
 # serves that branch). Uses `mkdocs gh-deploy`, the same mechanism as a manual
-# local deploy, so the Pages source stays "Deploy from a branch: gh-pages".
-# Docs-only pushes to main trigger it.
+# local deploy.
+#
+# MANUAL-ONLY while the repo is PRIVATE: GitHub Pages doesn't serve a private repo
+# (on the current plan), so auto-deploying on every docs push just burns billed
+# Actions minutes and produces an unreachable site. Re-add the `push:` trigger
+# (docs/** + mkdocs.yml) if the repo goes public again.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs/**"
-      - "mkdocs.yml"
-      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:

@@ -1,13 +1,21 @@
 name: CI
 
 # The quality gate for a repo that commits straight to main: run `make check`
-# (ruff format + lint, mypy, pyright, pytest) on every push and PR. The ubuntu +
-# macos matrix also confirms the mlx/voice extras' platform gating (mlx has no
-# Linux wheels) actually no-ops on Linux, which can't be verified on a Mac.
+# (ruff format + lint, mypy, pyright, pytest) on every code push and PR.
+#
+# Trimmed for a PRIVATE repo (Actions minutes are billed): Linux only — GitHub
+# bills macOS runners at 10x Linux, and the macOS path (mlx/voice) is exercised by
+# local `make check` on the dev Mac. Docs-only pushes are skipped. The `mlx`
+# extra is env-marker-gated to darwin/arm64, so `uv sync --all-extras` on Linux
+# still proves that gating no-ops (it installs only the Linux-compatible extras).
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
 
 # Newer pushes cancel superseded in-flight runs for the same ref.
@@ -20,12 +28,8 @@ permissions:
 
 jobs:
   check:
-    name: check (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: check (ubuntu)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -36,8 +40,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # --all-extras installs every Linux-compatible extra (tts/voice/web); mlx is
-      # env-marker-gated to darwin/arm64, so this is where "gating no-ops on Linux" is proven.
       - run: uv sync --all-extras
       - run: make check
 
