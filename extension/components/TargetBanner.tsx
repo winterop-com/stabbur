@@ -4,6 +4,7 @@ import type { AssistantInfo } from "../lib/assistantApi";
 import { match } from "../lib/tabTarget";
 import { formatSession, type SessionInfo, type SessionResult } from "../lib/sessionReads";
 import { executeRevoke, parseRecipe, substitute } from "../lib/bindRecipe";
+import { requestHostAccess } from "../lib/hostAccess";
 import {
   clearBindDismissal,
   clearBinding,
@@ -264,6 +265,11 @@ export function TargetBanner({
   }
 
   async function whoAmI(): Promise<void> {
+    // First await on the click gesture: turn a transient/missing activeTab grant into the durable
+    // optional host permission, so the probe (and every later injection) works regardless of how
+    // the panel was opened. Silently true when already granted; a decline just falls through and
+    // the probe reports no_access with its pointer copy.
+    if (baseUrl) await requestHostAccess(baseUrl);
     setLoadingSession(true);
     try {
       setSession(await onWhoAmI());
@@ -303,6 +309,9 @@ export function TargetBanner({
 
   async function doUnbind(): Promise<void> {
     if (!binding) return;
+    // First await on the click gesture: the in-tab revoke needs host access (see whoAmI above).
+    // Best-effort — a decline only skips the revoke, never the unbind itself.
+    if (baseUrl) await requestHostAccess(baseUrl);
     setUnbinding(true);
     try {
       // Best-effort: revoke the token in the tab's context before removing the profile.
@@ -461,7 +470,9 @@ export function TargetBanner({
             <span className="text-amber-600">
               {session.error === "unauthenticated"
                 ? "Not signed in on this tab."
-                : "Could not read your session on this tab."}
+                : session.error === "no_access"
+                  ? "heim has no access to this site yet — click \"Who am I here?\" to grant it."
+                  : "Could not read your session on this tab."}
             </span>
           ) : null}
         </div>

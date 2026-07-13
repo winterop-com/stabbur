@@ -136,6 +136,9 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     const hit = sessionCache.current;
     if (!force && hit && hit.key === key && Date.now() - hit.at < SESSION_TTL_MS) return hit.result;
     const result = await whoAmIResolved(tabId, tabUrl, assistant?.base_url ?? null, probe);
+    // Never cache a missing-host-access result: the user can grant access at any moment (the
+    // "Who am I here?" click, a bind Confirm), and the passive paths should recover immediately.
+    if (result && "error" in result && result.error === "no_access") return result;
     sessionCache.current = { key, result, at: Date.now() };
     return result;
   }

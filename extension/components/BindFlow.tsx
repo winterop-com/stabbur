@@ -10,6 +10,7 @@ import {
 } from "../lib/bindRecipe";
 import { postBindTo, type BindApiResult, type BindTarget } from "../lib/bindApi";
 import { setBinding, type Binding } from "../lib/binding";
+import { requestHostAccess } from "../lib/hostAccess";
 import type { SessionResult } from "../lib/sessionReads";
 
 /** The heim backend a bind is written to, snapshotted when the flow starts. */
@@ -120,6 +121,20 @@ export function BindFlow({
 
   async function confirmMint(): Promise<void> {
     const target = captureTarget(); // freeze the destination backend before any await
+    // The mint (and the pre-gate probe) inject into the target tab, which needs host access.
+    // `activeTab` only covers the tab the toolbar icon was clicked on, until it navigates — so ask
+    // for the durable optional grant here, on the Confirm gesture (MUST be the first await;
+    // captureTarget is synchronous). Resolves silently when already granted.
+    const granted = await requestHostAccess(basePath);
+    if (!granted) {
+      setStage({
+        kind: "error",
+        message:
+          `heim needs access to ${originOf(basePath) ?? targetName} to request the token in your tab. ` +
+          "Click Confirm again and allow the permission prompt, or open the panel from the heim toolbar icon on that tab.",
+      });
+      return;
+    }
     const tabId = await getActiveTabId();
     if (tabId === null) {
       setStage({ kind: "error", message: "No active web tab to mint the token in." });

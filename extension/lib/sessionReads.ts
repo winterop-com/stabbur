@@ -13,8 +13,11 @@ export interface SessionInfo {
 // A probe outcome. "unauthenticated" is a CONFIDENT logged-out signal (401, a 302-to-login, or a
 // token-less HTML page where JSON was expected); "probe_failed" is the AMBIGUOUS case (a 500, a
 // network blip, a non-JSON error) where we simply can't tell — callers must not treat it as
-// logged-out (e.g. the bind pre-gate falls through to the mint on it).
-export type SessionResult = SessionInfo | { error: "unauthenticated" | "probe_failed" } | null;
+// logged-out (e.g. the bind pre-gate falls through to the mint on it). "no_access" means the
+// injection itself was refused (no host access to the tab — the panel was not opened via the
+// toolbar icon on this tab and no optional grant exists yet); user-gesture paths fix it by
+// calling requestHostAccess (lib/hostAccess.ts) first.
+export type SessionResult = SessionInfo | { error: "unauthenticated" | "probe_failed" | "no_access" } | null;
 
 /** The project-declared session probe (echoed verbatim by GET /api/assistant; heim never runs it). */
 export interface ProbeSpec {
@@ -160,7 +163,10 @@ export async function whoAmI(tabId: number, basePath: string, probe: ProbeSpec):
     });
     return (result?.result as SessionResult | undefined) ?? null;
   } catch {
-    return null;
+    // executeScript itself was refused — overwhelmingly a missing host grant for the tab's origin
+    // (no activeTab, no optional grant). Distinct from "probe_failed" so callers can point the user
+    // at granting access rather than at a flaky network.
+    return { error: "no_access" };
   }
 }
 
