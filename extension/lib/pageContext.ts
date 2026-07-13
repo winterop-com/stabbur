@@ -1,6 +1,9 @@
 // Collects lightweight page context (url, title, selection, optional page text)
-// from the active tab via chrome.scripting. Injection failures (chrome:// pages,
-// no host access) degrade silently to null.
+// from the active tab via chrome.scripting. An injection failure (chrome:// pages,
+// no host access to the site) is reported as the distinct "no_access" marker so the
+// UI can say the page was NOT captured instead of silently claiming context was
+// attached (the bug: the chip said "page context attached" while only the
+// tool-account line made it into the block).
 
 export interface PageContext {
   url: string;
@@ -15,9 +18,10 @@ const PAGE_TEXT_LIMIT = 8000;
 
 /**
  * Read url/title/selection (and, when `includePageText`, the visible page text)
- * from the given tab, or null if the page is off-limits.
+ * from the given tab; "no_access" when the injection itself is refused (no host
+ * grant for the site, or a restricted chrome:// page).
  */
-export async function collect(tabId: number, includePageText = false): Promise<PageContext | null> {
+export async function collect(tabId: number, includePageText = false): Promise<PageContext | "no_access" | null> {
   try {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -47,7 +51,7 @@ export async function collect(tabId: number, includePageText = false): Promise<P
     const value = result?.result as PageContext | undefined;
     return value ?? null;
   } catch {
-    return null;
+    return "no_access";
   }
 }
 

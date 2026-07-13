@@ -202,9 +202,15 @@ test.describe.serial("act-as-you against real heim + play42", () => {
     });
     try {
       const extId = await resolveExtensionId(ctx);
-      await seedSettings(ctx, extId, { baseUrl: BASE_URL, token: "" });
+      await seedSettings(ctx, extId, {
+        baseUrl: BASE_URL,
+        token: "",
+        pageContextEnabled: true,
+        pageTextEnabled: true,
+      });
       const panel = await openPanel(ctx, extId);
-      await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 180_000 });
+      const composer = panel.getByPlaceholder(/Message \(Enter to send/);
+      await expect(composer).toBeVisible({ timeout: 180_000 });
 
       const tab = await ctx.newPage();
       await loginAsAdmin(tab); // fresh cookie jar: log in again in this context
@@ -215,8 +221,49 @@ test.describe.serial("act-as-you against real heim + play42", () => {
       await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
       await expect(panel.getByText(/injection failed/)).toHaveCount(0);
       await shot(panel, "generic-noaccess-hint");
+
+      // Send with page context on: the capture cannot run (no grant, and nobody answers the
+      // permission prompt), so the composer chip must say the page was NOT captured — the old
+      // behavior claimed "page context attached" while attaching no page at all.
+      await composer.fill("hi");
+      await panel.getByRole("button", { name: "Send" }).click();
+      await expect(panel.getByTestId("page-context-missing")).toBeVisible({ timeout: 30_000 });
+      await shot(panel, "generic-honest-missing-chip");
     } finally {
       await ctx.close().catch(() => {});
     }
+  });
+
+  test("the dhis2 assistant answers a general page question from attached page text", async () => {
+    test.skip(skipReason !== null, skipReason ?? "");
+    test.skip(server === null, "live server not started (test 1 failed)");
+    test.setTimeout(600_000);
+
+    // Server-side check of the dhis2 template's system prompt (the panel path is covered above):
+    // with real page text attached, "what are the top stories today" must be answered FROM the
+    // page, not deflected with "I don't have access to news sites".
+    const pageText = [
+      "1. Local model beats cloud benchmark (example.com) 312 points",
+      "2. New TypeScript compiler released (typescriptlang.org) 245 points",
+      "3. Rust in the kernel: a status update (lwn.net) 198 points",
+    ].join("\n");
+    const content =
+      `Page URL: https://news.ycombinator.com/\nPage title: Hacker News\n` +
+      `Page text (truncated): ${pageText}\n\nwhat are the top stories today`;
+    const res = await fetch(`${BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content }], use_tools: true }),
+    });
+    expect(res.ok).toBe(true);
+    const raw = await res.text();
+    const answer = [...raw.matchAll(/^data: (.+)$/gm)]
+      .map((m) => JSON.parse(m[1]) as { type: string; text?: string })
+      .filter((e) => e.type === "token")
+      .map((e) => e.text ?? "")
+      .join("");
+    console.log(`[actasyou] page-question answer: ${answer.replace(/\s+/g, " ").slice(0, 300)}`);
+    expect(answer).toMatch(/typescript|kernel|benchmark/i);
+    expect(answer).not.toMatch(/don't have access|do not have access|cannot browse|unable to browse/i);
   });
 });
