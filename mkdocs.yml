@@ -85,6 +85,14 @@ markdown_extensions:
 
 plugins:
   - search
+  # Click any content image (e.g. the extension screenshots) to open it fullscreen in a
+  # zoomable lightbox. Targets <img> only, so it doesn't touch the Mermaid SVGs (panzoom below).
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      zoomable: true
+      draggable: true
   - mkdocstrings:
       handlers:
         python:
