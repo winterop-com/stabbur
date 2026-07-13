@@ -412,6 +412,52 @@ def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: py
     assert lib.is_dir()  # setup created it
 
 
+def _fake_extension_checkout(root: Path) -> Path:
+    """Create the minimal marker `heim ext-dev` discovery looks for: extension/wxt.config.ts."""
+    ext = root / "extension"
+    ext.mkdir(parents=True, exist_ok=True)
+    (ext / "wxt.config.ts").write_text("// marker\n")
+    return ext
+
+
+def test_ext_dev_outside_checkout_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)  # no extension/wxt.config.ts anywhere above
+    res = runner.invoke(cli.app, ["ext-dev"])
+    assert res.exit_code == 1
+    assert "heim source checkout" in res.output
+
+
+def test_ext_dev_requires_bun(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_extension_checkout(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("shutil.which", lambda _name: None)  # bun absent
+    res = runner.invoke(cli.app, ["ext-dev"])
+    assert res.exit_code == 1
+    assert "bun not found" in res.output
+
+
+def test_ext_dev_requires_installed_deps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_extension_checkout(tmp_path)  # but no node_modules
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/bun")
+    res = runner.invoke(cli.app, ["ext-dev"])
+    assert res.exit_code == 1
+    assert "deps not installed" in res.output
+
+
+def test_ext_dev_discovers_root_from_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Discovery walks up: invoked from a nested dir, it still finds the checkout — but with bun
+    # absent it stops at the precondition (never launching a browser), which is what we assert.
+    _fake_extension_checkout(tmp_path)
+    nested = tmp_path / "src" / "heim"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    res = runner.invoke(cli.app, ["ext-dev"])
+    assert res.exit_code == 1
+    assert "bun not found" in res.output  # got past discovery, failed on the precondition
+
+
 def test_normalize_server_url() -> None:
     assert cli._normalize_server_url("http://h:8000") == "http://h:8000"
     assert cli._normalize_server_url("http://h:8000/") == "http://h:8000"

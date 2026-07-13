@@ -2,20 +2,29 @@
 // start a real `heim serve` (gemma + dhis2 bridge -> play42, read-only), seed the
 // panel settings, and leave everything running until Ctrl+C.
 //
+// This is the engine behind `heim ext-dev` (the supported launcher, which owns discovery,
+// preconditions, the build, and process lifecycle). Still runnable directly:
+//
 //   bun run e2e/try.ts
 //
+// Env contract (both set by `heim ext-dev`; unset -> today's byte-identical behavior):
+//   HEIM_EXT_DEV_MULTI=1        -> load the two-target fixture (play42 + play41) instead of play42
+//   HEIM_EXT_DEV_FLAVOR=dhis2   -> load `.output/chrome-mv3-dhis2` instead of `.output/chrome-mv3`
+//
 // Reuses the live-E2E fixture (startLiveServer) so the backend is exactly what the
-// live tier verifies: locked gemma-4-12B, [assistant] play42 block, published bridge.
+// live tier verifies: locked model, [assistant]/[[assistants]] block(s), published bridge.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { chromium } from "@playwright/test";
-import { startLiveServer, warmBridge, LIVE_PORT } from "./live/liveServer";
+import { startLiveServer, warmBridge, LIVE_PORT, MULTI_TARGETS, LIVE_MULTI_MODEL, MULTI_SYSTEM_PROMPT } from "./live/liveServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
+const MULTI = process.env.HEIM_EXT_DEV_MULTI === "1";
+const OUT_SUFFIX = process.env.HEIM_EXT_DEV_FLAVOR === "dhis2" ? "-dhis2" : "";
+const EXTENSION_PATH = path.resolve(HERE, "..", ".output", `chrome-mv3${OUT_SUFFIX}`);
 
 async function main(): Promise<void> {
   console.log("[try] launching headed Chromium with the extension ...");
@@ -41,8 +50,18 @@ async function main(): Promise<void> {
   console.log("[try] warming the dhis2 bridge (uvx cache) ...");
   warmBridge();
 
-  console.log("[try] starting heim serve (gemma-4-12B, play42, read-only) ...");
-  const server = startLiveServer(extensionId);
+  console.log(
+    MULTI
+      ? "[try] starting heim serve (Ornith-1.0-9B, play42 + play41 multi-target, read-only) ..."
+      : "[try] starting heim serve (gemma-4-12B, play42, read-only) ...",
+  );
+  const server = MULTI
+    ? startLiveServer(extensionId, {
+        targets: MULTI_TARGETS,
+        model: LIVE_MULTI_MODEL,
+        systemPrompt: MULTI_SYSTEM_PROMPT,
+      })
+    : startLiveServer(extensionId);
   process.on("SIGINT", () => {
     void (async () => {
       console.log("\n[try] shutting down heim serve + browser ...");
@@ -92,7 +111,11 @@ async function main(): Promise<void> {
   console.log("[try] READY.");
   console.log(`[try]   panel tab:   chrome-extension://${extensionId}/sidepanel.html`);
   console.log("[try]   real side panel: click the heim icon in the toolbar (puzzle-piece menu)");
-  console.log(`[try]   backend:     http://127.0.0.1:${LIVE_PORT} (gemma-4-12B locked, dhis2 bridge -> play42)`);
+  console.log(
+    MULTI
+      ? `[try]   backend:     http://127.0.0.1:${LIVE_PORT} (Ornith-1.0-9B locked, dhis2 bridges -> play42 + play41)`
+      : `[try]   backend:     http://127.0.0.1:${LIVE_PORT} (gemma-4-12B locked, dhis2 bridge -> play42)`,
+  );
   console.log("[try]   page-context + page-text toggles are ON; an HN tab is open for prompt-catalog testing");
   console.log("[try] Ctrl+C here stops heim serve and closes the browser.");
 
