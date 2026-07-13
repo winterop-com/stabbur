@@ -213,6 +213,49 @@ test("session raced away: a mint login redirect lands on the sign-in stage", asy
   await tab.close();
 });
 
+test("manual button: dismiss the auto-offer, then Use my login mints + binds + shows the chip", async ({
+  context,
+  extensionId,
+}) => {
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+  // Dismiss the auto-offer so the manual button is the driver (its mint+bind path lost coverage
+  // when the offer went proactive).
+  await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
+  await panel.getByTestId("bind-consent").getByRole("button", { name: "Cancel" }).click();
+  await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
+
+  // The manual button renders and drives the same consent -> mint -> bind flow to success.
+  await expect(panel.getByTestId("bind-use-my-login")).toBeVisible();
+  await panel.getByTestId("bind-use-my-login").click();
+  await expect(panel.getByTestId("bind-consent")).toBeVisible();
+  await panel.getByTestId("bind-confirm").click();
+
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByTestId("bind-acting-as")).toContainText("Acting as admin");
+  expect(target.mintCalls.length).toBeGreaterThan(0);
+  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  expect(bindCall?.body).toMatchObject({ mode: "pat", secret: "d2p_test" });
+  await tab.close();
+});
+
+test("no re-nag: after a successful auto-offered bind the consent card stays gone", async ({
+  context,
+  extensionId,
+}) => {
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+  await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
+  await panel.getByTestId("bind-confirm").click();
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
+  // The auto-offer effect must NOT re-fire and reopen the card once the binding is recorded (the
+  // race where onBound cleared showBindFlow before the binding state refreshed). Give the effect a
+  // beat, then assert the card is gone for good while the acting-as chip remains.
+  await panel.waitForTimeout(500);
+  await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
+  await expect(panel.getByTestId("bind-flow")).toHaveCount(0);
+  await expect(panel.getByTestId("bind-acting-as")).toBeVisible();
+  await tab.close();
+});
+
 test("unbind revokes the token on the target and records an unbind call", async ({ context, extensionId }) => {
   const { panel, tab } = await openWithTargetTab(context, extensionId);
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });

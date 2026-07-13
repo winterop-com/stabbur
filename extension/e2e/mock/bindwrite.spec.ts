@@ -191,6 +191,37 @@ test("write-scope re-mint: a read-only PAT binding on a write assistant upgrades
   await tab.close();
 });
 
+test("write-scope re-mint: switching an open Rebind card to Enable writes re-mints the FULL method set", async ({
+  context,
+  extensionId,
+}) => {
+  heim.state.assistant = writableAssistant(target.baseUrl());
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+
+  // Land a read-only PAT binding first (auto-offered consent, writes left unchecked).
+  await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
+  await panel.getByTestId("bind-confirm").click();
+  await expect(panel.getByTestId("bind-scope")).toContainText("read-only", { timeout: 15_000 });
+  const mintsBefore = target.mintCalls.length;
+
+  // Open the manual Rebind card (source=manual, writes unchecked), THEN escalate to Enable writes
+  // while it is open (source=upgrade). Before the key-remount fix, switching source on the mounted
+  // flow left allowWrites stale-false -> a read-only re-mint that still revoked the old token. The
+  // key remounts the flow so the upgrade's pre-checked writes take, and the full method set is sent.
+  await panel.getByRole("button", { name: "Rebind" }).click();
+  await expect(panel.getByTestId("bind-consent")).toBeVisible();
+  await expect(panel.getByTestId("bind-allow-writes")).not.toBeChecked();
+  await panel.getByTestId("bind-upgrade-writes").click();
+  await expect(panel.getByTestId("bind-allow-writes")).toBeChecked(); // remounted with writes pre-checked
+  await expect(panel.getByTestId("bind-remint-notice")).toBeVisible();
+  await panel.getByTestId("bind-confirm").click();
+
+  await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled", { timeout: 15_000 });
+  expect(target.mintCalls.length).toBeGreaterThan(mintsBefore);
+  expect(target.mintCalls[target.mintCalls.length - 1]).toContain("DELETE");
+  await tab.close();
+});
+
 test("write-scope re-mint: a writes-scoped binding shows no upgrade affordance", async ({ context, extensionId }) => {
   heim.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
