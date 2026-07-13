@@ -118,6 +118,19 @@ async def test_assistants_url_single_match_selects(app: FastAPI, client: AsyncCl
     assert body["selected"] == "play42"
 
 
+async def test_assistants_url_catchall_plus_specific_selects_specific(app: FastAPI, client: AsyncClient) -> None:
+    # A broad "/" catch-all AND a specific "/dev-2-42" both match; the specific (longer base path) is
+    # auto-selected, with both ids still in matches (most-specific first).
+    _install(
+        app,
+        _target("root", "https://play.example/"),
+        _target("play42", "https://play.example/dev-2-42"),
+    )
+    body = (await client.get("/api/assistants", params={"url": "https://play.example/dev-2-42/api/me"})).json()
+    assert body["matches"] == ["play42", "root"]
+    assert body["selected"] == "play42"  # the specific one wins even though the catch-all also matches
+
+
 async def test_assistants_url_tie_selects_null_keeps_both(app: FastAPI, client: AsyncClient) -> None:
     # Two root-path targets on one origin tie for any url there: selected null, both ids in matches.
     _install(

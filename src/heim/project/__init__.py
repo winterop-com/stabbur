@@ -28,7 +28,6 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
-    computed_field,
     field_validator,
     model_validator,
 )
@@ -304,17 +303,8 @@ class AssistantInfo(BaseModel):
     verify: AssistantVerify | None = None
     probe: AssistantProbe | None = None
     bind: AssistantBind | None = None
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def id(self) -> str:
-        """A stable id derived from ``name`` (slugified), or ``"target-0"`` when unnamed.
-
-        This is the target's *own* id; :class:`heim.targets.AssistantRegistry` makes it collision-safe
-        across a registry (a duplicate gets a ``-2`` suffix, an unnamed non-first target ``target-<i>``),
-        so read ids off the registry (``registry.ids`` / ``by_id``) when more than one target is in play.
-        """
-        return (_slugify(self.name) if self.name else "") or "target-0"
+    # No per-target `id`: identity is owned solely by the registry (`AssistantRegistry.ids` / `by_id`),
+    # which is the only thing that can make ids collision-safe across sibling targets. Derive an id there.
 
 
 # Defined here (not imported at module top) so the project <-> targets import cycle resolves under either
@@ -508,14 +498,13 @@ def _render_submodel(header: str, data: dict[str, Any], inline_table_keys: froze
 
 
 def _assistant_render_dict(assistant: "AssistantInfo") -> dict[str, Any]:
-    """The ``exclude_none`` model dump minus the keys the writer never emits (``id`` / empty ``mcp_servers``).
+    """The ``exclude_none`` model dump minus the keys the writer never emits (empty ``mcp_servers``).
 
-    ``id`` is derived on load, so writing it would be redundant and would collide with the computed field on
-    the next parse; an empty ``mcp_servers`` is the compat default, so dropping it keeps a single
-    ``[assistant]`` render byte-identical to the pre-multi-target output.
+    An empty ``mcp_servers`` is the compat default, so dropping it keeps a single ``[assistant]`` render
+    byte-identical to the pre-multi-target output. (``id`` is no longer a model field — identity lives on
+    the registry — so there is nothing to strip for it.)
     """
     data = assistant.model_dump(exclude_none=True)
-    data.pop("id", None)
     if not data.get("mcp_servers"):
         data.pop("mcp_servers", None)
     return data

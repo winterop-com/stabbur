@@ -9,7 +9,8 @@ heim stays domain-generic — it never interprets these fields. A project can de
 - ``POST /api/assistants/{id}/bind|unbind`` runs that target's bind recipe.
 - ``GET /api/assistant`` (+ ``?verify=1``) and ``POST /api/assistant/bind|unbind`` are the **compat**
   single-target routes for old clients — they read ``app.state.assistant`` (the registry's primary) and
-  keep their own single-slot verify cache (``app.state.assistant_verified``), byte-identical to before.
+  route through the *same* per-id verify cache keyed by the primary's id, so a rate-limited instance is
+  probed once whether the caller hits ``/api/assistant`` or ``/api/assistants/{primary}``.
 
 Sanitized echo: a target's ``verify`` spec and a bind mode's ``command`` / ``secret_env`` are server-side
 execution details, never surfaced; ``probe`` rides through verbatim (it's *for* the client to run) and the
@@ -34,9 +35,10 @@ from heim.project import (
     AssistantInfo,
     AssistantVerify,
     BindMode,
+    _slugify,
 )
 from heim.routers.serving._base import router
-from heim.targets import AssistantRegistry, select
+from heim.targets import AssistantRegistry, select, selected
 from heim.tools import MCPToolset
 
 _VERIFY_TTL = 60.0  # seconds a verify outcome is cached, so ?verify=1 polling doesn't re-probe each call
@@ -107,7 +109,8 @@ class AssistantListResponse(BaseModel):
 
     Without ``?url=`` only ``targets`` is serialized (the endpoint drops the selection keys); with it,
     ``matches`` is every target id the tab falls under (most-specific first) and ``selected`` is the
-    single unambiguous pick — ``null`` on a tie or no match, so the client shows a picker or nothing.
+    unique strictly-highest-rank pick — set when one target is more specific than the rest, ``null`` on a
+    real top-rank tie or no match, so the client auto-picks or shows a picker.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -229,44 +232,6 @@ async def _run_verify(toolset: MCPToolset | None, spec: AssistantVerify) -> Assi
         return AssistantVerified(ok=False, error=str(exc), checked_at=time.time())
 
 
-# --- Compat single-target verify cache (app.state.assistant_verified, one slot) -----------------------
-# The /api/assistant* routes keep their own single-slot cache + single lock, byte-identical to before
-# the registry landed. It is deliberately *separate* from the per-id cache below: old clients hitting
-# /api/assistant and new clients hitting /api/assistants/{id} don't share a slot, but each surface is
-# internally consistent (and the test_api.py contract pins the single slot as a tuple / None).
-
-
-def _fresh(state: Any) -> AssistantVerified | None:
-    """The compat single-slot cached verify outcome, if one exists and is within the TTL."""
-    cached: tuple[float, AssistantVerified] | None = getattr(state, "assistant_verified", None)
-    if cached is not None and time.time() - cached[0] < _VERIFY_TTL:
-        return cached[1]
-    return None
-
-
-async def _verify_compat(request: Request, spec: AssistantVerify) -> AssistantVerified:
-    """Compat verify for /api/assistant: 60s TTL cache on ``app.state.assistant_verified`` (one slot).
-
-    Concurrent callers that race an empty/expired cache share one probe (single-flight lock) so panel
-    polling can't double-hit a rate-limited target; the lock is created lazily, race-free on the
-    single-threaded event loop (no await between the check and the set).
-    """
-    state = request.app.state
-    if (fresh := _fresh(state)) is not None:
-        return fresh
-    lock: asyncio.Lock | None = getattr(state, "assistant_verify_lock", None)
-    if lock is None:
-        lock = asyncio.Lock()
-        state.assistant_verify_lock = lock
-    async with lock:
-        if (fresh := _fresh(state)) is not None:  # a concurrent caller refreshed while we waited
-            return fresh
-        toolset: MCPToolset | None = getattr(state, "toolset", None)
-        verified = await _run_verify(toolset, spec)
-        state.assistant_verified = (verified.checked_at, verified)
-        return verified
-
-
 # --- Per-target verify cache (app.state.assistant_verified_by_id, one slot per registry id) -----------
 # Each target id gets its own (checked_at, AssistantVerified) slot and its own single-flight lock. The
 # locks live in one dict created lazily; no guard lock is needed because inserting a lock has no await
@@ -336,14 +301,30 @@ def _target(request: Request, target_id: str) -> tuple[AssistantInfo, str]:
     return info, target_id
 
 
+def _compat_id(request: Request, info: AssistantInfo) -> str:
+    """The registry id the /api/assistant compat route keys its verify cache + response ``id`` by.
+
+    Normally the primary's registry id (``registry.ids[0]``), so the compat route and
+    ``/api/assistants/{primary}`` share one verify slot (single-flight against a rate-limited instance).
+    When ``app.state.assistant`` was set without a registry (state-poking tests), fall back to the id a
+    one-target registry would have given the primary, so the key and the echoed ``id`` are stable either
+    way.
+    """
+    registry = _registry(request)
+    if registry.ids:
+        return registry.ids[0]
+    return (_slugify(info.name) if info.name else "") or "target-0"
+
+
 @router.get("/api/assistants")
 async def assistants(request: Request, url: str | None = None) -> JSONResponse:
     """The sanitized registry: ``{"targets": [...]}``; ``?url=<tabUrl>`` adds ``selected`` / ``matches``.
 
     An empty registry returns ``{"targets": []}`` with 200 (never 404) — the extension reads a generic
-    (no-target) server as an empty list. ``?url=`` reports which target(s) the tab falls under via
-    :func:`heim.targets.select`: ``selected`` is set only on a single unambiguous match, ``null`` on a
-    tie (both ids still in ``matches``) or no match.
+    (no-target) server as an empty list. ``?url=`` reports which target(s) the tab falls under:
+    ``matches`` is every candidate (most-specific first, :func:`heim.targets.select`) and ``selected`` is
+    the unique unambiguous pick (:func:`heim.targets.selected`) — set even when a broad catch-all also
+    matches (the more-specific target wins), ``null`` only on a real top-rank tie or no match.
     """
     state = request.app.state
     registry = _registry(request)
@@ -355,9 +336,9 @@ async def assistants(request: Request, url: str | None = None) -> JSONResponse:
     if url is None:
         payload = AssistantListResponse(targets=targets).model_dump(exclude={"selected", "matches"})
         return JSONResponse(payload)
-    matches = select(url, registry)
-    selected = matches[0] if len(matches) == 1 else None
-    payload = AssistantListResponse(targets=targets, selected=selected, matches=matches).model_dump()
+    payload = AssistantListResponse(
+        targets=targets, selected=selected(url, registry), matches=select(url, registry)
+    ).model_dump()
     return JSONResponse(payload)
 
 
@@ -376,17 +357,18 @@ async def assistant_target(request: Request, target_id: str, verify: bool = Fals
 async def assistant(request: Request, verify: bool = False) -> AssistantResponse:
     """Compat: the project's primary target (404 if none); ``?verify=1`` probes it.
 
-    Reads ``app.state.assistant`` (the registry's primary) and the single-slot verify cache, so old
-    clients see byte-identical behavior. ``can_verify`` reports whether a live probe is possible;
-    ``?verify=1`` runs it (cached 60s) and reports the outcome in ``verified``.
+    Reads ``app.state.assistant`` (the registry's primary) and keys into the *shared* per-id verify cache
+    by the primary's id, so old clients and ``/api/assistants/{primary}`` never double-probe. ``can_verify``
+    reports whether a live probe is possible; ``?verify=1`` runs it (cached 60s) and reports the outcome.
     """
     info: AssistantInfo | None = getattr(request.app.state, "assistant", None)
     if info is None:
         raise HTTPException(status_code=404, detail="No assistant metadata")
     toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
-    response = _sanitize(info, toolset)
+    compat_id = _compat_id(request, info)
+    response = _sanitize(info, toolset, target_id=compat_id)
     if verify and info.verify is not None:
-        response.verified = await _verify_compat(request, info.verify)
+        response.verified = await _verify(request, info, compat_id)
     return response
 
 
@@ -549,7 +531,8 @@ async def assistant_bind(request: Request, body: BindRequest) -> BindResult:
     info: AssistantInfo | None = getattr(request.app.state, "assistant", None)
     _bind_mode(info, body.mode)  # 404/400 before validation, as before
     assert info is not None  # _bind_mode raised otherwise
-    return await _do_bind(request, info, body, lambda: setattr(request.app.state, "assistant_verified", None))
+    compat_id = _compat_id(request, info)
+    return await _do_bind(request, info, body, lambda: _invalidate_target(request.app.state, compat_id))
 
 
 @router.post("/api/assistant/unbind")
@@ -561,4 +544,5 @@ async def assistant_unbind(request: Request, body: UnbindRequest) -> BindResult:
     info: AssistantInfo | None = getattr(request.app.state, "assistant", None)
     _bind_mode(info, body.mode)  # 404/400 before running, as before
     assert info is not None  # _bind_mode raised otherwise
-    return await _do_unbind(request, info, body.mode, lambda: setattr(request.app.state, "assistant_verified", None))
+    compat_id = _compat_id(request, info)
+    return await _do_unbind(request, info, body.mode, lambda: _invalidate_target(request.app.state, compat_id))

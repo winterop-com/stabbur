@@ -12,9 +12,10 @@ and a base path of ``/`` matches anything on the origin. The two implementations
 both.
 """
 
+from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 # Default ports a URL normalizer drops (JS ``URL.host`` omits the scheme's default port). Mirrors
 # what ``tabTarget.ts`` gets for free from the browser ``URL`` so origin equality stays in parity.
@@ -67,13 +68,12 @@ def _match_rank(tab_origin: str, tab_path: str, base_url: str | None) -> int | N
     return None
 
 
-def select(url: str, registry: "AssistantRegistry") -> list[str]:
-    """Target ids whose ``base_url`` the tab ``url`` falls under, ranked most-specific first.
+def _ranked(url: str, registry: "AssistantRegistry") -> list[tuple[int, int, str]]:
+    """The matching targets as ``(rank, declaration_order, id)`` tuples, most-specific first.
 
-    Python twin of the extension's ``selectTarget`` (built on ``tabTarget.match``): origin-equality plus
-    longest-base-path-prefix ranking, with declaration order preserved for ties. Returns ``[]`` for an
-    unparseable url or no match; a single id means an unambiguous pick, more than one means the caller must
-    disambiguate (a tie the UI resolves with a picker).
+    Shared by :func:`select` and :func:`selected`: origin-equality plus longest-base-path-prefix ranking
+    (the base-path length is the rank), declaration order preserved for equal ranks. ``[]`` for an
+    unparseable url or no match.
     """
     parsed = _origin_and_path(url)
     if parsed is None:
@@ -86,7 +86,35 @@ def select(url: str, registry: "AssistantRegistry") -> list[str]:
             ranked.append((rank, order, target_id))
     # Longest base path first; ties keep declaration order (ascending original index).
     ranked.sort(key=lambda r: (-r[0], r[1]))
-    return [target_id for _, _, target_id in ranked]
+    return ranked
+
+
+def select(url: str, registry: "AssistantRegistry") -> list[str]:
+    """Target ids whose ``base_url`` the tab ``url`` falls under, ranked most-specific first.
+
+    Python twin of the extension's ``selectTarget`` (built on ``tabTarget.match``): origin-equality plus
+    longest-base-path-prefix ranking, with declaration order preserved for ties. Returns ``[]`` for an
+    unparseable url or no match. This is the *full ranked list* (every match); :func:`selected` gives the
+    single unambiguous pick a UI would auto-select.
+    """
+    return [target_id for _, _, target_id in _ranked(url, registry)]
+
+
+def selected(url: str, registry: "AssistantRegistry") -> str | None:
+    """The one target a tab ``url`` unambiguously resolves to, or ``None`` when it is genuinely ambiguous.
+
+    The unique **strictly-highest-rank** match: a broad catch-all ``/`` alongside a specific ``/dev-2-42``
+    auto-selects the specific one (its base path is longer), while two matches sharing the top rank (a real
+    tie, e.g. two root-path targets on one origin) return ``None`` for the UI to resolve with a picker. No
+    match → ``None``. Twin of the extension's selection: ``matches`` (from :func:`select`) still carries
+    every candidate; ``selected`` is only set when the pick is unambiguous.
+    """
+    ranked = _ranked(url, registry)
+    if not ranked:
+        return None
+    if len(ranked) == 1 or ranked[0][0] > ranked[1][0]:  # unique top rank (strictly beats the runner-up)
+        return ranked[0][2]
+    return None
 
 
 class AssistantRegistry(BaseModel):
@@ -100,19 +128,19 @@ class AssistantRegistry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     targets: list["AssistantInfo"] = Field(default_factory=list)
+    # The collision-safe ids, computed once at construction (the model is frozen, so targets never change)
+    # and reused by every access — by_id / select / the endpoints stop re-running the slug loop per call.
+    _ids: list[str] = PrivateAttr(default_factory=list)
 
-    @property
-    def primary(self) -> "AssistantInfo | None":
-        """The first (primary) target — the default one no-browser surfaces use; ``None`` when empty."""
-        return self.targets[0] if self.targets else None
+    def model_post_init(self, context: Any, /) -> None:
+        """Compute the collision-safe ids once (frozen model → the targets list can't change later)."""
+        object.__setattr__(self, "_ids", self._compute_ids())
 
-    @property
-    def ids(self) -> list[str]:
-        """Stable, collision-safe ids parallel to :attr:`targets`, in declaration order.
+    def _compute_ids(self) -> list[str]:
+        """Assign each target a stable, collision-safe id: the slug of its name (or ``target-<index>``).
 
-        Each id is the target's own ``id`` (slugified name, or ``target-<index>`` when unnamed); a
-        duplicate is disambiguated with a ``-2`` / ``-3`` suffix so ``by_id`` is unambiguous even when two
-        targets share a name.
+        A duplicate is disambiguated with a ``-2`` / ``-3`` suffix so ``by_id`` is unambiguous even when
+        two targets share a name.
         """
         assigned: list[str] = []
         seen: set[str] = set()
@@ -125,6 +153,16 @@ class AssistantRegistry(BaseModel):
             seen.add(candidate)
             assigned.append(candidate)
         return assigned
+
+    @property
+    def primary(self) -> "AssistantInfo | None":
+        """The first (primary) target — the default one no-browser surfaces use; ``None`` when empty."""
+        return self.targets[0] if self.targets else None
+
+    @property
+    def ids(self) -> list[str]:
+        """Stable, collision-safe ids parallel to :attr:`targets`, in declaration order (computed once)."""
+        return self._ids
 
     def by_id(self, target_id: str) -> "AssistantInfo | None":
         """The target with this (collision-safe) id, or ``None``."""
