@@ -47,42 +47,65 @@ write tests run against a local/non-protected instance (play42 refuses writes as
 `DHIS2_MCP_PROTECTED_HOSTS` host); coverage is mock e2e + the `tools-dhis2-write` benchmark
 (`docs/guides/dhis2-benchmark-report.md`).
 
-Open follow-ups, roughly in order:
+Open follow-ups. **Decided direction (2026-07-13): the assistant acts as whoever is logged into
+the tab.** The round-2/3 dual-identity model — a pinned d2w profile as the tool account, with the
+browser user merely *surfaced* next to it — is the design footgun: reads/writes silently run as
+the profile (often admin) regardless of who is viewing the page, and warning about the mismatch
+just makes the user manage two identities. Remove the mismatch instead: wire the existing "Use my
+login" bind into panel-open as the default path (consent once per instance, mint a PAT in the
+tab's own session, reuse until expiry/revoke). Profiles stay — a bind *is* `d2w profile add …
+--local` — but their role shifts from "pre-provisioned creds you pick" to "a cache of the user's
+own minted tokens"; the shared/pre-provisioned profile survives only as the no-browser-context
+fallback (CLI, TUI, bench, remote heim). "Auto-login the browser using the profile creds" remains
+the wrong fix — it would leak profile secrets to the extension and defeats binding to the
+*human's* identity. Work items, in build order:
 
-- **Browser identity vs tool-account identity are uncorrelated (a design footgun).** By default the
-  tool channel authenticates as the pinned d2w profile (e.g. `play42` = admin / "John Traore"),
-  **regardless of who is actually logged into the page** the panel is attached to. So the read chat
-  silently acts as the profile, not the viewer — confusing, and potentially dangerous (a user
-  believes they are acting as themselves while reads/writes run as admin). The round-3 identity
-  labels ("Browser session user" vs "Tool account") only *surface* the mismatch; they don't resolve
-  it. "Use my login" is the one path that aligns the two (mint a PAT as the browser user), but it is
-  opt-in and per-session. Decide the default posture before the assistant is pointed at real
-  (non-demo) instances — options: (a) warn/refuse when the tool account != the signed-in browser
-  user for a matched instance; (b) auto-prompt to bind when a logged-in session is detected for the
-  target; (c) make the browser-user binding the default for DHIS2 targets rather than a shared
-  profile. Note: "auto-login the browser using the profile creds" is the wrong fix — it would leak
-  profile secrets to the extension and defeats the purpose of binding to the *human's* identity.
-- **Multi-profile: match the tab URL to the right d2w profile (or a list).** Today heim serve is
+- **Bind UX: a clear "sign in first" state** (first build item — its no-session detection is also
+  the building block for the auto-offer below). When the browser has no live session for the
+  target, the in-tab PAT mint fails with a bare `status 0` (the POST is redirected to the login
+  page and the fetch comes back opaque), which `classifyMint` cannot distinguish from a hard error
+  — only a literal 401 reaches the sign-in stage today. Detect the no-session case (pre-mint probe
+  via the existing `[assistant.probe]` session read, and/or classify the login redirect in
+  `mintInPage`) and show "Sign in to `<instance>` first, then Use my login" instead of a raw
+  status.
+- **Act-as-you by default (current single target).** On panel open against a matched tab with a
+  live session and no (or stale) binding, auto-offer "Use your `<instance>` login?" — consent
+  once, mint a **read-only** PAT in the tab, install via the existing bind, then reuse silently.
+  What makes it sound: (a) **drift re-check** — a cached PAT is user A but the browser may later
+  be user B (re-login, shared machine); on panel open compare the probe identity against
+  `binding.username` and re-offer bind on drift. The mismatch machinery doesn't disappear — it
+  becomes the cache-invalidation trigger instead of a UX state (the TargetBanner expiry heuristics
+  already check username mismatch). (b) Revoke on unbind (already shipped) and never mint per
+  panel-open — one token per instance, reused until expiry/401. (c) **`.dhis2/` is missing from
+  the scaffolded `.gitignore`** (confirmed 2026-07-13: `scaffold._GITIGNORE` lacks it) — fix
+  before any auto-mint; the minted token lands in plaintext `.dhis2/profiles.toml`. (d) Label the
+  active credential on the non-panel surfaces too: panel = the browser user, CLI/TUI/bench = the
+  pinned fallback profile. The split is a feature, but only if visible.
+- **Write-scope re-mint.** PAT method scope is fixed at mint (`methods_readonly` vs
+  `methods_full`), so a cached read-only token cannot escalate. A write-enabled assistant triggers
+  an explicit re-mint with `methods_full` behind the existing allow-writes consent; one cached
+  token per (instance, scope) — practically, keep the widest granted. The session-cookie fallback
+  is a different lifecycle: cookies expire with the browser session and cannot be method-scoped,
+  so that path stays per-session rebind, never mint-once-reuse.
+- **Multi-profile: match the tab URL to the right target (or a list).** Today heim serve is
   single-target: one project = one `[assistant]` = one `base_url` = one `DHIS2_PROFILE` pinned at
-  serve start. But d2w profiles already ARE a multi-profile store (`~/.config/dhis2/profiles.toml` —
-  many named profiles, each a base_url + auth). Evolve heim into "a registry of profiles,
-  auto-selected by the page you are on": browse dev → staging → a country's prod and heim uses the
-  matching creds; when several profiles hit the same URL (admin vs clerk role) offer a picker. Cheap
-  parts (mostly present): the extension already knows the active tab URL (page context) and already
-  has a backend-switcher UI to reuse; matching is origin / longest-path prefix against each profile's
-  base_url, returning a list on ties. Real work: (1) profile discovery in heim (read `d2w profile
-  list` / profiles.toml into a registry); (2) a URL-aware endpoint (`/api/assistants` or
-  `/api/assistant?url=<tab>`) so the extension asks "which profile(s) fit this page?"; (3) **per-tab
-  tool routing — the gating decision**, since the bridge is spawned with a fixed `DHIS2_PROFILE`.
-  Routing options: (a) N bridges, one per profile, namespaced (`play42__dhis2_cli`, …) — entirely in
-  heim, but the model sees many tools; (b) a per-call `--profile` arg on `dhis2_cli` / the typed
-  server — cleanest, but a dhis2w change; (c) re-select the profile on tab switch — medium. Extension
-  + matching ≈ a few days; option (a) needs no dhis2w change and is the pragmatic MVP. This subsumes
-  and generalizes the single-target assistant model.
-- **Bind UX: a clear "sign in first" state.** When the browser has no live session for the target,
-  the in-tab PAT mint fails with a bare `status 0` (the POST is redirected to the login page and the
-  fetch comes back opaque). Detect the no-session case (probe the identity endpoint, or classify the
-  redirect) and show "Sign in to `<instance>` first, then Use my login" instead of a raw status.
+  serve start. Evolve heim into "a registry of targets, auto-selected by the page you are on":
+  browse dev → staging → a country's prod and heim uses the matching creds; ties offer a picker.
+  This is also what delivers the **per-instance token cache** for act-as-you: `d2w profile add`
+  uses the single `{name}` from the one `[assistant]` block, so "one minted profile per base_url"
+  needs the N-target registry — act-as-you ships single-target first and generalizes here. Cheap
+  parts (mostly present): the extension already knows the active tab URL and has a
+  backend-switcher UI to reuse; matching is origin / longest-path prefix against each target's
+  base_url. Real work: (1) a target registry in heim (N `[assistant]`-shaped entries; keep DHIS2
+  profile *parsing* in d2w — heim's generic shape is "N declared targets", not "heim reads
+  profiles.toml"); (2) a URL-aware endpoint (`/api/assistants` or `/api/assistant?url=<tab>`);
+  (3) **per-tab tool routing — the gating decision**, since each bridge is spawned with a fixed
+  `DHIS2_PROFILE`. Routing options: (a) N bridges, one per profile, namespaced
+  (`play42__dhis2_cli`, …) — entirely in heim (tools.connect already namespaces; per-request
+  selection via the existing `enabled_tools` subset), but the model sees many tools; (b) a
+  per-call `--profile` arg on `dhis2_cli` / the typed server — cleanest, but a dhis2w change;
+  (c) re-select the profile on tab switch — medium. Option (a) needs no dhis2w change and is the
+  pragmatic MVP. This subsumes and generalizes the single-target assistant model.
 - **Reads also prompt under the single-tool bridge (the next write-UX step).** The default
   `dhis2w-mcp-bridge` exposes one **unannotated** tool (`dhis2_cli`), so under a write-enabled
   assistant the fail-safe gate prompts on **every** dhis2 call — reads included, not just
