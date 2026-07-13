@@ -48,7 +48,9 @@ async function openWithTargetTab(context: BrowserContext, extensionId: string): 
   const tab = await context.newPage();
   await tab.goto(`${target.baseUrl()}/dhis`);
   await tab.bringToFront();
-  await expect(panel.getByTestId("bind-use-my-login")).toBeVisible({ timeout: 15_000 });
+  // The login-binding section renders once the panel sees the tab matching the target. For a
+  // logged-in matched tab the consent (or session fallback) card then auto-offers on its own.
+  await expect(panel.getByText("This tab matches the assistant target.")).toBeVisible({ timeout: 15_000 });
   return { panel, tab };
 }
 
@@ -94,9 +96,8 @@ test("a PAT write bind records write scope and TargetBanner shows 'writes enable
   heim.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
-  await panel.getByTestId("bind-use-my-login").click();
-  await expect(panel.getByTestId("bind-consent")).toBeVisible();
-  // A writable assistant offers the write toggle; enable it before minting.
+  // The consent card auto-offers; a writable assistant offers the write toggle — enable it.
+  await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-allow-writes").check();
   await panel.getByTestId("bind-confirm").click();
 
@@ -113,8 +114,8 @@ test("a read-only PAT bind shows read-only scope, no writes", async ({ context, 
   heim.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
-  await panel.getByTestId("bind-use-my-login").click();
-  // Leave "allow writes" unchecked -> read-only mint.
+  // The consent card auto-offers; leave "allow writes" unchecked -> read-only mint.
+  await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
 
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
@@ -139,8 +140,8 @@ test("a session write bind captures the XSRF token and sends it as extra_secret"
   const granted = await grantCookies(panel, origin);
   test.skip(!granted, "cookies permission grant unavailable headless");
 
-  await panel.getByTestId("bind-use-my-login").click();
-  // Session-only recipe opens straight at the fallback consent, which also offers the write toggle.
+  // Session-only recipe (no mint) auto-offers straight at the fallback consent, which also offers
+  // the write toggle.
   await expect(panel.getByTestId("bind-fallback")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-allow-writes").check();
   await panel.getByTestId("bind-fallback-confirm").click();

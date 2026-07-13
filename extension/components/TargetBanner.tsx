@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BadgeCheck, ExternalLink, Loader2, LogIn, ShieldCheck, User, UserCheck } from "lucide-react";
 import type { AssistantInfo } from "../lib/assistantApi";
 import { match } from "../lib/tabTarget";
 import { formatSession, type SessionInfo, type SessionResult } from "../lib/sessionReads";
 import { executeRevoke, parseRecipe, substitute } from "../lib/bindRecipe";
 import {
+  clearBindDismissal,
   clearBinding,
+  getBindDismissal,
   getBinding,
   getBindingStale,
+  setBindDismissal,
   setBinding as persistBinding,
   watchBinding,
   type Binding,
+  type BindDismissal,
 } from "../lib/binding";
 import { postUnbind } from "../lib/bindApi";
 import { BindFlow, type BindBackendTarget } from "./BindFlow";
@@ -84,9 +88,24 @@ export function TargetBanner({
   const [loadingSession, setLoadingSession] = useState(false);
   const [binding, setBinding] = useState<Binding | null>(null);
   const [bindingStale, setBindingStale] = useState(false);
+  const [dismissed, setDismissed] = useState<BindDismissal | null>(null);
+  // Auto-offer state gates on the initial storage load (binding + stale + dismissal), so a probe
+  // that resolves before storage does can't pop the consent card ahead of a remembered decline.
+  const [bindLoaded, setBindLoaded] = useState(false);
   const [showBindFlow, setShowBindFlow] = useState(false);
+  // How the current bind flow was opened: "auto" (proactive offer — a cancel is remembered as a
+  // decline) vs "manual" (the button — a cancel is just a close). Null when no flow is open.
+  const [bindFlowSource, setBindFlowSource] = useState<"auto" | "manual" | null>(null);
   const [confirmUnbind, setConfirmUnbind] = useState(false);
   const [unbinding, setUnbinding] = useState(false);
+  // One auto-probe per (backend, tab url): drift re-check on panel open without re-probing on every
+  // render (onWhoAmI's identity changes each parent render).
+  const autoProbedKey = useRef<string | null>(null);
+  // onWhoAmI is a fresh closure each parent render; hold it in a ref so the auto-probe effect can
+  // call the latest one without listing it as a dep (which would re-run — and cancel — the probe on
+  // every unrelated re-render).
+  const onWhoAmIRef = useRef(onWhoAmI);
+  onWhoAmIRef.current = onWhoAmI;
 
   // The parent owns the assistant record now (onVerify lifts the refreshed one up), so there is no
   // local shadow to sync — just clear a stale verify error when the record swaps.
@@ -97,11 +116,18 @@ export function TargetBanner({
   // Load + track the per-backend binding; reset the transient bind UI on a backend switch.
   useEffect(() => {
     setShowBindFlow(false);
+    setBindFlowSource(null);
     setConfirmUnbind(false);
-    void Promise.all([getBinding(backendId), getBindingStale(backendId)]).then(([b, s]) => {
-      setBinding(b);
-      setBindingStale(s);
-    });
+    setBindLoaded(false);
+    autoProbedKey.current = null;
+    void Promise.all([getBinding(backendId), getBindingStale(backendId), getBindDismissal(backendId)]).then(
+      ([b, s, d]) => {
+        setBinding(b);
+        setBindingStale(s);
+        setDismissed(d);
+        setBindLoaded(true);
+      },
+    );
     return watchBinding(backendId, (b, s) => {
       setBinding(b);
       setBindingStale(s);
@@ -112,8 +138,77 @@ export function TargetBanner({
   const verified = assistant?.verified ?? null;
   const flat = useMemo(() => (verified?.ok ? flattenVerifyData(verified.data) : null), [verified]);
 
+  // Derived target/session state (computed from the nullable assistant so the auto-offer hooks
+  // below can depend on it — hooks must run before the assistant===null early return).
+  const baseUrl = assistant && typeof assistant.base_url === "string" ? assistant.base_url : null;
+  const tab = match(tabUrl, baseUrl);
+  const canBind = assistant?.can_bind === true && recipe !== null;
+  const targetName = assistant?.name ?? "the instance";
+
+  // Expired heuristics: a stale flag (session cookie evicted by the background worker), a verify
+  // that came back unauthorized, a PAT past its absolute expiry, or the current tab now signed in
+  // as a different user (compared username-to-username, or name-to-name when usernames are absent).
+  const verifyExpired = verified?.ok === false && /401|unauthor|expired/i.test(verified.error ?? "");
+  const sessionInfo = session && !("error" in session) ? session : null;
+  const usernameMismatch = binding
+    ? binding.username && sessionInfo?.username
+      ? binding.username !== sessionInfo.username
+      : binding.name && sessionInfo?.name
+        ? binding.name !== sessionInfo.name
+        : false
+    : false;
+  const expiresPassed = typeof binding?.expiresAt === "number" && Date.now() > binding.expiresAt;
+  const expired = binding !== null && (bindingStale || verifyExpired || usernameMismatch || expiresPassed);
+
+  // The auto-offer opens the SAME bind consent card as the manual button; drift (a binding whose
+  // user no longer matches the tab) re-offers a rebind with a clearly worded heading.
+  const driftRebind = binding !== null && usernameMismatch;
+  const offerHeadline = driftRebind
+    ? `You are now signed in as ${sessionInfo?.username || sessionInfo?.name || "a different user"}; rebind?`
+    : `Use your ${targetName} login?`;
+
+  // Auto-probe on panel open against a matched tab: this is the drift re-check (compare the live
+  // browser identity against binding.username) and the identity the auto-offer needs. Guarded to run
+  // once per (backend, tab url) so it doesn't re-fire on every parent re-render.
+  useEffect(() => {
+    if (!assistant?.probe || tab !== "matched" || !tabUrl) return;
+    const probeKey = `${backendId}|${tabUrl}`;
+    if (autoProbedKey.current === probeKey) return;
+    autoProbedKey.current = probeKey;
+    let cancelled = false;
+    setLoadingSession(true);
+    void onWhoAmIRef
+      .current()
+      .then((r) => {
+        if (!cancelled) setSession(r);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSession(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assistant?.probe, tab, tabUrl, backendId]);
+
+  // Proactive "use your login?" offer: on a matched tab with a live identity and no usable binding
+  // (none, or one that drifted to a different user), open the consent card automatically — unless the
+  // user already declined it for THIS same signed-in user (decline memory, keyed on backend + target
+  // + username). Never mints on its own; the user still confirms in the card.
+  useEffect(() => {
+    if (!bindLoaded || !canBind || tab !== "matched" || showBindFlow) return;
+    if (!sessionInfo || !sessionInfo.username) return; // need a real, named identity to offer/attribute
+    const noBinding = binding === null;
+    if (!noBinding && !driftRebind) return; // fresh binding, same user -> silent reuse, no nag
+    const declined =
+      dismissed !== null && dismissed.username === sessionInfo.username && dismissed.targetBaseUrl === (baseUrl ?? "");
+    if (declined) return;
+    setBindFlowSource("auto");
+    setShowBindFlow(true);
+  }, [bindLoaded, canBind, tab, showBindFlow, sessionInfo, binding, driftRebind, dismissed, baseUrl]);
+
   if (assistant === null) return null;
   const active = assistant;
+  const verifiedOk = verified?.ok === true && !reportsFailure(flat);
 
   async function verify(): Promise<AssistantInfo | null> {
     setVerifying(true);
@@ -140,26 +235,26 @@ export function TargetBanner({
     }
   }
 
-  const baseUrl = typeof active.base_url === "string" ? active.base_url : null;
-  const tab = match(tabUrl, baseUrl);
-  const verifiedOk = verified?.ok === true && !reportsFailure(flat);
+  // Open the bind flow from the manual button/Rebind: an explicit re-engagement, so forget any
+  // remembered decline (the auto-offer becomes eligible again).
+  function openManualBind(): void {
+    void clearBindDismissal(backendId);
+    setDismissed(null);
+    setBindFlowSource("manual");
+    setShowBindFlow(true);
+  }
 
-  const canBind = active.can_bind === true && recipe !== null;
-
-  // Expired heuristics: a stale flag (session cookie evicted by the background worker), a verify
-  // that came back unauthorized, a PAT past its absolute expiry, or the current tab now signed in
-  // as a different user (compared username-to-username, or name-to-name when usernames are absent).
-  const verifyExpired = verified?.ok === false && /401|unauthor|expired/i.test(verified.error ?? "");
-  const sessionInfo = session && !("error" in session) ? session : null;
-  const usernameMismatch = binding
-    ? binding.username && sessionInfo?.username
-      ? binding.username !== sessionInfo.username
-      : binding.name && sessionInfo?.name
-        ? binding.name !== sessionInfo.name
-        : false
-    : false;
-  const expiresPassed = typeof binding?.expiresAt === "number" && Date.now() > binding.expiresAt;
-  const expired = binding !== null && (bindingStale || verifyExpired || usernameMismatch || expiresPassed);
+  // Close the bind flow. A cancel of an AUTO offer is remembered as a decline for the current signed-in
+  // user (so we don't re-nag on the next open); a cancel of a MANUAL open is just a close.
+  function closeBindFlow(): void {
+    if (bindFlowSource === "auto" && sessionInfo?.username) {
+      const d: BindDismissal = { backendId, targetBaseUrl: baseUrl ?? "", username: sessionInfo.username };
+      void setBindDismissal(d);
+      setDismissed(d);
+    }
+    setBindFlowSource(null);
+    setShowBindFlow(false);
+  }
 
   async function doUnbind(): Promise<void> {
     if (!binding) return;
@@ -174,6 +269,15 @@ export function TargetBanner({
       }
       await postUnbind(binding.mode);
     } finally {
+      // Remember the unbind as a decline for the still-signed-in user, so the auto-offer doesn't
+      // immediately re-nag right after they chose to unbind; a later different user still re-offers,
+      // and the manual button clears it.
+      const who = sessionInfo?.username || binding.username;
+      if (who) {
+        const d: BindDismissal = { backendId: binding.backendId, targetBaseUrl: baseUrl ?? "", username: who };
+        await setBindDismissal(d);
+        setDismissed(d);
+      }
       await clearBinding(binding.backendId);
       setUnbinding(false);
       setConfirmUnbind(false);
@@ -182,6 +286,10 @@ export function TargetBanner({
 
   async function onBound(boundBackendId: string): Promise<void> {
     setShowBindFlow(false);
+    setBindFlowSource(null);
+    // A successful bind supersedes any remembered decline for this backend.
+    void clearBindDismissal(boundBackendId);
+    setDismissed(null);
     const updated = await verify(); // re-probe: the freshly-bound credential changes what verify reports
     // Probe-less bind (no session read to name the user): adopt a username from the verify payload
     // when the stored binding has none, so "Acting as <user>" is not left blank.
@@ -321,7 +429,7 @@ export function TargetBanner({
                 {recipe ? (
                   <button
                     type="button"
-                    onClick={() => setShowBindFlow(true)}
+                    onClick={openManualBind}
                     className="rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)]"
                   >
                     Rebind
@@ -373,7 +481,7 @@ export function TargetBanner({
             <button
               type="button"
               data-testid="bind-use-my-login"
-              onClick={() => setShowBindFlow(true)}
+              onClick={openManualBind}
               className="inline-flex items-center gap-1 rounded border border-[var(--primary)] px-2 py-0.5 text-[var(--foreground)] hover:bg-[var(--accent)]"
             >
               <LogIn className="h-3 w-3" /> Use my login
@@ -389,7 +497,8 @@ export function TargetBanner({
               resolveSession={onWhoAmI}
               getActiveTabId={getActiveTabId}
               onBound={(id) => void onBound(id)}
-              onCancel={() => setShowBindFlow(false)}
+              onCancel={closeBindFlow}
+              headline={bindFlowSource === "auto" ? offerHeadline : undefined}
             />
           ) : null}
         </div>

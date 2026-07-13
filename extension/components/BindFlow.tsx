@@ -30,6 +30,9 @@ interface BindFlowProps {
   /** Called after a successful bind (with the backend it landed on) so the parent can refresh. */
   onBound: (backendId: string) => void;
   onCancel: () => void;
+  /** Consent-card heading override. The auto-offer frames it as a question ("Use your <instance>
+   *  login?" / "You are now signed in as <user>; rebind?"); the manual button leaves it default. */
+  headline?: string;
 }
 
 type Stage =
@@ -68,6 +71,7 @@ export function BindFlow({
   getActiveTabId,
   onBound,
   onCancel,
+  headline,
 }: BindFlowProps) {
   // A session-only recipe (no PAT endpoint) opens straight at the session-fallback consent.
   const [stage, setStage] = useState<Stage>(recipe.mint ? { kind: "consent" } : { kind: "fallback" });
@@ -215,7 +219,7 @@ export function BindFlow({
       {stage.kind === "consent" ? (
         <div data-testid="bind-consent" className="space-y-2">
           <div className="flex items-center gap-1.5 font-medium text-[var(--foreground)]">
-            <KeyRound className="h-3.5 w-3.5" /> Use my login on {targetName}
+            <KeyRound className="h-3.5 w-3.5" /> {headline ?? `Use my login on ${targetName}`}
           </div>
           <div className="text-[var(--muted-foreground)]">
             <div className="truncate">Target: {baseUrl}</div>
