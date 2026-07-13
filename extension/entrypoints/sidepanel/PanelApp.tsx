@@ -64,6 +64,8 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
   // The user's manual tie resolution: when >1 target matches the tab, they pick one here. Reset on any
   // tab / registry / backend change so a stale pick can't leak across contexts.
   const [pickedTargetId, setPickedTargetId] = useState<string | null>(null);
+  // Bumped when a host-access grant lands via the Send gesture; the banner re-probes on change.
+  const [probeEpoch, setProbeEpoch] = useState(0);
   const [tabUrl, setTabUrl] = useState<string | null>(getTabUrl());
   const connRef = useRef<Connection | null>(null);
   const extensionId = chrome.runtime.id;
@@ -212,10 +214,13 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
   async function ensurePageAccess(): Promise<void> {
     const url = getTabUrl();
     if (!url) return;
-    await Promise.race([
+    const granted = await Promise.race([
       requestHostAccess(url),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000)),
     ]);
+    // A grant just landed (or was already present): nudge the banner's auto-probe so a stale
+    // pre-grant no_access line refreshes instead of lingering under a working panel.
+    if (granted) setProbeEpoch((e) => e + 1);
   }
 
   async function onWhoAmI(): Promise<SessionResult> {
@@ -330,6 +335,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
               tabUrl={tabUrl}
               backendId={active.id}
               compat={compat}
+              probeEpoch={probeEpoch}
               captureTarget={captureTarget}
               onVerify={verifyTarget}
               onWhoAmI={onWhoAmI}

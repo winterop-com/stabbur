@@ -221,7 +221,7 @@ test.describe.serial("act-as-you against real heim + play42", () => {
       await tab.bringToFront();
       await expect(panel.getByText(MATCH_TEXT)).toBeVisible({ timeout: 60_000 });
       // The gesture-less auto-probe cannot inject -> the distinct no-access state, silently.
-      await expect(panel.getByText(/heim has no access to this site yet/)).toBeVisible({ timeout: 60_000 });
+      await expect(panel.getByText(/heim cannot read this page yet/)).toBeVisible({ timeout: 60_000 });
       await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
       await expect(panel.getByText(/injection failed/)).toHaveCount(0);
       await shot(panel, "generic-noaccess-hint");

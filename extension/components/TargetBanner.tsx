@@ -38,6 +38,9 @@ interface TargetBannerProps {
   tabUrl: string | null;
   /** The active backend id (with the target id, scopes the per-(backend,target) binding record). */
   backendId: string;
+  /** Bumped by the parent whenever a host-access grant may have landed (e.g. a Send-gesture
+   *  request was allowed) so the auto-probe re-runs instead of displaying a stale no_access. */
+  probeEpoch?: number;
   /** True when the registry came from the 404-compat path: bind / verify use the /api/assistant*
    *  routes instead of /api/assistants/{id}. */
   compat: boolean;
@@ -99,6 +102,7 @@ export function TargetBanner({
   tabUrl,
   backendId,
   compat,
+  probeEpoch = 0,
   captureTarget,
   onVerify,
   onWhoAmI,
@@ -242,7 +246,7 @@ export function TargetBanner({
       : sessionError === "unauthenticated"
         ? "Not signed in on this tab."
         : sessionError === "no_access"
-          ? 'heim has no access to this site yet — click "Who am I here?" to grant it.'
+          ? 'heim cannot read this page yet (API tools are unaffected) — click "Who am I here?" and allow page access.'
           : null;
 
   // Auto-probe on panel open against a matched tab: this is the drift re-check (compare the live
@@ -252,9 +256,13 @@ export function TargetBanner({
   // an in-flight probe. The key is marked ONLY after a completed, non-cancelled resolve — a
   // cancelled probe (tab navigation, assistant swap) must not permanently suppress re-probing.
   const hasProbe = assistant?.probe != null;
+  // localProbeNonce: bumped after a successful bind (the bind Confirm gesture may have just granted
+  // host access), so the guarded auto-probe re-runs instead of leaving a stale no_access line under
+  // a freshly bound, working panel. probeEpoch does the same for grants landed by the parent (Send).
+  const [localProbeNonce, setLocalProbeNonce] = useState(0);
   useEffect(() => {
     if (!hasProbe || tab !== "matched" || !tabUrl || targetId === null) return;
-    const probeKey = `${backendId}|${targetId}|${tabUrl}`;
+    const probeKey = `${backendId}|${targetId}|${tabUrl}|${probeEpoch}|${localProbeNonce}`;
     if (autoProbedKey.current === probeKey) return;
     let cancelled = false;
     setLoadingSession(true);
@@ -272,7 +280,7 @@ export function TargetBanner({
     return () => {
       cancelled = true;
     };
-  }, [hasProbe, tab, tabUrl, backendId, targetId]);
+  }, [hasProbe, tab, tabUrl, backendId, targetId, probeEpoch, localProbeNonce]);
 
   // Proactive "use your login?" offer: on a matched tab with a live identity and no usable binding
   // (none, or one that drifted to a different user), open the consent card automatically — unless the
@@ -410,6 +418,9 @@ export function TargetBanner({
     }
     setShowBindFlow(false);
     setBindFlowSource(null);
+    // The bind Confirm gesture requests host access, so a grant may have just landed: re-run the
+    // auto-probe (fresh identity for drift; clears a stale pre-grant no_access line).
+    setLocalProbeNonce((n) => n + 1);
     // A successful bind supersedes any remembered decline for this (backend, target).
     void clearBindDismissal(boundBackendId, active.id);
     setDismissed(null);
@@ -607,7 +618,7 @@ export function TargetBanner({
                   {session.error === "unauthenticated"
                     ? "Not signed in on this tab."
                     : session.error === "no_access"
-                      ? "heim has no access to this site yet — click \"Who am I here?\" to grant it."
+                      ? "heim cannot read this page yet (API tools are unaffected) — click \"Who am I here?\" and allow page access."
                       : "Could not read your session on this tab."}
                 </span>
               ) : null}

@@ -222,7 +222,7 @@ const MessageBubble = memo(function MessageBubble({
           data-testid="page-context-missing"
           className="inline-flex items-center gap-1 text-[10px] text-amber-600"
         >
-          <FileText className="h-3 w-3" /> page not captured — heim has no access to this site
+          <FileText className="h-3 w-3" /> page not captured — heim lacks page access here
         </span>
       ) : isUser && message.context ? (
         <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
