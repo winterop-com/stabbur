@@ -10,7 +10,7 @@
 // extensions.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -30,27 +30,26 @@ const SCRATCH =
   "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 /**
- * Absolute path to the built, unpacked extension. The live tier needs the TEST-ONLY e2e build
- * (`.output/chrome-mv3-e2e`, from `bun run build:e2e`) whose static host_permissions pre-grant the
- * target origins so the headless mint tail can run. The NEWEST build wins: each tier builds its
- * own flavor right before running (`e2e` -> generic, `e2e:live` -> e2e build), so comparing build
- * times routes each tier to its fresh output — and a lingering e2e dir from an earlier
- * `build:e2e`/screenshots run can never shadow a newer generic build with stale code (the two
- * flavors are only byte-identical until the next source change).
+ * Absolute paths to the two built, unpacked extension flavors. The live tier needs the TEST-ONLY
+ * e2e build (`.output/chrome-mv3-e2e`, from `bun run build:e2e`) whose static host_permissions
+ * pre-grant the target origins so the headless mint tail can run; every other tier uses the generic
+ * build (`.output/chrome-mv3`, from `bun run build`).
  */
 const E2E_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-e2e");
 const GENERIC_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
 
-function builtAt(dir: string): number {
-  try {
-    return statSync(path.join(dir, "manifest.json")).mtimeMs;
-  } catch {
-    return -1;
-  }
+/**
+ * Which built flavor to load — chosen EXPLICITLY by `HEIM_E2E_BUILD`, never by an mtime heuristic
+ * (a newer generic build must not hijack a live run, and two byte-identical builds must not resolve
+ * a tie to a stale dir). The `e2e:live` script (and any live-related invocation) sets
+ * `HEIM_E2E_BUILD=1` to route to the e2e build; everything else gets the generic build. Exported so
+ * a caller can assert the selection in a test.
+ */
+export function selectExtensionPath(): string {
+  return process.env.HEIM_E2E_BUILD === "1" ? E2E_EXTENSION_PATH : GENERIC_EXTENSION_PATH;
 }
 
-export const EXTENSION_PATH =
-  builtAt(E2E_EXTENSION_PATH) >= builtAt(GENERIC_EXTENSION_PATH) ? E2E_EXTENSION_PATH : GENERIC_EXTENSION_PATH;
+export const EXTENSION_PATH = selectExtensionPath();
 
 const HEADED = process.env.HEADED === "1" || process.env.HEADED === "true";
 
@@ -79,8 +78,9 @@ export async function resolveExtensionId(context: BrowserContext): Promise<strin
 
 async function launch(): Promise<{ context: BrowserContext; dir: string }> {
   if (!existsSync(EXTENSION_PATH)) {
+    const cmd = process.env.HEIM_E2E_BUILD === "1" ? "bun run build:e2e" : "bun run build";
     throw new Error(
-      `Built extension not found at ${EXTENSION_PATH}. Run \`bun run build\` first (the e2e scripts do this).`,
+      `Built extension not found at ${EXTENSION_PATH}. Run \`${cmd}\` first (the e2e scripts do this).`,
     );
   }
   const dir = userDataDir();
