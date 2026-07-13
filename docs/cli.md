@@ -309,3 +309,25 @@ heim serve --reload                   # dev auto-reload
 ```
 
 Equivalent Makefile targets: `make run` and `make run MODEL=<name>`.
+
+## `heim ext-dev`
+
+Test-drive the browser extension interactively: builds the extension fresh, launches a
+**headed Chromium** with it loaded, and starts the live-tier `heim serve` (a locked model +
+DHIS2 bridge pointed at the play demo, read-only) so the side panel can be driven end-to-end.
+It seeds the panel settings and opens a page for prompt-catalog testing, then leaves everything
+running. **Ctrl+C** tears down the browser and `heim serve` together.
+
+This is a **repo-only dev tool** — it needs the extension source, so it must run from a heim
+source checkout (it walks up from the current directory to find `extension/`) and requires
+[bun](https://bun.sh) with the extension deps installed (`bun install` in `extension/`).
+
+```bash
+heim ext-dev                          # single play42 target (generic build)
+heim ext-dev --multi                  # two targets (play42 + play41) for tab-driven switching
+heim ext-dev --flavor dhis2           # build and load the DHIS2-branded flavor
+heim ext-dev --no-build               # skip the build, load the existing output dir
+```
+
+The cold model load can take minutes on first run; the console prints the panel URL and backend
+once the server is ready.
