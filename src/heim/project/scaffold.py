@@ -151,6 +151,9 @@ _GITIGNORE = f"""\
 # Machine-specific config / secrets.
 .env
 
+# Local d2w profile store — holds credentials (minted PATs, session cookies).
+.dhis2/
+
 # uv project environment (rebuilt with `uv sync`; keep uv.lock).
 .venv/
 
