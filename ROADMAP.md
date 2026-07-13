@@ -95,6 +95,12 @@ the wrong fix — it would leak profile secrets to the extension and defeats bin
   token cache** for act-as-you arrives with this wave (one minted profile per `base_url`, now that the
   N-target registry exists). Original design below.
 
+  _Future optimizations (not yet done):_ **lazy per-target bridge spawn** — today the serve lifespan
+  connects every declared server up front, so startup cost scales with the number of targets declared;
+  spawn a target's bridge on first use instead. **Web-UI target picker** — `serve --ui` currently reaches
+  only the primary target (per the routing decision above); a multi-target project has no in-page way to
+  switch, so add a picker to the web UI (the extension's tab-driven select is the parallel surface).
+
   Today heim serve is
   single-target: one project = one `[assistant]` = one `base_url` = one `DHIS2_PROFILE` pinned at
   serve start. Evolve heim into "a registry of targets, auto-selected by the page you are on":
