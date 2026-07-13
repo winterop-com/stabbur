@@ -105,9 +105,11 @@ function baseRank(tabUrl: string | null, baseUrl: string | null): number | null 
 
 /**
  * Select the assistant target(s) a tab URL falls under, most-specific first — the TS twin of
- * `heim.targets.select` (parity-pinned by mirrored fixtures, see `e2e/mock/tabtarget-parity.spec.ts`).
- * `matches` is the ranked list (longest base path wins, ties keep declaration order); `selected` is the
- * single unambiguous pick, or null on a tie / no match so the caller shows a picker (or nothing).
+ * `heim.targets.select` / `heim.targets.selected` (parity-pinned by mirrored fixtures, see
+ * `e2e/mock/tabtarget-parity.spec.ts`). `matches` is the full ranked list (longest base path wins, ties
+ * keep declaration order); `selected` is the unique **strictly-highest-rank** match — a broad "/" catch-
+ * all alongside a specific "/dev-2-42" auto-selects the specific one — and null when the top rank is a
+ * genuine tie (two equal-rank matches) or there is no match, so the caller shows a picker (or nothing).
  */
 export function selectTarget(
   tabUrl: string | null,
@@ -120,5 +122,9 @@ export function selectTarget(
   });
   ranked.sort((a, b) => b.rank - a.rank || a.order - b.order);
   const matches = ranked.map((r) => r.target);
-  return { selected: matches.length === 1 ? matches[0] : null, matches };
+  // Auto-pick only a unique strictly-highest rank (mirrors heim.targets.selected): a lone match, or a
+  // top rank that strictly beats the runner-up. Equal top ranks are a real tie -> null (picker).
+  const selected =
+    ranked.length > 0 && (ranked.length === 1 || ranked[0].rank > ranked[1].rank) ? ranked[0].target : null;
+  return { selected, matches };
 }

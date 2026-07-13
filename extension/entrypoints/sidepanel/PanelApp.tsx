@@ -9,6 +9,7 @@ import {
   type ConnectionSnapshot,
 } from "../../lib/connection";
 import { getAssistant, getAssistants, getAssistantTarget, type AssistantTarget } from "../../lib/assistantApi";
+import { migrateLegacyRecords } from "../../lib/binding";
 import { activeBackend, normalizeBaseUrl, setSettings, watchSettings, type Settings } from "../../lib/settings";
 import { getTabUrl, selectTarget, subscribeTabUrl } from "../../lib/tabTarget";
 import { collect, formatPageContext } from "../../lib/pageContext";
@@ -69,7 +70,8 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
   const active = activeBackend(settings);
 
   // Client-side target selection (the twin of heim.targets.select): recomputed on tab / registry
-  // change. `matches` is the ranked list; `selected` is the single unambiguous pick (null on a tie).
+  // change. `matches` is the full ranked list; `selected` is the unique strictly-highest-rank pick (a
+  // catch-all + a specific target auto-picks the specific one), null only on an equal-rank tie / no match.
   const selection = useMemo(() => selectTarget(tabUrl, targets), [tabUrl, targets]);
   const matches = selection.matches;
   // The target actually acted on: the unambiguous pick, or the user's tie resolution. Null mid-tie.
@@ -103,11 +105,14 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     connRef.current?.retry();
   }, [active.id, active.baseUrl, active.token]);
 
-  // Drop any manual tie-pick when the tab, registry, or backend changes (a pick is only valid for the
-  // exact set of matches it was made against).
+  // Drop any manual tie-pick when the tab, registry MEMBERSHIP, or backend changes (a pick is only valid
+  // for the exact set of matches it was made against). Key on the ids, NOT the `targets` array identity:
+  // verifyTarget mints a fresh array on every verify / post-bind refresh, so depending on identity would
+  // reset the user's tie pick (and blank the banner) mid-interaction even though the registry is unchanged.
+  const targetKey = targets.map((t) => t.id).join("\0");
   useEffect(() => {
     setPickedTargetId(null);
-  }, [tabUrl, targets, active.id]);
+  }, [tabUrl, targetKey, active.id]);
 
   // Keep settings in sync with storage (edits here or elsewhere) — the single state-update
   // path; saveSettings only writes storage and lets this watcher deliver the new value.
@@ -127,10 +132,15 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     let cancelled = false;
     getAssistants()
       .then((reg) => {
-        if (!cancelled) {
-          setTargets(reg.targets);
-          setCompat(reg.compat === true);
-        }
+        if (cancelled) return;
+        setTargets(reg.targets);
+        setCompat(reg.compat === true);
+        // Single owner of legacy-record adoption: now that the registry has resolved the primary id +
+        // compat mode, migrate any pre-multi-target binding / stale flag / dismissal (keyed by backend
+        // alone) onto the PRIMARY composite keys, stamping targetId + compat, then drop the legacy keys.
+        // Idempotent + cheap once nothing legacy remains; the read paths stay purely composite-keyed.
+        const primary = reg.targets[0];
+        if (primary) void migrateLegacyRecords(active.id, primary.id, reg.compat === true);
       })
       .catch(() => {
         if (!cancelled) {
@@ -141,7 +151,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     return () => {
       cancelled = true;
     };
-  }, [snapshot.phase]);
+  }, [snapshot.phase, active.id]);
 
   async function saveSettings(patch: Partial<Settings>): Promise<void> {
     // No direct setSettingsState: the watchSettings storage listener is the single update

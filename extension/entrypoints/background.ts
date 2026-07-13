@@ -18,9 +18,10 @@ const DEBOUNCE_MS = 2000; // coalesce a burst of changes into one POST
 const REBIND_CEILING_MS = 30_000; // minimum gap between actual rebind POSTs per backend (anti-treadmill)
 
 // Timers / rate-limits are keyed per (backend, target) since one backend can carry several session
-// bindings (multi-target registry). The key mirrors the storage key's segment after the prefix: the
-// composite `${backendId}:${targetId}` for current records, the bare `${backendId}` for a not-yet-
-// migrated legacy one — so the storage.onChanged removal cleanup (which slices the changed key) lines up.
+// bindings (multi-target registry). The key is the composite `${backendId}:${targetId}` — mirroring the
+// storage key's segment after the prefix — so the storage.onChanged removal cleanup (which slices the
+// changed key) lines up. Un-migrated legacy records (no targetId) are never indexed (see rebuildIndex),
+// so this worker never derives a key from a missing target.
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastRebindAt = new Map<string, number>();
 // cookieName -> the bindings watching it. Rebuilt from storage on startup + on any binding change.
@@ -28,7 +29,7 @@ let cookieIndex = new Map<string, Binding[]>();
 let cookieListenerAdded = false;
 
 function timerId(b: Binding): string {
-  return b.targetId ? `${b.backendId}:${b.targetId}` : b.backendId;
+  return `${b.backendId}:${b.targetId}`;
 }
 
 function clearDebounce(id: string): void {
@@ -41,6 +42,9 @@ function clearDebounce(id: string): void {
 
 async function rebind(binding: Binding, value: string): Promise<void> {
   if (!binding.cookieName) return;
+  // Never route an un-migrated legacy record (no targetId): it would POST /api/assistants/undefined/bind.
+  // Adopting it to the primary is the panel's job (migrateLegacyRecords); until then it is ignored.
+  if (!binding.targetId) return;
   const settings = await getSettings();
   const backend = settings.backends.find((b) => b.id === binding.backendId);
   if (!backend) return;
@@ -81,6 +85,9 @@ function handleCookieChange(info: chrome.cookies.CookieChangeInfo): void {
     for (const binding of bindings) {
       const name = binding.cookieName;
       if (!name) continue;
+      // Defensive: rebuildIndex already drops legacy records (no targetId); never flag-stale/rebind one
+      // here either (a `${backendId}:undefined` stale key no reader consults; a /undefined/bind POST).
+      if (!binding.targetId) continue;
       // Re-read the authoritative cookie the target URL would actually send. This resolves
       // parent-domain shadowing (the event's cookie may be a different-scope same-name cookie)
       // and yields null exactly when the target has no such cookie anymore.
@@ -120,6 +127,9 @@ function rebuildIndex(bindings: Binding[]): void {
   const idx = new Map<string, Binding[]>();
   for (const b of bindings) {
     if (!b.cookieName) continue;
+    // Skip un-migrated legacy records (no targetId): the panel owns adoption (migrateLegacyRecords).
+    // Indexing one would let handleCookieChange rebind/flag-stale it with an undefined target segment.
+    if (!b.targetId) continue;
     const list = idx.get(b.cookieName) ?? [];
     list.push(b);
     idx.set(b.cookieName, list);

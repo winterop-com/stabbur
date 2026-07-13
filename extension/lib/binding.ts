@@ -6,8 +6,11 @@
 // session cookie synced).
 //
 // Migration: pre-multi-target builds keyed by backend alone (`${PREFIX}${backendId}`, no target
-// segment). On read those legacy records are adopted as the compat/primary target's binding — rewritten
-// once to the composite key and then removed (see `migrateLegacy`).
+// segment). Those legacy records are adopted as the PRIMARY target's binding by a single owner — the
+// panel, once the registry resolves the primary id + compat mode — which rewrites the binding, its
+// stale flag, and its auto-offer dismissal to the composite keys (stamping `targetId` + `compat`) and
+// deletes every legacy key (see `migrateLegacyRecords`). The read paths below are purely composite-
+// keyed: no per-read legacy fallback, so no reader can adopt a legacy record to the wrong target.
 
 const PREFIX = "heim-ext-binding:";
 const STALE_PREFIX = "heim-ext-binding-stale:";
@@ -47,7 +50,8 @@ export interface Binding {
  */
 export interface BindDismissal {
   backendId: string;
-  /** The assistant target id this decline was recorded for (absent on migrated legacy records). */
+  /** The assistant target id this decline was recorded for (stamped on migration; optional only for
+   *  backward compatibility with records written before the target segment existed). */
   targetId?: string;
   targetBaseUrl: string;
   /** The signed-in username the auto-offer was declined for ("" when the probe named none). */
@@ -88,30 +92,51 @@ function isBinding(v: unknown): v is Binding {
 }
 
 /**
- * One-time adoption of a pre-multi-target record (`${PREFIX}${backendId}`, no target segment) as the
- * compat/primary target's binding: rewrite it (stamping `targetId`) plus its stale flag to the composite
- * keys, drop the legacy keys, and return it. Migrated exactly once — a later read finds the composite key.
+ * The ONE owner of legacy adoption: migrate any pre-multi-target records (keyed by backend alone, no
+ * target segment) to the PRIMARY target's composite keys. Rewrites the legacy binding (stamping
+ * `targetId=primaryTargetId` and `compat` from the resolved registry mode), its stale flag, and its
+ * auto-offer dismissal (stamping `targetId`), then deletes every legacy key. The panel calls this once
+ * the registry loads, so every other reader (and the background worker) only ever sees composite keys.
+ *
+ * Idempotent and cheap: one storage read, and a no-op with zero writes once nothing legacy remains (the
+ * steady state after the first upgrade). Never clobbers an existing composite record — a primary that was
+ * already (re)bound post-upgrade wins, and the stray legacy key is simply dropped.
  */
-async function migrateLegacy(backendId: string, targetId: string): Promise<Binding | null> {
+export async function migrateLegacyRecords(
+  backendId: string,
+  primaryTargetId: string,
+  compat: boolean,
+): Promise<void> {
   const lk = legacyKey(backendId);
   const lsk = legacyStaleKey(backendId);
-  const stored = await chrome.storage.local.get([lk, lsk]);
-  if (!isBinding(stored[lk])) return null;
-  const migrated: Binding = { ...(stored[lk] as Binding), targetId };
-  await chrome.storage.local.set({
-    [key(backendId, targetId)]: migrated,
-    [staleKey(backendId, targetId)]: stored[lsk] === true,
-  });
-  await chrome.storage.local.remove([lk, lsk]);
-  return migrated;
+  const ldk = legacyDismissKey(backendId);
+  const stored = await chrome.storage.local.get([lk, lsk, ldk]);
+  // Nothing legacy present -> return without a single write (the common post-migration path).
+  if (!(lk in stored) && !(lsk in stored) && !(ldk in stored)) return;
+
+  // Read the composite targets we might write, so a freshly (re)bound primary is never clobbered.
+  const bk = key(backendId, primaryTargetId);
+  const dk = dismissKey(backendId, primaryTargetId);
+  const existing = await chrome.storage.local.get([bk, dk]);
+
+  const writes: Record<string, unknown> = {};
+  if (isBinding(stored[lk]) && !isBinding(existing[bk])) {
+    writes[bk] = { ...(stored[lk] as Binding), targetId: primaryTargetId, compat };
+    writes[staleKey(backendId, primaryTargetId)] = stored[lsk] === true;
+  }
+  if (isDismissal(stored[ldk]) && !isDismissal(existing[dk])) {
+    writes[dk] = { ...(stored[ldk] as BindDismissal), targetId: primaryTargetId };
+  }
+  if (Object.keys(writes).length > 0) await chrome.storage.local.set(writes);
+  await chrome.storage.local.remove([lk, lsk, ldk]);
 }
 
-/** The binding for a (backend, target), or null when none is installed. */
+/** The binding for a (backend, target), or null when none is installed. Composite-keyed only —
+ *  legacy adoption is the panel's one-time job (see `migrateLegacyRecords`). */
 export async function getBinding(backendId: string, targetId: string): Promise<Binding | null> {
   const k = key(backendId, targetId);
   const stored = await chrome.storage.local.get(k);
-  if (isBinding(stored[k])) return stored[k] as Binding;
-  return migrateLegacy(backendId, targetId);
+  return isBinding(stored[k]) ? (stored[k] as Binding) : null;
 }
 
 /** Install/replace a binding (clears its stale flag). The composite key is derived from the record. */
@@ -127,13 +152,12 @@ export async function clearBinding(backendId: string, targetId: string): Promise
   await chrome.storage.local.remove([key(backendId, targetId), staleKey(backendId, targetId)]);
 }
 
-/** Whether a binding has been flagged stale (e.g. its session cookie was evicted). Falls back to the
- *  legacy (un-migrated) stale flag so a not-yet-adopted binding still reports correctly. */
+/** Whether a binding has been flagged stale (e.g. its session cookie was evicted). Composite-keyed
+ *  only; a legacy stale flag is adopted once by `migrateLegacyRecords`, never on read. */
 export async function getBindingStale(backendId: string, targetId: string): Promise<boolean> {
   const k = staleKey(backendId, targetId);
-  const stored = await chrome.storage.local.get([k, legacyStaleKey(backendId)]);
-  if (k in stored) return stored[k] === true;
-  return stored[legacyStaleKey(backendId)] === true;
+  const stored = await chrome.storage.local.get(k);
+  return stored[k] === true;
 }
 
 /** Flag/unflag a binding as stale. */
@@ -151,13 +175,13 @@ function isDismissal(v: unknown): v is BindDismissal {
   );
 }
 
-/** The remembered auto-offer dismissal for a (backend, target), or null. Falls back to the legacy
- *  (un-migrated) per-backend dismissal so an upgraded project's earlier decline still counts. */
+/** The remembered auto-offer dismissal for a (backend, target), or null. Composite-keyed only; a legacy
+ *  per-backend decline is adopted once by `migrateLegacyRecords` (to the primary), never on read — so a
+ *  decline can no longer leak across every target. */
 export async function getBindDismissal(backendId: string, targetId: string): Promise<BindDismissal | null> {
   const k = dismissKey(backendId, targetId);
-  const stored = await chrome.storage.local.get([k, legacyDismissKey(backendId)]);
-  const v = k in stored ? stored[k] : stored[legacyDismissKey(backendId)];
-  return isDismissal(v) ? (v as BindDismissal) : null;
+  const stored = await chrome.storage.local.get(k);
+  return isDismissal(stored[k]) ? (stored[k] as BindDismissal) : null;
 }
 
 /** Remember that the user declined the auto-offer for this backend/target/username. */
@@ -166,10 +190,10 @@ export async function setBindDismissal(dismissal: BindDismissal): Promise<void> 
   await chrome.storage.local.set({ [dismissKey(dismissal.backendId, targetId)]: dismissal });
 }
 
-/** Forget a (backend, target)'s auto-offer dismissal (re-enables the auto-offer); also clears any
- *  legacy per-backend decline so a re-engage truly starts fresh. */
+/** Forget a (backend, target)'s auto-offer dismissal (re-enables the auto-offer). Composite-keyed only;
+ *  any legacy per-backend decline was already migrated to the primary and removed. */
 export async function clearBindDismissal(backendId: string, targetId: string): Promise<void> {
-  await chrome.storage.local.remove([dismissKey(backendId, targetId), legacyDismissKey(backendId)]);
+  await chrome.storage.local.remove(dismissKey(backendId, targetId));
 }
 
 /** Every installed binding (used by the background worker to find session bindings to sync). Enumerates

@@ -21,19 +21,26 @@ function targets(pairs: [string, string | null][]): AssistantTarget[] {
   }));
 }
 
-// (case_name, tab_url, [(target_name, base_url)], expected_ids) — mirrored from tests/test_targets.py.
-const SELECT_CASES: [string, string, [string, string][], string[]][] = [
+// (case_name, tab_url, [(target_name, base_url)], expected_matches, expected_selected) — mirrored
+// VERBATIM from tests/test_targets.py's SELECT_CASES.
+//   expected_matches  -> selectTarget().matches:  every candidate id, most-specific first (ranked list).
+//   expected_selected -> selectTarget().selected: the unique strictly-highest-rank id, else null (real
+//                        tie / no match). Note longest_path_prefix_wins auto-picks the specific target
+//                        even though the "/" catch-all also matches.
+const SELECT_CASES: [string, string, [string, string][], string[], string | null][] = [
   [
     "exact_origin_and_path_match",
     "https://play.im.dhis2.org/dev-2-42/api/me",
     [["play42", "https://play.im.dhis2.org/dev-2-42"]],
     ["play42"],
+    "play42",
   ],
   [
     "different_origin_no_match",
     "https://other.example.org/dev-2-42/api/me",
     [["play42", "https://play.im.dhis2.org/dev-2-42"]],
     [],
+    null,
   ],
   [
     "longest_path_prefix_wins",
@@ -43,6 +50,7 @@ const SELECT_CASES: [string, string, [string, string][], string[]][] = [
       ["play42", "https://play.im.dhis2.org/dev-2-42"],
     ],
     ["play42", "root"],
+    "play42",
   ],
   [
     "nested_path_prefix_ranking",
@@ -52,6 +60,7 @@ const SELECT_CASES: [string, string, [string, string][], string[]][] = [
       ["deep", "https://play.im.dhis2.org/dev/2/42"],
     ],
     ["deep", "broad"],
+    "deep",
   ],
   [
     "equal_length_tie_keeps_declaration_order",
@@ -61,52 +70,59 @@ const SELECT_CASES: [string, string, [string, string][], string[]][] = [
       ["second", "https://play.im.dhis2.org/dev-2-42"],
     ],
     ["first", "second"],
+    null,
   ],
   [
     "base_root_is_catch_all",
     "https://play.im.dhis2.org/anything/here",
     [["root", "https://play.im.dhis2.org/"]],
     ["root"],
+    "root",
   ],
   [
     "path_boundary_not_substring",
     "https://play.im.dhis2.org/dev-2-42/api",
     [["dev", "https://play.im.dhis2.org/dev"]],
     [],
+    null,
   ],
   [
     "default_port_and_host_case_normalized",
     "https://PLAY.im.dhis2.org:443/dev-2-42/api",
     [["play42", "https://play.im.dhis2.org/dev-2-42"]],
     ["play42"],
+    "play42",
   ],
   [
     "trailing_slash_on_base_stripped",
     "https://play.im.dhis2.org/dev-2-42/api",
     [["play42", "https://play.im.dhis2.org/dev-2-42/"]],
     ["play42"],
+    "play42",
   ],
   [
     "unparseable_url_returns_empty",
     "not a url",
     [["play42", "https://play.im.dhis2.org/dev-2-42"]],
     [],
+    null,
   ],
   [
     "relative_url_returns_empty",
     "/dev-2-42/api",
     [["root", "https://play.im.dhis2.org/"]],
     [],
+    null,
   ],
 ];
 
-for (const [name, tabUrl, pairs, expected] of SELECT_CASES) {
+for (const [name, tabUrl, pairs, expectedMatches, expectedSelected] of SELECT_CASES) {
   test(`selectTarget parity: ${name}`, () => {
-    const { matches } = selectTarget(tabUrl, targets(pairs));
-    expect(matches.map((t) => t.id)).toEqual(expected);
-    // `selected` is the single unambiguous pick, null on a tie / no match (server derivation).
-    const { selected } = selectTarget(tabUrl, targets(pairs));
-    expect(selected?.id ?? null).toBe(expected.length === 1 ? expected[0] : null);
+    const { matches, selected } = selectTarget(tabUrl, targets(pairs));
+    expect(matches.map((t) => t.id)).toEqual(expectedMatches);
+    // `selected` is the unique strictly-highest-rank pick, null on a real tie / no match (mirrors
+    // heim.targets.selected — the explicit column above, NOT derived from matches.length).
+    expect(selected?.id ?? null).toBe(expectedSelected);
   });
 }
 

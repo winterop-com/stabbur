@@ -4,7 +4,7 @@
 // isolated (bind A, switch to B -> B unbound). The single-assistant 404-compat mode is exercised by the
 // existing assistant.spec / bind.spec / tabmatch.spec, which keep passing unchanged.
 
-import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { test, expect, openPanel, seedSettings, PANEL_PATH } from "../fixtures";
 import { HeimMock, TargetSiteMock, bindAssistant, bindAssistantTarget } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
@@ -34,6 +34,42 @@ const MATCH_TEXT = "This tab matches the assistant target.";
 /** A minimal registry entry (no probe / bind recipe), enough to drive selection + the chat body. */
 function simpleTarget(id: string, name: string, baseUrl: string): Record<string, unknown> {
   return { id, name, base_url: baseUrl, mcp_servers: [id], can_verify: false, verified: null };
+}
+
+// Pre-multi-target storage keys (keyed by backend alone, no target segment) — what an install from
+// before the multi-target registry left behind. Seeded before the panel loads so its one-time
+// migration (migrateLegacyRecords, run right after the registry resolves) adopts them.
+const LEGACY_BINDING_KEY = "heim-ext-binding:default";
+const LEGACY_STALE_KEY = "heim-ext-binding-stale:default";
+const LEGACY_DISMISS_KEY = "heim-ext-binding-dismissed:default";
+
+/** Seed a pre-multi-target binding (+ its stale flag + auto-offer dismissal) under the un-scoped legacy
+ *  keys, BEFORE the panel opens. A session-mode (cookie) binding is used so the record is exactly the
+ *  kind the background worker would try to route — proving migration hands it a real targetId. */
+async function seedLegacyRecords(context: BrowserContext, extensionId: string, baseUrl: string): Promise<void> {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/${PANEL_PATH}`);
+  await page.evaluate((url) => {
+    return chrome.storage.local.set({
+      "heim-ext-binding:default": {
+        backendId: "default",
+        targetBaseUrl: url,
+        mode: "session",
+        username: "admin",
+        name: "Admin User",
+        cookieName: "JSESSIONID",
+        writes: true,
+      },
+      "heim-ext-binding-stale:default": true,
+      "heim-ext-binding-dismissed:default": { backendId: "default", targetBaseUrl: url, username: "admin" },
+    });
+  }, baseUrl);
+  await page.close();
+}
+
+/** The full chrome.storage.local snapshot, read from the panel context. */
+function readStorage(panel: Page): Promise<Record<string, unknown>> {
+  return panel.evaluate(() => chrome.storage.local.get(null) as Promise<Record<string, unknown>>);
 }
 
 async function openReady(context: BrowserContext, extensionId: string): Promise<Page> {
@@ -178,4 +214,63 @@ test("single-assistant 404-compat: registry endpoint 404 falls back to /api/assi
   // A single compat target still narrows the chat to its derived id (slugified "play42").
   expect(lastChatTarget()).toBe("play42");
   await tab.close();
+});
+
+test("legacy migration: a pre-multi-target record is adopted onto the PRIMARY composite key (compat=false)", async ({
+  context,
+  extensionId,
+}) => {
+  // A real >1-target registry: alpha is the primary, so the legacy record (no target segment) must land
+  // on alpha's composite keys, NOT whichever target a tab happened to select.
+  heim.state.assistants = [
+    simpleTarget("alpha", "Alpha", siteA.baseUrl()),
+    simpleTarget("beta", "Beta", siteB.baseUrl()),
+  ];
+  await seedLegacyRecords(context, extensionId, siteA.baseUrl());
+  const panel = await openReady(context, extensionId);
+
+  // Once the registry resolves, the panel migrates the legacy record onto alpha's composite key. Poll
+  // until adoption lands (the migration is async, kicked off from the registry-load effect).
+  await expect
+    .poll(() => panel.evaluate(() => chrome.storage.local.get("heim-ext-binding:default:alpha").then((r) => r["heim-ext-binding:default:alpha"] ?? null)))
+    .not.toBeNull();
+
+  const all = await readStorage(panel);
+  // The binding is now composite-keyed, stamped with the PRIMARY targetId + compat, fields preserved.
+  // A targetId-stamped composite record is exactly what the background worker's index requires (it
+  // skips any record without one), so this is the background-visible shape.
+  expect(all["heim-ext-binding:default:alpha"]).toMatchObject({
+    backendId: "default",
+    targetId: "alpha",
+    compat: false,
+    mode: "session",
+    cookieName: "JSESSIONID",
+    writes: true,
+  });
+  expect(all["heim-ext-binding-stale:default:alpha"]).toBe(true);
+  expect(all["heim-ext-binding-dismissed:default:alpha"]).toMatchObject({ targetId: "alpha", username: "admin" });
+  // Every legacy key is gone (migrated exactly once, then removed).
+  expect("heim-ext-binding:default" in all).toBe(false);
+  expect("heim-ext-binding-stale:default" in all).toBe(false);
+  expect("heim-ext-binding-dismissed:default" in all).toBe(false);
+});
+
+test("legacy migration: compat single-assistant stamps compat=true on the derived primary id", async ({
+  context,
+  extensionId,
+}) => {
+  // 404-compat single assistant: the derived primary id is the slugified name ("play42") and the
+  // migrated record must carry compat=true so unbind / re-sync use the un-scoped /api/assistant* routes.
+  heim.state.assistants = null;
+  heim.state.assistant = bindAssistant(siteA.baseUrl());
+  await seedLegacyRecords(context, extensionId, siteA.baseUrl());
+  const panel = await openReady(context, extensionId);
+
+  await expect
+    .poll(() => panel.evaluate(() => chrome.storage.local.get("heim-ext-binding:default:play42").then((r) => r["heim-ext-binding:default:play42"] ?? null)))
+    .not.toBeNull();
+
+  const all = await readStorage(panel);
+  expect(all["heim-ext-binding:default:play42"]).toMatchObject({ targetId: "play42", compat: true });
+  expect("heim-ext-binding:default" in all).toBe(false);
 });
