@@ -138,12 +138,20 @@ async function mintInPage(
     }
   }
   try {
+    // redirect:"manual": the mint endpoint answers JSON, so ANY redirect is the login bounce.
+    // Never follow it — on deployments whose proxy issues the Location as plain http (play does),
+    // following dies on the mixed-content block and the logged-out signal degrades to a thrown
+    // opaque error. Mirror of sessionReads.runProbe's classifyFirst; keep the two in sync.
     const res = await fetch(url, {
       method,
       credentials: "include",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: payload,
+      redirect: "manual",
     });
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+      return { status: res.status, token: "", credentialId: "", loginRedirect: true };
+    }
     let token = "";
     let credentialId = "";
     let parsedJson = false;

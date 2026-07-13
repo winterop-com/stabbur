@@ -82,16 +82,26 @@ async function runProbe(
     return !beforeQuery.includes(":");
   }
 
-  const opts: RequestInit = { credentials: "include", headers: { Accept: "application/json" } };
+  // redirect:"manual": these are JSON API endpoints, so ANY redirect is the login bounce — never
+  // follow it. Following broke on real deployments whose proxy issues the Location as plain http
+  // (play does): the https page fetch then dies on the mixed-content block and the confident
+  // logged-out signal degraded into an opaque thrown error.
+  const opts: RequestInit = {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    redirect: "manual",
+  };
 
   // Classify a first-path (identity) response. A CONFIDENT logged-out signal maps to
   // "unauthenticated"; anything else that merely failed (a 500, a non-JSON error page that is not a
   // login redirect) is "probe_failed" so the caller doesn't misread a transient blip as logged-out.
-  // Mirror of bindRecipe.mintInPage's login detection (non-JSON/redirect => no session); keep the
+  // Mirror of bindRecipe.mintInPage's login detection (redirect/non-JSON => no session); keep the
   // two in sync.
   function classifyFirst(res: Response): "ok" | "unauthenticated" | "probe_failed" {
     if (res.status === 401) return "unauthenticated";
-    if (res.redirected && /login/i.test(res.url)) return "unauthenticated";
+    // An unfollowed redirect (opaqueredirect under redirect:"manual", or an explicit 3xx) on a
+    // JSON API read is the login bounce.
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return "unauthenticated";
     const ct = res.headers.get("content-type") ?? "";
     if (!ct.includes("json")) return "unauthenticated"; // HTML login page served where JSON was expected
     if (!res.ok) return "probe_failed"; // e.g. a 500 with a JSON error body — ambiguous, not logged-out
