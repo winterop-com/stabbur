@@ -12,6 +12,7 @@ import { getAssistant, type AssistantInfo } from "../../lib/assistantApi";
 import { activeBackend, normalizeBaseUrl, setSettings, watchSettings, type Settings } from "../../lib/settings";
 import { getTabUrl, subscribeTabUrl } from "../../lib/tabTarget";
 import { collect, formatPageContext } from "../../lib/pageContext";
+import { requestHostAccess } from "../../lib/hostAccess";
 import { formatSessionContext, whoAmIResolved, type SessionResult } from "../../lib/sessionReads";
 import { ConnectionGate } from "../../components/ConnectionGate";
 import { SettingsView } from "../../components/SettingsView";
@@ -136,29 +137,56 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     const hit = sessionCache.current;
     if (!force && hit && hit.key === key && Date.now() - hit.at < SESSION_TTL_MS) return hit.result;
     const result = await whoAmIResolved(tabId, tabUrl, assistant?.base_url ?? null, probe);
+    // Never cache a missing-host-access result: the user can grant access at any moment (the
+    // "Who am I here?" click, a bind Confirm), and the passive paths should recover immediately.
+    if (result && "error" in result && result.error === "no_access") return result;
     sessionCache.current = { key, result, at: Date.now() };
     return result;
   }
 
   // Build the page-context block for a chat turn: page url/title/selection, the signed-in
   // browser-session user (when a probe declared one), and the tool account the assistant runs
-  // as — the model is told these two identities are distinct.
-  async function getContextBlock(): Promise<string | null> {
+  // as — the model is told these two identities are distinct. `pageMissing` reports that the
+  // PAGE part could not be captured (no host access to the site) so the composer chip can say
+  // so instead of claiming the page was attached when only identity lines made it in.
+  async function getContextBlock(): Promise<{ text: string | null; pageMissing: boolean }> {
     const tabId = await activeTabId();
-    if (tabId === null) return null;
+    if (tabId === null) return { text: null, pageMissing: false };
     const ctx = await collect(tabId, settings.pageTextEnabled);
     const parts: string[] = [];
-    if (ctx) parts.push(formatPageContext(ctx));
+    if (ctx && ctx !== "no_access") parts.push(formatPageContext(ctx));
     const session = await cachedWhoAmI(tabId, false);
     if (session && !("error" in session)) parts.push(formatSessionContext(session));
     if (assistant) parts.push(formatToolAccount(assistant));
-    return parts.length ? parts.join("\n\n") : null;
+    return { text: parts.length ? parts.join("\n\n") : null, pageMissing: ctx === "no_access" };
+  }
+
+  // First await on the Send click (a user gesture): turn a missing host grant for the current
+  // site into the durable optional permission so page capture works. Raced against a short
+  // deadline — an unanswered native prompt must never block the send; the turn then proceeds
+  // without the page and the chip reports it honestly.
+  async function ensurePageAccess(): Promise<void> {
+    const url = getTabUrl();
+    if (!url) return;
+    await Promise.race([
+      requestHostAccess(url),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000)),
+    ]);
   }
 
   async function onWhoAmI(): Promise<SessionResult> {
     const tabId = await activeTabId();
     if (tabId === null) return null;
     return cachedWhoAmI(tabId, true); // explicit button click always re-probes
+  }
+
+  // Passive session read for the auto-probe on panel open and the bind flow's pre-mint gate: reuse
+  // the shared 60s cache so one panel-open resolves the session once instead of force-probing three
+  // times (auto-probe + gate + save).
+  async function probeSession(): Promise<SessionResult> {
+    const tabId = await activeTabId();
+    if (tabId === null) return null;
+    return cachedWhoAmI(tabId, false);
   }
 
   // Snapshot the active heim backend when a bind flow starts, so a mid-flow backend switch can't
@@ -226,6 +254,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
               })
             }
             onWhoAmI={onWhoAmI}
+            probeSession={probeSession}
             getActiveTabId={activeTabId}
           />
           <div className="min-h-0 flex-1">
@@ -237,6 +266,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
               pageTextEnabled={settings.pageTextEnabled}
               onTogglePageText={(v) => void saveSettings({ pageTextEnabled: v })}
               getContextBlock={getContextBlock}
+              onEnsurePageAccess={ensurePageAccess}
             />
           </div>
         </div>

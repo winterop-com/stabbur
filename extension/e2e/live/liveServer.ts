@@ -148,14 +148,14 @@ session_cookie = "JSESSIONID"
 [assistant.bind.modes.pat]
 command = ["d2w", "profile", "add", "${opts.profile}", "--url", "{base_url}", "--auth", "pat", "--local"]
 secret_env = "DHIS2_PAT"
-unbind_command = ["d2w", "profile", "remove", "${opts.profile}", "--local"]
+unbind_command = ["d2w", "profile", "remove", "${opts.profile}", "--local", "--yes"]
 unbind_note = "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
 timeout = 60.0
 
 [assistant.bind.modes.session]
 command = ["d2w", "profile", "add", "${opts.profile}", "--url", "{base_url}", "--auth", "session", "--local"]
 secret_env = "DHIS2_SESSION_COOKIE"
-unbind_command = ["d2w", "profile", "remove", "${opts.profile}", "--local"]
+unbind_command = ["d2w", "profile", "remove", "${opts.profile}", "--local", "--yes"]
 unbind_note = "Restore the shared demo profile with: cp examples/dhis2-profiles.toml .dhis2/profiles.toml"
 timeout = 60.0
 `;

@@ -4,10 +4,13 @@ import type { AssistantInfo } from "../lib/assistantApi";
 import {
   classifyMint,
   executeMint,
+  executeRevoke,
+  substitute,
   type BindRecipe,
 } from "../lib/bindRecipe";
 import { postBindTo, type BindApiResult, type BindTarget } from "../lib/bindApi";
 import { setBinding, type Binding } from "../lib/binding";
+import { requestHostAccess } from "../lib/hostAccess";
 import type { SessionResult } from "../lib/sessionReads";
 
 /** The heim backend a bind is written to, snapshotted when the flow starts. */
@@ -30,6 +33,19 @@ interface BindFlowProps {
   /** Called after a successful bind (with the backend it landed on) so the parent can refresh. */
   onBound: (backendId: string) => void;
   onCancel: () => void;
+  /** Consent-card heading override. The auto-offer frames it as a question ("Use your <instance>
+   *  login?" / "You are now signed in as <user>; rebind?"); the manual button leaves it default. */
+  headline?: string;
+  /** Pre-check the "allow writes" toggle. Set by the explicit write-scope re-mint (the auto-offer
+   *  and manual bind always start unchecked — read-only first). */
+  initialAllowWrites?: boolean;
+  /** Write-scope re-mint: the id of the existing read-only credential this bind replaces. Revoked
+   *  (best-effort) only after the new, wider token is minted and installed. */
+  replaceCredentialId?: string;
+  /** Write-scope re-mint where the replaced binding has NO credential id to revoke (an older bind,
+   *  or a probe-less mint). The upgrade still proceeds — the user needs writes — but the card must
+   *  say the old token can't be revoked automatically instead of falsely promising it will be. */
+  replaceUnrevocable?: boolean;
 }
 
 type Stage =
@@ -68,10 +84,14 @@ export function BindFlow({
   getActiveTabId,
   onBound,
   onCancel,
+  headline,
+  initialAllowWrites,
+  replaceCredentialId,
+  replaceUnrevocable,
 }: BindFlowProps) {
   // A session-only recipe (no PAT endpoint) opens straight at the session-fallback consent.
   const [stage, setStage] = useState<Stage>(recipe.mint ? { kind: "consent" } : { kind: "fallback" });
-  const [allowWrites, setAllowWrites] = useState(false);
+  const [allowWrites, setAllowWrites] = useState(initialAllowWrites ?? false);
   const writable = assistant.readonly === false;
   const targetName = assistant.name ?? "the instance";
 
@@ -79,8 +99,11 @@ export function BindFlow({
     target: BindBackendTarget,
     mode: string,
     extra: { credentialId?: string; cookieName?: string; expiresAt?: number; writes?: boolean },
+    // A session already resolved by the caller (the mint path resolves it once for its pre-gate and
+    // threads it here) so we don't re-probe. Undefined -> resolve it now (the fallback path).
+    resolved?: SessionResult,
   ): Promise<void> {
-    const session = await resolveSession();
+    const session = resolved !== undefined ? resolved : await resolveSession();
     const signedIn = session && !("error" in session) ? session : null;
     const binding: Binding = {
       backendId: target.backendId,
@@ -98,9 +121,36 @@ export function BindFlow({
 
   async function confirmMint(): Promise<void> {
     const target = captureTarget(); // freeze the destination backend before any await
+    // The mint (and the pre-gate probe) inject into the target tab, which needs host access.
+    // `activeTab` only covers the tab the toolbar icon was clicked on, until it navigates — so ask
+    // for the durable optional grant here, on the Confirm gesture (MUST be the first await;
+    // captureTarget is synchronous). Resolves silently when already granted.
+    const granted = await requestHostAccess(basePath);
+    if (!granted) {
+      setStage({
+        kind: "error",
+        message:
+          `heim needs access to ${originOf(basePath) ?? targetName} to request the token in your tab. ` +
+          "Click Confirm again and allow the permission prompt, or open the panel from the heim toolbar icon on that tab.",
+      });
+      return;
+    }
     const tabId = await getActiveTabId();
     if (tabId === null) {
       setStage({ kind: "error", message: "No active web tab to mint the token in." });
+      return;
+    }
+    // Sign in first: an unauthenticated in-tab mint POST is redirected to the login page and comes
+    // back as an opaque `status: 0` — useless guidance. When the assistant declared a session probe,
+    // check for a live session up front and route straight to the sign-in stage, skipping the mint.
+    // resolveSession returns null when no probe is declared (or no tab), so a probe-less assistant is
+    // never blocked here. Only a CONFIDENT logged-out signal blocks the mint; an ambiguous
+    // "probe_failed" (a 500, a network blip) falls through to the mint, whose own loginRedirect
+    // detection is the backstop — the mint can't leak anything, it only POSTs and classifies.
+    setStage({ kind: "working", label: "Checking your session…" });
+    const session = await resolveSession();
+    if (session && "error" in session && session.error === "unauthenticated") {
+      setStage({ kind: "unauthenticated" });
       return;
     }
     setStage({ kind: "working", label: "Requesting a token in this tab…" });
@@ -109,7 +159,7 @@ export function BindFlow({
     // DHIS2's `expire` is an ABSOLUTE epoch-ms timestamp; compute once and reuse for the binding.
     const expiresMs = Date.now() + recipe.expiresInDays * 86_400_000;
     const mint = await executeMint(tabId, basePath, recipe, methods, expiresMs);
-    const cls = classifyMint(mint.status, mint.token);
+    const cls = classifyMint(mint.status, mint.token, mint.loginRedirect);
     if (cls === "minted") {
       setStage({ kind: "working", label: "Installing the token…" });
       const res = await postBindTo(target, recipe.mintMode, mint.token);
@@ -117,7 +167,26 @@ export function BindFlow({
         setStage({ kind: "error", message: bindError(res) });
         return;
       }
-      await saveBinding(target, recipe.mintMode, { credentialId: mint.credentialId, expiresAt: expiresMs, writes });
+      // Write-scope re-mint: the new, wider token is installed — now revoke the read-only credential
+      // it replaces. Order matters (revoke only AFTER a successful bind, never leaving zero valid
+      // tokens) and it is best-effort: a revoke failure is logged, not fatal, since the upgrade
+      // already succeeded.
+      if (replaceCredentialId && recipe.revokePath) {
+        setStage({ kind: "working", label: "Revoking the old read-only token…" });
+        try {
+          await executeRevoke(tabId, basePath, substitute(recipe.revokePath, { credentialId: replaceCredentialId }));
+        } catch (err) {
+          console.warn("heim: failed to revoke the replaced read-only token", err);
+        }
+      }
+      // Reuse the session already resolved by the pre-gate above (thread it through) so the binding's
+      // identity is recorded without a third probe of the same tab.
+      await saveBinding(
+        target,
+        recipe.mintMode,
+        { credentialId: mint.credentialId, expiresAt: expiresMs, writes },
+        session,
+      );
       onBound(target.backendId);
       return;
     }
@@ -129,10 +198,17 @@ export function BindFlow({
       setStage({ kind: "fallback" });
       return;
     }
-    setStage({
-      kind: "error",
-      message: mint.error ? `Could not mint a token: ${mint.error}.` : `Token request failed (status ${mint.status}).`,
-    });
+    // A residual status 0 with no redirect signal is ambiguous: either this tab isn't signed in, or
+    // the tab/instance is unreachable. Name both causes and point at the realistic fix.
+    let message: string;
+    if (mint.error) {
+      message = `Could not mint a token: ${mint.error}.`;
+    } else if (mint.status === 0) {
+      message = `The token request did not go through. This tab may not be signed in to ${targetName}, or the instance is unreachable — sign in on ${baseUrl} and try again.`;
+    } else {
+      message = `Token request failed (status ${mint.status}).`;
+    }
+    setStage({ kind: "error", message });
   }
 
   // MUST be invoked directly from the click handler: chrome.permissions.request needs the user
@@ -197,7 +273,7 @@ export function BindFlow({
       {stage.kind === "consent" ? (
         <div data-testid="bind-consent" className="space-y-2">
           <div className="flex items-center gap-1.5 font-medium text-[var(--foreground)]">
-            <KeyRound className="h-3.5 w-3.5" /> Use my login on {targetName}
+            <KeyRound className="h-3.5 w-3.5" /> {headline ?? `Use my login on ${targetName}`}
           </div>
           <div className="text-[var(--muted-foreground)]">
             <div className="truncate">Target: {baseUrl}</div>
@@ -209,6 +285,17 @@ export function BindFlow({
               , expires in {recipe.expiresInDays} days, stored as a profile in the heim project. It is minted in this
               tab using your existing login and never leaves your browser except as the token heim stores.
             </p>
+            {replaceCredentialId ? (
+              <p data-testid="bind-remint-notice" className="mt-1">
+                A <strong className="text-[var(--foreground)]">new token replaces your current read-only one</strong>;
+                the old token is revoked after the new one is installed.
+              </p>
+            ) : replaceUnrevocable ? (
+              <p data-testid="bind-remint-notice" className="mt-1">
+                A <strong className="text-[var(--foreground)]">new token replaces your current read-only one</strong>.
+                Your previous token cannot be revoked automatically — revoke it in your {targetName} user settings.
+              </p>
+            ) : null}
           </div>
           {writable ? (
             <label className="flex items-center gap-1.5 text-[var(--muted-foreground)]">

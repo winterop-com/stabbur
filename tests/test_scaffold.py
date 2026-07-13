@@ -99,7 +99,10 @@ def test_render_readme_mentions_the_local_library() -> None:
 def test_git_init_writes_gitignore_and_inits(tmp_path: Path) -> None:
     ok, status = scaffold.git_init(tmp_path)
     gi = tmp_path / ".gitignore"
-    assert gi.is_file() and f"/{scaffold.LOCAL_LIBRARY}/" in gi.read_text() and ".env" in gi.read_text()
+    text = gi.read_text()
+    assert gi.is_file() and f"/{scaffold.LOCAL_LIBRARY}/" in text and ".env" in text
+    # Credentials (minted PATs / session cookies) land in .dhis2/profiles.toml — never commit them.
+    assert ".dhis2/" in text
     # git is available in CI; either it initialized (ok) or it was already a repo — both are ok=True.
     assert ok and "wrote .gitignore" in status or "initialized" in status
     # A second call on the now-existing repo reports it, still ok.

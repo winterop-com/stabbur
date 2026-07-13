@@ -222,6 +222,16 @@ completion token.
 - **More MCP servers** — a `heim-mcp-http` (allowlisted fetch) and a git server, on the same
   `heim-mcp-*` template (dependency-light, stdio-only, `pydantic-settings` config, sandbox/allowlist
   anything that executes or fetches).
+- **Project-level disable of a global MCP server.** `mcpservers.resolve()` merges global-then-
+  project by name; a project can override a global server but cannot REMOVE one. Observed
+  consequence (2026-07-13): a machine-global `playwright` server leaks into the DHIS2 project's
+  toolset, and the model wanders into a doomed flow — it spins up its OWN logged-out headless
+  browser against the authed instance, fumbles the login page, and burns the tool-round budget.
+  Add a disable marker in `.mcp.json` (e.g. `"<name>": {"disabled": true}` or `null`) honored by
+  `resolve()`; optionally also steer the dhis2 template prompt away from browser tools for DHIS2
+  work. Note: driving the user's REAL logged-in tab is a different feature entirely (page-actions
+  via `dhis2w-browser` through the extension — see North-star "Later"), kept last deliberately:
+  an AI clicking as a logged-in admin is the highest-blast-radius capability in the design.
 - **Want-list drive rebuild.** `heim library manifest`/`sync` ship. A natural next step: a
   `--verify`/repair pass that re-pulls only models failing `heim library verify --deep`.
 

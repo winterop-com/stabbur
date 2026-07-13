@@ -32,6 +32,8 @@ interface ChatMessage {
   content: string;
   /** Transient page-context block folded into the API turn (not persisted). */
   context?: string;
+  /** The PAGE part of the context could not be captured (no host access to the site). */
+  pageMissing?: boolean;
   /** Transient reasoning stream (not persisted). */
   reasoning?: string;
   /** Transient tool call/result markers (not persisted). */
@@ -60,8 +62,10 @@ interface ChatViewProps {
   /** Sub-option of page context: also attach the visible page text. */
   pageTextEnabled: boolean;
   onTogglePageText: (value: boolean) => void;
-  /** Build the page-context block to fold into the next user turn (null = none). */
-  getContextBlock: () => Promise<string | null>;
+  /** Build the page-context block to fold into the next user turn (text null = none). */
+  getContextBlock: () => Promise<{ text: string | null; pageMissing: boolean }>;
+  /** FIRST await of a Send with page context on: request host access on the click gesture. */
+  onEnsurePageAccess: () => Promise<void>;
 }
 
 function loadStored(storageKey: string): ChatMessage[] {
@@ -210,7 +214,14 @@ const MessageBubble = memo(function MessageBubble({
         </div>
       ) : null}
 
-      {isUser && message.context ? (
+      {isUser && message.pageMissing ? (
+        <span
+          data-testid="page-context-missing"
+          className="inline-flex items-center gap-1 text-[10px] text-amber-600"
+        >
+          <FileText className="h-3 w-3" /> page not captured — heim has no access to this site
+        </span>
+      ) : isUser && message.context ? (
         <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
           <FileText className="h-3 w-3" /> page context attached
         </span>
@@ -227,6 +238,7 @@ export function ChatView({
   pageTextEnabled,
   onTogglePageText,
   getContextBlock,
+  onEnsurePageAccess,
 }: ChatViewProps) {
   // PanelApp keys this component by backendId, so a switch remounts it and this runs
   // fresh against the new backend's transcript key.
@@ -295,8 +307,17 @@ export function ChatView({
     if (!text || streaming) return;
     setError(null);
 
-    const context = pageContextEnabled ? await getContextBlock() : null;
-    const userMsg: ChatMessage = { role: "user", content: text, context: context ?? undefined };
+    // Host-access request rides the Send click's user gesture (first await); without it the page
+    // capture below silently fails on any site the extension was never granted. Time-boxed inside
+    // onEnsurePageAccess so an unanswered prompt never blocks the turn.
+    if (pageContextEnabled) await onEnsurePageAccess();
+    const ctx = pageContextEnabled ? await getContextBlock() : null;
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: text,
+      context: ctx?.text ?? undefined,
+      pageMissing: ctx?.pageMissing || undefined,
+    };
     const history = [...messages, userMsg];
     setMessages([...history, { role: "assistant", content: "" }]);
     setInput("");

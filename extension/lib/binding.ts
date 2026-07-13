@@ -5,6 +5,7 @@
 
 const PREFIX = "heim-ext-binding:";
 const STALE_PREFIX = "heim-ext-binding-stale:";
+const DISMISS_PREFIX = "heim-ext-binding-dismissed:";
 
 export interface Binding {
   backendId: string;
@@ -26,12 +27,30 @@ export interface Binding {
   writes?: boolean;
 }
 
+/**
+ * A remembered "no thanks" to the auto-offered "use your login?" prompt, keyed by backend and
+ * carrying the target + the signed-in username it was declined for. The auto-offer stays suppressed
+ * only while the SAME human is still logged in on the target; a different username (re-login, shared
+ * machine) no longer matches, so re-offering is correct. Cleared when the user re-engages the manual
+ * bind button or a bind succeeds.
+ */
+export interface BindDismissal {
+  backendId: string;
+  targetBaseUrl: string;
+  /** The signed-in username the auto-offer was declined for ("" when the probe named none). */
+  username: string;
+}
+
 function key(backendId: string): string {
   return `${PREFIX}${backendId}`;
 }
 
 function staleKey(backendId: string): string {
   return `${STALE_PREFIX}${backendId}`;
+}
+
+function dismissKey(backendId: string): string {
+  return `${DISMISS_PREFIX}${backendId}`;
 }
 
 function isBinding(v: unknown): v is Binding {
@@ -71,6 +90,33 @@ export async function getBindingStale(backendId: string): Promise<boolean> {
 /** Flag/unflag a binding as stale. */
 export async function setBindingStale(backendId: string, stale: boolean): Promise<void> {
   await chrome.storage.local.set({ [staleKey(backendId)]: stale });
+}
+
+function isDismissal(v: unknown): v is BindDismissal {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    typeof (v as BindDismissal).backendId === "string" &&
+    typeof (v as BindDismissal).targetBaseUrl === "string" &&
+    typeof (v as BindDismissal).username === "string"
+  );
+}
+
+/** The remembered auto-offer dismissal for a backend, or null when none. */
+export async function getBindDismissal(backendId: string): Promise<BindDismissal | null> {
+  const k = dismissKey(backendId);
+  const stored = await chrome.storage.local.get(k);
+  return isDismissal(stored[k]) ? (stored[k] as BindDismissal) : null;
+}
+
+/** Remember that the user declined the auto-offer for this backend/target/username. */
+export async function setBindDismissal(dismissal: BindDismissal): Promise<void> {
+  await chrome.storage.local.set({ [dismissKey(dismissal.backendId)]: dismissal });
+}
+
+/** Forget a backend's auto-offer dismissal (re-enables the auto-offer). */
+export async function clearBindDismissal(backendId: string): Promise<void> {
+  await chrome.storage.local.remove(dismissKey(backendId));
 }
 
 /** Every installed binding (used by the background worker to find session bindings to sync). */

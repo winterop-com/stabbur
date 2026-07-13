@@ -10,7 +10,14 @@ export interface SessionInfo {
   instanceName: string;
 }
 
-export type SessionResult = SessionInfo | { error: "unauthenticated" } | null;
+// A probe outcome. "unauthenticated" is a CONFIDENT logged-out signal (401, a 302-to-login, or a
+// token-less HTML page where JSON was expected); "probe_failed" is the AMBIGUOUS case (a 500, a
+// network blip, a non-JSON error) where we simply can't tell — callers must not treat it as
+// logged-out (e.g. the bind pre-gate falls through to the mint on it). "no_access" means the
+// injection itself was refused (no host access to the tab — the panel was not opened via the
+// toolbar icon on this tab and no optional grant exists yet); user-gesture paths fix it by
+// calling requestHostAccess (lib/hostAccess.ts) first.
+export type SessionResult = SessionInfo | { error: "unauthenticated" | "probe_failed" | "no_access" } | null;
 
 /** The project-declared session probe (echoed verbatim by GET /api/assistant; heim never runs it). */
 export interface ProbeSpec {
@@ -75,29 +82,47 @@ async function runProbe(
     return !beforeQuery.includes(":");
   }
 
-  const opts: RequestInit = { credentials: "include", headers: { Accept: "application/json" } };
+  // redirect:"manual": these are JSON API endpoints, so ANY redirect is the login bounce — never
+  // follow it. Following broke on real deployments whose proxy issues the Location as plain http
+  // (play does): the https page fetch then dies on the mixed-content block and the confident
+  // logged-out signal degraded into an opaque thrown error.
+  const opts: RequestInit = {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    redirect: "manual",
+  };
 
-  function looksUnauthenticated(res: Response): boolean {
-    // 401, or a 302-to-login that fetch followed into an HTML login page.
-    if (res.status === 401) return true;
-    if (res.redirected && /login/i.test(res.url)) return true;
+  // Classify a first-path (identity) response. A CONFIDENT logged-out signal maps to
+  // "unauthenticated"; anything else that merely failed (a 500, a non-JSON error page that is not a
+  // login redirect) is "probe_failed" so the caller doesn't misread a transient blip as logged-out.
+  // Mirror of bindRecipe.mintInPage's login detection (redirect/non-JSON => no session); keep the
+  // two in sync.
+  function classifyFirst(res: Response): "ok" | "unauthenticated" | "probe_failed" {
+    if (res.status === 401) return "unauthenticated";
+    // An unfollowed redirect (opaqueredirect under redirect:"manual", or an explicit 3xx) on a
+    // JSON API read is the login bounce.
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return "unauthenticated";
     const ct = res.headers.get("content-type") ?? "";
-    return !ct.includes("json");
+    if (!ct.includes("json")) return "unauthenticated"; // HTML login page served where JSON was expected
+    if (!res.ok) return "probe_failed"; // e.g. a 500 with a JSON error body — ambiguous, not logged-out
+    return "ok";
   }
 
   const results: unknown[] = [];
   for (let i = 0; i < paths.length; i++) {
     const p = paths[i];
     if (!validPath(p)) {
-      if (i === 0) return { error: "unauthenticated" };
+      if (i === 0) return { error: "probe_failed" }; // a malformed probe spec is our fault, not a logout
       results.push(null);
       continue;
     }
     try {
       const res = await fetch(`${basePath}${p}`, opts);
       if (i === 0) {
-        // Identity signal: unauthenticated/redirect/non-JSON on the first path fails the probe.
-        if (looksUnauthenticated(res) || !res.ok) return { error: "unauthenticated" };
+        // Identity signal: a confident logged-out signal fails the probe as "unauthenticated"; a
+        // transient/ambiguous failure fails it as "probe_failed" (callers treat the two differently).
+        const cls = classifyFirst(res);
+        if (cls !== "ok") return { error: cls };
         results.push((await res.json()) as unknown);
       } else if (res.ok && (res.headers.get("content-type") ?? "").includes("json")) {
         results.push((await res.json()) as unknown);
@@ -105,7 +130,7 @@ async function runProbe(
         results.push(null); // later paths are best-effort
       }
     } catch {
-      if (i === 0) return { error: "unauthenticated" };
+      if (i === 0) return { error: "probe_failed" }; // a network throw is ambiguous, never a confident logout
       results.push(null);
     }
   }
@@ -148,7 +173,10 @@ export async function whoAmI(tabId: number, basePath: string, probe: ProbeSpec):
     });
     return (result?.result as SessionResult | undefined) ?? null;
   } catch {
-    return null;
+    // executeScript itself was refused — overwhelmingly a missing host grant for the tab's origin
+    // (no activeTab, no optional grant). Distinct from "probe_failed" so callers can point the user
+    // at granting access rather than at a flaky network.
+    return { error: "no_access" };
   }
 }
 

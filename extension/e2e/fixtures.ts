@@ -30,17 +30,26 @@ const SCRATCH =
   "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 /**
- * Absolute path to the built, unpacked extension. The live tier needs the TEST-ONLY e2e build
- * (`.output/chrome-mv3-e2e`, from `bun run build:e2e`) whose static host_permissions pre-grant the
- * target origins so the headless mint tail can run; when that build is present it wins. The mock
- * tier only ever builds the generic `.output/chrome-mv3`, so it falls through to it. The e2e build
- * is otherwise byte-identical to the generic flavor (same code, extra host_permissions), so a
- * lingering e2e dir never changes mock behavior.
+ * Absolute paths to the two built, unpacked extension flavors. The live tier needs the TEST-ONLY
+ * e2e build (`.output/chrome-mv3-e2e`, from `bun run build:e2e`) whose static host_permissions
+ * pre-grant the target origins so the headless mint tail can run; every other tier uses the generic
+ * build (`.output/chrome-mv3`, from `bun run build`).
  */
 const E2E_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-e2e");
-export const EXTENSION_PATH = existsSync(E2E_EXTENSION_PATH)
-  ? E2E_EXTENSION_PATH
-  : path.resolve(HERE, "..", ".output", "chrome-mv3");
+const GENERIC_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
+
+/**
+ * Which built flavor to load — chosen EXPLICITLY by `HEIM_E2E_BUILD`, never by an mtime heuristic
+ * (a newer generic build must not hijack a live run, and two byte-identical builds must not resolve
+ * a tie to a stale dir). The `e2e:live` script (and any live-related invocation) sets
+ * `HEIM_E2E_BUILD=1` to route to the e2e build; everything else gets the generic build. Exported so
+ * a caller can assert the selection in a test.
+ */
+export function selectExtensionPath(): string {
+  return process.env.HEIM_E2E_BUILD === "1" ? E2E_EXTENSION_PATH : GENERIC_EXTENSION_PATH;
+}
+
+export const EXTENSION_PATH = selectExtensionPath();
 
 const HEADED = process.env.HEADED === "1" || process.env.HEADED === "true";
 
@@ -69,8 +78,9 @@ export async function resolveExtensionId(context: BrowserContext): Promise<strin
 
 async function launch(): Promise<{ context: BrowserContext; dir: string }> {
   if (!existsSync(EXTENSION_PATH)) {
+    const cmd = process.env.HEIM_E2E_BUILD === "1" ? "bun run build:e2e" : "bun run build";
     throw new Error(
-      `Built extension not found at ${EXTENSION_PATH}. Run \`bun run build\` first (the e2e scripts do this).`,
+      `Built extension not found at ${EXTENSION_PATH}. Run \`${cmd}\` first (the e2e scripts do this).`,
     );
   }
   const dir = userDataDir();
