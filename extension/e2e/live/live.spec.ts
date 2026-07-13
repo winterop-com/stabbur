@@ -131,11 +131,12 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
       await panel.getByRole("button", { name: "Verify" }).click();
       await expect(panel.getByText("Verified.")).toBeVisible({ timeout: 60_000 });
 
-      // A tab under a different origin than the assistant target -> mismatch banner.
+      // A tab under a different origin than the assistant target -> the collapsed one-line
+      // mismatch state (the full amber comparison lives behind Details).
       const tab = await context.newPage();
       await tab.goto("https://example.com/", { timeout: 30_000 });
       await tab.bringToFront();
-      await expect(panel.getByText("This tab does not match the assistant target.")).toBeVisible({
+      await expect(panel.getByText(/Not a play42 page\./)).toBeVisible({
         timeout: 30_000,
       });
       await tab.close();

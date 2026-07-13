@@ -380,7 +380,7 @@ export function TargetBanner({
             </span>
           ) : null}
         </div>
-        {active.can_verify ? (
+        {!compact && active.can_verify ? (
           <button
             type="button"
             onClick={() => void verify()}
@@ -419,8 +419,13 @@ export function TargetBanner({
           <span className="text-emerald-600">This tab matches the assistant target.</span>
         ) : tab === "mismatch" ? (
           <div className="space-y-0.5">
-            <span className="text-amber-600">
-              This tab does not match the assistant target.{" "}
+            {/* Neutral while collapsed: on an unrelated page nothing is WRONG — the warning tone
+                is reserved for the expanded view, where the near-miss case (wrong instance of the
+                same product) is what the tab/target comparison exists to expose. */}
+            <span className={compact ? "" : "text-amber-600"}>
+              {compact
+                ? `Not a ${active.name ?? "target"} page. `
+                : "This tab does not match the assistant target. "}
               <button
                 type="button"
                 data-testid="target-details-toggle"

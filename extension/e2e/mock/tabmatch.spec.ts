@@ -41,12 +41,12 @@ test("mismatch then matched tab drive the banner state", async ({ context, exten
   const tab = await context.newPage();
   await tab.goto(`${other.baseUrl()}/some/page`);
   await tab.bringToFront();
-  await expect(panel.getByText("This tab does not match the assistant target.")).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(panel.getByText(/Not a play42 page\./)).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText("auth: basic")).toHaveCount(0);
   await expect(panel.getByText(/^source: /)).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Verify" })).toHaveCount(0);
   await panel.getByTestId("target-details-toggle").click();
+  await expect(panel.getByText("This tab does not match the assistant target.")).toBeVisible();
   await expect(panel.getByText("auth: basic")).toBeVisible();
   await panel.getByTestId("target-details-toggle").click(); // collapse again before the match step
 
