@@ -391,6 +391,12 @@ export class TargetSiteMock {
   infoBody: Record<string, unknown> = { version: "2.42", systemName: "Play Sierra Leone" };
   /** POST /api/apiToken outcome: a 2xx body that carries the token, or an error status. */
   tokenResponse: { status: number; body: unknown } = { status: 200, body: { response: { key: "d2p_test", uid: "u1" } } };
+  /** No live session: the probe endpoints 401, standing in for a logged-out browser (the probe
+   *  reports unauthenticated, so the pre-mint session check should short-circuit to sign-in). */
+  loggedOut = false;
+  /** Session raced away after the probe: POST /api/apiToken 302-redirects to the login page (fetch
+   *  follows it into HTML), the no-session shape the mint itself must recognize. */
+  tokenLoginRedirect = false;
   /** Revoke calls observed (the DELETE path). */
   deleteCalls: string[] = [];
   /** Raw POST /api/apiToken bodies observed. */
@@ -400,6 +406,8 @@ export class TargetSiteMock {
     this.meBody = { name: "Admin User", username: "admin" };
     this.infoBody = { version: "2.42", systemName: "Play Sierra Leone" };
     this.tokenResponse = { status: 200, body: { response: { key: "d2p_test", uid: "u1" } } };
+    this.loggedOut = false;
+    this.tokenLoginRedirect = false;
     this.deleteCalls = [];
     this.mintCalls = [];
   }
@@ -438,16 +446,35 @@ export class TargetSiteMock {
     const method = req.method ?? "GET";
 
     if (path === "/api/me.json" && method === "GET") {
+      if (this.loggedOut) {
+        this.json(res, 401, { detail: "unauthorized" });
+        return;
+      }
       this.json(res, 200, this.meBody);
       return;
     }
     if (path === "/api/system/info.json" && method === "GET") {
+      if (this.loggedOut) {
+        this.json(res, 401, { detail: "unauthorized" });
+        return;
+      }
       this.json(res, 200, this.infoBody);
       return;
     }
     if (path === "/api/apiToken" && method === "POST") {
       this.mintCalls.push(await readBody(req));
+      if (this.loggedOut || this.tokenLoginRedirect) {
+        // Stand in for DHIS2 bouncing an unauthenticated POST to its login page; fetch follows the
+        // 302 with a GET, landing on the HTML login page below (res.redirected + non-JSON body).
+        res.writeHead(302, { Location: "/dhis-web-login/" }).end();
+        return;
+      }
       this.json(res, this.tokenResponse.status, this.tokenResponse.body);
+      return;
+    }
+    if (path === "/dhis-web-login/" && method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<!doctype html><title>Log in</title><body>Please sign in.</body>`);
       return;
     }
     if (path.startsWith("/api/apiToken/") && method === "DELETE") {

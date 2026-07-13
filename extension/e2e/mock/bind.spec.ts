@@ -1,7 +1,8 @@
 // "Use my login" bind flow: the panel mints a scoped credential in the target site's own context
 // (its cookies) and hands heim only the secret. Drives the flow against a HeimMock (the bind
 // endpoint) plus a TargetSiteMock (a stand-in DHIS2 the content tab opens): consent copy, a happy
-// PAT mint, the 404 -> session-fallback and 401 -> sign-in branches, and unbind (revoke + call).
+// PAT mint, the 404 -> session-fallback and 401 -> sign-in branches, the no-session cases (probe
+// short-circuit + in-page login-redirect detection), and unbind (revoke + call).
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
 import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
@@ -84,6 +85,32 @@ test("apiToken 401 prompts sign-in", async ({ context, extensionId }) => {
 
   await expect(panel.getByTestId("bind-unauthenticated")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText(/Sign in to play42 in this tab first/)).toBeVisible();
+  await tab.close();
+});
+
+test("no live session: probe short-circuits to sign-in without hitting apiToken", async ({ context, extensionId }) => {
+  target.loggedOut = true;
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+  await panel.getByTestId("bind-use-my-login").click();
+  await panel.getByTestId("bind-confirm").click();
+
+  await expect(panel.getByTestId("bind-unauthenticated")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(/Sign in to play42 in this tab first/)).toBeVisible();
+  // The pre-mint session check caught the no-session state, so the mint endpoint was never called.
+  expect(target.mintCalls.length).toBe(0);
+  await tab.close();
+});
+
+test("session raced away: a mint login redirect lands on the sign-in stage", async ({ context, extensionId }) => {
+  target.tokenLoginRedirect = true;
+  const { panel, tab } = await openWithTargetTab(context, extensionId);
+  await panel.getByTestId("bind-use-my-login").click();
+  await panel.getByTestId("bind-confirm").click();
+
+  await expect(panel.getByTestId("bind-unauthenticated")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(/Sign in to play42 in this tab first/)).toBeVisible();
+  // The probe still saw a live session, so the mint ran and the login redirect was detected in-page.
+  expect(target.mintCalls.length).toBeGreaterThan(0);
   await tab.close();
 });
 

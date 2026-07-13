@@ -103,13 +103,24 @@ export function BindFlow({
       setStage({ kind: "error", message: "No active web tab to mint the token in." });
       return;
     }
+    // Sign in first: an unauthenticated in-tab mint POST is redirected to the login page and comes
+    // back as an opaque `status: 0` — useless guidance. When the assistant declared a session probe,
+    // check for a live session up front and route straight to the sign-in stage, skipping the mint.
+    // resolveSession returns null when no probe is declared (or no tab), so a probe-less assistant is
+    // never blocked here.
+    setStage({ kind: "working", label: "Checking your session…" });
+    const session = await resolveSession();
+    if (session && "error" in session) {
+      setStage({ kind: "unauthenticated" });
+      return;
+    }
     setStage({ kind: "working", label: "Requesting a token in this tab…" });
     const writes = writable && allowWrites;
     const methods = writes ? recipe.methodsFull : recipe.methodsReadonly;
     // DHIS2's `expire` is an ABSOLUTE epoch-ms timestamp; compute once and reuse for the binding.
     const expiresMs = Date.now() + recipe.expiresInDays * 86_400_000;
     const mint = await executeMint(tabId, basePath, recipe, methods, expiresMs);
-    const cls = classifyMint(mint.status, mint.token);
+    const cls = classifyMint(mint.status, mint.token, mint.loginRedirect);
     if (cls === "minted") {
       setStage({ kind: "working", label: "Installing the token…" });
       const res = await postBindTo(target, recipe.mintMode, mint.token);
@@ -129,10 +140,17 @@ export function BindFlow({
       setStage({ kind: "fallback" });
       return;
     }
-    setStage({
-      kind: "error",
-      message: mint.error ? `Could not mint a token: ${mint.error}.` : `Token request failed (status ${mint.status}).`,
-    });
+    // A residual status 0 with no redirect signal is ambiguous: either this tab isn't signed in, or
+    // the tab/instance is unreachable. Name both causes and point at the realistic fix.
+    let message: string;
+    if (mint.error) {
+      message = `Could not mint a token: ${mint.error}.`;
+    } else if (mint.status === 0) {
+      message = `The token request did not go through. This tab may not be signed in to ${targetName}, or the instance is unreachable — sign in on ${baseUrl} and try again.`;
+    } else {
+      message = `Token request failed (status ${mint.status}).`;
+    }
+    setStage({ kind: "error", message });
   }
 
   // MUST be invoked directly from the click handler: chrome.permissions.request needs the user

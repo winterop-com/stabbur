@@ -90,15 +90,21 @@ export interface MintResult {
   status: number;
   token: string;
   credentialId: string;
+  /** Set when the POST was redirected to a login page (no live session) rather than answered. A
+   *  no-session mint often comes back as an opaque `status: 0`, so this flag — not the status —
+   *  distinguishes it from a genuine transport failure. */
+  loginRedirect?: boolean;
   /** Set when the mint never ran (bad path / tab mismatch / injection failure). */
   error?: string;
 }
 
 export type MintClass = "minted" | "unauthenticated" | "unsupported" | "forbidden" | "error";
 
-/** Classify a mint attempt from its HTTP status + whether a token came back. */
-export function classifyMint(status: number, token: string): MintClass {
+/** Classify a mint attempt from its HTTP status, whether a token came back, and whether the POST
+ *  was redirected to a login page (the no-session signal that arrives as an opaque status 0). */
+export function classifyMint(status: number, token: string, loginRedirect = false): MintClass {
   if (status >= 200 && status < 300 && token) return "minted";
+  if (loginRedirect) return "unauthenticated";
   if (status === 401) return "unauthenticated";
   if (status === 404 || status === 405 || status === 501) return "unsupported";
   if (status === 403) return "forbidden";
@@ -114,7 +120,7 @@ async function mintInPage(
   payload: string,
   tokenField: string,
   idField: string,
-): Promise<{ status: number; token: string; credentialId: string }> {
+): Promise<{ status: number; token: string; credentialId: string; loginRedirect: boolean }> {
   function walk(obj: unknown, dotted: string): string {
     if (!dotted) return "";
     let cur: unknown = obj;
@@ -123,6 +129,13 @@ async function mintInPage(
       cur = (cur as Record<string, unknown>)[seg];
     }
     return typeof cur === "string" ? cur : "";
+  }
+  function pathOf(u: string): string {
+    try {
+      return new URL(u).pathname;
+    } catch {
+      return "";
+    }
   }
   try {
     const res = await fetch(url, {
@@ -133,16 +146,25 @@ async function mintInPage(
     });
     let token = "";
     let credentialId = "";
+    let parsedJson = false;
     try {
       const body = (await res.json()) as unknown;
+      parsedJson = true;
       token = walk(body, tokenField);
       credentialId = walk(body, idField);
     } catch {
       // Non-JSON body -> no token extracted; status still classifies the outcome.
     }
-    return { status: res.status, token, credentialId };
+    // No live session: DHIS2 302s the unauthenticated POST to its login page, which fetch follows.
+    // The tell is res.redirected (or a final URL on a different path than we posted to) landing on a
+    // page that isn't the JSON mint response. Never flag it when a token actually came back.
+    const reqPath = pathOf(url);
+    const resPath = pathOf(res.url);
+    const redirectedAway = res.redirected || (resPath !== "" && reqPath !== "" && resPath !== reqPath);
+    const loginRedirect = redirectedAway && !parsedJson && !token;
+    return { status: res.status, token, credentialId, loginRedirect };
   } catch {
-    return { status: 0, token: "", credentialId: "" };
+    return { status: 0, token: "", credentialId: "", loginRedirect: false };
   }
 }
 
@@ -185,7 +207,9 @@ export async function executeMint(
       args: [url, mint.method || "POST", payload, mint.tokenField, mint.idField],
       world: "MAIN",
     });
-    const r = result?.result as { status: number; token: string; credentialId: string } | undefined;
+    const r = result?.result as
+      | { status: number; token: string; credentialId: string; loginRedirect?: boolean }
+      | undefined;
     return r ?? { status: 0, token: "", credentialId: "", error: "no result" };
   } catch {
     return { status: 0, token: "", credentialId: "", error: "injection failed" };
