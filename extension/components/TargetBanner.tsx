@@ -29,8 +29,12 @@ interface TargetBannerProps {
   /** Re-fetch assistant metadata with ?verify=1; lifts the updated record into the parent and
    *  returns it. */
   onVerify: () => Promise<AssistantInfo | null>;
-  /** Read the user's session on the active tab. */
+  /** Read the user's session on the active tab (explicit "Who am I here?" button — force-probes,
+   *  bypassing the cache). */
   onWhoAmI: () => Promise<SessionResult>;
+  /** Passive session read (uses the shared 60s cache): the auto-probe on panel open and the bind
+   *  flow's pre-mint gate both go through this so one panel-open resolves the session once. */
+  probeSession: () => Promise<SessionResult>;
   /** Resolve the active web tab's id (mint/revoke injection target). */
   getActiveTabId: () => Promise<number | null>;
 }
@@ -80,6 +84,7 @@ export function TargetBanner({
   captureTarget,
   onVerify,
   onWhoAmI,
+  probeSession,
   getActiveTabId,
 }: TargetBannerProps) {
   const [verifying, setVerifying] = useState(false);
@@ -101,13 +106,13 @@ export function TargetBanner({
   const [confirmUnbind, setConfirmUnbind] = useState(false);
   const [unbinding, setUnbinding] = useState(false);
   // One auto-probe per (backend, tab url): drift re-check on panel open without re-probing on every
-  // render (onWhoAmI's identity changes each parent render).
+  // render (probeSession's identity changes each parent render).
   const autoProbedKey = useRef<string | null>(null);
-  // onWhoAmI is a fresh closure each parent render; hold it in a ref so the auto-probe effect can
-  // call the latest one without listing it as a dep (which would re-run — and cancel — the probe on
-  // every unrelated re-render).
-  const onWhoAmIRef = useRef(onWhoAmI);
-  onWhoAmIRef.current = onWhoAmI;
+  // probeSession is a fresh closure each parent render; hold it in a ref so the auto-probe effect
+  // can call the latest one without listing it as a dep (which would re-run — and cancel — the probe
+  // on every unrelated re-render).
+  const probeSessionRef = useRef(probeSession);
+  probeSessionRef.current = probeSession;
 
   // The parent owns the assistant record now (onVerify lifts the refreshed one up), so there is no
   // local shadow to sync — just clear a stale verify error when the record swaps.
@@ -175,28 +180,42 @@ export function TargetBanner({
     tab === "matched" &&
     recipe?.mint != null &&
     binding.mode !== recipe.fallbackMode;
+  // The upgrade re-mints regardless, but only a binding that carries a credential id can have its
+  // old read-only token auto-revoked. When there is none (older/probe-less bind), the upgrade card
+  // says so instead of the false "the old token will be revoked" promise — and confirmMint's revoke
+  // guard already skips a missing id, so nothing is silently half-done.
+  const upgradeCredentialId = binding?.credentialId ?? "";
 
   // The auto-offer opens the SAME bind consent card as the manual button; drift (a binding whose
-  // user no longer matches the tab) re-offers a rebind with a clearly worded heading.
+  // user no longer matches the tab) re-offers a rebind, and an expired-but-same-user binding
+  // re-offers with rebind framing too (ROADMAP: auto-offer on "no (or stale) binding").
   const driftRebind = binding !== null && usernameMismatch;
   const offerHeadline = driftRebind
     ? `You are now signed in as ${sessionInfo?.username || sessionInfo?.name || "a different user"}; rebind?`
-    : `Use your ${targetName} login?`;
+    : expired
+      ? `Your ${targetName} login expired; rebind?`
+      : `Use your ${targetName} login?`;
 
   // Auto-probe on panel open against a matched tab: this is the drift re-check (compare the live
   // browser identity against binding.username) and the identity the auto-offer needs. Guarded to run
-  // once per (backend, tab url) so it doesn't re-fire on every parent re-render.
+  // once per (backend, tab url). Depends on a stable `hasProbe` scalar (not the probe OBJECT, whose
+  // identity changes when the parent re-fetches the assistant) so an unrelated re-fetch can't cancel
+  // an in-flight probe. The key is marked ONLY after a completed, non-cancelled resolve — a
+  // cancelled probe (tab navigation, assistant swap) must not permanently suppress re-probing.
+  const hasProbe = assistant?.probe != null;
   useEffect(() => {
-    if (!assistant?.probe || tab !== "matched" || !tabUrl) return;
+    if (!hasProbe || tab !== "matched" || !tabUrl) return;
     const probeKey = `${backendId}|${tabUrl}`;
     if (autoProbedKey.current === probeKey) return;
-    autoProbedKey.current = probeKey;
     let cancelled = false;
     setLoadingSession(true);
-    void onWhoAmIRef
+    void probeSessionRef
       .current()
       .then((r) => {
-        if (!cancelled) setSession(r);
+        if (!cancelled) {
+          setSession(r);
+          autoProbedKey.current = probeKey; // mark only now: a cancelled probe stays re-probable
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingSession(false);
@@ -204,7 +223,7 @@ export function TargetBanner({
     return () => {
       cancelled = true;
     };
-  }, [assistant?.probe, tab, tabUrl, backendId]);
+  }, [hasProbe, tab, tabUrl, backendId]);
 
   // Proactive "use your login?" offer: on a matched tab with a live identity and no usable binding
   // (none, or one that drifted to a different user), open the consent card automatically — unless the
@@ -214,13 +233,15 @@ export function TargetBanner({
     if (!bindLoaded || !canBind || tab !== "matched" || showBindFlow) return;
     if (!sessionInfo || !sessionInfo.username) return; // need a real, named identity to offer/attribute
     const noBinding = binding === null;
-    if (!noBinding && !driftRebind) return; // fresh binding, same user -> silent reuse, no nag
+    // Offer on: no binding, drift (different user now), or an expired/stale same-user binding.
+    // A fresh binding for the still-signed-in user is silently reused (no nag).
+    if (!noBinding && !driftRebind && !expired) return;
     const declined =
       dismissed !== null && dismissed.username === sessionInfo.username && dismissed.targetBaseUrl === (baseUrl ?? "");
     if (declined) return;
     setBindFlowSource("auto");
     setShowBindFlow(true);
-  }, [bindLoaded, canBind, tab, showBindFlow, sessionInfo, binding, driftRebind, dismissed, baseUrl]);
+  }, [bindLoaded, canBind, tab, showBindFlow, sessionInfo, binding, driftRebind, expired, dismissed, baseUrl]);
 
   if (assistant === null) return null;
   const active = assistant;
@@ -309,6 +330,17 @@ export function TargetBanner({
   }
 
   async function onBound(boundBackendId: string): Promise<void> {
+    // Refresh the binding from the authoritative store BEFORE clearing showBindFlow. The `binding`
+    // state otherwise only updates via the async watchBinding storage listener, which has not fired
+    // yet — so clearing showBindFlow would re-run the auto-offer effect with binding still null and
+    // immediately reopen the consent card (a card that never closes). Setting it here first means
+    // the effect sees the fresh, same-user binding and stays silent. watchBinding remains the
+    // ongoing sync.
+    const b = await getBinding(boundBackendId);
+    if (b) {
+      setBinding(b);
+      setBindingStale(false);
+    }
     setShowBindFlow(false);
     setBindFlowSource(null);
     // A successful bind supersedes any remembered decline for this backend.
@@ -317,7 +349,6 @@ export function TargetBanner({
     const updated = await verify(); // re-probe: the freshly-bound credential changes what verify reports
     // Probe-less bind (no session read to name the user): adopt a username from the verify payload
     // when the stored binding has none, so "Acting as <user>" is not left blank.
-    const b = await getBinding(boundBackendId);
     if (b && !b.username) {
       const vflat = updated?.verified?.ok ? flattenVerifyData(updated.verified.data) : null;
       const uname = vflat && typeof vflat.username === "string" ? vflat.username : "";
@@ -427,7 +458,11 @@ export function TargetBanner({
               {formatSession(session as SessionInfo, active.probe?.label)}
             </span>
           ) : session && "error" in session ? (
-            <span className="text-amber-600">Not signed in on this tab.</span>
+            <span className="text-amber-600">
+              {session.error === "unauthenticated"
+                ? "Not signed in on this tab."
+                : "Could not read your session on this tab."}
+            </span>
           ) : null}
         </div>
       ) : null}
@@ -460,7 +495,11 @@ export function TargetBanner({
                     <Pencil className="h-3 w-3" /> Enable writes
                   </button>
                 ) : null}
-                {recipe ? (
+                {/* While a bind card is open, hide the entry buttons that would open a competing
+                    card or mutate the binding underneath it (Rebind, Unbind). Enable-writes stays —
+                    it is the legitimate escalation the remount-on-source-switch (key) now handles
+                    correctly. */}
+                {recipe && !showBindFlow ? (
                   <button
                     type="button"
                     onClick={openManualBind}
@@ -469,7 +508,7 @@ export function TargetBanner({
                     Rebind
                   </button>
                 ) : null}
-                {confirmUnbind ? (
+                {showBindFlow ? null : confirmUnbind ? (
                   <>
                     <button
                       type="button"
@@ -523,12 +562,17 @@ export function TargetBanner({
           )}
 
           {showBindFlow && recipe && baseUrl ? (
+            // key={bindFlowSource}: remount on a mode switch (manual <-> upgrade <-> auto) so the
+            // fresh source's initialAllowWrites/replaceCredentialId props seed a NEW instance's
+            // state. Without it, switching source on the mounted flow leaves allowWrites stale-false
+            // while replaceCredentialId updates -> a read-only mint that still revokes the old token.
             <BindFlow
+              key={bindFlowSource ?? "none"}
               assistant={active}
               recipe={recipe}
               basePath={baseUrl}
               captureTarget={captureTarget}
-              resolveSession={onWhoAmI}
+              resolveSession={probeSession}
               getActiveTabId={getActiveTabId}
               onBound={(id) => void onBound(id)}
               onCancel={closeBindFlow}
@@ -540,7 +584,10 @@ export function TargetBanner({
                     : undefined
               }
               initialAllowWrites={bindFlowSource === "upgrade"}
-              replaceCredentialId={bindFlowSource === "upgrade" ? (binding?.credentialId ?? undefined) : undefined}
+              replaceCredentialId={
+                bindFlowSource === "upgrade" && upgradeCredentialId ? upgradeCredentialId : undefined
+              }
+              replaceUnrevocable={bindFlowSource === "upgrade" && !upgradeCredentialId}
             />
           ) : null}
         </div>

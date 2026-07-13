@@ -41,6 +41,10 @@ interface BindFlowProps {
   /** Write-scope re-mint: the id of the existing read-only credential this bind replaces. Revoked
    *  (best-effort) only after the new, wider token is minted and installed. */
   replaceCredentialId?: string;
+  /** Write-scope re-mint where the replaced binding has NO credential id to revoke (an older bind,
+   *  or a probe-less mint). The upgrade still proceeds — the user needs writes — but the card must
+   *  say the old token can't be revoked automatically instead of falsely promising it will be. */
+  replaceUnrevocable?: boolean;
 }
 
 type Stage =
@@ -82,6 +86,7 @@ export function BindFlow({
   headline,
   initialAllowWrites,
   replaceCredentialId,
+  replaceUnrevocable,
 }: BindFlowProps) {
   // A session-only recipe (no PAT endpoint) opens straight at the session-fallback consent.
   const [stage, setStage] = useState<Stage>(recipe.mint ? { kind: "consent" } : { kind: "fallback" });
@@ -93,8 +98,11 @@ export function BindFlow({
     target: BindBackendTarget,
     mode: string,
     extra: { credentialId?: string; cookieName?: string; expiresAt?: number; writes?: boolean },
+    // A session already resolved by the caller (the mint path resolves it once for its pre-gate and
+    // threads it here) so we don't re-probe. Undefined -> resolve it now (the fallback path).
+    resolved?: SessionResult,
   ): Promise<void> {
-    const session = await resolveSession();
+    const session = resolved !== undefined ? resolved : await resolveSession();
     const signedIn = session && !("error" in session) ? session : null;
     const binding: Binding = {
       backendId: target.backendId,
@@ -121,10 +129,12 @@ export function BindFlow({
     // back as an opaque `status: 0` — useless guidance. When the assistant declared a session probe,
     // check for a live session up front and route straight to the sign-in stage, skipping the mint.
     // resolveSession returns null when no probe is declared (or no tab), so a probe-less assistant is
-    // never blocked here.
+    // never blocked here. Only a CONFIDENT logged-out signal blocks the mint; an ambiguous
+    // "probe_failed" (a 500, a network blip) falls through to the mint, whose own loginRedirect
+    // detection is the backstop — the mint can't leak anything, it only POSTs and classifies.
     setStage({ kind: "working", label: "Checking your session…" });
     const session = await resolveSession();
-    if (session && "error" in session) {
+    if (session && "error" in session && session.error === "unauthenticated") {
       setStage({ kind: "unauthenticated" });
       return;
     }
@@ -154,7 +164,14 @@ export function BindFlow({
           console.warn("heim: failed to revoke the replaced read-only token", err);
         }
       }
-      await saveBinding(target, recipe.mintMode, { credentialId: mint.credentialId, expiresAt: expiresMs, writes });
+      // Reuse the session already resolved by the pre-gate above (thread it through) so the binding's
+      // identity is recorded without a third probe of the same tab.
+      await saveBinding(
+        target,
+        recipe.mintMode,
+        { credentialId: mint.credentialId, expiresAt: expiresMs, writes },
+        session,
+      );
       onBound(target.backendId);
       return;
     }
@@ -257,6 +274,11 @@ export function BindFlow({
               <p data-testid="bind-remint-notice" className="mt-1">
                 A <strong className="text-[var(--foreground)]">new token replaces your current read-only one</strong>;
                 the old token is revoked after the new one is installed.
+              </p>
+            ) : replaceUnrevocable ? (
+              <p data-testid="bind-remint-notice" className="mt-1">
+                A <strong className="text-[var(--foreground)]">new token replaces your current read-only one</strong>.
+                Your previous token cannot be revoked automatically — revoke it in your {targetName} user settings.
               </p>
             ) : null}
           </div>

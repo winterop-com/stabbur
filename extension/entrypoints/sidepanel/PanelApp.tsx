@@ -161,6 +161,15 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     return cachedWhoAmI(tabId, true); // explicit button click always re-probes
   }
 
+  // Passive session read for the auto-probe on panel open and the bind flow's pre-mint gate: reuse
+  // the shared 60s cache so one panel-open resolves the session once instead of force-probing three
+  // times (auto-probe + gate + save).
+  async function probeSession(): Promise<SessionResult> {
+    const tabId = await activeTabId();
+    if (tabId === null) return null;
+    return cachedWhoAmI(tabId, false);
+  }
+
   // Snapshot the active heim backend when a bind flow starts, so a mid-flow backend switch can't
   // redirect the minted token to a different server (BindFlow freezes this at consent-confirm).
   function captureTarget(): BindBackendTarget {
@@ -226,6 +235,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
               })
             }
             onWhoAmI={onWhoAmI}
+            probeSession={probeSession}
             getActiveTabId={activeTabId}
           />
           <div className="min-h-0 flex-1">

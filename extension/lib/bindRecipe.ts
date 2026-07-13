@@ -157,11 +157,15 @@ async function mintInPage(
     }
     // No live session: DHIS2 302s the unauthenticated POST to its login page, which fetch follows.
     // The tell is res.redirected (or a final URL on a different path than we posted to) landing on a
-    // page that isn't the JSON mint response. Never flag it when a token actually came back.
+    // page that isn't the JSON mint response. Some deployments instead answer 200 with the HTML
+    // login page AT THE SAME PATH (no redirect at all) — a token-less non-JSON 2xx is that case, so
+    // treat it as the no-session signal too. Never flag it when a token actually came back. Mirror
+    // of sessionReads.runProbe's classifyFirst (non-JSON/redirect => unauthenticated); keep in sync.
     const reqPath = pathOf(url);
     const resPath = pathOf(res.url);
     const redirectedAway = res.redirected || (resPath !== "" && reqPath !== "" && resPath !== reqPath);
-    const loginRedirect = redirectedAway && !parsedJson && !token;
+    const loginSuspect = redirectedAway || res.ok; // a 2xx HTML body is a login page rendered in place
+    const loginRedirect = loginSuspect && !parsedJson && !token;
     return { status: res.status, token, credentialId, loginRedirect };
   } catch {
     return { status: 0, token: "", credentialId: "", loginRedirect: false };
