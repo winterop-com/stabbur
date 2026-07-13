@@ -4,6 +4,8 @@ import type { AssistantInfo } from "../lib/assistantApi";
 import {
   classifyMint,
   executeMint,
+  executeRevoke,
+  substitute,
   type BindRecipe,
 } from "../lib/bindRecipe";
 import { postBindTo, type BindApiResult, type BindTarget } from "../lib/bindApi";
@@ -33,6 +35,12 @@ interface BindFlowProps {
   /** Consent-card heading override. The auto-offer frames it as a question ("Use your <instance>
    *  login?" / "You are now signed in as <user>; rebind?"); the manual button leaves it default. */
   headline?: string;
+  /** Pre-check the "allow writes" toggle. Set by the explicit write-scope re-mint (the auto-offer
+   *  and manual bind always start unchecked — read-only first). */
+  initialAllowWrites?: boolean;
+  /** Write-scope re-mint: the id of the existing read-only credential this bind replaces. Revoked
+   *  (best-effort) only after the new, wider token is minted and installed. */
+  replaceCredentialId?: string;
 }
 
 type Stage =
@@ -72,10 +80,12 @@ export function BindFlow({
   onBound,
   onCancel,
   headline,
+  initialAllowWrites,
+  replaceCredentialId,
 }: BindFlowProps) {
   // A session-only recipe (no PAT endpoint) opens straight at the session-fallback consent.
   const [stage, setStage] = useState<Stage>(recipe.mint ? { kind: "consent" } : { kind: "fallback" });
-  const [allowWrites, setAllowWrites] = useState(false);
+  const [allowWrites, setAllowWrites] = useState(initialAllowWrites ?? false);
   const writable = assistant.readonly === false;
   const targetName = assistant.name ?? "the instance";
 
@@ -131,6 +141,18 @@ export function BindFlow({
       if (!res.ok) {
         setStage({ kind: "error", message: bindError(res) });
         return;
+      }
+      // Write-scope re-mint: the new, wider token is installed — now revoke the read-only credential
+      // it replaces. Order matters (revoke only AFTER a successful bind, never leaving zero valid
+      // tokens) and it is best-effort: a revoke failure is logged, not fatal, since the upgrade
+      // already succeeded.
+      if (replaceCredentialId && recipe.revokePath) {
+        setStage({ kind: "working", label: "Revoking the old read-only token…" });
+        try {
+          await executeRevoke(tabId, basePath, substitute(recipe.revokePath, { credentialId: replaceCredentialId }));
+        } catch (err) {
+          console.warn("heim: failed to revoke the replaced read-only token", err);
+        }
       }
       await saveBinding(target, recipe.mintMode, { credentialId: mint.credentialId, expiresAt: expiresMs, writes });
       onBound(target.backendId);
@@ -231,6 +253,12 @@ export function BindFlow({
               , expires in {recipe.expiresInDays} days, stored as a profile in the heim project. It is minted in this
               tab using your existing login and never leaves your browser except as the token heim stores.
             </p>
+            {replaceCredentialId ? (
+              <p data-testid="bind-remint-notice" className="mt-1">
+                A <strong className="text-[var(--foreground)]">new token replaces your current read-only one</strong>;
+                the old token is revoked after the new one is installed.
+              </p>
+            ) : null}
           </div>
           {writable ? (
             <label className="flex items-center gap-1.5 text-[var(--muted-foreground)]">

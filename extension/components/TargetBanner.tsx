@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, ExternalLink, Loader2, LogIn, ShieldCheck, User, UserCheck } from "lucide-react";
+import { BadgeCheck, ExternalLink, Loader2, LogIn, Pencil, ShieldCheck, User, UserCheck } from "lucide-react";
 import type { AssistantInfo } from "../lib/assistantApi";
 import { match } from "../lib/tabTarget";
 import { formatSession, type SessionInfo, type SessionResult } from "../lib/sessionReads";
@@ -94,8 +94,10 @@ export function TargetBanner({
   const [bindLoaded, setBindLoaded] = useState(false);
   const [showBindFlow, setShowBindFlow] = useState(false);
   // How the current bind flow was opened: "auto" (proactive offer — a cancel is remembered as a
-  // decline) vs "manual" (the button — a cancel is just a close). Null when no flow is open.
-  const [bindFlowSource, setBindFlowSource] = useState<"auto" | "manual" | null>(null);
+  // decline), "manual" (the button — a cancel is just a close), or "upgrade" (the explicit
+  // write-scope re-mint — writes pre-checked, revokes the old read-only token on success). Null when
+  // no flow is open.
+  const [bindFlowSource, setBindFlowSource] = useState<"auto" | "manual" | "upgrade" | null>(null);
   const [confirmUnbind, setConfirmUnbind] = useState(false);
   const [unbinding, setUnbinding] = useState(false);
   // One auto-probe per (backend, tab url): drift re-check on panel open without re-probing on every
@@ -159,6 +161,20 @@ export function TargetBanner({
     : false;
   const expiresPassed = typeof binding?.expiresAt === "number" && Date.now() > binding.expiresAt;
   const expired = binding !== null && (bindingStale || verifyExpired || usernameMismatch || expiresPassed);
+
+  // Explicit write-scope re-mint affordance: a PAT method scope is fixed at mint, so a cached
+  // read-only token cannot escalate. Offer an upgrade only when the assistant is write-enabled and
+  // the current binding is a PAT bind granted read-only. Never for a writes-scoped binding (no
+  // downgrade — keep the widest granted) nor for the session/fallback mode (a cookie cannot be
+  // method-scoped; its per-action confirmation gate is the guardrail). Needs a matched tab and a
+  // mint recipe (re-minting runs in the tab).
+  const canUpgradeWrites =
+    binding !== null &&
+    binding.writes !== true &&
+    assistant?.readonly === false &&
+    tab === "matched" &&
+    recipe?.mint != null &&
+    binding.mode !== recipe.fallbackMode;
 
   // The auto-offer opens the SAME bind consent card as the manual button; drift (a binding whose
   // user no longer matches the tab) re-offers a rebind with a clearly worded heading.
@@ -241,6 +257,14 @@ export function TargetBanner({
     void clearBindDismissal(backendId);
     setDismissed(null);
     setBindFlowSource("manual");
+    setShowBindFlow(true);
+  }
+
+  // Open the explicit write-scope re-mint: the same consent card, but framed as a re-mint with writes
+  // pre-checked and the replacement notice. A cancel is just a close (like manual), so no decline
+  // memory is written.
+  function openUpgradeBind(): void {
+    setBindFlowSource("upgrade");
     setShowBindFlow(true);
   }
 
@@ -426,6 +450,16 @@ export function TargetBanner({
                     - {binding.writes ? "writes enabled" : "read-only"}
                   </span>
                 </span>
+                {canUpgradeWrites ? (
+                  <button
+                    type="button"
+                    data-testid="bind-upgrade-writes"
+                    onClick={openUpgradeBind}
+                    className="inline-flex items-center gap-1 rounded border border-[var(--primary)] px-2 py-0.5 text-[var(--foreground)] hover:bg-[var(--accent)]"
+                  >
+                    <Pencil className="h-3 w-3" /> Enable writes
+                  </button>
+                ) : null}
                 {recipe ? (
                   <button
                     type="button"
@@ -498,7 +532,15 @@ export function TargetBanner({
               getActiveTabId={getActiveTabId}
               onBound={(id) => void onBound(id)}
               onCancel={closeBindFlow}
-              headline={bindFlowSource === "auto" ? offerHeadline : undefined}
+              headline={
+                bindFlowSource === "auto"
+                  ? offerHeadline
+                  : bindFlowSource === "upgrade"
+                    ? `Re-mint your ${targetName} token with write access?`
+                    : undefined
+              }
+              initialAllowWrites={bindFlowSource === "upgrade"}
+              replaceCredentialId={bindFlowSource === "upgrade" ? (binding?.credentialId ?? undefined) : undefined}
             />
           ) : null}
         </div>
