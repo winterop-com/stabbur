@@ -76,3 +76,66 @@ def test_resolve_merges_global_then_project(tmp_path: Path, monkeypatch: pytest.
     mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
     assert resolved == {"datetime": "heim-mcp-datetime", "search": "proj-search", "files": "heim-mcp-files"}
+
+
+# --- disable marker ("<name>": null / {"disabled": true}) -----------------------------------
+
+
+def test_null_marker_tolerated_and_not_a_server(tmp_path: Path) -> None:
+    # A ``null`` value disables the name: it is tolerated (no parse error) and yields no server.
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"datetime": {"command": "heim-mcp-datetime"}, "playwright": None}})
+    )
+    servers = mcpservers.read_project(tmp_path)
+    assert [s.name for s in servers] == ["datetime"]  # the null entry is not a server
+
+
+def test_disabled_true_marker_tolerated_and_not_a_server(tmp_path: Path) -> None:
+    # A ``{"disabled": true}`` value disables the name; extra fields (a stray command) are ignored.
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "datetime": {"command": "heim-mcp-datetime"},
+                    "playwright": {"disabled": True, "command": "bunx @playwright/mcp"},
+                }
+            }
+        )
+    )
+    servers = mcpservers.read_project(tmp_path)
+    assert [s.name for s in servers] == ["datetime"]  # disabled wins over the leftover command
+
+
+def test_project_disable_drops_a_global_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A machine-global server the project marks disabled is removed from the resolved set.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="playwright", command="bunx", args=["@playwright/mcp"]), glob=True)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {"disabled": True}}}))
+    resolved = {s.name for s in mcpservers.resolve(proj)}
+    assert resolved == {"datetime"}  # the disabled global is gone, the rest stays
+
+
+def test_disabled_global_is_dropped_outright(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A disable marker in the GLOBAL file drops that name outright — it never enters the merged set.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    (mcpservers.global_path()).parent.mkdir(parents=True, exist_ok=True)
+    mcpservers.global_path().write_text(
+        json.dumps({"mcpServers": {"datetime": {"command": "heim-mcp-datetime"}, "playwright": None}})
+    )
+    assert [s.name for s in mcpservers.read_global()] == ["datetime"]
+    resolved = {s.name for s in mcpservers.resolve(tmp_path / "proj")}
+    assert resolved == {"datetime"}
+
+
+def test_normal_entries_unaffected_by_disable_support(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # With no disable markers present, resolve() behaves exactly as before (global then project merge).
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=proj)
+    resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
+    assert resolved == {"datetime": "heim-mcp-datetime", "files": "heim-mcp-files"}
