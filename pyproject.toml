@@ -100,9 +100,9 @@ web = [
 benchmark = []
 
 [project.urls]
-Homepage = "https://winterop-com.github.io/heim/"
+Homepage = "https://github.com/winterop-com/heim"
 Repository = "https://github.com/winterop-com/heim"
-Documentation = "https://winterop-com.github.io/heim/"
+Documentation = "https://github.com/winterop-com/heim/tree/main/docs"
 Issues = "https://github.com/winterop-com/heim/issues"
 
 [project.scripts]

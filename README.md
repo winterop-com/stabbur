@@ -1,12 +1,12 @@
 # heim
 
 [![CI](https://github.com/winterop-com/heim/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/heim/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fheim-2b7489)](https://winterop-com.github.io/heim/)
+[![Docs](https://img.shields.io/badge/docs-in--repo-2b7489)](docs/)
 [![Python](https://img.shields.io/badge/python-3.13-3776ab)](https://www.python.org/)
 [![Packaging](https://img.shields.io/badge/install-uv-6340ac)](https://docs.astral.sh/uv/)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
-**Documentation: <https://winterop-com.github.io/heim/>**
+**Documentation: [`docs/`](docs/)** — browse in-repo, or run `make docs` to serve the full site locally.
 
 A tool for building and keeping a **full local library of LLM models**. It
 discovers models from **Hugging Face**, **Ollama**, and **LM Studio**, pulls
@@ -101,7 +101,7 @@ The web UI's **Library** lists both families; the **Voice** studio does TTS/STT
 dictate with the mic (Whisper), and **read replies aloud** (Kokoro by default). See
 the [voice guide](docs/guides/voice.md).
 
-Full docs: **<https://winterop-com.github.io/heim/>** (or `make docs` to serve locally) —
+Full docs: **[`docs/`](docs/)** (run `make docs` to serve the site locally) —
 getting started, the library, pulling, running & chatting, the web UI, the Chrome side panel,
 the DHIS2 assistant, and the architecture.
 
@@ -132,8 +132,8 @@ cd extension && bun install && bun run build          # -> extension/.output/chr
 # chrome://extensions -> Load unpacked -> the built dir; then `heim serve` and open the panel
 ```
 
-See the [Chrome side panel guide](https://winterop-com.github.io/heim/guides/extension/) and
-the [verified prompt catalog](https://winterop-com.github.io/heim/guides/extension-prompts/).
+See the [Chrome side panel guide](docs/guides/extension.md) and
+the [verified prompt catalog](docs/guides/extension-prompts.md).
 
 ## Configuration
 
