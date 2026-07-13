@@ -71,6 +71,21 @@ def test_project_tables_do_not_break_settings(tmp_path: Path, monkeypatch: pytes
     assert settings.library_root == Path("/data/library")
 
 
+def test_assistants_array_does_not_break_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The [[assistants]] array-of-tables belongs to heim.project; Settings must ignore it (extra="ignore")
+    # rather than error on the unknown top-level key, just like [project]/[[mcp]].
+    _write_toml(
+        tmp_path,
+        'library_root = "/data/library"\n[project]\nmodel = "m"\n'
+        '[[assistants]]\nname = "play42"\nbase_url = "https://demo/dev-2-42"\nmcp_servers = ["play42"]\n'
+        '[[assistants]]\nname = "staging"\nbase_url = "https://demo/staging"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
+
+    assert Settings().library_root == Path("/data/library")
+
+
 def _machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
     """Write a machine config under an isolated XDG_CONFIG_HOME and point heim at it."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

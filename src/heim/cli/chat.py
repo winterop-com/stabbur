@@ -29,19 +29,44 @@ from heim.config import get_settings
 
 if TYPE_CHECKING:
     from heim import agent
+    from heim import tools as mcp_tools
     from heim.chat_tui.app import RemoteEndpoint
+    from heim.project import AssistantInfo
 
 
-def _confirm_policy(proj: "project.Project | None") -> Literal["all", "writes", "none"]:
-    """The tool-confirmation policy for a session, derived from the project's assistant.
+def _confirm_policy(assistant: "AssistantInfo | None") -> Literal["all", "writes", "none"]:
+    """The tool-confirmation policy for a session, derived from the resolved assistant target.
 
-    A write-enabled assistant (an ``[assistant]`` block that is not ``readonly``) gates its
-    non-read-only tool calls behind confirmation (``"writes"``); no project, no assistant, or a
-    read-only assistant gates nothing (``"none"`` — identical to the pre-confirmation behavior).
+    A write-enabled target (an assistant that is not ``readonly``) gates its non-read-only tool calls
+    behind confirmation (``"writes"``); no target, or a read-only one, gates nothing (``"none"`` —
+    identical to the pre-confirmation behavior).
     """
-    if proj is None or proj.assistant is None or proj.assistant.readonly:
+    if assistant is None or assistant.readonly:
         return "none"
     return "writes"
+
+
+def _resolve_target(proj: "project.Project | None", target_id: str | None) -> "tuple[AssistantInfo | None, str | None]":
+    """Resolve a ``--target`` id against the project registry: ``(assistant, resolved_id)``.
+
+    ``target_id=None`` picks the primary target (``resolved_id`` the primary's registry id); an explicit
+    id must exist in the registry (else exit). Free-play (no project / no assistant targets) returns
+    ``(None, None)`` — the full toolset — but an explicit ``--target`` there is a user error and exits.
+    """
+    registry = proj.registry if proj else None
+    if registry is None or not registry.targets:
+        if target_id is not None:
+            console.print(f"[red]No assistant targets defined[/] — [cyan]--target {target_id}[/] has nothing to pick.")
+            raise typer.Exit(1)
+        return None, None
+    if target_id is None:
+        return registry.primary, registry.ids[0]
+    resolved = registry.by_id(target_id)
+    if resolved is None:
+        known = ", ".join(registry.ids) or "(none)"
+        console.print(f"[red]Unknown target {target_id!r}.[/] Known targets: {known}.")
+        raise typer.Exit(1)
+    return resolved, target_id
 
 
 async def _approve_all(name: str, args: dict[str, Any]) -> bool:
@@ -102,6 +127,14 @@ def chat(
             "write-enabled assistant otherwise DENIES un-confirmable writes).",
         ),
     ] = False,
+    target: Annotated[
+        str | None,
+        typer.Option(
+            "--target",
+            help="Registry target id to route to (multi-target projects). Narrows tools to that target's "
+            "servers plus shared ones and uses its confirm policy; defaults to the primary target.",
+        ),
+    ] = None,
 ) -> None:
     """Chat with a library model: full-screen TUI, one-shot with ``-p``, tools with ``--mcp``.
 
@@ -113,12 +146,21 @@ def chat(
     tool schema instead of calling it).
     """
     proj = project.load()
+    # --target narrows the toolset (and derives the confirm policy) only on the scripted -p path for now;
+    # the interactive Textual TUI connects its own toolset and would gate on the target while still
+    # exposing sibling write tools, so refuse it there rather than half-apply it. (prompt is None == the
+    # interactive TUI, local or --server attach.)
+    if target is not None and prompt is None:
+        console.print("[red]--target requires -p for now[/] — the interactive chat TUI always uses the primary target.")
+        raise typer.Exit(1)
     model_name = project.resolve_model(name, proj)
-    # A write-enabled project assistant gates non-read-only tool calls. In this non-interactive
-    # one-shot there is no human to confirm, so a gated call is DENIED unless --allow-writes
-    # supplies a blanket auto-approve sink (with no project / no assistant / a read-only one the
-    # policy is "none" — nothing is gated, identical to today).
-    confirm_policy = _confirm_policy(proj)
+    # Resolve the registry target this session routes to (--target, else the primary): its readonly flag
+    # drives the confirm policy and its server set narrows the tools (below). A write-enabled target
+    # gates non-read-only tool calls; in this non-interactive one-shot there is no human to confirm, so a
+    # gated call is DENIED unless --allow-writes supplies a blanket auto-approve sink (with no project /
+    # no assistant / a read-only target the policy is "none" — nothing is gated, identical to today).
+    resolved_target, resolved_target_id = _resolve_target(proj, target)
+    confirm_policy = _confirm_policy(resolved_target)
     # Attach to a running server (--server > HEIM_CHAT_SERVER / machine config) instead of
     # spawning a runtime — the interactive TUI and one-shot -p both. For the interactive
     # attach the model may exist only on the server, so local resolution is best-effort
@@ -143,8 +185,17 @@ def chat(
     # (name, argv, env) per server. A bare --mcp value resolves against advertised servers
     # (so `--mcp datetime` finds heim-mcp-datetime), else it's used verbatim as a command;
     # the rest come from the resolved mcp.json layers (global + project, see heim.mcpservers).
+    resolved_servers = mcpservers.resolve() if tools else []
     mcp_servers: list[tuple[str | None, list[str], dict[str, str]]] = (
-        [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in mcpservers.resolve()] if tools else []
+        [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in resolved_servers] if tools else []
+    )
+    # Per-target routing table (id -> owned tool prefixes); --target narrows the connected toolset to its
+    # servers + shared ones. Built by the one production helper the serve lifespan uses, so the CLI and
+    # web narrow identically. Empty outside a project → no narrowing (full toolset).
+    from heim import tools as mcp_tools  # noqa: PLC0415
+
+    target_routing = (
+        mcp_tools.build_target_routing(resolved_servers, proj.registry) if proj else mcp_tools.TargetRouting()
     )
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     # Capabilities are unknowable without a local copy (remote attach): load media unwarned.
@@ -204,6 +255,8 @@ def chat(
                 render=render,
                 on_confirm=_approve_all if allow_writes else None,
                 confirm_policy=confirm_policy,
+                target_routing=target_routing,
+                target_id=resolved_target_id,
             )
     except (RuntimeError, httpx.HTTPError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
@@ -385,6 +438,8 @@ def _chat_with_tools(
     render: bool = False,
     on_confirm: "agent.ConfirmSink | None" = None,
     confirm_policy: Literal["all", "writes", "none"] = "none",
+    target_routing: "mcp_tools.TargetRouting | None" = None,
+    target_id: str | None = None,
 ) -> None:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
@@ -393,6 +448,10 @@ def _chat_with_tools(
     (a running ``heim serve``), the one-shot path attaches to that server — reusing its
     loaded model instead of spawning a runtime. With ``render`` set (interactive ``-p``),
     the answer is buffered and printed as rendered markdown instead of streamed raw.
+
+    ``target_routing`` + ``target_id`` (a multi-target ``--target``) narrow the connected toolset to that
+    target's servers plus shared ones. This only reaches the scripted ``-p`` path — ``--target`` is refused
+    for the interactive Textual TUI (it connects its own toolset), so that path always uses the full set.
     """
     import asyncio  # noqa: PLC0415
 
@@ -482,6 +541,8 @@ def _chat_with_tools(
         nonlocal turn_labeled
         assert prompt is not None  # only entered when -p supplied a prompt
         async with mcp_tools.connect(servers) as toolset:
+            if target_routing is not None and target_id is not None:
+                toolset = mcp_tools.narrow_to_servers(toolset, target_routing, target_id)
             turn_labeled = True  # -p mode: stdout is just the answer, no label
             _think()
             await agent.run(

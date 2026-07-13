@@ -15,11 +15,15 @@ import sys
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from heim.mcpservers import McpServer
+    from heim.targets import AssistantRegistry
 
 _NAME_STRIP = re.compile(r"^(heim-mcp-|mcp-server-|mcp-)")
 
@@ -193,6 +197,18 @@ class MCPToolset:
         """Names of the available (namespaced) tools."""
         return [s["function"]["name"] for s in self.schemas]
 
+    def prefixes(self) -> set[str]:
+        """The server prefixes present in this toolset (the ``<prefix>`` of each ``<prefix>__<tool>``).
+
+        Lets a caller reason about tools *per server* (e.g. registry-target routing) without re-parsing
+        the ``__`` naming convention itself — the one place that knows the convention stays :meth:`add`.
+        """
+        return {name.split("__", 1)[0] for name in self._owner}
+
+    def names_for_prefixes(self, prefixes: set[str]) -> set[str]:
+        """Qualified tool names whose server prefix is in ``prefixes`` — a ready :meth:`subset` argument."""
+        return {name for name in self._owner if name.split("__", 1)[0] in prefixes}
+
     def is_readonly(self, name: str) -> bool:
         """Whether a namespaced tool is known read-only (its ``readOnlyHint`` annotation was True).
 
@@ -254,6 +270,91 @@ class MCPToolset:
             return payload
         data = getattr(result, "data", None)
         return data if data is not None else _result_text(result)
+
+
+class TargetRouting(BaseModel):
+    """Per-target tool-prefix ownership, computed once at startup and consumed by :func:`narrow_to_servers`.
+
+    ``explicit`` maps each registry target id to the set of tool *prefixes* it explicitly owns — its
+    ``mcp_servers`` names slugged to the **exact** prefix :func:`connect` namespaces them under (via
+    :func:`_server_prefix`, mirroring connect's duplicate-prefix suffixing). ``owns_all`` is the set of
+    target ids that declared no ``mcp_servers`` (empty) and therefore own *every* server — the compat
+    default. Keeping the explicit sets and the owns-all marker separate (rather than pre-expanding
+    owns-all to every prefix) is what lets a scoped sibling still see the shared/global servers: an
+    owns-all target contributes nothing to the "claimed" union, so unclaimed servers stay shared.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    explicit: dict[str, set[str]] = {}
+    owns_all: set[str] = set()
+
+    @property
+    def empty(self) -> bool:
+        """Whether no target is declared (free-play): narrowing is then a no-op."""
+        return not self.explicit and not self.owns_all
+
+
+def _prefix_by_name(resolved: "Sequence[McpServer]") -> dict[str, str]:
+    """Map each resolved server's ``.mcp.json`` name to the tool prefix :func:`connect` gives it.
+
+    Replays connect's assignment in the same order: the slug of a duplicate prefix is suffixed
+    ``prefix2`` / ``prefix3`` (two *different* names can slug to the same prefix — e.g. ``a-b`` and
+    ``a_b`` — and connect disambiguates the second, so this must too). Precedent: ``cli/project.py``.
+    """
+    used: dict[str, int] = {}
+    mapping: dict[str, str] = {}
+    for server in resolved:
+        base = _server_prefix(server.name, [server.command, *server.args])
+        n = used.get(base, 0)
+        used[base] = n + 1
+        mapping[server.name] = base if n == 0 else f"{base}{n + 1}"
+    return mapping
+
+
+def build_target_routing(resolved: "Sequence[McpServer]", registry: "AssistantRegistry") -> TargetRouting:
+    """The per-target routing table for a registry against the resolved MCP servers.
+
+    The one production builder shared by the serve lifespan (``app.state.target_routing``) and the CLI
+    ``heim chat --target`` path — so both narrow tools identically. Each target's raw ``mcp_servers``
+    names are mapped to the exact tool prefixes connect uses (:func:`_prefix_by_name`); a name that
+    resolves to no server is dropped. A target with no ``mcp_servers`` is recorded as owns-all.
+    """
+    name_to_prefix = _prefix_by_name(resolved)
+    explicit: dict[str, set[str]] = {}
+    owns_all: set[str] = set()
+    for target_id, target in zip(registry.ids, registry.targets, strict=True):
+        if target.mcp_servers:
+            explicit[target_id] = {name_to_prefix[n] for n in target.mcp_servers if n in name_to_prefix}
+        else:
+            owns_all.add(target_id)
+    return TargetRouting(explicit=explicit, owns_all=owns_all)
+
+
+def narrow_to_servers(toolset: MCPToolset, routing: TargetRouting, target_id: str) -> MCPToolset:
+    """Narrow ``toolset`` to ``target_id``'s servers plus any shared (unclaimed) servers.
+
+    Semantics for the turn's resolved ``target_id``:
+
+    - **owns-all** (declared no ``mcp_servers``) → the full toolset (it owns everything).
+    - **scoped** (explicit ``mcp_servers``) → its own prefixes *plus* the shared ones, where shared =
+      every prefix not in any target's *explicit* set. Owns-all targets claim nothing here, so a scoped
+      sibling still sees the global servers (``datetime``/``playwright``) instead of them being swallowed.
+
+    A single-target registry naturally resolves to the full toolset (owns-all → all; or, if it is scoped,
+    its explicit set already equals the whole claimed union so *everything else* is shared → still all).
+    Free-play (an empty routing) is a no-op. Routes through :meth:`MCPToolset.subset`, so the ``_readonly``
+    (confirmation-gate) metadata survives for every kept tool.
+    """
+    if routing.empty:
+        return toolset
+    if target_id in routing.owns_all:
+        return toolset
+    prefixes = toolset.prefixes()
+    explicit_union: set[str] = set().union(*routing.explicit.values()) if routing.explicit else set()
+    shared = prefixes - explicit_union
+    resolved = routing.explicit.get(target_id, set()) | shared
+    return toolset.subset(toolset.names_for_prefixes(resolved))
 
 
 @asynccontextmanager

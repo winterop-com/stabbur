@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, ExternalLink, Loader2, LogIn, Pencil, ShieldCheck, User, UserCheck } from "lucide-react";
-import type { AssistantInfo } from "../lib/assistantApi";
+import {
+  BadgeCheck,
+  ChevronDown,
+  ExternalLink,
+  Loader2,
+  LogIn,
+  Pencil,
+  ShieldCheck,
+  User,
+  UserCheck,
+} from "lucide-react";
+import type { AssistantTarget } from "../lib/assistantApi";
+import { TAB_MATCHED, TAB_MISMATCH_DETAIL, TAB_UNKNOWN, tabMismatchOneLiner } from "../lib/bannerText";
 import { match } from "../lib/tabTarget";
 import { formatSession, type SessionInfo, type SessionResult } from "../lib/sessionReads";
 import { executeRevoke, parseRecipe, substitute } from "../lib/bindRecipe";
@@ -21,15 +32,23 @@ import { postUnbind } from "../lib/bindApi";
 import { BindFlow, type BindBackendTarget } from "./BindFlow";
 
 interface TargetBannerProps {
-  assistant: AssistantInfo | null;
+  /** The selected assistant target this banner acts on (null when there is nothing to act on —
+   *  mid-tie or no registry; the parent renders the picker / nothing then). */
+  target: AssistantTarget | null;
   tabUrl: string | null;
-  /** The active backend id (scopes the per-backend binding record). */
+  /** The active backend id (with the target id, scopes the per-(backend,target) binding record). */
   backendId: string;
+  /** Bumped by the parent whenever a host-access grant may have landed (e.g. a Send-gesture
+   *  request was allowed) so the auto-probe re-runs instead of displaying a stale no_access. */
+  probeEpoch?: number;
+  /** True when the registry came from the 404-compat path: bind / verify use the /api/assistant*
+   *  routes instead of /api/assistants/{id}. */
+  compat: boolean;
   /** Snapshot the active heim backend for a bind flow (passed through to BindFlow). */
   captureTarget: () => BindBackendTarget;
-  /** Re-fetch assistant metadata with ?verify=1; lifts the updated record into the parent and
+  /** Re-fetch this target's metadata with ?verify=1; lifts the updated record into the parent and
    *  returns it. */
-  onVerify: () => Promise<AssistantInfo | null>;
+  onVerify: (targetId: string) => Promise<AssistantTarget | null>;
   /** Read the user's session on the active tab (explicit "Who am I here?" button — force-probes,
    *  bypassing the cache). */
   onWhoAmI: () => Promise<SessionResult>;
@@ -79,21 +98,29 @@ function openUrl(url: string): void {
 
 /** Assistant-target header: metadata, verification, tab-match, session info, and the login binding. */
 export function TargetBanner({
-  assistant,
+  target,
   tabUrl,
   backendId,
+  compat,
+  probeEpoch = 0,
   captureTarget,
   onVerify,
   onWhoAmI,
   probeSession,
   getActiveTabId,
 }: TargetBannerProps) {
+  // Local alias: the rest of the banner treats the selected target as "the assistant". `targetId` (the
+  // registry id) joins backendId to scope the per-target binding record and the bind/verify routes.
+  const assistant = target;
+  const targetId = target?.id ?? null;
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [session, setSession] = useState<SessionResult>(null);
   const [loadingSession, setLoadingSession] = useState(false);
-  // On a non-matching tab the target block collapses to its one-line state; Details expands it.
-  const [showDetails, setShowDetails] = useState(false);
+  // The target block is a compact status line by default in EVERY state; the chevron (target-expand)
+  // reveals the metadata, verify, session, and full binding controls. Collapsed on each mount (no
+  // persistence) so the block never eats the ~360px panel.
+  const [expanded, setExpanded] = useState(false);
   const [binding, setBinding] = useState<Binding | null>(null);
   const [bindingStale, setBindingStale] = useState(false);
   const [dismissed, setDismissed] = useState<BindDismissal | null>(null);
@@ -123,26 +150,35 @@ export function TargetBanner({
     setVerifyError(null);
   }, [assistant]);
 
-  // Load + track the per-backend binding; reset the transient bind UI on a backend switch.
+  // Load + track the per-(backend,target) binding; reset the transient bind UI on a backend/target
+  // switch. Skipped when there is no target to act on (mid-tie / no registry).
   useEffect(() => {
     setShowBindFlow(false);
     setBindFlowSource(null);
     setConfirmUnbind(false);
     setBindLoaded(false);
     autoProbedKey.current = null;
-    void Promise.all([getBinding(backendId), getBindingStale(backendId), getBindDismissal(backendId)]).then(
-      ([b, s, d]) => {
-        setBinding(b);
-        setBindingStale(s);
-        setDismissed(d);
-        setBindLoaded(true);
-      },
-    );
-    return watchBinding(backendId, (b, s) => {
+    if (targetId === null) {
+      setBinding(null);
+      setBindingStale(false);
+      setDismissed(null);
+      return;
+    }
+    void Promise.all([
+      getBinding(backendId, targetId),
+      getBindingStale(backendId, targetId),
+      getBindDismissal(backendId, targetId),
+    ]).then(([b, s, d]) => {
+      setBinding(b);
+      setBindingStale(s);
+      setDismissed(d);
+      setBindLoaded(true);
+    });
+    return watchBinding(backendId, targetId, (b, s) => {
       setBinding(b);
       setBindingStale(s);
     });
-  }, [backendId]);
+  }, [backendId, targetId]);
 
   const recipe = useMemo(() => parseRecipe(assistant?.bind ?? null), [assistant?.bind]);
   const verified = assistant?.verified ?? null;
@@ -152,8 +188,6 @@ export function TargetBanner({
   // below can depend on it — hooks must run before the assistant===null early return).
   const baseUrl = assistant && typeof assistant.base_url === "string" ? assistant.base_url : null;
   const tab = match(tabUrl, baseUrl);
-  // Collapse everything but the one-line mismatch notice on unrelated pages (Details expands).
-  const compact = tab === "mismatch" && !showDetails;
   const canBind = assistant?.can_bind === true && recipe !== null;
   const targetName = assistant?.name ?? "the instance";
 
@@ -201,6 +235,20 @@ export function TargetBanner({
       ? `Your ${targetName} login expired; rebind?`
       : `Use your ${targetName} login?`;
 
+  // A single amber line that pierces the collapsed banner so an expired/drift/sign-in/no-access hint
+  // is never hidden behind the chevron — the most urgent one wins. Suppressed while the bind card is
+  // open (it already frames the same drift/expiry) and when expanded (the detail below covers it).
+  const sessionError = session && "error" in session ? session.error : null;
+  const warningLine = driftRebind
+    ? `You are now signed in as ${sessionInfo?.username || sessionInfo?.name || "a different user"}; rebind?`
+    : expired
+      ? "Binding expired — rebind?"
+      : sessionError === "unauthenticated"
+        ? "Not signed in on this tab."
+        : sessionError === "no_access"
+          ? 'heim cannot read this page yet (API tools are unaffected) — click "Who am I here?" and allow page access.'
+          : null;
+
   // Auto-probe on panel open against a matched tab: this is the drift re-check (compare the live
   // browser identity against binding.username) and the identity the auto-offer needs. Guarded to run
   // once per (backend, tab url). Depends on a stable `hasProbe` scalar (not the probe OBJECT, whose
@@ -208,9 +256,13 @@ export function TargetBanner({
   // an in-flight probe. The key is marked ONLY after a completed, non-cancelled resolve — a
   // cancelled probe (tab navigation, assistant swap) must not permanently suppress re-probing.
   const hasProbe = assistant?.probe != null;
+  // localProbeNonce: bumped after a successful bind (the bind Confirm gesture may have just granted
+  // host access), so the guarded auto-probe re-runs instead of leaving a stale no_access line under
+  // a freshly bound, working panel. probeEpoch does the same for grants landed by the parent (Send).
+  const [localProbeNonce, setLocalProbeNonce] = useState(0);
   useEffect(() => {
-    if (!hasProbe || tab !== "matched" || !tabUrl) return;
-    const probeKey = `${backendId}|${tabUrl}`;
+    if (!hasProbe || tab !== "matched" || !tabUrl || targetId === null) return;
+    const probeKey = `${backendId}|${targetId}|${tabUrl}|${probeEpoch}|${localProbeNonce}`;
     if (autoProbedKey.current === probeKey) return;
     let cancelled = false;
     setLoadingSession(true);
@@ -228,7 +280,7 @@ export function TargetBanner({
     return () => {
       cancelled = true;
     };
-  }, [hasProbe, tab, tabUrl, backendId]);
+  }, [hasProbe, tab, tabUrl, backendId, targetId, probeEpoch, localProbeNonce]);
 
   // Proactive "use your login?" offer: on a matched tab with a live identity and no usable binding
   // (none, or one that drifted to a different user), open the consent card automatically — unless the
@@ -252,12 +304,12 @@ export function TargetBanner({
   const active = assistant;
   const verifiedOk = verified?.ok === true && !reportsFailure(flat);
 
-  async function verify(): Promise<AssistantInfo | null> {
+  async function verify(): Promise<AssistantTarget | null> {
     setVerifying(true);
     setVerifyError(null);
     try {
       // onVerify lifts the updated record into the parent's state (which re-renders us).
-      return await onVerify();
+      return await onVerify(active.id);
     } catch (err) {
       // The verify request itself failed (server restart, 401, 500) -- distinct from a
       // verified.ok=false outcome, which comes back as data.
@@ -285,7 +337,7 @@ export function TargetBanner({
   // Open the bind flow from the manual button/Rebind: an explicit re-engagement, so forget any
   // remembered decline (the auto-offer becomes eligible again).
   function openManualBind(): void {
-    void clearBindDismissal(backendId);
+    void clearBindDismissal(backendId, active.id);
     setDismissed(null);
     setBindFlowSource("manual");
     setShowBindFlow(true);
@@ -303,7 +355,12 @@ export function TargetBanner({
   // user (so we don't re-nag on the next open); a cancel of a MANUAL open is just a close.
   function closeBindFlow(): void {
     if (bindFlowSource === "auto" && sessionInfo?.username) {
-      const d: BindDismissal = { backendId, targetBaseUrl: baseUrl ?? "", username: sessionInfo.username };
+      const d: BindDismissal = {
+        backendId,
+        targetId: active.id,
+        targetBaseUrl: baseUrl ?? "",
+        username: sessionInfo.username,
+      };
       void setBindDismissal(d);
       setDismissed(d);
     }
@@ -325,18 +382,23 @@ export function TargetBanner({
           await executeRevoke(tabId, baseUrl, substitute(recipe.revokePath, { credentialId: binding.credentialId }));
         }
       }
-      await postUnbind(binding.mode);
+      await postUnbind({ targetId: binding.targetId, compat }, binding.mode);
     } finally {
       // Remember the unbind as a decline for the still-signed-in user, so the auto-offer doesn't
       // immediately re-nag right after they chose to unbind; a later different user still re-offers,
       // and the manual button clears it.
       const who = sessionInfo?.username || binding.username;
       if (who) {
-        const d: BindDismissal = { backendId: binding.backendId, targetBaseUrl: baseUrl ?? "", username: who };
+        const d: BindDismissal = {
+          backendId: binding.backendId,
+          targetId: binding.targetId,
+          targetBaseUrl: baseUrl ?? "",
+          username: who,
+        };
         await setBindDismissal(d);
         setDismissed(d);
       }
-      await clearBinding(binding.backendId);
+      await clearBinding(binding.backendId, binding.targetId);
       setUnbinding(false);
       setConfirmUnbind(false);
     }
@@ -349,15 +411,18 @@ export function TargetBanner({
     // immediately reopen the consent card (a card that never closes). Setting it here first means
     // the effect sees the fresh, same-user binding and stays silent. watchBinding remains the
     // ongoing sync.
-    const b = await getBinding(boundBackendId);
+    const b = await getBinding(boundBackendId, active.id);
     if (b) {
       setBinding(b);
       setBindingStale(false);
     }
     setShowBindFlow(false);
     setBindFlowSource(null);
-    // A successful bind supersedes any remembered decline for this backend.
-    void clearBindDismissal(boundBackendId);
+    // The bind Confirm gesture requests host access, so a grant may have just landed: re-run the
+    // auto-probe (fresh identity for drift; clears a stale pre-grant no_access line).
+    setLocalProbeNonce((n) => n + 1);
+    // A successful bind supersedes any remembered decline for this (backend, target).
+    void clearBindDismissal(boundBackendId, active.id);
     setDismissed(null);
     const updated = await verify(); // re-probe: the freshly-bound credential changes what verify reports
     // Probe-less bind (no session read to name the user): adopt a username from the verify payload
@@ -371,158 +436,204 @@ export function TargetBanner({
 
   return (
     <div className="space-y-2 border-b border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs">
+      {/* Compact header (always visible): name + scope, a short tab-state chip, the acting-as chip,
+          and the chevron. Collapsed by default in every state so the block never eats the panel. */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
           <span className="truncate font-medium text-[var(--foreground)]">{active.name ?? "Assistant"}</span>
           {active.readonly ? (
             <span className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">
               <ShieldCheck className="h-3 w-3" /> read-only
             </span>
           ) : null}
+          {tab === "matched" ? (
+            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] text-emerald-600">
+              {TAB_MATCHED}
+            </span>
+          ) : tab === "mismatch" ? (
+            <span className="truncate text-[10px] text-[var(--muted-foreground)]">
+              {tabMismatchOneLiner(active.name ?? "target")}
+            </span>
+          ) : (
+            <span className="text-[10px] text-[var(--muted-foreground)]">{TAB_UNKNOWN}</span>
+          )}
+          {binding ? (
+            <span
+              data-testid="bind-acting-as"
+              title={`Acting as your ${active.name ?? "target"} login — ${binding.writes ? "writes enabled" : "read-only"}`}
+              className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]"
+            >
+              <UserCheck className="h-3 w-3" /> Acting as {binding.username || "your account"}
+            </span>
+          ) : null}
         </div>
-        {!compact && active.can_verify ? (
-          <button
-            type="button"
-            onClick={() => void verify()}
-            disabled={verifying}
-            className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
-          >
-            {verifying ? <Loader2 className="h-3 w-3 animate-spin" /> : <BadgeCheck className="h-3 w-3" />}
-            Verify
-          </button>
-        ) : null}
+        <button
+          type="button"
+          data-testid="target-expand"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? "Hide target details" : "Show target details"}
+          className="shrink-0 rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+        >
+          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
       </div>
 
-      {!compact ? (
-        <div className="space-y-0.5 text-[var(--muted-foreground)]">
-          {baseUrl ? (
+      {/* One amber line that pierces the collapse so an expired/drift/sign-in/no-access hint is never
+          hidden. Suppressed while the bind card is open (it says the same) and when expanded (the full
+          session/binding detail below covers it). */}
+      {!expanded && !showBindFlow && warningLine ? <div className="text-amber-600">{warningLine}</div> : null}
+
+      {/* Bind ACTION area — renders regardless of collapse: the auto-offered / manual consent card
+          and its trigger are actions, not status. */}
+      {showBindFlow || (canBind && tab === "matched" && !binding) ? (
+        <div className="space-y-2">
+          {!binding && !showBindFlow ? (
             <button
               type="button"
-              onClick={() => openUrl(baseUrl)}
-              className="inline-flex items-center gap-1 hover:text-[var(--foreground)] hover:underline"
+              data-testid="bind-use-my-login"
+              onClick={openManualBind}
+              className="inline-flex items-center gap-1 rounded border border-[var(--primary)] px-2 py-0.5 text-[var(--foreground)] hover:bg-[var(--accent)]"
             >
-              <span className="truncate">{baseUrl}</span>
-              <ExternalLink className="h-3 w-3 shrink-0" />
+              <LogIn className="h-3 w-3" /> Use my login
             </button>
           ) : null}
-          {active.auth ? <div>auth: {active.auth}</div> : null}
-          {active.source ? <div>source: {active.source}</div> : null}
+          {showBindFlow && recipe && baseUrl ? (
+            // key={bindFlowSource}: remount on a mode switch (manual <-> upgrade <-> auto) so the
+            // fresh source's initialAllowWrites/replaceCredentialId props seed a NEW instance's
+            // state. Without it, switching source on the mounted flow leaves allowWrites stale-false
+            // while replaceCredentialId updates -> a read-only mint that still revokes the old token.
+            <BindFlow
+              key={bindFlowSource ?? "none"}
+              assistant={active}
+              route={{ targetId: active.id, compat }}
+              recipe={recipe}
+              basePath={baseUrl}
+              captureTarget={captureTarget}
+              resolveSession={probeSession}
+              getActiveTabId={getActiveTabId}
+              onBound={(id) => void onBound(id)}
+              onCancel={closeBindFlow}
+              headline={
+                bindFlowSource === "auto"
+                  ? offerHeadline
+                  : bindFlowSource === "upgrade"
+                    ? `Re-mint your ${targetName} token with write access?`
+                    : undefined
+              }
+              initialAllowWrites={bindFlowSource === "upgrade"}
+              replaceCredentialId={
+                bindFlowSource === "upgrade" && upgradeCredentialId ? upgradeCredentialId : undefined
+              }
+              replaceUnrevocable={bindFlowSource === "upgrade" && !upgradeCredentialId}
+            />
+          ) : null}
         </div>
       ) : null}
 
-      {/* Tab-match state. On a NON-matching tab the assistant is not relevant to this page, so the
-          whole block collapses to this one line (plus a Details toggle) — a DHIS2 assistant should
-          not shout DHIS2 metadata at every unrelated site. The single-target model behind this is
-          the roadmap's multi-target registry follow-up. */}
-      <div className="text-[var(--muted-foreground)]">
-        {tab === "matched" ? (
-          <span className="text-emerald-600">This tab matches the assistant target.</span>
-        ) : tab === "mismatch" ? (
-          <div className="space-y-0.5">
-            {/* Neutral while collapsed: on an unrelated page nothing is WRONG — the warning tone
-                is reserved for the expanded view, where the near-miss case (wrong instance of the
-                same product) is what the tab/target comparison exists to expose. */}
-            <span className={compact ? "" : "text-amber-600"}>
-              {compact
-                ? `Not a ${active.name ?? "target"} page. `
-                : "This tab does not match the assistant target. "}
+      {/* Expanded detail (chevron): metadata, verification, session, and the full binding controls. */}
+      {expanded ? (
+        <div className="space-y-2">
+          <div className="space-y-0.5 text-[var(--muted-foreground)]">
+            {baseUrl ? (
               <button
                 type="button"
-                data-testid="target-details-toggle"
-                onClick={() => setShowDetails((v) => !v)}
-                className="underline hover:text-[var(--foreground)]"
+                onClick={() => openUrl(baseUrl)}
+                className="inline-flex items-center gap-1 hover:text-[var(--foreground)] hover:underline"
               >
-                {showDetails ? "Hide details" : "Details"}
+                <span className="truncate">{baseUrl}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" />
               </button>
-            </span>
-            {!compact ? (
-              <>
-                <div className="truncate">tab: {tabUrl}</div>
-                <div className="truncate">target: {baseUrl}</div>
-              </>
             ) : null}
+            {active.auth ? <div>auth: {active.auth}</div> : null}
+            {active.source ? <div>source: {active.source}</div> : null}
           </div>
-        ) : (
-          <span>Tab target unknown.</span>
-        )}
-      </div>
 
-      {/* Verification result */}
-      {!compact && verifyError ? (
-        <div className="text-[var(--destructive)]">Verify request failed: {verifyError}</div>
-      ) : null}
-      {!compact && verified ? (
-        <div className={verifiedOk ? "text-emerald-600" : "text-[var(--destructive)]"}>
-          {verifiedOk
-            ? "Verified."
-            : verified.ok
-              ? "Verification reported a failure."
-              : `Verification failed: ${verified.error ?? "unknown error"}`}
-          {flat ? (
-            <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[var(--muted-foreground)]">
-              {Object.entries(flat).map(([k, v]) => (
-                <div key={k} className="contents">
-                  <dt className="font-medium">{k}</dt>
-                  <dd className="truncate">{typeof v === "string" ? v : JSON.stringify(v)}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : verified.data ? (
-            <details className="mt-1">
-              <summary className="cursor-pointer text-[var(--muted-foreground)]">raw</summary>
-              <pre className="mt-1 max-h-40 overflow-auto rounded bg-[var(--background)] p-2 whitespace-pre-wrap">
-                {JSON.stringify(verified.data, null, 2)}
-              </pre>
-            </details>
+          {tab === "mismatch" ? (
+            <div className="space-y-0.5 text-amber-600">
+              <div>{TAB_MISMATCH_DETAIL}</div>
+              <div className="truncate">tab: {tabUrl}</div>
+              <div className="truncate">target: {baseUrl}</div>
+            </div>
           ) : null}
-        </div>
-      ) : null}
 
-      {/* Session info — only for backends that declared a probe */}
-      {!compact && active.probe ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
-          <button
-            type="button"
-            onClick={() => void whoAmI()}
-            disabled={loadingSession}
-            className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
-          >
-            {loadingSession ? <Loader2 className="h-3 w-3 animate-spin" /> : <User className="h-3 w-3" />}
-            Who am I here?
-          </button>
-          {session && !("error" in session) ? (
-            <span className="text-[var(--muted-foreground)]">
-              {formatSession(session as SessionInfo, active.probe?.label)}
-            </span>
-          ) : session && "error" in session ? (
-            <span className="text-amber-600">
-              {session.error === "unauthenticated"
-                ? "Not signed in on this tab."
-                : session.error === "no_access"
-                  ? "heim has no access to this site yet — click \"Who am I here?\" to grant it."
-                  : "Could not read your session on this tab."}
-            </span>
+          {active.can_verify ? (
+            <button
+              type="button"
+              onClick={() => void verify()}
+              disabled={verifying}
+              className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
+            >
+              {verifying ? <Loader2 className="h-3 w-3 animate-spin" /> : <BadgeCheck className="h-3 w-3" />}
+              Verify
+            </button>
           ) : null}
-        </div>
-      ) : null}
 
-      {/* Login binding — "Use my login" / bound state */}
-      {!compact && (binding || (canBind && tab === "matched")) ? (
-        <div className="space-y-2 border-t border-[var(--border)] pt-2">
+          {verifyError ? <div className="text-[var(--destructive)]">Verify request failed: {verifyError}</div> : null}
+          {verified ? (
+            <div className={verifiedOk ? "text-emerald-600" : "text-[var(--destructive)]"}>
+              {verifiedOk
+                ? "Verified."
+                : verified.ok
+                  ? "Verification reported a failure."
+                  : `Verification failed: ${verified.error ?? "unknown error"}`}
+              {flat ? (
+                <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[var(--muted-foreground)]">
+                  {Object.entries(flat).map(([k, v]) => (
+                    <div key={k} className="contents">
+                      <dt className="font-medium">{k}</dt>
+                      <dd className="truncate">{typeof v === "string" ? v : JSON.stringify(v)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : verified.data ? (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[var(--muted-foreground)]">raw</summary>
+                  <pre className="mt-1 max-h-40 overflow-auto rounded bg-[var(--background)] p-2 whitespace-pre-wrap">
+                    {JSON.stringify(verified.data, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Session info — only for backends that declared a probe */}
+          {active.probe ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
+              <button
+                type="button"
+                onClick={() => void whoAmI()}
+                disabled={loadingSession}
+                className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 hover:bg-[var(--accent)] disabled:opacity-50"
+              >
+                {loadingSession ? <Loader2 className="h-3 w-3 animate-spin" /> : <User className="h-3 w-3" />}
+                Who am I here?
+              </button>
+              {session && !("error" in session) ? (
+                <span className="text-[var(--muted-foreground)]">
+                  {formatSession(session as SessionInfo, active.probe?.label)}
+                </span>
+              ) : session && "error" in session ? (
+                <span className="text-amber-600">
+                  {session.error === "unauthenticated"
+                    ? "Not signed in on this tab."
+                    : session.error === "no_access"
+                      ? "heim cannot read this page yet (API tools are unaffected) — click \"Who am I here?\" and allow page access."
+                      : "Could not read your session on this tab."}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Full binding controls: scope, write-scope upgrade, Rebind, Unbind. */}
           {binding ? (
-            <div className="space-y-2">
+            <div className="space-y-2 border-t border-[var(--border)] pt-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span
-                  data-testid="bind-acting-as"
-                  className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[var(--foreground)]"
+                  data-testid="bind-scope"
+                  className={binding.writes ? "text-amber-600" : "text-[var(--muted-foreground)]"}
                 >
-                  <UserCheck className="h-3 w-3" /> Acting as {binding.username || "your account"} (your login)
-                  <span
-                    data-testid="bind-scope"
-                    className={binding.writes ? "text-amber-600" : "text-[var(--muted-foreground)]"}
-                  >
-                    - {binding.writes ? "writes enabled" : "read-only"}
-                  </span>
+                  {binding.writes ? "writes enabled" : "read-only"}
                 </span>
                 {canUpgradeWrites ? (
                   <button
@@ -579,9 +690,7 @@ export function TargetBanner({
                   </button>
                 )}
               </div>
-              {expired ? (
-                <div className="text-amber-600">Binding expired — rebind?</div>
-              ) : null}
+              {expired ? <div className="text-amber-600">Binding expired — rebind?</div> : null}
               {confirmUnbind ? (
                 <div className="text-[var(--muted-foreground)]">
                   {active.bind?.unbind_notes?.[binding.mode] ??
@@ -589,45 +698,6 @@ export function TargetBanner({
                 </div>
               ) : null}
             </div>
-          ) : showBindFlow ? null : (
-            <button
-              type="button"
-              data-testid="bind-use-my-login"
-              onClick={openManualBind}
-              className="inline-flex items-center gap-1 rounded border border-[var(--primary)] px-2 py-0.5 text-[var(--foreground)] hover:bg-[var(--accent)]"
-            >
-              <LogIn className="h-3 w-3" /> Use my login
-            </button>
-          )}
-
-          {showBindFlow && recipe && baseUrl ? (
-            // key={bindFlowSource}: remount on a mode switch (manual <-> upgrade <-> auto) so the
-            // fresh source's initialAllowWrites/replaceCredentialId props seed a NEW instance's
-            // state. Without it, switching source on the mounted flow leaves allowWrites stale-false
-            // while replaceCredentialId updates -> a read-only mint that still revokes the old token.
-            <BindFlow
-              key={bindFlowSource ?? "none"}
-              assistant={active}
-              recipe={recipe}
-              basePath={baseUrl}
-              captureTarget={captureTarget}
-              resolveSession={probeSession}
-              getActiveTabId={getActiveTabId}
-              onBound={(id) => void onBound(id)}
-              onCancel={closeBindFlow}
-              headline={
-                bindFlowSource === "auto"
-                  ? offerHeadline
-                  : bindFlowSource === "upgrade"
-                    ? `Re-mint your ${targetName} token with write access?`
-                    : undefined
-              }
-              initialAllowWrites={bindFlowSource === "upgrade"}
-              replaceCredentialId={
-                bindFlowSource === "upgrade" && upgradeCredentialId ? upgradeCredentialId : undefined
-              }
-              replaceUnrevocable={bindFlowSource === "upgrade" && !upgradeCredentialId}
-            />
           ) : null}
         </div>
       ) : null}

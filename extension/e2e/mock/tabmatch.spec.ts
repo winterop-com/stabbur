@@ -4,7 +4,8 @@
 // `mock` serves the heim API and is the assistant's base_url origin. `other` is a
 // second http origin (a different port) used to load a non-matching web page.
 
-import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
+import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock } from "../mockServer";
 
 const mock = new HeimMock();
@@ -45,15 +46,14 @@ test("mismatch then matched tab drive the banner state", async ({ context, exten
   await expect(panel.getByText("auth: basic")).toHaveCount(0);
   await expect(panel.getByText(/^source: /)).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Verify" })).toHaveCount(0);
-  await panel.getByTestId("target-details-toggle").click();
+  await expect(panel.getByText("This tab does not match the assistant target.")).toHaveCount(0);
+  await expandTarget(panel);
   await expect(panel.getByText("This tab does not match the assistant target.")).toBeVisible();
   await expect(panel.getByText("auth: basic")).toBeVisible();
-  await panel.getByTestId("target-details-toggle").click(); // collapse again before the match step
 
-  // Navigate the same tab under the assistant's own origin -> matched.
+  // Navigate the same tab under the assistant's own origin -> matched. The header chip flips green;
+  // it asserts the match whether or not the block is expanded.
   await tab.goto(`${mock.baseUrl()}/dev-2-42/dhis-web-dashboard`);
   await tab.bringToFront();
-  await expect(panel.getByText("This tab matches the assistant target.")).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(panel.getByText(TAB_MATCHED)).toBeVisible({ timeout: 15_000 });
 });

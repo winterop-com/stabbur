@@ -2,7 +2,7 @@
 // text reaches the POST /api/chat request body under the "Page text (truncated):"
 // label. With page text off, the label is absent. The mock records request bodies.
 
-import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 import { HeimMock, TargetSiteMock } from "../mockServer";
 
 const mock = new HeimMock();
@@ -103,6 +103,9 @@ test("probe + tool account identities reach the /api/chat body", async ({ contex
   const tab = await context.newPage();
   await tab.goto(`${target.baseUrl()}/dhis`);
   await tab.bringToFront();
+  // "Who am I here?" (the probe-ready gate) is in the expanded detail now.
+  await expect(panel.getByText("play42", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expandTarget(panel);
   await expect(panel.getByRole("button", { name: "Who am I here?" })).toBeVisible({ timeout: 15_000 });
 
   await sendAndWait(panel);

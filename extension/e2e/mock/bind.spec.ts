@@ -10,7 +10,8 @@
 // branches (happy PAT, 404 -> session fallback, 401/redirect -> sign-in) and unbind (revoke + call)
 // ride the same auto-offered consent card.
 
-import { test, expect, openPanel, seedSettings } from "../fixtures";
+import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
+import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
@@ -32,7 +33,7 @@ test.beforeEach(() => {
   heim.state.assistant = bindAssistant(target.baseUrl());
 });
 
-const MATCH_TEXT = "This tab matches the assistant target.";
+const MATCH_TEXT = TAB_MATCHED;
 
 /** Open the panel (talking to heim), then a content tab on the target site so the tab matches. */
 async function openWithTargetTab(context: BrowserContext, extensionId: string): Promise<{ panel: Page; tab: Page }> {
@@ -94,8 +95,11 @@ test("no live session: no auto-offer, and the manual button short-circuits to si
 }) => {
   target.loggedOut = true;
   const { panel, tab } = await openWithTargetTab(context, extensionId);
-  // The probe resolves to "not signed in" — wait for that so the auto-offer has had its chance.
+  // The sign-in-needed hint PIERCES the collapsed banner (no expand): the probe resolves to "not
+  // signed in" and its amber line shows while the metadata rows stay hidden behind the chevron.
   await expect(panel.getByText("Not signed in on this tab.")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText("auth: basic")).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Who am I here?" })).toHaveCount(0);
   await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
   // The manual "Use my login" button remains the escape hatch.
   await expect(panel.getByTestId("bind-use-my-login")).toBeVisible();
@@ -169,6 +173,15 @@ test("happy mint: token minted in the tab, heim records a pat bind, chip appears
 
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByTestId("bind-acting-as")).toContainText("Acting as admin");
+
+  // Default-collapsed even after binding: the acting-as chip is the compact status, while the
+  // metadata rows + scope live behind the chevron until expanded.
+  await expect(panel.getByText("auth: basic")).toHaveCount(0);
+  await expect(panel.getByText(/^source: /)).toHaveCount(0);
+  await expect(panel.getByTestId("bind-scope")).toHaveCount(0);
+  await expandTarget(panel);
+  await expect(panel.getByTestId("bind-scope")).toBeVisible();
+  await expect(panel.getByText("auth: basic")).toBeVisible();
 
   const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "pat", secret: "d2p_test" });
@@ -262,6 +275,8 @@ test("unbind revokes the token on the target and records an unbind call", async 
   await panel.getByTestId("bind-confirm").click();
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
 
+  // Unbind lives in the expanded binding controls.
+  await expandTarget(panel);
   await panel.getByTestId("bind-unbind").click();
   await panel.getByTestId("bind-unbind-confirm").click();
 

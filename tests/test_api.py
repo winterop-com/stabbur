@@ -630,7 +630,8 @@ async def test_api_assistant_verify_uses_ttl_cache(app: FastAPI, client: AsyncCl
     fake = _FakeToolset(names=["dhis2__dhis2_cli"], result={"live": True})
     app.state.toolset = fake
     cached = AssistantVerified(ok=True, data={"cached": True}, checked_at=time.time())
-    app.state.assistant_verified = (cached.checked_at, cached)
+    # Compat now keys the shared per-id cache by the primary's id ('play42' for _dhis2_assistant).
+    app.state.assistant_verified_by_id = {"play42": (cached.checked_at, cached)}
     body = (await client.get("/api/assistant", params={"verify": 1})).json()
     assert body["verified"]["data"] == {"cached": True}  # served from cache
     assert fake.calls == 0  # the tool was not re-run
@@ -783,7 +784,8 @@ async def test_api_assistant_bind_runs_mode_and_redacts_secret(
         }
     )
     app.state.assistant = info
-    app.state.assistant_verified = (time.time(), object())  # a stale outcome a successful bind must clear
+    # Compat bind invalidates the shared per-id cache keyed by the primary's id ('play42').
+    app.state.assistant_verified_by_id = {"play42": (time.time(), object())}  # stale outcome the bind must clear
     r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": secret})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -792,7 +794,7 @@ async def test_api_assistant_bind_runs_mode_and_redacts_secret(
     assert info.bind is not None
     assert all(secret not in arg for arg in info.bind.modes["pat"].command)  # never on argv
     assert "***" in body["stdout"] and secret not in body["stdout"]  # redacted from output
-    assert app.state.assistant_verified is None  # verify cache invalidated
+    assert "play42" not in app.state.assistant_verified_by_id  # verify cache invalidated
 
 
 async def test_api_assistant_unbind_runs_and_requires_command(

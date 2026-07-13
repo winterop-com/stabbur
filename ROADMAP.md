@@ -87,7 +87,21 @@ the wrong fix — it would leak profile secrets to the extension and defeats bin
   token per (instance, scope) — practically, keep the widest granted. The session-cookie fallback
   is a different lifecycle: cookies expire with the browser session and cannot be method-scoped,
   so that path stays per-session rebind, never mint-once-reuse.
-- **Multi-profile: match the tab URL to the right target (or a list).** Today heim serve is
+- **Multi-profile: match the tab URL to the right target (or a list).** _In build (2026-07-13):_ the
+  server-side registry has landed — `[[assistants]]` targets each with `mcp_servers`, the URL-aware
+  endpoints (`GET /api/assistants` + `?url=<tab>`), per-turn tool routing/confirm by selected target,
+  and a `dhis2-multi` template (two play targets, one bridge each). Still open: the **extension wiring**
+  (auto-select on tab switch, tie picker, per-target bind) is the next chunk, and the **per-instance
+  token cache** for act-as-you arrives with this wave (one minted profile per `base_url`, now that the
+  N-target registry exists). Original design below.
+
+  _Future optimizations (not yet done):_ **lazy per-target bridge spawn** — today the serve lifespan
+  connects every declared server up front, so startup cost scales with the number of targets declared;
+  spawn a target's bridge on first use instead. **Web-UI target picker** — `serve --ui` currently reaches
+  only the primary target (per the routing decision above); a multi-target project has no in-page way to
+  switch, so add a picker to the web UI (the extension's tab-driven select is the parallel surface).
+
+  Today heim serve is
   single-target: one project = one `[assistant]` = one `base_url` = one `DHIS2_PROFILE` pinned at
   serve start. Evolve heim into "a registry of targets, auto-selected by the page you are on":
   browse dev → staging → a country's prod and heim uses the matching creds; ties offer a picker.
@@ -222,13 +236,11 @@ completion token.
 - **More MCP servers** — a `heim-mcp-http` (allowlisted fetch) and a git server, on the same
   `heim-mcp-*` template (dependency-light, stdio-only, `pydantic-settings` config, sandbox/allowlist
   anything that executes or fetches).
-- **Project-level disable of a global MCP server.** `mcpservers.resolve()` merges global-then-
-  project by name; a project can override a global server but cannot REMOVE one. Observed
-  consequence (2026-07-13): a machine-global `playwright` server leaks into the DHIS2 project's
-  toolset, and the model wanders into a doomed flow — it spins up its OWN logged-out headless
-  browser against the authed instance, fumbles the login page, and burns the tool-round budget.
-  Add a disable marker in `.mcp.json` (e.g. `"<name>": {"disabled": true}` or `null`) honored by
-  `resolve()`; optionally also steer the dhis2 template prompt away from browser tools for DHIS2
+- **Project-level disable of a global MCP server — shipped (2026-07-13).** `.mcp.json` now honors a
+  disable marker (`"<name>": null` or `"<name>": {"disabled": true}`): `mcpservers.resolve()` drops a
+  same-named machine-global server, so a project can exclude an unwanted global tool (e.g. a stray
+  `playwright` that had the model spinning up its own logged-out headless browser against the authed
+  instance). Still optional: steer the dhis2 template prompt away from browser tools for DHIS2
   work. Note: driving the user's REAL logged-in tab is a different feature entirely (page-actions
   via `dhis2w-browser` through the extension — see North-star "Later"), kept last deliberately:
   an AI clicking as a logged-in admin is the highest-blast-radius capability in the design.

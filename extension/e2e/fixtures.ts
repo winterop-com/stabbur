@@ -220,4 +220,22 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
   return granted;
 }
 
+/**
+ * Expand the collapsed target banner via its chevron (data-testid `target-expand`) so the
+ * expanded-only content — metadata (auth:/source:) rows, the Verify button + verified table, the
+ * "Who am I here?" button + session line, and the full binding controls (bind-scope, Rebind,
+ * Unbind, Enable writes) — is asserted/clicked. Idempotent: a no-op when already expanded.
+ */
+export async function expandTarget(panel: Page): Promise<void> {
+  const toggle = panel.getByTestId("target-expand");
+  await toggle.waitFor({ state: "visible", timeout: 15_000 });
+  if ((await toggle.getAttribute("aria-expanded")) === "true") return;
+  await toggle.click();
+  await panel.waitForFunction(
+    () => document.querySelector('[data-testid="target-expand"]')?.getAttribute("aria-expanded") === "true",
+    undefined,
+    { timeout: 5_000 },
+  );
+}
+
 export { expect } from "@playwright/test";

@@ -156,6 +156,9 @@ class ProjectTemplate(BaseModel):
     # Opaque [assistant] target metadata (validated to AssistantInfo at scaffold time); a plain
     # dict here so models.py needn't import heim.project.AssistantInfo — avoids an import cycle.
     assistant: dict[str, Any] | None = Field(default=None)
+    # Multi-target variant: a list of [[assistants]] blocks (validated to an AssistantRegistry at
+    # scaffold time). A template sets ``assistant`` (single) OR ``assistants`` (a registry), not both.
+    assistants: list[dict[str, Any]] | None = Field(default=None)
 
 
 class ErrorResponse(BaseModel):

@@ -23,7 +23,7 @@ from heim.routers.serving._base import (  # shared router + request deps
 )
 from heim.routers.serving.core import ServerStatus, _status
 from heim.runtime import sampling
-from heim.tools import MCPToolset
+from heim.tools import MCPToolset, TargetRouting, narrow_to_servers
 
 _MAX_DETAIL = 2000  # cap on a tool SSE detail so one giant result can't flood the stream / the UI
 _MAX_DETAIL_STR = 200  # per-string cap when re-dumping a large JSON detail so it stays parseable
@@ -67,6 +67,10 @@ class ChatRequest(BaseModel):
     top_p: float | None = None
     use_tools: bool = True  # off → don't attach MCP tools (for non-tool-trained models)
     enabled_tools: list[str] | None = None  # None → all tools; else only these namespaced names
+    # Registry target id this turn routes to (narrows tools to that target's servers + shared, and
+    # drives the confirm-policy default). ``None`` with a non-empty registry → the primary target;
+    # free-play (no registry) ignores it and keeps the full toolset. Unknown id → 400.
+    target: str | None = None
     # Authoritative system prompt: a string (incl. "" for *no* system prompt) overrides
     # the project default; None (field absent) falls back to it. Lets a roleplay model
     # run with no assistant framing instead of being forced into "I'm an AI" refusals.
@@ -93,7 +97,27 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     toolset: MCPToolset = (
         (getattr(request.app.state, "toolset", None) or MCPToolset()) if req.use_tools else MCPToolset()
     )
-    # An explicit allow-list narrows the toolset to the tools the user left enabled.
+    # Route this turn to a registry target. With a non-empty registry the toolset is narrowed to the
+    # resolved target's servers plus any shared (unowned) servers: an explicit ``target`` picks that
+    # target (400 on an unknown id), ``target=None`` picks the primary. Free-play (no registry) keeps
+    # the full toolset — today's behavior. The resolved target also drives the confirm-policy default
+    # below (``resolved_assistant``); it defaults to ``app.state.assistant`` (the primary) so free-play
+    # and existing single-assistant behavior are untouched.
+    registry = getattr(request.app.state, "registry", None)
+    resolved_assistant = getattr(request.app.state, "assistant", None)
+    if registry is not None and registry.targets:
+        if req.target is not None:
+            resolved_assistant = registry.by_id(req.target)
+            if resolved_assistant is None:
+                raise HTTPException(status_code=400, detail=f"Unknown target {req.target!r}")
+            resolved_id = req.target
+        else:
+            resolved_assistant = registry.primary
+            resolved_id = registry.ids[0]
+        routing = getattr(request.app.state, "target_routing", None) or TargetRouting()
+        toolset = narrow_to_servers(toolset, routing, resolved_id)
+    # An explicit allow-list narrows the toolset to the tools the user left enabled (intersecting on
+    # top of any target narrowing above).
     if req.enabled_tools is not None:
         toolset = toolset.subset(set(req.enabled_tools))
 
@@ -110,12 +134,11 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     if system_prompt and not (messages and messages[0].get("role") == "system"):
         messages = [{"role": "system", "content": system_prompt}, *messages]
 
-    # Confirmation policy: an explicit request value wins; otherwise a non-readonly assistant
-    # gates writes, while free-play / a readonly assistant stays ungated ("none" = today's
-    # behavior: no confirm channel is wired at all).
-    assistant = getattr(request.app.state, "assistant", None)
+    # Confirmation policy: an explicit request value wins; otherwise the resolved target's readonly
+    # flag decides — a non-readonly target gates writes, while free-play / a readonly target stays
+    # ungated ("none" = today's behavior: no confirm channel is wired at all).
     default_policy: Literal["all", "writes", "none"] = (
-        "none" if (assistant is None or getattr(assistant, "readonly", True)) else "writes"
+        "none" if (resolved_assistant is None or getattr(resolved_assistant, "readonly", True)) else "writes"
     )
     policy: Literal["all", "writes", "none"] = req.confirm_tools or default_policy
 

@@ -91,6 +91,52 @@ def test_dhis2_template_carries_probe_and_bind(tmp_path: Path) -> None:
     assert loaded.assistant.bind is not None and "pat" in loaded.assistant.bind.modes
 
 
+def test_single_dhis2_templates_emit_no_mcp_servers(tmp_path: Path) -> None:
+    # Single-target templates keep the owns-all compat: no mcp_servers field, so a user's extra
+    # machine-global servers keep reaching the assistant (not partitioned away).
+    for name in ("dhis2", "dhis2-write"):
+        tmpl = TEMPLATES[name]
+        assert tmpl.assistants is None and tmpl.assistant is not None
+        info = AssistantInfo.model_validate(tmpl.assistant)
+        assert info.mcp_servers == []  # owns-all
+        text = project.render_manifest(model=tmpl.model, assistant=info)
+        assert "mcp_servers" not in text  # not emitted for the single-target case
+
+
+def test_dhis2_multi_template_scaffolds_two_targets(tmp_path: Path) -> None:
+    # The dhis2-multi template carries two [[assistants]] blocks + two named bridges. Scaffolding it
+    # (validate -> render, as _write_project does) writes a heim.toml that loads as a 2-target registry
+    # with ids play42/play41, each owning its own bridge, and round-trips closed.
+    tmpl = TEMPLATES["dhis2-multi"]
+    assert tmpl.assistant is None and tmpl.assistants is not None
+    targets = [AssistantInfo.model_validate(a) for a in tmpl.assistants]
+    registry = project.AssistantRegistry(targets=targets)
+    p = tmp_path / "heim.toml"
+    p.write_text(project.render_manifest(model=tmpl.model, system_prompt=tmpl.system_prompt, registry=registry))
+    loaded = project.load(p)
+    assert loaded is not None
+    assert loaded.registry.ids == ["play42", "play41"]
+    assert len(loaded.registry.targets) == 2
+    assert loaded.registry.targets == targets  # closed round-trip
+    # Each target owns ONLY its own bridge and namespaces verify to it.
+    assert [t.mcp_servers for t in loaded.registry.targets] == [["play42"], ["play41"]]
+    assert all(t.verify is not None for t in loaded.registry.targets)
+    assert [t.verify.tool for t in loaded.registry.targets if t.verify] == ["play42__dhis2_cli", "play41__dhis2_cli"]
+    assert loaded.assistant is not None and loaded.assistant.name == "play42"  # primary alias
+
+
+def test_dhis2_multi_template_has_two_named_bridges() -> None:
+    # The template's mcp tuples name one bridge per target (play42, play41), each pinned to its own
+    # DHIS2_PROFILE — so scaffold's split_env_prefix lands them as two separate named .mcp.json servers.
+    tmpl = TEMPLATES["dhis2-multi"]
+    names = [name for name, _ in tmpl.mcp]
+    assert names == ["play42", "play41"]
+    for name, command in tmpl.mcp:
+        cmd, env = scaffold.split_env_prefix(scaffold.strip_uvx(command))
+        assert cmd == "dhis2w-mcp-bridge"
+        assert env["DHIS2_PROFILE"] == name and env["DHIS2_MCP_READONLY"] == "1"
+
+
 def test_render_readme_mentions_the_local_library() -> None:
     text = scaffold.render_readme("Demo")
     assert "Demo" in text and f"`{scaffold.LOCAL_LIBRARY}/`" in text

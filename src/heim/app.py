@@ -19,6 +19,7 @@ from heim.config import Settings, get_settings
 from heim.routers import catalog, health, serving
 from heim.runtime import supervisor
 from heim.server import ServerManager
+from heim.targets import AssistantRegistry
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
@@ -114,9 +115,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncExitStack() as mcp_stack:
         proj = project.load()
         app.state.system_prompt = proj.system_prompt if proj else ""
-        # The project's [assistant] target metadata, echoed by /api/assistant for UI clients
-        # (heim never interprets it); None outside a project or when the block is absent.
-        app.state.assistant = proj.assistant if proj else None
+        # The project's assistant target(s). `registry` holds all of them ([[assistants]]); `assistant`
+        # stays the primary (registry.primary) so every existing consumer (/api/assistant, confirm
+        # policy) is untouched. Both empty/None outside a project or when no assistant block is present.
+        registry = proj.registry if proj else AssistantRegistry()
+        app.state.registry = registry
+        app.state.assistant = registry.primary
         # The model the UI auto-loads on open: the project's bound model (a project is a
         # reproducible assistant: model + prompt + tools), or — outside a project — the machine
         # default (`heim config set model`), so free-play serve --ui still opens on a model.
@@ -125,7 +129,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
         app.state.voice_enabled = proj.voice_enabled if proj else True
-        servers = [s.to_spec() for s in mcpservers.resolve()]
+        resolved = mcpservers.resolve()
+        # Per-target routing table, computed once here (not per request): each target id -> the exact
+        # tool prefixes it owns (its mcp_servers names slugged the way connect namespaces them), plus an
+        # owns-all marker for targets that declared no mcp_servers. narrow_to_servers reads this per turn.
+        app.state.target_routing = mcp_tools.build_target_routing(resolved, registry)
+        servers = [s.to_spec() for s in resolved]
         if servers:
             app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
         try:
@@ -172,10 +181,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.project_model = None
     app.state.chat_voice = None
     app.state.voice_enabled = True
-    # Target-instance metadata for /api/assistant (the project's [assistant] block), and the 60s
-    # TTL cache of its last verify probe. Both populated by lifespan when a project loads.
+    # Target-instance metadata for /api/assistant (the project's [assistant] block). Populated by
+    # lifespan when a project loads.
     app.state.assistant = None
-    app.state.assistant_verified = None
+    # Per-target verify state (used by BOTH the /api/assistants/{id} routes and the /api/assistant compat
+    # route, which keys into it by the primary's id): one (checked_at, AssistantVerified) slot and one
+    # single-flight lock per registry id, so verifying/binding one target never touches another's cache.
+    app.state.assistant_verified_by_id = {}
+    app.state.assistant_verify_locks = {}
+    # The full multi-target registry (all [[assistants]]) and, per target id, the tool prefixes it owns
+    # (a TargetRouting: explicit prefix sets + an owns-all marker). Populated by lifespan.
+    app.state.registry = AssistantRegistry()
+    app.state.target_routing = mcp_tools.TargetRouting()
     # Pending per-action write-confirmations for /api/chat, keyed by an unguessable server-minted
     # uuid delivered only over the SSE stream. Each future is resolved by POST /api/chat/confirm
     # (user approve/decline) or auto-denied on timeout; mutated only on the event loop.

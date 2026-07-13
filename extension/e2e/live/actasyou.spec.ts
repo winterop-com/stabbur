@@ -20,13 +20,15 @@ import {
   grantHostPermission,
   resolveExtensionId,
   userDataDir,
+  expandTarget,
 } from "../fixtures";
+import { TAB_MATCHED } from "../../lib/bannerText";
 import { LIVE_PORT, PLAY_BASE_URL, preflight, startLiveServer, warmBridge, type LiveServer } from "./liveServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL = `http://127.0.0.1:${LIVE_PORT}`;
 const GENERIC_EXTENSION = path.resolve(HERE, "..", "..", ".output", "chrome-mv3");
-const MATCH_TEXT = "This tab matches the assistant target.";
+const MATCH_TEXT = TAB_MATCHED;
 const SHOTS = process.env.HEIM_DRIVE_SHOTS ?? "";
 const HEADED = process.env.HEADED === "1" || process.env.HEADED === "true";
 
@@ -159,11 +161,13 @@ test.describe.serial("act-as-you against real heim + play42", () => {
       await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
       await shot(panel, "silent-reuse");
 
-      // (6) Verify runs over the bound PAT profile.
+      // (6) Verify runs over the bound PAT profile. Verify + Unbind live in the expanded detail now.
+      await expandTarget(panel);
       await panel.getByRole("button", { name: "Verify" }).click();
       await expect(panel.getByText("Verified.")).toBeVisible({ timeout: 120_000 });
 
       // (7) Unbind: token revoked in the tab, profile removed, chip gone, manual button back.
+      await expandTarget(panel);
       await panel.getByTestId("bind-unbind").click({ timeout: 15_000 });
       await panel.getByTestId("bind-unbind-confirm").click({ timeout: 15_000 });
       await expect(panel.getByTestId("bind-acting-as")).toHaveCount(0, { timeout: 60_000 });
@@ -217,7 +221,7 @@ test.describe.serial("act-as-you against real heim + play42", () => {
       await tab.bringToFront();
       await expect(panel.getByText(MATCH_TEXT)).toBeVisible({ timeout: 60_000 });
       // The gesture-less auto-probe cannot inject -> the distinct no-access state, silently.
-      await expect(panel.getByText(/heim has no access to this site yet/)).toBeVisible({ timeout: 60_000 });
+      await expect(panel.getByText(/heim cannot read this page yet/)).toBeVisible({ timeout: 60_000 });
       await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
       await expect(panel.getByText(/injection failed/)).toHaveCount(0);
       await shot(panel, "generic-noaccess-hint");

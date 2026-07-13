@@ -7,9 +7,11 @@ so a server's README snippet pastes straight in. It lives at two levels that **m
 - **global** — ``~/.config/heim/mcp.json`` (machine-wide defaults, e.g. what free-play chat gets).
 
 A server entry is ``{ "command": ..., "args": [...], "env": {...} }`` keyed by name; heim's bundled
-first-party servers are entered by their package (``heim-mcp-*``). :func:`resolve` returns the
-effective set — global first, then project (a project name overrides a global one); the CLI's
-``--mcp`` is layered on top by the caller. This is deliberately separate from ``heim.toml``, which
+first-party servers are entered by their package (``heim-mcp-*``). A project entry may instead be a
+**disable marker** — ``null`` or ``{"disabled": true}`` — which drops a same-named global server from
+the effective set (a project excluding an unwanted machine-global tool). :func:`resolve` returns the
+effective set — global first, then project (a project name overrides *or disables* a global one); the
+CLI's ``--mcp`` is layered on top by the caller. This is deliberately separate from ``heim.toml``, which
 stays the portable assistant manifest (model + prompt + libraries) and no longer carries tools.
 """
 
@@ -61,10 +63,27 @@ def project_path(project_dir: Path | None = None) -> Path:
     return (project_dir or Path.cwd()) / PROJECT_FILE
 
 
-def _read_file(path: Path) -> list[McpServer]:
-    """Parse one ``mcp.json`` into servers — ``[]`` if it doesn't exist."""
+def _is_disabled(entry: object) -> bool:
+    """Whether an ``mcpServers`` value is a **disable marker** rather than a real server.
+
+    Two shapes disable a server *name*: a bare ``null`` (``"foo": null``) and an object with
+    ``"disabled": true`` (``"foo": {"disabled": true}``). Any other fields on a disabled object
+    (e.g. a leftover ``command``) are ignored — ``disabled`` wins. See :func:`resolve` for how a
+    disabled name drops a same-named global server; a disabled *global* is simply not read.
+    """
+    return entry is None or (isinstance(entry, dict) and entry.get("disabled") is True)
+
+
+def _parse_file(path: Path) -> tuple[list[McpServer], set[str]]:
+    """Parse one ``mcp.json`` into ``(servers, disabled_names)`` — ``([], set())`` if it doesn't exist.
+
+    Enabled servers are the usual ``command`` + ``args`` + ``env`` entries; ``disabled_names`` are the
+    names carrying a disable marker (``null`` / ``{"disabled": true}``), tolerated here (never an error)
+    so :func:`resolve` can drop the matching server. The two writers (:func:`add` / :func:`remove`) read
+    only the servers side, so a disable marker is inert to them.
+    """
     if not path.is_file():
-        return []
+        return [], set()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -72,10 +91,14 @@ def _read_file(path: Path) -> list[McpServer]:
     servers_obj = data.get("mcpServers") if isinstance(data, dict) else None
     if not isinstance(servers_obj, dict):
         if servers_obj is None:
-            return []  # a valid JSON object without mcpServers is just "no servers"
+            return [], set()  # a valid JSON object without mcpServers is just "no servers"
         raise McpConfigError(f"{path}: 'mcpServers' must be an object")
     out: list[McpServer] = []
+    disabled: set[str] = set()
     for name, entry in servers_obj.items():
+        if _is_disabled(entry):  # a disable marker; never a parse error, other fields ignored
+            disabled.add(str(name))
+            continue
         if not isinstance(entry, dict) or "command" not in entry:
             raise McpConfigError(f"{path}: server {name!r} must be an object with a 'command'")
         out.append(
@@ -86,7 +109,12 @@ def _read_file(path: Path) -> list[McpServer]:
                 env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
             )
         )
-    return out
+    return out, disabled
+
+
+def _read_file(path: Path) -> list[McpServer]:
+    """Parse one ``mcp.json`` into enabled servers — ``[]`` if it doesn't exist (disable markers ignored)."""
+    return _parse_file(path)[0]
 
 
 def read_global() -> list[McpServer]:
@@ -100,9 +128,19 @@ def read_project(project_dir: Path | None = None) -> list[McpServer]:
 
 
 def resolve(project_dir: Path | None = None) -> list[McpServer]:
-    """Effective servers: global first, then project (a project name overrides a global one)."""
-    by_name: dict[str, McpServer] = {s.name: s for s in read_global()}
-    for server in read_project(project_dir):
+    """Effective servers: global first, then project (a project name overrides a global one).
+
+    A project ``.mcp.json`` can also **disable** a server by name (``"foo": null`` or
+    ``"foo": {"disabled": true}``): that drops a same-named global server from the result, so a project
+    can exclude an unwanted machine-global tool (e.g. a stray ``playwright``). A disabled *global* entry
+    is dropped outright — it never enters the merged set in the first place.
+    """
+    global_servers, _global_disabled = _parse_file(global_path())  # disabled globals already excluded
+    project_servers, project_disabled = _parse_file(project_path(project_dir))
+    by_name: dict[str, McpServer] = {s.name: s for s in global_servers}
+    for name in project_disabled:  # a project disable removes a same-named global
+        by_name.pop(name, None)
+    for server in project_servers:
         by_name[server.name] = server
     return list(by_name.values())
 

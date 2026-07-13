@@ -90,6 +90,49 @@ username = "admin"
 # password = "district"   # local dev; for anything real prefer a PAT (auth = "pat")
 """
 
+_DHIS2_MULTI_PROMPTS_MD = """\
+# Example prompts (two DHIS2 instances)
+
+This assistant is a **registry of two read-only DHIS2 targets** on the same host, told apart by
+path: **play42** (`/dev-2-42`) and **play41** (`/dev-2-41`). Each has its own tool bridge, and the
+Chrome side panel routes tools to whichever instance the active tab is on (a picker resolves ties).
+In the CLI, pick a target with `--target play42` / `--target play41`; with no flag the primary
+(play42) is used.
+
+## Per instance
+- What DHIS2 version is play42 running, and what is the system name?
+- Who am I logged in as on play41?
+- How many organisation units are on play42?
+
+## Compare the two
+- Compare the DHIS2 version of play42 and play41.
+- How many data elements does each instance have?
+
+## Name to UID (per target)
+- On play42, what is the UID of the data element named 'ANC 1st visit'?
+- On play41, what level is the organisation unit 'Bo' at?
+"""
+
+_DHIS2_MULTI_PROFILE_EXAMPLE = """\
+# Copy to .dhis2/profiles.toml (mkdir -p .dhis2). This project targets TWO DHIS2 instances, so it
+# needs a d2w profile per instance — one named 'play42', one named 'play41'. Each target's bridge is
+# spawned with its own DHIS2_PROFILE (see .mcp.json), so the names must match.
+# For the public DHIS2 demo the credentials are admin / district.
+default = "play42"
+
+[profiles.play42]
+base_url = "https://play.im.dhis2.org/dev-2-42"
+auth = "basic"
+username = "admin"
+# password = "district"   # public demo; for a real instance prefer a PAT (auth = "pat")
+
+[profiles.play41]
+base_url = "https://play.im.dhis2.org/dev-2-41"
+auth = "basic"
+username = "admin"
+# password = "district"   # public demo; for a real instance prefer a PAT (auth = "pat")
+"""
+
 _CODER_PROMPTS_MD = """\
 # Example prompts
 
@@ -283,12 +326,27 @@ def _mcp_prompt(tool_desc: str) -> str:
     )
 
 
-def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, Any]:
-    """Build the ``[assistant]`` block shared by the ``dhis2`` and ``dhis2-write`` templates.
+def _dhis2_assistant(
+    profile: str,
+    base_url: str,
+    readonly: bool,
+    *,
+    mcp_server: str = "dhis2",
+    owns_server: bool = False,
+) -> dict[str, Any]:
+    """Build an ``[assistant]`` / ``[[assistants]]`` target block for the DHIS2 templates.
 
-    The two differ only in the profile name, base URL, and readonly flag. The probe + mint recipe
-    are identical across both; each bind mode's ``command`` / ``unbind_command`` target the given
-    profile, and the secret is handed over via its ``secret_env``.
+    Shared by the single-target ``dhis2`` / ``dhis2-write`` templates and the multi-target
+    ``dhis2-multi`` template. Targets differ only in the profile name, base URL, and readonly flag;
+    the probe + mint recipe are identical, and each bind mode's ``command`` / ``unbind_command``
+    target the given profile with the secret handed over via its ``secret_env``.
+
+    ``mcp_server`` is the ``.mcp.json`` server name this target's tools are namespaced under — it sets
+    the ``verify`` tool namespace (``<mcp_server>__dhis2_cli``). ``owns_server`` controls whether the
+    block declares ``mcp_servers = [mcp_server]``: the **multi-target** template turns it on so each
+    target owns *only* its own bridge (per-turn tool routing). The single-target templates leave it off
+    (the default) and emit **no** ``mcp_servers`` — the compat "owns all resolved servers" rule — so a
+    user's extra machine-global servers (datetime, …) keep reaching the assistant untouched.
     """
 
     def _mode(auth: str, secret_env: str, extra_secret_env: str | None = None) -> dict[str, Any]:
@@ -307,13 +365,13 @@ def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, A
             mode["extra_secret_env"] = extra_secret_env
         return mode
 
-    return {
+    block: dict[str, Any] = {
         "name": profile,
         "base_url": base_url,
         "auth": "basic",
         "readonly": readonly,
         "source": f"d2w profile {profile}",
-        "verify": {"tool": "dhis2__dhis2_cli", "args": {"args": ["profile", "verify", profile]}},
+        "verify": {"tool": f"{mcp_server}__dhis2_cli", "args": {"args": ["profile", "verify", profile]}},
         "probe": {
             "paths": ["/api/me.json?fields=name,username", "/api/system/info.json"],
             "fields": {
@@ -349,6 +407,11 @@ def _dhis2_assistant(profile: str, base_url: str, readonly: bool) -> dict[str, A
             },
         },
     }
+    if owns_server:
+        # Multi-target: this target owns ONLY its own bridge, so per-turn routing sends just this
+        # server's tools to it. Single-target templates leave this out (owns-all compat).
+        block["mcp_servers"] = [mcp_server]
+    return block
 
 
 # --- the templates --------------------------------------------------------------------------
@@ -454,6 +517,55 @@ TEMPLATES: dict[str, ProjectTemplate] = {
             "  uv run heim serve --ui                   # or: uv run heim chat\n"
             "The bridge runs read-write (no DHIS2_MCP_READONLY). Prefix test objects with HEIM_ so "
             "they're easy to clean up."
+        ),
+    ),
+    "dhis2-multi": ProjectTemplate(
+        # A registry of TWO read-only DHIS2 targets on the same host (told apart by path): play42
+        # (/dev-2-42) and play41 (/dev-2-41). Each target owns its own bridge, so per-turn routing
+        # sends only that instance's tools to it — the browser panel auto-selects by the active tab.
+        model="deepreinforce-ai/Ornith-1.0-9B-GGUF",
+        system_prompt=(
+            "You are a DHIS2 assistant that can talk to more than one connected DHIS2 instance. Each "
+            "instance has its own set of dhis2 tools (a dhis2_cli tool namespaced per instance, e.g. "
+            "play42__dhis2_cli and play41__dhis2_cli); use the tools for the instance the question is "
+            "about. For questions about DHIS2 data or metadata - counts, UIDs, names, analytics, system "
+            "details - use those tools to look up real values; never invent counts, UIDs, or metadata. To "
+            "use a name in analytics or a filter, resolve it to a UID first with a metadata search or a "
+            "filtered list. When a question compares two instances, query each with its own tools and report "
+            "both. Messages may begin with page context supplied by the user's browser: lines labeled 'Page "
+            "URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and "
+            "'Tool account:'. Treat that context as information the user gave you: answer questions about the "
+            "current page, its visible content, or the signed-in user directly from it, without calling "
+            "tools, and answer general questions normally instead of refusing. The 'Browser session user' is "
+            "the person viewing the page in their browser; your tools authenticate separately as the 'Tool "
+            "account'. When asked 'who am I', answer with the browser session user from the context when "
+            "present; report the tool account only when asked which credentials the tools use. Keep answers "
+            "concise and state the values you retrieved and which instance they came from."
+        ),
+        mcp=[
+            ("play42", "env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"),
+            ("play41", "env DHIS2_PROFILE=play41 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"),
+        ],
+        assistants=[
+            _dhis2_assistant(
+                "play42", "https://play.im.dhis2.org/dev-2-42", readonly=True, mcp_server="play42", owns_server=True
+            ),
+            _dhis2_assistant(
+                "play41", "https://play.im.dhis2.org/dev-2-41", readonly=True, mcp_server="play41", owns_server=True
+            ),
+        ],
+        files={
+            "examples/prompts.md": _DHIS2_MULTI_PROMPTS_MD,
+            "examples/dhis2-profiles.toml": _DHIS2_MULTI_PROFILE_EXAMPLE,
+        },
+        next_steps=(
+            "Two read-only DHIS2 targets (play42 + play41), auto-selected by the browser tab.\n"
+            "  mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo: admin/district\n"
+            "  uv sync && uv run heim project show      # confirm both targets + their bridges are wired\n"
+            "  uv run heim serve --ui                   # panel routes tools by the active tab\n"
+            "  uv run heim chat --target play41         # in the CLI, pick a target (default: play42)\n"
+            "Point at your own instances: edit .dhis2/profiles.toml, the two base_urls in heim.toml, and\n"
+            "DHIS2_PROFILE in each .mcp.json bridge; drop DHIS2_MCP_READONLY=1 to allow writes."
         ),
     ),
     # --- one showcase per bundled MCP server ---

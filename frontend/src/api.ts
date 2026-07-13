@@ -136,6 +136,10 @@ export interface ChatOptions {
   /** Which tool calls require a per-action confirmation. Omit to let the server derive it from the
    *  bound assistant (the right default for the extension); only set to override that policy. */
   confirmTools?: "all" | "writes" | "none";
+  /** The selected assistant target id (multi-target registry) whose MCP servers this turn routes to;
+   *  null narrows to the primary target's servers + shared. Omit entirely (undefined) to leave routing
+   *  to the server default (the full-library web app does this). */
+  target?: string | null;
 }
 
 /** A parsed /api/chat SSE event. */
@@ -321,12 +325,16 @@ export async function* streamChat(
     enabled_tools?: string[];
     system_prompt?: string;
     confirm_tools?: "all" | "writes" | "none";
+    target?: string | null;
   } = { messages, use_tools: options.useTools ?? true };
   if (options.maxTokens != null) body.max_tokens = options.maxTokens;
   if (options.temperature != null) body.temperature = options.temperature;
   if (options.topP != null) body.top_p = options.topP;
   if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
   if (options.systemPrompt != null) body.system_prompt = options.systemPrompt; // null → omit (use project default)
+  // Send `target` whenever the caller sets it (including an explicit null = narrow to primary+shared);
+  // undefined means "leave routing to the server" (the full-library web app), so omit it then.
+  if (options.target !== undefined) body.target = options.target;
   // Omit confirm_tools unless explicitly overridden so the server derives the policy from the
   // bound assistant (the extension always omits it).
   if (options.confirmTools != null) body.confirm_tools = options.confirmTools;

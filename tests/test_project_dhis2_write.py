@@ -179,7 +179,8 @@ async def test_bind_session_mode_sets_both_secrets_and_redacts(
         }
     )
     app.state.assistant = info
-    app.state.assistant_verified = (time.time(), object())  # stale outcome a successful bind must clear
+    # Compat bind invalidates the shared per-id cache keyed by the primary's id (slug of 'local_basic').
+    app.state.assistant_verified_by_id = {"local-basic": (time.time(), object())}  # stale outcome the bind clears
     cookie, xsrf = "COOKIEVAL123", "XSRFVAL456"
     r = await client.post("/api/assistant/bind", json={"mode": "session", "secret": cookie, "extra_secret": xsrf})
     assert r.status_code == 200, r.text
@@ -190,7 +191,7 @@ async def test_bind_session_mode_sets_both_secrets_and_redacts(
     assert all(cookie not in arg and xsrf not in arg for arg in info.bind.modes["session"].command)  # never on argv
     assert cookie not in body["stdout"] and xsrf not in body["stdout"]  # both redacted
     assert body["stdout"].count("***") >= 2
-    assert app.state.assistant_verified is None  # verify cache invalidated
+    assert "local-basic" not in app.state.assistant_verified_by_id  # verify cache invalidated
 
 
 async def test_bind_session_mode_without_extra_secret_unchanged(
