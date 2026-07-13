@@ -188,7 +188,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Target-instance metadata for /api/assistant (the project's [assistant] block), and the 60s
     # TTL cache of its last verify probe. Both populated by lifespan when a project loads.
     app.state.assistant = None
-    app.state.assistant_verified = None
+    app.state.assistant_verified = None  # compat single-slot cache for /api/assistant
+    # Per-target verify state for /api/assistants/{id}: one (checked_at, AssistantVerified) slot and one
+    # single-flight lock per registry id, so verifying/binding one target never touches another's cache.
+    app.state.assistant_verified_by_id = {}
+    app.state.assistant_verify_locks = {}
     # The full multi-target registry (all [[assistants]]) and, per target id, the set of .mcp.json
     # server names it owns (empty mcp_servers => owns every resolved server). Populated by lifespan.
     app.state.registry = AssistantRegistry()
