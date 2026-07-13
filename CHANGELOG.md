@@ -6,10 +6,9 @@ All notable changes to heim are recorded here. heim is proprietary/source-availa
 ## 0.3.0 — 2026-07-13
 
 First tagged release, and a rename. The project is now **heim** — German / Old Norse for **"home"**:
-your models, your tools, and your data live at home, on your own box. It was developed as `kodo`;
-`kodo` is unavailable on PyPI, so the first public release ships as `heim`. Headline: **DHIS2
-writes, gated** — the assistant can now mutate a DHIS2 instance, safely, behind per-action human
-confirmation. heim is a single self-contained distribution.
+your models, your tools, and your data live at home, on your own box (it was developed as `kodo`).
+Headline: **DHIS2 writes, gated** — the assistant can now mutate a DHIS2 instance, safely, behind
+per-action human confirmation. heim builds as a single self-contained distribution.
 
 ### DHIS2 writes, gated (the north-star capability)
 
@@ -53,5 +52,5 @@ confirmation. heim is a single self-contained distribution.
 
 ### CI / release
 
-- Added a PyPI publish workflow (tag `v*` → build → publish via Trusted Publishing/OIDC) and this
-  changelog. CI (`make check`) and docs auto-deploy were already in place.
+- Added this changelog and GitHub Releases per tag. CI (`make check`) and docs auto-deploy were
+  already in place. heim is proprietary/source-available and is not published to PyPI.
