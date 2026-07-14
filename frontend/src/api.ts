@@ -190,13 +190,26 @@ export interface AssistantTarget {
 }
 
 /**
+ * A backend with no `/api/assistants` route at all (an older server) answers 404. Distinguished from an
+ * empty registry (a current server with no project → `{targets: []}` at 200) so a caller can stop polling
+ * a route that will never exist on this backend, rather than re-requesting a 404 forever.
+ */
+export class AssistantsUnavailableError extends Error {
+  constructor() {
+    super("assistant registry route not available (404)");
+    this.name = "AssistantsUnavailableError";
+  }
+}
+
+/**
  * List the project's assistant targets ([[assistants]]). Returns [] for a generic or single-target
- * server: an empty registry answers `{targets: []}` (200) and no project answers 404 — both mean
- * "no target picker", so a 404 is folded into an empty list.
+ * server (an empty registry answers `{targets: []}` at 200 — "no picker"). A 404 means the route itself
+ * is absent (an older backend); that throws {@link AssistantsUnavailableError} so the caller can stop
+ * polling it, rather than being silently folded into the same empty list as a live-but-empty registry.
  */
 export async function getAssistants(): Promise<AssistantTarget[]> {
   const res = await apiFetch("/api/assistants");
-  if (res.status === 404) return [];
+  if (res.status === 404) throw new AssistantsUnavailableError();
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   const data = (await res.json()) as { targets?: AssistantTarget[] };
   return data.targets ?? [];
