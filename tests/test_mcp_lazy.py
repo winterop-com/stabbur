@@ -7,6 +7,7 @@ and ``connect_bridge`` end-to-end with a stubbed spawn so nothing real is launch
 """
 
 import asyncio
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -163,7 +164,9 @@ async def test_freeplay_routing_spawns_nothing() -> None:
 async def test_connect_bridge_defers_nonprimary_target(monkeypatch: Any) -> None:
     spawned: list[str] = []
 
-    async def fake_spawn_into(stack: Any, toolset: tools.MCPToolset, prefix: str, server: McpServer) -> bool:
+    async def fake_spawn_into(
+        stack: Any, toolset: tools.MCPToolset, prefix: str, server: McpServer, *, is_closing: Any = None
+    ) -> bool:
         spawned.append(prefix)
         await toolset.add(_FakeClient([f"{prefix}_tool"]), prefix)  # type: ignore[arg-type]
         return True
@@ -195,10 +198,120 @@ async def test_connect_bridge_defers_nonprimary_target(monkeypatch: Any) -> None
         assert bridge.pending_prefixes == set()
 
 
+# --- _spawn_into: local-stack ownership (no leaked subprocess on failure / teardown race) ----------
+
+
+class _TrackingClient:
+    """A fake fastmcp ``Client`` (async CM) tracking enter/exit, with an optional ``list_tools`` failure."""
+
+    def __init__(self, tool_names: list[str], *, fail_list: bool = False, enter_delay: float = 0.0) -> None:
+        self._tool_names = tool_names
+        self._fail_list = fail_list
+        self._enter_delay = enter_delay
+        self.entered = False
+        self.exited = False
+
+    async def __aenter__(self) -> "_TrackingClient":
+        if self._enter_delay:
+            await asyncio.sleep(self._enter_delay)  # a slow handshake -> teardown can race the spawn
+        self.entered = True
+        return self
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        self.exited = True  # the stdio subprocess is torn down here — proof it wasn't leaked
+        return False
+
+    async def list_tools(self) -> list[_FakeTool]:
+        if self._fail_list:
+            raise RuntimeError("list_tools boom")  # the F-1 failure mode: __aenter__ ok, add() fails
+        return [_FakeTool(n) for n in self._tool_names]
+
+
+def _patch_client_factory(
+    monkeypatch: Any, made: list[_TrackingClient], factory: Callable[[], _TrackingClient]
+) -> None:
+    """Route ``_spawn_into``'s ``Client(...)`` / ``StdioTransport(...)`` to fakes; record each client made."""
+
+    def make_client(*_a: Any, **_k: Any) -> _TrackingClient:
+        client = factory()
+        made.append(client)
+        return client
+
+    monkeypatch.setattr(tools, "Client", make_client)
+    monkeypatch.setattr(tools, "StdioTransport", lambda **_k: None)
+    monkeypatch.setattr(tools, "_resolve_command", lambda cmd: cmd)
+
+
+async def test_spawn_into_reaps_client_when_list_tools_fails(monkeypatch: Any) -> None:
+    # F-1: __aenter__ succeeds but toolset.add (list_tools) fails -> the entered client must be closed on
+    # the LOCAL stack (subprocess dies) before returning False, and a retry must not stack a 2nd live one.
+    made: list[_TrackingClient] = []
+    _patch_client_factory(
+        monkeypatch,
+        made,
+        lambda: _TrackingClient(["w"], fail_list=len(made) == 0),  # first fails, then ok
+    )
+    toolset = tools.MCPToolset()
+    shared = AsyncExitStack()
+    server = McpServer(name="staging", command="x")
+
+    ok = await tools._spawn_into(shared, toolset, "staging", server)
+    assert ok is False
+    assert made[0].entered and made[0].exited  # failed spawn reaped its client — not left live on shared
+    assert toolset.errors and toolset.errors[0][0] == "staging"  # recorded like a startup failure
+    assert toolset.names == []
+
+    ok2 = await tools._spawn_into(shared, toolset, "staging", server)  # retry
+    assert ok2 is True
+    assert made[1].entered and not made[1].exited  # the retry's client is live (owned by the shared stack)
+    assert toolset.names == ["staging__w"]
+    await shared.aclose()
+    assert made[1].exited  # shared-stack teardown closes exactly the one live client (no leak, no double)
+
+
+async def test_close_during_lazy_spawn_reaps_client(monkeypatch: Any) -> None:
+    # F-2: teardown (SIGINT/lifespan close) sets _closing while a lazy spawn is mid-__aenter__. The client
+    # must be reaped on the local stack instead of registered on the about-to-drain shared stack.
+    made: list[_TrackingClient] = []
+    _patch_client_factory(monkeypatch, made, lambda: _TrackingClient(["w"], enter_delay=0.05))
+    toolset = tools.MCPToolset()
+    shared = AsyncExitStack()
+    bridge = tools.MCPBridge(toolset, shared)
+    bridge._pending = {"staging": McpServer(name="staging", command="x")}
+    routing = tools.TargetRouting(explicit={"staging": {"staging"}})
+
+    task = asyncio.create_task(bridge.ensure_target(routing, "staging"))
+    await asyncio.sleep(0.01)  # let the spawn reach the slow __aenter__
+    bridge._closing = True  # teardown begins mid-spawn (before the shared stack would drain)
+    await task
+
+    assert made and made[0].exited  # the raced client was reaped, not orphaned
+    assert bridge.pending_prefixes == {"staging"}  # transfer refused -> stays pending (never marked live)
+    # The shared stack owns nothing to close (the client was reaped locally), so teardown is a clean no-op.
+    await shared.aclose()
+    assert made[0].exited
+
+
+async def test_ensure_one_refuses_when_already_closing(monkeypatch: Any) -> None:
+    # F-2 entry guard: a first-use that arrives after teardown began spawns nothing at all.
+    made: list[_TrackingClient] = []
+    _patch_client_factory(monkeypatch, made, lambda: _TrackingClient(["w"]))
+    toolset = tools.MCPToolset()
+    bridge = tools.MCPBridge(toolset, AsyncExitStack())
+    bridge._pending = {"staging": McpServer(name="staging", command="x")}
+    bridge._closing = True
+    routing = tools.TargetRouting(explicit={"staging": {"staging"}})
+    await bridge.ensure_target(routing, "staging")
+    assert made == []  # no client was ever constructed
+    assert bridge.pending_prefixes == {"staging"}
+
+
 async def test_connect_bridge_eager_all_spawns_everything(monkeypatch: Any) -> None:
     spawned: list[str] = []
 
-    async def fake_spawn_into(stack: Any, toolset: tools.MCPToolset, prefix: str, server: McpServer) -> bool:
+    async def fake_spawn_into(
+        stack: Any, toolset: tools.MCPToolset, prefix: str, server: McpServer, *, is_closing: Any = None
+    ) -> bool:
         spawned.append(prefix)
         return True
 

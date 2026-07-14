@@ -362,6 +362,43 @@ async def test_assistants_verify_spawns_lazy_target_on_first_use(app: FastAPI, c
     assert "play41__dhis2_cli" in app.state.toolset.names  # first verify spawned it
 
 
+async def test_doctor_discloses_deferred_lazy_server(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # F-3: a not-yet-spawned (deferred) server is invisible to /api/doctor until first use. Each pending
+    # prefix now gets an informational row naming the target whose first use will spawn it.
+    from heim import library as library_ops
+
+    monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # keep the doctor's library scan trivial
+    _lazy_two_target(app)  # play41 pending on the bridge, not spawned
+    rows = {c["name"]: c for c in (await client.get("/api/doctor")).json()["checks"]}
+    assert "MCP: play41" in rows
+    assert rows["MCP: play41"]["status"] == "ok"
+    assert "deferred - spawns on first use" in rows["MCP: play41"]["detail"]
+    assert "play41" in rows["MCP: play41"]["detail"]  # names the owning target
+
+
+def test_mcp_checks_failed_deferred_not_double_listed() -> None:
+    # F-3: a pending prefix whose earlier spawn attempt failed is already covered by the error row, so it
+    # must not ALSO get a "deferred" informational row.
+    from contextlib import AsyncExitStack
+
+    from heim import tools
+    from heim.mcpservers import McpServer
+    from heim.routers.serving import core
+
+    toolset = tools.MCPToolset()
+    toolset.errors.append(("play41", "boom"))  # a prior lazy spawn failed and was recorded
+    bridge = tools.MCPBridge(toolset, AsyncExitStack())
+    bridge._pending = {"play41": McpServer(name="play41", command="x")}  # stays pending (retryable)
+    routing = tools.TargetRouting(explicit={"play41": {"play41"}})
+    checks = core._mcp_checks(toolset, bridge, routing)
+    play41 = [c for c in checks if c.name == "MCP: play41"]
+    assert len(play41) == 1  # the failure row only — no duplicate deferred row
+    assert play41[0].status is core.doctor.CheckStatus.fail
+    assert play41[0].detail == "boom"
+
+
 # --- compat routes still target the primary -----------------------------------------------------------
 
 

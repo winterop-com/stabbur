@@ -180,6 +180,11 @@ def _can_verify(
     prefix = spec.tool.split("__", 1)[0]
     if prefix not in bridge.pending_prefixes:
         return False
+    # Accepted footgun: a server that is *permanently* unspawnable (a bad command that fails every
+    # first-use attempt) stays pending forever, so this keeps returning True. That's deliberate — pending
+    # is retryable by design (a transient failure must not latch can_verify off), the verify call itself
+    # then returns a clean ok=False data state rather than lying, and once an attempt has run its failure
+    # is visible in /api/doctor's MCP rows. We don't demote can_verify on a prior failure here.
     if target_id in routing.owns_all:
         return True
     return prefix in routing.explicit.get(target_id, set())

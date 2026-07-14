@@ -13,7 +13,7 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import AsyncGenerator, Iterable, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -397,7 +397,14 @@ async def connect(
         yield toolset
 
 
-async def _spawn_into(stack: AsyncExitStack, toolset: MCPToolset, prefix: str, server: "McpServer") -> bool:
+async def _spawn_into(
+    stack: AsyncExitStack,
+    toolset: MCPToolset,
+    prefix: str,
+    server: "McpServer",
+    *,
+    is_closing: "Callable[[], bool] | None" = None,
+) -> bool:
     """Spawn one ``McpServer`` on ``stack`` and register its tools under the fixed ``prefix``.
 
     The single per-server spawn path shared by eager startup and lazy first-use: mirrors :func:`connect`'s
@@ -406,22 +413,39 @@ async def _spawn_into(stack: AsyncExitStack, toolset: MCPToolset, prefix: str, s
     a startup failure records** — and returns ``False`` (never raises), so one bad server can't abort the
     rest and a caller can decide whether to keep it pending for a retry. The prior error for the same label
     is dropped first, so a retried lazy spawn never stacks duplicate entries.
+
+    Ownership discipline (no leaked subprocesses): the client is entered on a **local** exit stack and only
+    handed to the shared ``stack`` after ``toolset.add`` (``list_tools``) succeeds. If the add fails, the
+    local stack is closed here so the just-spawned stdio subprocess dies before we return ``False`` —
+    otherwise a retried lazy spawn would stack a fresh live subprocess on every attempt. ``is_closing`` (the
+    bridge's teardown flag) is re-checked at the transfer point: if teardown began while we were entering,
+    the client is closed instead of being registered on the about-to-drain shared stack (would orphan it).
     """
     base_env = _mcp_env()
     label = server.name or server.command
     command = [server.command, *server.args]
     env = {**base_env, **server.env} if server.env else base_env
+    local_stack = AsyncExitStack()
     try:
         transport = StdioTransport(
             command=_resolve_command(command[0]), args=command[1:], env=env, log_file=Path(os.devnull)
         )
-        client = await stack.enter_async_context(Client(transport, init_timeout=60))
+        client = await local_stack.enter_async_context(Client(transport, init_timeout=60))
         await toolset.add(client, prefix)
-        return True
     except Exception as exc:  # noqa: BLE001 - a spawn/connect failure is recorded, never raised
         toolset.errors = [(lbl, err) for (lbl, err) in toolset.errors if lbl != label]
         toolset.errors.append((label, str(exc)))
+        await local_stack.aclose()  # kill the half-entered client's subprocess before returning
         return False
+    if is_closing is not None and is_closing():
+        # Teardown raced this in-flight spawn: don't register on the shared stack (it is about to drain /
+        # already draining) — close the entered client so its subprocess dies instead of being orphaned.
+        await local_stack.aclose()
+        return False
+    # add succeeded and we're not closing: hand ownership of the live client to the shared stack so
+    # lifespan teardown closes it alongside the eager clients (pop_all keeps a single close callback).
+    stack.push_async_callback(local_stack.pop_all().aclose)
+    return True
 
 
 def _eager_prefixes(
@@ -464,23 +488,44 @@ class MCPBridge:
         self._stack = stack
         self._pending: dict[str, McpServer] = {}  # fixed prefix -> not-yet-spawned server
         self._locks: dict[str, asyncio.Lock] = {}  # fixed prefix -> single-flight spawn lock
+        # Set True (before the shared stack drains) by connect_bridge's teardown, so an in-flight lazy
+        # spawn racing SIGINT/lifespan-close refuses to register on the about-to-drain stack — see
+        # _ensure_one (entry + under-lock check) and _spawn_into's is_closing transfer-point re-check.
+        self._closing = False
 
     @property
     def pending_prefixes(self) -> set[str]:
         """Prefixes declared but not yet spawned — their tools appear only after first use."""
         return set(self._pending)
 
+    def pending_label(self, prefix: str) -> str | None:
+        """The launch label (``.mcp.json`` name or command) of a pending prefix's deferred server, if any.
+
+        Lets a caller (e.g. ``/api/doctor``) match a pending prefix against a recorded spawn failure in
+        ``toolset.errors`` (keyed by that same label) without reaching into ``_pending`` directly.
+        """
+        server = self._pending.get(prefix)
+        return (server.name or server.command) if server is not None else None
+
     async def _spawn(self, prefix: str, server: "McpServer") -> bool:
         """Spawn ``server`` under ``prefix`` on the shared stack (indirection kept overridable for tests)."""
-        return await _spawn_into(self._stack, self.toolset, prefix, server)
+        return await _spawn_into(self._stack, self.toolset, prefix, server, is_closing=lambda: self._closing)
 
     async def _ensure_one(self, prefix: str) -> None:
-        """Spawn one pending ``prefix`` under its single-flight lock (a racing first-use waits, not respawns)."""
+        """Spawn one pending ``prefix`` under its single-flight lock (a racing first-use waits, not respawns).
+
+        Refuses once teardown has begun (``_closing``): both at entry and again under the lock, so a spawn
+        started just before close records nothing and returns without registering on the draining stack.
+        """
+        if self._closing:  # teardown started -> don't begin a new spawn
+            return
         lock = self._locks.get(prefix)
         if lock is None:  # no await between the .get() and the set -> race-free on the single-threaded loop
             lock = asyncio.Lock()
             self._locks[prefix] = lock
         async with lock:
+            if self._closing:  # re-check: teardown may have begun while we waited for the lock
+                return
             server = self._pending.get(prefix)
             if server is None:  # a racing caller already spawned it (single-flight)
                 return
@@ -538,4 +583,10 @@ async def connect_bridge(
                 await _spawn_into(stack, toolset, prefix, server)
             else:
                 bridge._pending[prefix] = server
-        yield bridge
+        try:
+            yield bridge
+        finally:
+            # Flag teardown BEFORE the shared stack drains (the finally runs while the stack is still
+            # open): an in-flight lazy spawn re-checks this and closes its own client rather than
+            # registering it on the draining stack (which would orphan the subprocess).
+            bridge._closing = True
