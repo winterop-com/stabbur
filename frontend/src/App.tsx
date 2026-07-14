@@ -7,6 +7,7 @@ import { ResizeHandle } from "@/components/ui/resizable";
 import {
   buildContent,
   confirmAction,
+  getAssistants,
   getDoctor,
   getLibrary,
   getStatus,
@@ -18,6 +19,7 @@ import {
   setModelTags,
   streamChat,
   unloadModel,
+  type AssistantTarget,
   type DoctorReport,
   type LibModel,
   type Msg,
@@ -41,6 +43,7 @@ import type { TagRegistry } from "@/lib/tags";
 import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
+import { TargetSelector } from "@/components/TargetSelector";
 import { LibraryView } from "@/components/LibraryView";
 import { VoiceView } from "@/components/VoiceView";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -57,6 +60,10 @@ import {
 import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
 import { useTheme } from "@/lib/useTheme";
+
+// The selected assistant target persists per backend (a heim project is served on one origin), so
+// two projects served on different ports keep independent picks; a same-origin restart restores it.
+const TARGET_KEY = `heim.target:${window.location.host}`;
 
 /** Parse the active conversation id from the URL hash (#/c/<id>), or null. */
 function conversationIdFromHash(): string | null {
@@ -92,6 +99,11 @@ export function App() {
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [tagRegistry, setTagRegistry] = useState<TagRegistry>({}); // first-class tag colors/icons
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  // Multi-target project registry ([[assistants]]): a picker shows only with >= 2 targets, and the
+  // chosen id rides every chat turn as `target` (the server routes per turn, spawning a target's
+  // bridge lazily on first use). Empty for generic/single-target servers -> no picker, no `target`.
+  const [targets, setTargets] = useState<AssistantTarget[]>([]);
+  const [targetId, setTargetId] = useState<string | null>(() => localStorage.getItem(TARGET_KEY));
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
   const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("heim.tts_voice") || "");
@@ -237,6 +249,20 @@ export function App() {
         .catch((e) => setError(`Library: ${e}`))
         .finally(() => setLibraryLoaded(true)); // distinguish "still loading" from "empty"
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
+      // Assistant targets: only a multi-target project (>= 2) shows the picker. Reconcile the
+      // persisted pick against the live registry, defaulting to the primary (first) when it's gone
+      // or unset; a generic/single-target server clears both so no `target` is ever sent.
+      getAssistants()
+        .then((ts) => {
+          if (ts.length >= 2) {
+            setTargets(ts);
+            setTargetId((cur) => (cur && ts.some((t) => t.id === cur) ? cur : ts[0].id));
+          } else {
+            setTargets([]);
+            setTargetId(null);
+          }
+        })
+        .catch(() => {});
       getTagRegistry().then(setTagRegistry).catch(() => {}); // tag styles are optional (derived fallback)
       getVoices().then(setVoices).catch(() => {}); // voices are optional (no TTS engine)
       getVoiceModels()
@@ -476,6 +502,9 @@ export function App() {
           useTools: settings.useTools,
           enabledTools,
           systemPrompt: settings.systemPrompt,
+          // Route this turn to the selected target only when a multi-target registry is present;
+          // undefined otherwise leaves routing to the server default (generic/single-target apps).
+          target: targets.length >= 2 ? (targetId ?? undefined) : undefined,
         })) {
           if (evt.type === "token") {
             upsertConv(convId, (c) => ({
@@ -573,7 +602,7 @@ export function App() {
         abortRef.current = null;
       }
     },
-    [settings, tools, upsertConv],
+    [settings, tools, upsertConv, targets, targetId],
   );
 
   // --- send a new user turn ---
@@ -750,6 +779,13 @@ export function App() {
     [settings, updateSettings],
   );
 
+  // Select an assistant target (multi-target projects); persisted per backend so the pick survives
+  // a reload. Takes effect on the next chat turn — the server routes per turn.
+  const chooseTarget = useCallback((id: string) => {
+    setTargetId(id);
+    localStorage.setItem(TARGET_KEY, id);
+  }, []);
+
   // TTS voice (a global preference for the Listen button): "" = default OuteTTS.
   const chooseVoice = useCallback((name: string) => {
     setTtsVoice(name);
@@ -778,6 +814,11 @@ export function App() {
         onPick={pick}
         onEject={eject}
       />
+      {/* Multi-target projects only ([[assistants]]): pick which instance this turn routes to.
+          Single-target/generic servers render nothing here (zero change to the existing app). */}
+      {targets.length >= 2 && (
+        <TargetSelector targets={targets} selectedId={targetId} onSelect={chooseTarget} />
+      )}
       <ToolsControl
         tools={tools}
         useTools={settings.useTools}

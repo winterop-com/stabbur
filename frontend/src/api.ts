@@ -174,6 +174,34 @@ export const getTagRegistry = () => apiFetch("/api/tags/registry").then(json<Tag
 /** List the MCP tools attached to the server (empty if none configured). */
 export const getTools = () => apiFetch("/api/tools").then(json<ToolInfo[]>);
 
+/**
+ * One assistant target in a multi-target project registry ([[assistants]]), as sanitized by
+ * GET /api/assistants. Minimal mirror of the extension's shape (kept independent — the web app
+ * must not import extension code); `id` is the registry's collision-safe id, `mcp_servers` names
+ * the servers whose namespaced tools route to it. Extra project keys ride along untyped.
+ */
+export interface AssistantTarget {
+  id: string;
+  name?: string | null;
+  base_url?: string | null;
+  readonly?: boolean | null;
+  mcp_servers: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * List the project's assistant targets ([[assistants]]). Returns [] for a generic or single-target
+ * server: an empty registry answers `{targets: []}` (200) and no project answers 404 — both mean
+ * "no target picker", so a 404 is folded into an empty list.
+ */
+export async function getAssistants(): Promise<AssistantTarget[]> {
+  const res = await apiFetch("/api/assistants");
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const data = (await res.json()) as { targets?: AssistantTarget[] };
+  return data.targets ?? [];
+}
+
 /** Fetch the system-health report (runtimes, library, project). */
 export const getDoctor = () => apiFetch("/api/doctor").then(json<DoctorReport>);
 
