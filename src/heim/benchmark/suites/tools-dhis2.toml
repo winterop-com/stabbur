@@ -12,7 +12,9 @@ language = "tools"
 # there are many valid ways to reach an answer. We score what matters -- did the model reach for the
 # bridge, and did it return the right value -- not one exact argv. `expect_answer_contains` values
 # are STABLE STRUCTURAL FACTS of the DHIS2 "Sierra Leone" demo (metadata counts, UIDs, names,
-# version) captured from play42 on 2026-07-04; refresh them if the dev instance is reset. Analytics
+# version) captured from play42 on 2026-07-04, counts re-verified live 2026-07-14 (indicators had
+# drifted 77 -> 78 and cost every model in that night's sweep exactly one point -- re-check these
+# BEFORE blaming a model for a systematic miss). Analytics
 # values are deliberately avoided -- the demo regenerates data relative to the current date, so no
 # absolute analytics number is stable.
 
@@ -66,7 +68,7 @@ difficulty = "intermediate"
 prompt = "How many indicators are configured in this DHIS2 instance? Use the available tools."
 servers = ["env DHIS2_PROFILE=play42 DHIS2_MCP_READONLY=1 uvx dhis2w-mcp-bridge"]
 expect_tool = "env__dhis2_cli"
-expect_answer_contains = "77"
+expect_answer_contains = "78"  # re-verified live 2026-07-14 (was 77 at the 2026-07-04 capture)
 
 [[problems]]
 id = "count-datasets"

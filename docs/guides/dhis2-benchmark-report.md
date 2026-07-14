@@ -7,8 +7,9 @@ complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 
 > A **9B** model — `deepreinforce-ai/Ornith-1.0-9B-GGUF` — tops the **read-only** leaderboard at a
 > perfect **12/12**, and is the **fastest** (~12s/problem) and **smallest** (5.2 GB) model to do so,
-> beating the 27B and 31B models. You do not need a big model to run DHIS2 locally; you need one
-> that reliably calls tools.
+> beating the 27B, 31B, 35B, and 40B models — a result that has now survived two measurement eras
+> (repr-text and compact-JSON tool output). You do not need a big model to run DHIS2 locally; you
+> need one that reliably calls tools.
 
 > **Writes are a different, much harder story.** Under scoring that verifies **real DHIS2 state**
 > (not just a self-reported completion token), the strongest writer — `gemma-4-12B` — completes
@@ -18,17 +19,24 @@ complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 > is the model's limit. This is why writes ship behind a **per-action confirmation gate** — the
 > human, not the model, is the safety net. See "[Writes](#writes-create-update-delete)" below.
 
-!!! note "Re-verified 2026-07-12 (compact-JSON tool output)"
+!!! note "Re-measured 2026-07-14 (full sweep under compact-JSON tool output)"
 
-    heim now hands tool results to the model as **compact JSON** rather than the older Python
-    `repr` text, so the two locally-available models were re-run to confirm the leaderboard still
-    holds under the new shape. Both reproduce **12/12**: `Ornith-1.0-9B` on 3/3 clean runs and
-    `gemma-4-12B` on 2/2. Two changes came out of it: the `count data sets` ground truth was
-    refreshed **27 → 28** (the play demo added a data set since the 2026-07-04 snapshot; every
-    other count still matches), and generation should be **bounded** (`max_tokens`) — an uncapped
-    run occasionally lets a small model run away on the hardest problem and drop its final answer,
-    which reads as a spurious miss. The larger sweep models below were not re-run (not in the local
-    library); their scores are the original 2026-07-04 measurements.
+    heim hands tool results to the model as **compact JSON** rather than the older Python `repr`
+    text, and the FULL library sweep below was re-run under that shape (11 GGUF models, overnight,
+    against live play42). Two findings worth keeping:
+
+    - **Ground truth drifts.** The `count indicators` truth had moved **77 → 78** on the demo
+      since the 2026-07-04 snapshot, and every single model in the sweep lost exactly that one
+      point — a 100% correlated miss is the suite going stale, not the models failing. The suite
+      was refreshed and the two leaders re-confirmed on the corrected truth: `Ornith-1.0-9B`
+      **12/12 at 12.2s** and `gemma-4-12B` **12/12 at 77.1s**, so the headline holds under
+      compact JSON. Models whose *sole* miss was the stale count are reported at their effective
+      12/12 below, marked \*.
+    - **Per-problem speed varies heavily run to run** on the same hardware (the same gemma-4-12B
+      measured 11.6s/problem in the overnight sweep and 77.1s in the morning confirmation run).
+      Ranks below use score first; treat the seconds as indicative, not stable. The one real
+      mover: `Qwen3-Coder-30B` dropped 11/12 → 8/12 under compact JSON while everything else held
+      or improved.
 
 ## What was measured
 
@@ -49,7 +57,7 @@ The 12 problems and their ground truth (a snapshot of play42 on 2026-07-04):
 | basics | current user | admin |
 | basics | count organisation units | 1332 |
 | intermediate | count data elements | 1037 |
-| intermediate | count indicators | 77 |
+| intermediate | count indicators | 78 (77 at the 2026-07-04 capture; drifted on the demo, refreshed 2026-07-14) |
 | intermediate | count data sets | 28 |
 | intermediate | org-unit level 3 name | Chiefdom |
 | advanced | count option sets | 171 |
@@ -68,22 +76,27 @@ scores are the corrected numbers (see "A scoring bug we found and fixed" below).
 
 | Rank | Model | Score | Avg response/problem | Size |
 |---|---|---|---|---|
-| 1 | `deepreinforce-ai/Ornith-1.0-9B-GGUF` | **12/12** | 12.3s | 5.2 GB |
-| 2 | `lmstudio-community/Qwen3.6-27B-GGUF` | **12/12** | 30.9s | 16.3 GB |
-| 3 | `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **12/12** | 68.0s | 6.7 GB |
-| 4 | `unsloth/Qwen3.5-4B-GGUF` | 11/12 | 10.5s | 2.6 GB |
-| 5 | `unsloth/gpt-oss-20b-GGUF` | 11/12 | 24.9s | 10.8 GB |
-| 6 | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` | 11/12 | 6.1s | 17.3 GB |
-| — | `lmstudio-community/gemma-4-31B-it-QAT-GGUF` | n/a* | — | 17.6 GB |
-| — | `TheDrummer/Rocinante-X-12B-v1-GGUF` | 0/12 | 3.7s | 7.0 GB |
-| — | `mradermacher/MN-Violet-Lotus-12B-GGUF` | 0/12 | 4.5s | 12.1 GB |
+| 1 | `deepreinforce-ai/Ornith-1.0-9B-GGUF` | **12/12** | 12.2s | 5.2 GB |
+| 2 | `lmstudio-community/Qwen3.6-35B-A3B-GGUF` | **12/12**\* | 12.2s | 20.6 GB |
+| 3 | `lmstudio-community/Qwen3.6-27B-GGUF` | **12/12**\* | 30.1s | 16.3 GB |
+| 4 | `DavidAU/Qwen3.6-40B-...-IMatrix-MAX-GGUF` | **12/12**\* | 46.9s | 26.3 GB |
+| 5 | `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **12/12** | 77.1s | 6.7 GB |
+| 6 | `lmstudio-community/gemma-4-31B-it-QAT-GGUF` | **12/12**\* | 187.2s | 17.6 GB |
+| 7 | `unsloth/gpt-oss-20b-GGUF` | 11/12\* | 10.2s | 10.8 GB |
+| 8 | `unsloth/Qwen3.5-4B-GGUF` | 11/12\* | 23.4s | 2.6 GB |
+| 9 | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` | 8/12 | 4.8s | 17.3 GB |
+| — | `TheDrummer/Rocinante-X-12B-v1-GGUF` | 0/12 | 4.2s | 7.0 GB |
+| — | `mradermacher/MN-Violet-Lotus-12B-GGUF` | 0/12 | 4.8s | 12.1 GB |
 | — | 3 MLX models | n/a† | — | — |
 
-\* `gemma-4-31B` scored 10/12 on the initial sweep, missing **only** the two 4-digit counts
-(the scoring bug below) — so it is effectively a 12/12-class model. Two confirmatory re-runs under
-the corrected scoring both hit transient local-serving flakes (one runaway tool-call loop, one
-empty-generation failure), so it is not independently re-scored here. It was also the slowest and
-least stable model to serve locally (6-minute loads, ~183s/problem when it looped).
+\* Scored in the 2026-07-14 overnight sweep against the then-stale `count indicators` truth; the
+starred score is the effective one with that systematic miss normalized (their only extra miss —
+for the 11/12 rows, the star means one point of their score came from the normalization). The two
+leaders (`Ornith`, `gemma-4-12B`) were independently re-confirmed on the corrected suite the same
+morning — those rows are clean measured numbers. `gemma-4-31B` finally produced a stable full run
+(it flaked on every earlier attempt) and is a genuine 12/12-class model, just the slowest to serve.
+The 40B crashed its first serve (`ReadError` under memory pressure right after the 31B run) and
+was clean on an isolated retry.
 
 † The three MLX models (`Qwen3.5-4B-MLX-4bit`, `gemma-4-26B-A4B-it-QAT-MLX-4bit`,
 `Qwen3.6-27B-4bit`) could **not be evaluated**: serving them crashes at import time in the
@@ -97,18 +110,20 @@ Tool-driving is about *reliably emitting a tool call and reading JSON back*, not
 count — so the practical choice for a local DHIS2 assistant is a small, fast, tool-solid model,
 not the biggest one that fits.
 
-**Bigger is not better, and can be worse.** The 31B was the slowest and least stable to serve; the
-30B coder model (`Qwen3-Coder`) landed at 11/12, below the 9B. On the initial sweep the 31B even
-missed simple counts the 12B got right.
+**Bigger is not better, and can be worse.** The 31B is the slowest to serve by an order of
+magnitude (187s/problem); the 30B coder model (`Qwen3-Coder`) landed at 11/12 in the repr era and
+fell to 8/12 under compact JSON — below the 4B. On the initial sweep the 31B even missed simple
+counts the 12B got right.
 
 **Roleplay finetunes can't tool-call.** `Rocinante` and `MN-Violet-Lotus` both scored 0/12. The
 tell is in the timing: they answered in **~3.7s/problem** — no tool call, no network round-trip —
 versus 10-70s for the models that actually queried the server. They are flagged `tools` by their
 chat template but do not use it; treat that capability flag as necessary, not sufficient.
 
-**Run-to-run variance is real.** `Qwen3-Coder` scored 7/12 on the first run and 11/12 on the
-re-run (sampling temperature > 0). Single runs are noisy at the margin; the leaderboard is a
-snapshot, not a precise ranking within a point or two.
+**Run-to-run variance is real.** `Qwen3-Coder` has scored 7, 11, and 8 of 12 across three eras of
+runs (sampling temperature > 0), and the same `gemma-4-12B` measured 11.6s/problem overnight and
+77.1s the next morning. Single runs are noisy at the margin; the leaderboard is a snapshot, not a
+precise ranking within a point or two — and the seconds column even less so.
 
 ## A scoring bug we found and fixed
 

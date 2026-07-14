@@ -3,96 +3,96 @@
   "language": "tools",
   "type": "tool",
   "model": "unsloth/Qwen3.5-4B-GGUF",
-  "timestamp": "2026-07-04T19:26:24",
-  "load_s": 1.6533182919956744,
+  "timestamp": "2026-07-14T00:57:07",
+  "load_s": 5.864242124982411,
   "outcomes": [
     {
       "id": "system-name",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 19.04425249999622,
+      "gen_s": 11.544618999992963,
       "exec_s": 0.0
     },
     {
       "id": "server-version",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 11.488464707974344,
+      "gen_s": 7.540549208992161,
       "exec_s": 0.0
     },
     {
       "id": "whoami",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 11.850878000026569,
+      "gen_s": 9.259765916998731,
       "exec_s": 0.0
     },
     {
       "id": "count-orgunits",
       "difficulty": "basics",
       "passed": true,
-      "gen_s": 7.948187750007492,
+      "gen_s": 9.460445500008063,
       "exec_s": 0.0
     },
     {
       "id": "count-dataelements",
       "difficulty": "intermediate",
       "passed": true,
-      "gen_s": 8.026880707999226,
+      "gen_s": 6.307358083024155,
       "exec_s": 0.0
     },
     {
       "id": "count-indicators",
       "difficulty": "intermediate",
-      "passed": true,
-      "gen_s": 6.972242334042676,
+      "passed": false,
+      "gen_s": 6.454762084002141,
       "exec_s": 0.0
     },
     {
       "id": "count-datasets",
       "difficulty": "intermediate",
       "passed": true,
-      "gen_s": 7.368714166979771,
+      "gen_s": 11.13417758300784,
       "exec_s": 0.0
     },
     {
       "id": "orgunit-level-3-name",
       "difficulty": "intermediate",
       "passed": true,
-      "gen_s": 8.810824832995422,
+      "gen_s": 8.930210708000232,
       "exec_s": 0.0
     },
     {
       "id": "count-optionsets",
       "difficulty": "advanced",
       "passed": true,
-      "gen_s": 7.628574083966669,
+      "gen_s": 6.884852999995928,
       "exec_s": 0.0
     },
     {
       "id": "dataelement-uid",
       "difficulty": "advanced",
       "passed": true,
-      "gen_s": 10.807412084017415,
+      "gen_s": 10.027334499987774,
       "exec_s": 0.0
     },
     {
       "id": "orgunit-uid",
       "difficulty": "advanced",
       "passed": false,
-      "gen_s": 12.468783249962144,
+      "gen_s": 180.58940758300014,
       "exec_s": 0.0
     },
     {
       "id": "orgunit-name-from-uid",
       "difficulty": "expert",
       "passed": true,
-      "gen_s": 13.546754499955568,
+      "gen_s": 12.301402750017587,
       "exec_s": 0.0
     }
   ],
-  "gen_s": 125.96196891792351,
+  "gen_s": 280.4348859170277,
   "total": 12,
-  "passed": 11,
-  "score": 0.9166666666666666
+  "passed": 10,
+  "score": 0.8333333333333334
 }
