@@ -136,11 +136,11 @@ the wrong fix — it would leak profile secrets to the extension and defeats bin
   replacing the `[assistant.verify]` tool-call path without changing the `/api/assistant` contract.
 - **Packaging** — Web Store (unlisted first), pinned manifest key, Firefox `sidebar_action` target
   via the WXT multi-target build.
-- **Re-run the tools-dhis2 benchmark against the new tool-output shape.** Tool results now reach
-  the model as compact JSON instead of the old repr text; the "Ornith-1.0-9B 12/12" result cited
-  in the dhis2 template's model choice predates that change. Likely fine or better (JSON is what
-  these models were tool-trained on), but per "actually test every path" the sweep needs a re-run
-  before the claim is cited again.
+- **tools-dhis2 benchmark re-run under compact JSON — done (2026-07-14).** Full 11-model sweep:
+  the Ornith 12/12 fastest+smallest headline survived the output-shape change (12.2s confirmed on
+  a corrected suite); a stale ground truth was caught (indicators 77 -> 78, a 100%-correlated miss
+  across the sweep) and the suite now carries a re-check warning; `Qwen3-Coder-30B` regressed
+  11/12 -> 8/12 under JSON. Full table: `docs/guides/dhis2-benchmark-report.md`.
 - **Bind mint tail — resolved, with a dev-tooling note.** The in-tab mint (`chrome.scripting.
   executeScript` on the target tab) needs host access. At real runtime that comes from `activeTab`
   when the user opens the side panel via the **toolbar icon** on the target tab — so real installs

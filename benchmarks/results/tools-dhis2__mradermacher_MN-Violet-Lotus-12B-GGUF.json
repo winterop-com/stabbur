@@ -3,95 +3,95 @@
   "language": "tools",
   "type": "tool",
   "model": "mradermacher/MN-Violet-Lotus-12B-GGUF",
-  "timestamp": "2026-07-04T18:32:03",
-  "load_s": 134.8771504999604,
+  "timestamp": "2026-07-14T00:59:45",
+  "load_s": 23.06405725001241,
   "outcomes": [
     {
       "id": "system-name",
       "difficulty": "basics",
       "passed": false,
-      "gen_s": 13.41320466704201,
+      "gen_s": 10.269854291022057,
       "exec_s": 0.0
     },
     {
       "id": "server-version",
       "difficulty": "basics",
       "passed": false,
-      "gen_s": 1.0816837499733083,
+      "gen_s": 1.61252120800782,
       "exec_s": 0.0
     },
     {
       "id": "whoami",
       "difficulty": "basics",
       "passed": false,
-      "gen_s": 5.643309750012122,
+      "gen_s": 1.6180905420042109,
       "exec_s": 0.0
     },
     {
       "id": "count-orgunits",
       "difficulty": "basics",
       "passed": false,
-      "gen_s": 1.978911375044845,
+      "gen_s": 4.602764166978886,
       "exec_s": 0.0
     },
     {
       "id": "count-dataelements",
       "difficulty": "intermediate",
       "passed": false,
-      "gen_s": 6.758078415994532,
+      "gen_s": 2.6026541250175796,
       "exec_s": 0.0
     },
     {
       "id": "count-indicators",
       "difficulty": "intermediate",
       "passed": false,
-      "gen_s": 4.962531958008185,
+      "gen_s": 6.837216416985029,
       "exec_s": 0.0
     },
     {
       "id": "count-datasets",
       "difficulty": "intermediate",
       "passed": false,
-      "gen_s": 5.641980917018373,
+      "gen_s": 5.803245582996169,
       "exec_s": 0.0
     },
     {
       "id": "orgunit-level-3-name",
       "difficulty": "intermediate",
       "passed": false,
-      "gen_s": 2.818105957994703,
+      "gen_s": 9.427098374988418,
       "exec_s": 0.0
     },
     {
       "id": "count-optionsets",
       "difficulty": "advanced",
       "passed": false,
-      "gen_s": 2.9414452079799958,
+      "gen_s": 4.6268042079755105,
       "exec_s": 0.0
     },
     {
       "id": "dataelement-uid",
       "difficulty": "advanced",
       "passed": false,
-      "gen_s": 2.1807844170252793,
+      "gen_s": 4.137721207982395,
       "exec_s": 0.0
     },
     {
       "id": "orgunit-uid",
       "difficulty": "advanced",
       "passed": false,
-      "gen_s": 2.5065679579856806,
+      "gen_s": 2.213871750020189,
       "exec_s": 0.0
     },
     {
       "id": "orgunit-name-from-uid",
       "difficulty": "expert",
       "passed": false,
-      "gen_s": 4.5724657499813475,
+      "gen_s": 4.026020167017123,
       "exec_s": 0.0
     }
   ],
-  "gen_s": 54.49907012406038,
+  "gen_s": 57.77786204099539,
   "total": 12,
   "passed": 0,
   "score": 0.0
