@@ -101,10 +101,16 @@ def _parse_file(path: Path) -> tuple[list[McpServer], set[str]]:
             continue
         if not isinstance(entry, dict) or "command" not in entry:
             raise McpConfigError(f"{path}: server {name!r} must be an object with a 'command'")
+        command = str(entry["command"])
+        # Rename migration: configs written before the kodo -> heim rename still name the bundled
+        # servers `kodo-mcp-*`, which no longer exist on PATH and fail to spawn with [Errno 2].
+        # Rewrite in memory only (the file is the user's; the one-writer discipline stays intact).
+        if command.startswith("kodo-mcp-"):
+            command = "heim-mcp-" + command.removeprefix("kodo-mcp-")
         out.append(
             McpServer(
                 name=str(name),
-                command=str(entry["command"]),
+                command=command,
                 args=[str(a) for a in (entry.get("args") or [])],
                 env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
             )
