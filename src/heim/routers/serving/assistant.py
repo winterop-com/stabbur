@@ -39,7 +39,7 @@ from heim.project import (
 )
 from heim.routers.serving._base import router
 from heim.targets import AssistantRegistry, select, selected
-from heim.tools import MCPToolset
+from heim.tools import MCPBridge, MCPToolset, TargetRouting
 
 _VERIFY_TTL = 60.0  # seconds a verify outcome is cached, so ?verify=1 polling doesn't re-probe each call
 _MAX_SECRET = 16384  # cap on a bind secret so a caller can't shove an unbounded blob into the process env
@@ -154,6 +154,42 @@ def _tool_available(toolset: MCPToolset, tool: str) -> bool:
         return False
 
 
+def _can_verify(
+    info: AssistantInfo,
+    toolset: MCPToolset | None,
+    bridge: MCPBridge | None,
+    routing: TargetRouting | None,
+    target_id: str | None,
+) -> bool:
+    """Whether a live ``?verify=1`` probe is *possible* for this target — honest about lazy bridges.
+
+    A verify tool that is already live counts (the eager case). For a **lazily-deferred** target the tool
+    isn't attached yet, so fall back to the DECLARED config: the verify tool's server prefix is pending on
+    the bridge *and* owned by this target (its explicit set, or everything for an owns-all target). The
+    verify call itself triggers the spawn, so reporting ``can_verify=true`` here isn't a lie — it's what
+    will succeed once first use spawns the bridge. Without a bridge/routing (state-poking tests) this is
+    exactly the old live-only check.
+    """
+    spec = info.verify
+    if spec is None or toolset is None:
+        return False
+    if _tool_available(toolset, spec.tool):
+        return True
+    if bridge is None or routing is None or target_id is None:
+        return False
+    prefix = spec.tool.split("__", 1)[0]
+    if prefix not in bridge.pending_prefixes:
+        return False
+    # Accepted footgun: a server that is *permanently* unspawnable (a bad command that fails every
+    # first-use attempt) stays pending forever, so this keeps returning True. That's deliberate — pending
+    # is retryable by design (a transient failure must not latch can_verify off), the verify call itself
+    # then returns a clean ok=False data state rather than lying, and once an attempt has run its failure
+    # is visible in /api/doctor's MCP rows. We don't demote can_verify on a prior failure here.
+    if target_id in routing.owns_all:
+        return True
+    return prefix in routing.explicit.get(target_id, set())
+
+
 def _coerce(result: Any) -> dict[str, Any]:
     """Normalize a verify tool's result into a JSON object for the response."""
     if isinstance(result, BaseModel):
@@ -189,18 +225,20 @@ def _sanitize(
     *,
     target_id: str | None = None,
     verified: AssistantVerified | None = None,
+    bridge: MCPBridge | None = None,
+    routing: TargetRouting | None = None,
 ) -> AssistantResponse:
     """Build one target's sanitized echo (verify internals + bind argv/secret_env excluded).
 
     Shared by the compat single-target route and the multi-target list/detail routes. ``can_verify``
-    reports whether a live probe is possible (a verify spec is declared and its tool is attached).
-    ``target_id`` (when given) overrides the info's own computed ``id`` with the registry's
-    collision-safe id. Built as a dict (not ``**kwargs``) so a project extra key named after a response
-    field (``can_verify`` / ``verified`` / ``can_bind`` / ``bind``) is overridden, not a ``TypeError``.
+    reports whether a live probe is possible (a verify spec is declared and its tool is attached, or —
+    for a lazily-deferred target — its verify server is a pending bridge the probe would spawn; see
+    :func:`_can_verify`). ``target_id`` (when given) overrides the info's own computed ``id`` with the
+    registry's collision-safe id. Built as a dict (not ``**kwargs``) so a project extra key named after a
+    response field (``can_verify`` / ``verified`` / ``can_bind`` / ``bind``) is overridden, not a ``TypeError``.
     """
     base = info.model_dump(exclude={"verify", "bind"}, exclude_none=True)
-    spec = info.verify
-    can_verify = spec is not None and toolset is not None and _tool_available(toolset, spec.tool)
+    can_verify = _can_verify(info, toolset, bridge, routing, target_id)
     bind_echo, can_bind = _bind_echo(info)
     data: dict[str, Any] = {
         **base,
@@ -277,6 +315,13 @@ async def _verify(request: Request, info: AssistantInfo, target_id: str) -> Assi
     async with lock:
         if (fresh := _fresh_target(state, target_id)) is not None:  # a racing caller refreshed our slot
             return fresh
+        # First ?verify=1 for a lazily-deferred target: spawn its bridge before probing, so the verify
+        # tool is attached. Awaited under the per-id lock (concurrent verifies single-flight the spawn);
+        # a spawn failure just leaves the tool absent -> _run_verify reports a clean ok=False data state.
+        bridge: MCPBridge | None = getattr(state, "mcp_bridge", None)
+        routing: TargetRouting | None = getattr(state, "target_routing", None)
+        if bridge is not None and routing is not None:
+            await bridge.ensure_target(routing, target_id)
         toolset: MCPToolset | None = getattr(state, "toolset", None)
         verified = await _run_verify(toolset, spec)
         cache: dict[str, tuple[float, AssistantVerified]] | None = getattr(state, "assistant_verified_by_id", None)
@@ -290,6 +335,19 @@ async def _verify(request: Request, info: AssistantInfo, target_id: str) -> Assi
 def _registry(request: Request) -> AssistantRegistry:
     """The app's assistant registry (all targets), or an empty one outside a project."""
     return getattr(request.app.state, "registry", None) or AssistantRegistry()
+
+
+def _lazy_state(request: Request) -> tuple[MCPBridge | None, TargetRouting | None]:
+    """The lazy bridge + routing table (for honest ``can_verify`` on not-yet-spawned targets)."""
+    state = request.app.state
+    return getattr(state, "mcp_bridge", None), getattr(state, "target_routing", None)
+
+
+async def _ensure_target_bridge(request: Request, target_id: str) -> None:
+    """First-use trigger: spawn ``target_id``'s lazily-deferred servers (no-op without a bridge)."""
+    bridge, routing = _lazy_state(request)
+    if bridge is not None and routing is not None:
+        await bridge.ensure_target(routing, target_id)
 
 
 def _target(request: Request, target_id: str) -> tuple[AssistantInfo, str]:
@@ -329,8 +387,9 @@ async def assistants(request: Request, url: str | None = None) -> JSONResponse:
     state = request.app.state
     registry = _registry(request)
     toolset: MCPToolset | None = getattr(state, "toolset", None)
+    bridge, routing = _lazy_state(request)
     targets = [
-        _sanitize(info, toolset, target_id=target_id)
+        _sanitize(info, toolset, target_id=target_id, bridge=bridge, routing=routing)
         for target_id, info in zip(registry.ids, registry.targets, strict=True)
     ]
     if url is None:
@@ -347,7 +406,8 @@ async def assistant_target(request: Request, target_id: str, verify: bool = Fals
     """Echo one target by id (404 if unknown); ``?verify=1`` probes just that target (cached 60s per id)."""
     info, resolved_id = _target(request, target_id)
     toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
-    response = _sanitize(info, toolset, target_id=resolved_id)
+    bridge, routing = _lazy_state(request)
+    response = _sanitize(info, toolset, target_id=resolved_id, bridge=bridge, routing=routing)
     if verify and info.verify is not None:
         response.verified = await _verify(request, info, resolved_id)
     return response
@@ -365,8 +425,9 @@ async def assistant(request: Request, verify: bool = False) -> AssistantResponse
     if info is None:
         raise HTTPException(status_code=404, detail="No assistant metadata")
     toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
+    bridge, routing = _lazy_state(request)
     compat_id = _compat_id(request, info)
-    response = _sanitize(info, toolset, target_id=compat_id)
+    response = _sanitize(info, toolset, target_id=compat_id, bridge=bridge, routing=routing)
     if verify and info.verify is not None:
         response.verified = await _verify(request, info, compat_id)
     return response
@@ -507,6 +568,7 @@ async def assistant_target_bind(request: Request, target_id: str, body: BindRequ
     empty/oversized secret. On success only that target's verify cache is invalidated.
     """
     info, resolved_id = _target(request, target_id)
+    await _ensure_target_bridge(request, resolved_id)  # first-use trigger: warm the lazy bridge
     return await _do_bind(request, info, body, lambda: _invalidate_target(request.app.state, resolved_id))
 
 
@@ -518,6 +580,7 @@ async def assistant_target_unbind(request: Request, target_id: str, body: Unbind
     ``unbind_command``. On success only that target's verify cache is invalidated.
     """
     info, resolved_id = _target(request, target_id)
+    await _ensure_target_bridge(request, resolved_id)  # first-use trigger: warm the lazy bridge
     return await _do_unbind(request, info, body.mode, lambda: _invalidate_target(request.app.state, resolved_id))
 
 

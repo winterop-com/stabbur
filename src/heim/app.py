@@ -133,10 +133,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Per-target routing table, computed once here (not per request): each target id -> the exact
         # tool prefixes it owns (its mcp_servers names slugged the way connect namespaces them), plus an
         # owns-all marker for targets that declared no mcp_servers. narrow_to_servers reads this per turn.
-        app.state.target_routing = mcp_tools.build_target_routing(resolved, registry)
-        servers = [s.to_spec() for s in resolved]
-        if servers:
-            app.state.toolset = await mcp_stack.enter_async_context(mcp_tools.connect(servers))
+        routing = mcp_tools.build_target_routing(resolved, registry)
+        app.state.target_routing = routing
+        if resolved:
+            # Lazy per-target bridge: spawn the eager set now (shared/unowned servers + the PRIMARY
+            # target's own servers; everything for free-play / single-[assistant] / HEIM_EAGER_MCP), and
+            # defer a non-primary scoped target's servers to its first use (chat turn / verify / bind).
+            # The bridge grows app.state.toolset in place under mcp_stack, so every reader (chat, verify,
+            # /api/tools, doctor) keeps seeing the current live set.
+            primary_id = registry.ids[0] if registry.ids else None
+            bridge = await mcp_stack.enter_async_context(
+                mcp_tools.connect_bridge(resolved, routing, primary_id, eager_all=settings.eager_mcp)
+            )
+            app.state.mcp_bridge = bridge
+            app.state.toolset = bridge.toolset
         try:
             yield
         finally:
@@ -177,6 +187,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # MCP toolset + system prompt for the server-side agent loop; populated by
     # lifespan from heim.toml (None / "" otherwise).
     app.state.toolset = None
+    # The lazy per-target bridge (heim.tools.MCPBridge) that owns app.state.toolset and spawns a
+    # non-primary target's servers on first use; None when no MCP servers are configured.
+    app.state.mcp_bridge = None
     app.state.system_prompt = ""
     app.state.project_model = None
     app.state.chat_voice = None

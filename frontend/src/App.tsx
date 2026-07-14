@@ -5,8 +5,10 @@ import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
 
 import {
+  AssistantsUnavailableError,
   buildContent,
   confirmAction,
+  getAssistants,
   getDoctor,
   getLibrary,
   getStatus,
@@ -18,6 +20,7 @@ import {
   setModelTags,
   streamChat,
   unloadModel,
+  type AssistantTarget,
   type DoctorReport,
   type LibModel,
   type Msg,
@@ -41,6 +44,7 @@ import type { TagRegistry } from "@/lib/tags";
 import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
+import { TargetSelector } from "@/components/TargetSelector";
 import { LibraryView } from "@/components/LibraryView";
 import { VoiceView } from "@/components/VoiceView";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -57,6 +61,10 @@ import {
 import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
 import { useTheme } from "@/lib/useTheme";
+
+// The selected assistant target persists per backend (a heim project is served on one origin), so
+// two projects served on different ports keep independent picks; a same-origin restart restores it.
+const TARGET_KEY = `heim.target:${window.location.host}`;
 
 /** Parse the active conversation id from the URL hash (#/c/<id>), or null. */
 function conversationIdFromHash(): string | null {
@@ -92,6 +100,14 @@ export function App() {
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [tagRegistry, setTagRegistry] = useState<TagRegistry>({}); // first-class tag colors/icons
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  // Multi-target project registry ([[assistants]]): a picker shows only with >= 2 targets, and the
+  // chosen id rides every chat turn as `target` (the server routes per turn, spawning a target's
+  // bridge lazily on first use). Empty for generic/single-target servers -> no picker, no `target`.
+  const [targets, setTargets] = useState<AssistantTarget[]>([]);
+  const [targetId, setTargetId] = useState<string | null>(() => localStorage.getItem(TARGET_KEY));
+  // An older backend has no /api/assistants route (404). Once we've seen that, stop polling it every slow
+  // tick — it will never appear on this backend. Reset on mount (below) so a different backend re-probes.
+  const assistantsUnavailableRef = useRef(false);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
   const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("heim.tts_voice") || "");
@@ -222,7 +238,38 @@ export function App() {
 
   // --- server polling ---
   const refreshStatus = useCallback(() => getStatus().then(setStatus).catch(() => {}), []);
+  // Reconcile the assistant picker against a fresh registry: show it only for a multi-target project
+  // (>= 2), defaulting the pick to the primary when the persisted one is gone/unset; clear it otherwise.
+  // Writes localStorage whenever it changes the pick so a stale key never lingers (a persisted id that
+  // vanished on a server restart, or a demotion to a single/generic backend) — otherwise a later send
+  // could post an id the server has never heard of and hard-400.
+  const reconcileTargets = useCallback((ts: AssistantTarget[]) => {
+    if (ts.length >= 2) {
+      setTargets(ts);
+      setTargetId((cur) => {
+        const next = cur && ts.some((t) => t.id === cur) ? cur : ts[0].id;
+        if (next !== cur) localStorage.setItem(TARGET_KEY, next); // persist the reconciled pick
+        return next;
+      });
+    } else {
+      setTargets([]);
+      setTargetId((cur) => {
+        if (cur !== null) localStorage.removeItem(TARGET_KEY); // drop the now-meaningless persisted key
+        return null;
+      });
+    }
+  }, []);
+  // Re-fetch + reconcile on demand (used by the chat send error path when a stale target 400s).
+  const reconcileTargetsFromServer = useCallback(async () => {
+    try {
+      reconcileTargets(await getAssistants());
+    } catch (e) {
+      if (e instanceof AssistantsUnavailableError) reconcileTargets([]); // route gone -> clear the picker
+      // other errors: transient, leave state as-is (the slow poll retries)
+    }
+  }, [reconcileTargets]);
   useEffect(() => {
+    assistantsUnavailableRef.current = false; // (re)mount: re-probe /api/assistants on this backend
     refreshStatus();
     // Library + tools + health are cheap-ish filesystem reads: fetch on mount and
     // refresh on a slow interval so a transient failure (e.g. a server restart)
@@ -237,6 +284,22 @@ export function App() {
         .catch((e) => setError(`Library: ${e}`))
         .finally(() => setLibraryLoaded(true)); // distinguish "still loading" from "empty"
       getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
+      // Assistant targets: only a multi-target project (>= 2) shows the picker. Reconcile the
+      // persisted pick against the live registry, defaulting to the primary (first) when it's gone
+      // or unset; a generic/single-target server clears both so no `target` is ever sent. Skip the
+      // request entirely once a backend has 404'd the route (an older server that lacks it).
+      if (!assistantsUnavailableRef.current) {
+        getAssistants()
+          .then((ts) => reconcileTargets(ts))
+          .catch((e) => {
+            // 404 => the route is absent on this backend: clear any picker and stop polling it. Other
+            // failures are transient (e.g. a restart mid-flight) — leave state, the next tick retries.
+            if (e instanceof AssistantsUnavailableError) {
+              assistantsUnavailableRef.current = true;
+              reconcileTargets([]);
+            }
+          });
+      }
       getTagRegistry().then(setTagRegistry).catch(() => {}); // tag styles are optional (derived fallback)
       getVoices().then(setVoices).catch(() => {}); // voices are optional (no TTS engine)
       getVoiceModels()
@@ -270,7 +333,7 @@ export function App() {
       clearInterval(s);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshStatus]);
+  }, [refreshStatus, reconcileTargets]);
 
   const ready = !!status?.model && status.state === "ready";
   // Which attachment modalities the loaded model accepts (composer gating).
@@ -476,6 +539,9 @@ export function App() {
           useTools: settings.useTools,
           enabledTools,
           systemPrompt: settings.systemPrompt,
+          // Route this turn to the selected target only when a multi-target registry is present;
+          // undefined otherwise leaves routing to the server default (generic/single-target apps).
+          target: targets.length >= 2 ? (targetId ?? undefined) : undefined,
         })) {
           if (evt.type === "token") {
             upsertConv(convId, (c) => ({
@@ -551,6 +617,11 @@ export function App() {
       } catch (e) {
         if (!ctrl.signal.aborted) {
           const detail = e instanceof Error ? e.message : String(e);
+          // A stale target selection (a persisted/selected id that vanished on a server restart) posts an
+          // id the server rejects with a 400 "Unknown target" before the next slow poll reconciles it.
+          // Re-fetch the registry now and reconcile the pick (persisting it) so a resend just works; the
+          // error still surfaces below so the user knows to resend.
+          if (/unknown target/i.test(detail)) void reconcileTargetsFromServer();
           upsertConv(convId, (c) => ({
             ...c,
             messages: c.messages.map((m) =>
@@ -573,7 +644,7 @@ export function App() {
         abortRef.current = null;
       }
     },
-    [settings, tools, upsertConv],
+    [settings, tools, upsertConv, targets, targetId, reconcileTargetsFromServer],
   );
 
   // --- send a new user turn ---
@@ -750,6 +821,13 @@ export function App() {
     [settings, updateSettings],
   );
 
+  // Select an assistant target (multi-target projects); persisted per backend so the pick survives
+  // a reload. Takes effect on the next chat turn — the server routes per turn.
+  const chooseTarget = useCallback((id: string) => {
+    setTargetId(id);
+    localStorage.setItem(TARGET_KEY, id);
+  }, []);
+
   // TTS voice (a global preference for the Listen button): "" = default OuteTTS.
   const chooseVoice = useCallback((name: string) => {
     setTtsVoice(name);
@@ -778,6 +856,11 @@ export function App() {
         onPick={pick}
         onEject={eject}
       />
+      {/* Multi-target projects only ([[assistants]]): pick which instance this turn routes to.
+          Single-target/generic servers render nothing here (zero change to the existing app). */}
+      {targets.length >= 2 && (
+        <TargetSelector targets={targets} selectedId={targetId} onSelect={chooseTarget} />
+      )}
       <ToolsControl
         tools={tools}
         useTools={settings.useTools}

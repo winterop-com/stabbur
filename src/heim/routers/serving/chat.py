@@ -115,6 +115,14 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
             resolved_assistant = registry.primary
             resolved_id = registry.ids[0]
         routing = getattr(request.app.state, "target_routing", None) or TargetRouting()
+        # First use of this target: spawn its lazily-deferred servers (a non-primary scoped target's own
+        # bridges) before narrowing, so this turn sees its tools. Awaited — the first turn pays the init;
+        # single-flight per server, and a spawn failure just leaves the tool absent (same as startup).
+        # Only when tools are on: use_tools off means an empty toolset, so there is nothing to spawn for.
+        if req.use_tools:
+            bridge = getattr(request.app.state, "mcp_bridge", None)
+            if bridge is not None:
+                await bridge.ensure_target(routing, resolved_id)
         toolset = narrow_to_servers(toolset, routing, resolved_id)
     # An explicit allow-list narrows the toolset to the tools the user left enabled (intersecting on
     # top of any target narrowing above).

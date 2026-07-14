@@ -191,6 +191,13 @@ class Settings(BaseSettings):
     # a busy machine. A crashed runtime still fails fast (its process exits).
     runtime_load_timeout: int = 600
 
+    # Spawn every configured MCP server eagerly at ``heim serve`` startup instead of deferring a
+    # non-primary target's own servers to their first use. Off by default: startup then scales with the
+    # targets actually used, not merely declared (a registry with many per-target bridges no longer pays
+    # to spawn them all up front). Set ``HEIM_EAGER_MCP=1`` to restore full eager spawning — a debugging
+    # escape hatch that makes every target's tools live immediately (and surfaces a broken bridge at boot).
+    eager_mcp: bool = False
+
     # Max seconds for a single MCP tool call in the agent loop before it's abandoned
     # (the model gets an error back and the loop continues). Bounds a wedged tool or
     # server — e.g. one shelling out to a command that never returns — so it can't stall

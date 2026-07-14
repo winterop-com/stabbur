@@ -21,7 +21,7 @@ from heim.routers.serving._base import (  # shared router + request deps
 from heim.runtime import sampling
 from heim.runtime.sampling import ModelSampling
 from heim.server import ServerManager
-from heim.tools import MCPToolset
+from heim.tools import MCPBridge, MCPToolset, TargetRouting
 
 
 class ServerStatus(BaseModel):
@@ -206,12 +206,33 @@ class ToolInfo(BaseModel):
     description: str
 
 
-def _mcp_checks(toolset: MCPToolset | None) -> list[doctor.Check]:
-    """Health checks for the project's MCP servers: connected ones (tool counts) and failed ones.
+def _pending_owners(prefix: str, routing: TargetRouting | None) -> list[str]:
+    """The target ids that explicitly own a pending ``prefix`` (empty without routing).
+
+    A pending prefix is only ever a non-primary scoped target's own server (shared servers are always
+    eager, hence never pending), so its owners are the targets whose explicit set names it — surfaced so
+    the doctor row says which target's first use will spawn it.
+    """
+    if routing is None:
+        return []
+    return sorted(tid for tid, prefixes in routing.explicit.items() if prefix in prefixes)
+
+
+def _mcp_checks(
+    toolset: MCPToolset | None,
+    bridge: MCPBridge | None = None,
+    routing: TargetRouting | None = None,
+) -> list[doctor.Check]:
+    """Health checks for the project's MCP servers: live ones (tool counts), failed ones, and deferred ones.
 
     A server the project lists but couldn't start (e.g. optional ``web`` without ``make
     install-web``) shows as a warning with its install hint — instead of silently reporting
     0 tools — mirroring what ``heim project show`` does on the CLI.
+
+    Lazily-deferred servers (a non-primary scoped target's own servers, spawned on that target's first
+    use) are otherwise invisible until spawned: each still-pending prefix gets an informational row so the
+    report discloses the whole configured surface, not just what is live. A pending prefix whose earlier
+    spawn attempt failed is already covered by the error rows, so it's not double-listed here.
     """
     if toolset is None:
         return []
@@ -222,6 +243,7 @@ def _mcp_checks(toolset: MCPToolset | None) -> list[doctor.Check]:
         counts[server] = counts.get(server, 0) + 1
     for server, n in counts.items():
         checks.append(doctor.Check(name=f"MCP: {server}", status=doctor.CheckStatus.ok, detail=f"{n} tool(s)"))
+    error_labels = {label for label, _ in toolset.errors}
     for label, reason in toolset.errors:
         hint = mcp_catalog.optional_hint(label)
         checks.append(
@@ -233,6 +255,22 @@ def _mcp_checks(toolset: MCPToolset | None) -> list[doctor.Check]:
                 hint=hint,
             )
         )
+    if bridge is not None:
+        for prefix in sorted(bridge.pending_prefixes):
+            # A prior spawn attempt that failed left the server pending AND recorded an error under its
+            # label — that error row already tells the story, so don't also emit a "deferred" row for it.
+            pending_label = bridge.pending_label(prefix)
+            if pending_label is not None and pending_label in error_labels:
+                continue
+            owners = _pending_owners(prefix, routing)
+            suffix = f" (target {', '.join(owners)})" if owners else ""
+            checks.append(
+                doctor.Check(
+                    name=f"MCP: {prefix}",
+                    status=doctor.CheckStatus.ok,
+                    detail=f"deferred - spawns on first use{suffix}",
+                )
+            )
     return checks
 
 
@@ -241,16 +279,26 @@ def doctor_report(settings: ConfDep, request: Request) -> doctor.DoctorReport:
     """System health: runtime binaries, library, the current project, and its MCP servers.
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
-    Mirrors the ``heim doctor`` CLI so the UI can show the same status.
+    Mirrors the ``heim doctor`` CLI so the UI can show the same status. The MCP section reports both the
+    **live** servers (tool counts / failures) and any **deferred** ones — a non-primary scoped target's
+    servers that spawn on first use — so a lazily-pending server is disclosed here before it's ever used.
     """
     report = doctor.run_checks(settings)
-    toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
-    return doctor.DoctorReport(checks=[*report.checks, *_mcp_checks(toolset)])
+    state = request.app.state
+    toolset: MCPToolset | None = getattr(state, "toolset", None)
+    bridge: MCPBridge | None = getattr(state, "mcp_bridge", None)
+    routing: TargetRouting | None = getattr(state, "target_routing", None)
+    return doctor.DoctorReport(checks=[*report.checks, *_mcp_checks(toolset, bridge, routing)])
 
 
 @router.get("/api/tools")
 def tools(request: Request) -> list[ToolInfo]:
-    """List the MCP tools attached to this server (empty if none configured)."""
+    """List the MCP tools **currently live** on this server (empty if none configured).
+
+    Live only: a non-primary target's servers are spawned lazily on first use (its first chat turn /
+    ``?verify=1`` / bind), so a lazily-pending target's tools appear here only after that first use.
+    This is deliberately not a merged "declared" view — it reflects what the agent loop can call right now.
+    """
     toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
     if toolset is None:
         return []

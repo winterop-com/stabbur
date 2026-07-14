@@ -99,9 +99,12 @@ The 40B crashed its first serve (`ReadError` under memory pressure right after t
 was clean on an isolated retry.
 
 † The three MLX models (`Qwen3.5-4B-MLX-4bit`, `gemma-4-26B-A4B-it-QAT-MLX-4bit`,
-`Qwen3.6-27B-4bit`) could **not be evaluated**: serving them crashes at import time in the
-`mlx-vlm` runtime (`AttributeError: 'str' object has no attribute '__module__'`, a `transformers`
-incompatibility). Tracked as an open issue in the roadmap.
+`Qwen3.6-27B-4bit`) were **not scored in this sweep**. The blocker at the time — serving them
+crashed at import in the `mlx-lm`/`mlx-vlm` runtimes with `AttributeError: 'str' object has no
+attribute '__module__'` (transformers 5.13 changed `AutoTokenizer.register` to require a config
+class, not a string) — is **resolved** by capping `transformers<5.13` in the `mlx` extra, so all
+three serve again (text via `mlx_lm.server`, vision via `mlx_vlm.server`). Running the suite
+against them is a follow-up; they are not yet scored here.
 
 ## What the results say
 
