@@ -77,6 +77,16 @@ streaming typed SSE (tokens, reasoning, tool-call chips) to the client. A tool r
 an **image** is fed to a vision model as a follow-up user image message (gated on the detected
 `vision` capability); text-only models get a note instead.
 
+With a **multi-target registry**, servers spawn lazily: `tools.MCPBridge` (built by `connect_bridge` in
+the `serve` lifespan) starts only the eager set — shared/unowned servers plus the **primary** target's
+own servers — and defers a non-primary scoped target's servers to its **first use** (first `/api/chat`
+turn with that `target`, first `GET /api/assistants/{id}?verify=1`, or a bind/unbind). Free-play,
+single-`[assistant]`, and `HEIM_EAGER_MCP=1` stay full-eager. Spawns are single-flight per server under
+one exit stack (teardown closes eager + lazy together), and a lazy spawn failure surfaces exactly like a
+startup one (recorded in `toolset.errors`, tools absent). `GET /api/assistants` stays honest about a
+not-yet-spawned target's `can_verify` (computed from the declared verify server, not the live tools), but
+`GET /api/tools` lists **live** tools only — a lazily-pending target's tools appear there after first use.
+
 A project can also carry a domain-generic **`[assistant]` block** — target metadata heim
 **echoes but never interprets** (`routers/serving/assistant.py`, `project.AssistantInfo`):
 

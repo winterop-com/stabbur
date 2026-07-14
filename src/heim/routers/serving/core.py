@@ -250,7 +250,12 @@ def doctor_report(settings: ConfDep, request: Request) -> doctor.DoctorReport:
 
 @router.get("/api/tools")
 def tools(request: Request) -> list[ToolInfo]:
-    """List the MCP tools attached to this server (empty if none configured)."""
+    """List the MCP tools **currently live** on this server (empty if none configured).
+
+    Live only: a non-primary target's servers are spawned lazily on first use (its first chat turn /
+    ``?verify=1`` / bind), so a lazily-pending target's tools appear here only after that first use.
+    This is deliberately not a merged "declared" view — it reflects what the agent loop can call right now.
+    """
     toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
     if toolset is None:
         return []

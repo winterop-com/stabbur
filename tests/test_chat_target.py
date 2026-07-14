@@ -8,6 +8,7 @@ the same fixture idiom ``tests/test_chat_confirm.py`` uses.
 """
 
 import json
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -147,6 +148,79 @@ def _configure(
     app.state.target_routing = tools.build_target_routing(
         resolved if resolved is not None else _servers("play42", "staging", "datetime"), registry
     )
+
+
+async def _configure_lazy(
+    app: FastAPI,
+    registry: AssistantRegistry,
+    resolved: list[mcpservers.McpServer],
+    eager: dict[str, list[_FakeTool]],
+    pending: dict[str, list[_FakeTool]],
+) -> dict[str, int]:
+    """Wire app state with a lazy MCP bridge: ``eager`` tools live now, ``pending`` spawned on first use.
+
+    The bridge's ``_spawn`` is stubbed to add the pending server's fake tools instead of launching a real
+    server; the returned counter records per-prefix spawn attempts so a test can assert first-use spawning.
+    """
+    toolset = tools.MCPToolset()
+    for prefix, tls in eager.items():
+        await toolset.add(_FakeClient(tls), prefix)  # type: ignore[arg-type]
+    bridge = tools.MCPBridge(toolset, AsyncExitStack())
+    bridge._pending = {p: mcpservers.McpServer(name=p, command="x") for p in pending}
+    counts: dict[str, int] = {}
+
+    async def fake_spawn(prefix: str, server: mcpservers.McpServer) -> bool:
+        counts[prefix] = counts.get(prefix, 0) + 1
+        await toolset.add(_FakeClient(pending[prefix]), prefix)  # type: ignore[arg-type]
+        return True
+
+    bridge._spawn = fake_spawn  # type: ignore[method-assign]
+    app.state.toolset = toolset
+    app.state.mcp_bridge = bridge
+    app.state.registry = registry
+    app.state.assistant = registry.primary
+    app.state.target_routing = tools.build_target_routing(resolved, registry)
+    return counts
+
+
+# --- lazy per-target bridge: non-primary target's servers spawn on first use -------------------
+
+
+async def test_lazy_nonprimary_target_spawns_on_first_use(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    counts = await _configure_lazy(
+        app,
+        _two_target_registry(),
+        _servers("play42", "staging", "datetime"),
+        eager={"play42": [_FakeTool("read", True)], "datetime": [_FakeTool("now", True)]},
+        pending={"staging": [_FakeTool("write_thing", False)]},
+    )
+    captured, resp = await _run(
+        app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}], "target": "staging"}
+    )
+    assert resp.status_code == 200
+    # First turn for 'staging' spawned its deferred bridge; the turn sees it + the shared datetime.
+    assert captured["prefixes"] == {"staging", "datetime"}
+    assert captured["names"] == ["datetime__now", "staging__write_thing"]
+    assert counts == {"staging": 1}
+
+
+async def test_lazy_primary_target_does_not_spawn_secondary(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    counts = await _configure_lazy(
+        app,
+        _two_target_registry(),
+        _servers("play42", "staging", "datetime"),
+        eager={"play42": [_FakeTool("read", True)], "datetime": [_FakeTool("now", True)]},
+        pending={"staging": [_FakeTool("write_thing", False)]},
+    )
+    # No target -> the primary (play42, eager). The non-primary 'staging' bridge is never spawned.
+    captured, resp = await _run(app, client, monkeypatch, {"messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 200
+    assert captured["prefixes"] == {"play42", "datetime"}
+    assert counts == {}
 
 
 # --- explicit target narrows to its servers + shared (others hidden) --------------------------

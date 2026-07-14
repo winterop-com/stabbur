@@ -277,6 +277,91 @@ async def test_assistants_unbind_runs_for_target(app: FastAPI, client: AsyncClie
     assert marker.read_text() == "unbound"
 
 
+# --- lazy per-target bridge: can_verify honesty + verify-triggered spawn ------------------------------
+
+
+class _ListTool:
+    """A stand-in MCP tool for ``list_tools()`` (namespaced under a bridge prefix on add)."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.description = ""
+        self.inputSchema: dict[str, Any] = {"type": "object", "properties": {}}
+        self.annotations = type("A", (), {"readOnlyHint": True})()
+
+
+class _ListClient:
+    """A stub MCP client: ``list_tools()`` for attach + ``call_tool()`` for the verify probe."""
+
+    def __init__(self, names: list[str]) -> None:
+        self._names = names
+
+    async def list_tools(self) -> list[_ListTool]:
+        return [_ListTool(n) for n in self._names]
+
+    async def call_tool(self, name: str, args: dict[str, Any], timeout: float | None = None) -> Any:
+        return type("R", (), {"structured_content": None, "data": {"tool": name}, "content": []})()
+
+
+def _lazy_two_target(app: FastAPI) -> Any:
+    """Two scoped targets (primary play42 eager, play41 deferred); returns the app state's live bridge.
+
+    The eager toolset has only the primary's verify tool live; play41's server is pending on the bridge
+    and its ``_spawn`` is stubbed to attach ``play41__dhis2_cli`` on first use. Routing is built from the
+    real ``build_target_routing`` so prefixes are the slugged ones ``can_verify`` reasons about.
+    """
+    from contextlib import AsyncExitStack
+
+    from heim import tools
+    from heim.mcpservers import McpServer
+
+    def _t(name: str) -> AssistantInfo:
+        return AssistantInfo.model_validate(
+            {
+                "name": name,
+                "base_url": f"https://play.example/{name}",
+                "mcp_servers": [name],
+                "verify": {"tool": f"{name}__dhis2_cli", "args": {}},
+            }
+        )
+
+    registry = _install(app, _t("play42"), _t("play41"))
+    resolved = [McpServer(name="play42", command="x"), McpServer(name="play41", command="x")]
+    app.state.target_routing = tools.build_target_routing(resolved, registry)
+
+    toolset = tools.MCPToolset()
+    bridge = tools.MCPBridge(toolset, AsyncExitStack())
+    bridge._pending = {"play41": McpServer(name="play41", command="x")}
+
+    async def fake_spawn(prefix: str, server: McpServer) -> bool:
+        await toolset.add(_ListClient(["dhis2_cli"]), prefix)  # type: ignore[arg-type]
+        return True
+
+    bridge._spawn = fake_spawn  # type: ignore[method-assign]
+    app.state.mcp_bridge = bridge
+    app.state.toolset = toolset
+    return bridge
+
+
+async def test_assistants_can_verify_true_for_lazy_unspawned_target(app: FastAPI, client: AsyncClient) -> None:
+    bridge = _lazy_two_target(app)
+    # Attach only the PRIMARY's verify tool live; play41 stays pending (not yet spawned).
+    await bridge.toolset.add(_ListClient(["dhis2_cli"]), "play42")
+    assert bridge.pending_prefixes == {"play41"}
+    by_id = {t["id"]: t for t in (await client.get("/api/assistants")).json()["targets"]}
+    assert by_id["play42"]["can_verify"] is True  # eager, tool live
+    assert by_id["play41"]["can_verify"] is True  # lazy + pending -> honest true (verify would spawn it)
+
+
+async def test_assistants_verify_spawns_lazy_target_on_first_use(app: FastAPI, client: AsyncClient) -> None:
+    _lazy_two_target(app)
+    assert "play41__dhis2_cli" not in app.state.toolset.names  # not spawned yet
+    body = (await client.get("/api/assistants/play41", params={"verify": 1})).json()
+    assert body["verified"]["ok"] is True
+    assert body["verified"]["data"] == {"tool": "dhis2_cli"}  # the spawned bridge's tool answered
+    assert "play41__dhis2_cli" in app.state.toolset.names  # first verify spawned it
+
+
 # --- compat routes still target the primary -----------------------------------------------------------
 
 

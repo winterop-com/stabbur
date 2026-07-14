@@ -4,6 +4,7 @@ heim is the MCP *client* — it spawns an MCP server (over stdio), lists its too
 as OpenAI function schemas for the model, and executes ``tool_call``s against it.
 """
 
+import asyncio
 import dataclasses
 import datetime
 import enum
@@ -12,7 +13,7 @@ import os
 import re
 import shutil
 import sys
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -394,3 +395,147 @@ async def connect(
             except Exception as exc:  # noqa: BLE001 - surface any spawn/connect failure without aborting the rest
                 toolset.errors.append((name or command[0], str(exc)))
         yield toolset
+
+
+async def _spawn_into(stack: AsyncExitStack, toolset: MCPToolset, prefix: str, server: "McpServer") -> bool:
+    """Spawn one ``McpServer`` on ``stack`` and register its tools under the fixed ``prefix``.
+
+    The single per-server spawn path shared by eager startup and lazy first-use: mirrors :func:`connect`'s
+    per-server body (env merge, command resolution, bounded init handshake, stderr discarded). Returns
+    ``True`` on success; on failure it records ``(label, error)`` in ``toolset.errors`` — the **same shape
+    a startup failure records** — and returns ``False`` (never raises), so one bad server can't abort the
+    rest and a caller can decide whether to keep it pending for a retry. The prior error for the same label
+    is dropped first, so a retried lazy spawn never stacks duplicate entries.
+    """
+    base_env = _mcp_env()
+    label = server.name or server.command
+    command = [server.command, *server.args]
+    env = {**base_env, **server.env} if server.env else base_env
+    try:
+        transport = StdioTransport(
+            command=_resolve_command(command[0]), args=command[1:], env=env, log_file=Path(os.devnull)
+        )
+        client = await stack.enter_async_context(Client(transport, init_timeout=60))
+        await toolset.add(client, prefix)
+        return True
+    except Exception as exc:  # noqa: BLE001 - a spawn/connect failure is recorded, never raised
+        toolset.errors = [(lbl, err) for (lbl, err) in toolset.errors if lbl != label]
+        toolset.errors.append((label, str(exc)))
+        return False
+
+
+def _eager_prefixes(
+    routing: TargetRouting, primary_id: str | None, all_prefixes: set[str], *, eager_all: bool
+) -> set[str]:
+    """Which server prefixes to spawn eagerly at startup (the rest are lazy, spawned on first use).
+
+    Eager = every prefix reachable without narrowing to a *non-primary* scoped target:
+
+    - **Full eager** (every prefix) when ``eager_all`` (the ``HEIM_EAGER_MCP`` escape hatch), when the
+      registry is free-play (``routing.empty``), or when the primary is owns-all — the primary then sees
+      the whole toolset, so nothing can be deferred without starving it. This pins today's behavior for
+      free-play and single-``[assistant]`` projects.
+    - **Shared + the primary's own** otherwise: shared prefixes (owned by no target's explicit set) plus
+      the primary target's explicit prefixes. A non-primary target's explicitly-owned prefixes are the
+      only ones left lazy — so startup scales with targets *used*, not merely declared.
+    """
+    if eager_all or routing.empty or primary_id is None or primary_id in routing.owns_all:
+        return set(all_prefixes)
+    all_explicit: set[str] = set().union(*routing.explicit.values()) if routing.explicit else set()
+    shared = all_prefixes - all_explicit
+    return shared | routing.explicit.get(primary_id, set())
+
+
+class MCPBridge:
+    """A growing :class:`MCPToolset` fed by eager-at-startup and lazy-on-first-use spawns.
+
+    An eager set is spawned at startup plus non-primary targets' servers on first use, all under **one**
+    exit stack so lifespan teardown closes everything. :func:`connect_bridge` seeds the eager tools and
+    stores the lazy servers as *pending* keyed by the **fixed** prefix :func:`_prefix_by_name` assigned,
+    so narrowing keys never shift with spawn order.
+    :meth:`ensure_target` spawns a target's pending servers on its first ``/api/chat`` turn, first
+    ``?verify=1``, or first bind/unbind. Spawns single-flight per prefix; a spawn failure surfaces like a
+    startup failure (recorded in ``toolset.errors``, tools simply absent) and leaves the server pending so
+    the next first-use retries it.
+    """
+
+    def __init__(self, toolset: MCPToolset, stack: AsyncExitStack) -> None:
+        self.toolset = toolset
+        self._stack = stack
+        self._pending: dict[str, McpServer] = {}  # fixed prefix -> not-yet-spawned server
+        self._locks: dict[str, asyncio.Lock] = {}  # fixed prefix -> single-flight spawn lock
+
+    @property
+    def pending_prefixes(self) -> set[str]:
+        """Prefixes declared but not yet spawned — their tools appear only after first use."""
+        return set(self._pending)
+
+    async def _spawn(self, prefix: str, server: "McpServer") -> bool:
+        """Spawn ``server`` under ``prefix`` on the shared stack (indirection kept overridable for tests)."""
+        return await _spawn_into(self._stack, self.toolset, prefix, server)
+
+    async def _ensure_one(self, prefix: str) -> None:
+        """Spawn one pending ``prefix`` under its single-flight lock (a racing first-use waits, not respawns)."""
+        lock = self._locks.get(prefix)
+        if lock is None:  # no await between the .get() and the set -> race-free on the single-threaded loop
+            lock = asyncio.Lock()
+            self._locks[prefix] = lock
+        async with lock:
+            server = self._pending.get(prefix)
+            if server is None:  # a racing caller already spawned it (single-flight)
+                return
+            if await self._spawn(prefix, server):
+                self._pending.pop(prefix, None)  # live now; a failure stays pending so first-use retries
+
+    async def ensure(self, prefixes: Iterable[str]) -> None:
+        """Spawn any not-yet-live servers among ``prefixes`` (already-live/unknown prefixes are no-ops)."""
+        wanted = [p for p in prefixes if p in self._pending]
+        if wanted:
+            await asyncio.gather(*(self._ensure_one(p) for p in wanted))
+
+    async def ensure_target(self, routing: TargetRouting, target_id: str) -> None:
+        """Spawn ``target_id``'s pending servers: its explicit set, or every pending one for owns-all.
+
+        Free-play (an empty routing) spawns nothing. An owns-all target owns the whole toolset, so its
+        first use warms every still-pending server; a scoped target warms only its own explicit prefixes
+        (its shared servers are always eager, hence never pending).
+        """
+        if routing.empty:
+            return
+        if target_id in routing.owns_all:
+            wanted = self.pending_prefixes
+        else:
+            wanted = routing.explicit.get(target_id, set()) & self.pending_prefixes
+        await self.ensure(wanted)
+
+
+@asynccontextmanager
+async def connect_bridge(
+    resolved: "Sequence[McpServer]",
+    routing: TargetRouting,
+    primary_id: str | None,
+    *,
+    eager_all: bool = False,
+) -> AsyncGenerator[MCPBridge, None]:
+    """Spawn the eager servers now and yield an :class:`MCPBridge` that spawns the rest on first use.
+
+    Splits ``resolved`` into eager vs lazy by :func:`_eager_prefixes`, spawns the eager set into a single
+    :class:`MCPToolset` under one :class:`AsyncExitStack`, and records the lazy servers as pending on the
+    bridge under the **fixed** prefixes :func:`_prefix_by_name` computes (so a lazily-spawned server lands
+    under the same namespace it would have at startup, regardless of order). The stack stays open for the
+    whole ``async with`` — a later :meth:`MCPBridge.ensure_target` enters new clients on it — so teardown
+    closes eager *and* lazily-spawned clients together.
+    """
+    name_to_prefix = _prefix_by_name(resolved)
+    all_prefixes = set(name_to_prefix.values())
+    eager = _eager_prefixes(routing, primary_id, all_prefixes, eager_all=eager_all)
+    toolset = MCPToolset()
+    async with AsyncExitStack() as stack:
+        bridge = MCPBridge(toolset, stack)
+        for server in resolved:
+            prefix = name_to_prefix[server.name]
+            if prefix in eager:
+                await _spawn_into(stack, toolset, prefix, server)
+            else:
+                bridge._pending[prefix] = server
+        yield bridge
