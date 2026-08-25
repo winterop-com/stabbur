@@ -63,6 +63,8 @@ def config_list() -> None:
     console.print(f"  library-root  {settings.library_root or '[yellow](not set)[/]'}")
     console.print(f"  model         {settings.default_model or '[dim](none — free-play)[/]'}")
     console.print(f"  server        {settings.chat_server or '[dim](none — heim chat loads per call)[/]'}")
+    console.print(f"  port          {settings.port or '[dim](auto-pick a free port per serve)[/]'}")
+    console.print(f"  host          {settings.host}")
 
 
 @config_app.command("set")
@@ -72,8 +74,17 @@ def config_set(
 ) -> None:
     """Set a machine default (persisted to the config file), e.g. `heim config set model <name>`."""
     field = _config_field(key)
-    stored = value
+    stored: str | int = value
     if field == "library_root":  # persist an absolute, ~-expanded path so it resolves from any cwd
         stored = str(Path(value).expanduser().resolve())
+    elif field == "port":  # store a real TOML integer so the file reads naturally
+        try:
+            stored = int(value)
+        except ValueError:
+            typer.secho(f"port must be an integer, got {value!r}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1) from None
+        if not 1 <= stored <= 65535:
+            typer.secho(f"port must be between 1 and 65535, got {stored}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
     written = userconfig.set_value(field, stored)
     console.print(f"[green]Set[/] {key} = {stored}\n[dim]{written}[/]")

@@ -26,6 +26,10 @@ WRITABLE: dict[str, str] = {
     "library-root": "library_root",
     "model": "default_model",
     "server": "chat_server",
+    # Pin `heim serve` to a stable address machine-wide (a bookmarkable URL / a stable
+    # Chrome-extension origin); unset, serve auto-picks a free port every start.
+    "port": "port",
+    "host": "host",
 }
 
 
@@ -69,7 +73,7 @@ def read() -> dict[str, Any]:
         raise ValueError(f"{path} is not valid TOML: {exc}") from exc
 
 
-def set_value(field: str, value: str) -> Path:
+def set_value(field: str, value: str | int) -> Path:
     """Set one top-level ``field`` (a :class:`Settings` field name) in the machine config.
 
     Rewrites the whole flat file with the updated value, re-parsing the result before it

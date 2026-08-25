@@ -828,3 +828,23 @@ def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatc
     endpoint = chat_cli._probe_remote("http://x", None, None)
     assert endpoint.model_id == "qwen3.6-hauhaucs-q8"
     assert endpoint.model_name == "qwen3.6-hauhaucs-q8"
+
+
+def test_config_set_port_pins_serve_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("HEIM_PORT", raising=False)
+    res = runner.invoke(cli.app, ["config", "set", "port", "8990"])
+    assert res.exit_code == 0, res.output
+    from heim import userconfig
+    from heim.config import Settings
+
+    assert userconfig.read()["port"] == 8990  # stored as a real TOML integer
+    assert Settings().port == 8990  # and resolves through the settings chain (what serve binds)
+    got = runner.invoke(cli.app, ["config", "get", "port"])
+    assert got.exit_code == 0 and got.output.strip() == "8990"
+
+    # Not an int / out of range -> clean error, nothing written.
+    for bad in ("http://x:1234", "0", "70000"):
+        res = runner.invoke(cli.app, ["config", "set", "port", bad])
+        assert res.exit_code == 1, bad
+    assert userconfig.read()["port"] == 8990
