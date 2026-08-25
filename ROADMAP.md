@@ -76,9 +76,9 @@ the wrong fix — it would leak profile secrets to the extension and defeats bin
   `binding.username` and re-offer bind on drift. The mismatch machinery doesn't disappear — it
   becomes the cache-invalidation trigger instead of a UX state (the TargetBanner expiry heuristics
   already check username mismatch). (b) Revoke on unbind (already shipped) and never mint per
-  panel-open — one token per instance, reused until expiry/401. (c) **`.dhis2/` is missing from
-  the scaffolded `.gitignore`** (confirmed 2026-07-13: `scaffold._GITIGNORE` lacks it) — fix
-  before any auto-mint; the minted token lands in plaintext `.dhis2/profiles.toml`. (d) Label the
+  panel-open — one token per instance, reused until expiry/401. (c) ~~`.dhis2/` missing from the
+  scaffolded `.gitignore`~~ — fixed (`scaffold._GITIGNORE` now ignores `.dhis2/`, verified
+  2026-08-25), so an auto-mint no longer risks committing the plaintext token. (d) Label the
   active credential on the non-panel surfaces too: panel = the browser user, CLI/TUI/bench = the
   pinned fallback profile. The split is a feature, but only if visible.
 - **Write-scope re-mint.** PAT method scope is fixed at mint (`methods_readonly` vs
@@ -95,11 +95,10 @@ the wrong fix — it would leak profile secrets to the extension and defeats bin
   token cache** for act-as-you arrives with this wave (one minted profile per `base_url`, now that the
   N-target registry exists). Original design below.
 
-  _Future optimizations (not yet done):_ **lazy per-target bridge spawn** — today the serve lifespan
-  connects every declared server up front, so startup cost scales with the number of targets declared;
-  spawn a target's bridge on first use instead. **Web-UI target picker** — `serve --ui` currently reaches
-  only the primary target (per the routing decision above); a multi-target project has no in-page way to
-  switch, so add a picker to the web UI (the extension's tab-driven select is the parallel surface).
+  _Both follow-up optimizations shipped (2026-07-14, #18):_ lazy per-target bridge spawn (a target's
+  bridge starts on first use instead of all at serve startup) and the web-UI target picker (a
+  multi-target project can switch targets in `serve --ui`; the extension's tab-driven select is the
+  parallel surface).
 
   Today heim serve is
   single-target: one project = one `[assistant]` = one `base_url` = one `DHIS2_PROFILE` pinned at
@@ -224,6 +223,35 @@ completion token.
   A deliberate later add-on, not a replacement for the Kokoro baseline.
 - **Polish** — voice cloning affordance in the Textual TUI (already in the web UI + CLI); a richer
   audio UI from [ElevenLabs UI](https://ui.elevenlabs.io/) (shadcn/Tailwind waveform/orb components).
+
+## Remote model host (llama-server router on another box)
+
+The serving reality is shifting: a dedicated LAN box (`msai:1234`, llama-server in **router
+mode** with its own model store) now hosts the models for day-to-day testing, instead of this
+machine spawning runtimes against the library drive. heim already meets it halfway; the rest
+is the next serving thread.
+
+- **Shipped (2026-08-25): remote model-id resolution for the one-shot CLI.** `heim chat -p`
+  against a `--server` (or the `heim config set server` default) no longer requires the model
+  to exist in the local library: an unresolved (or absent) name is matched against the
+  server's own `GET /v1/models` — exact, case-insensitive, or by basename — so a router alias
+  like `gemma-4-12b-qat` just works, free-play `-p` uses the server's first model, and an
+  unknown name exits listing what the server actually serves (previously: a bare 400, because
+  heim sent the local `load_target` path as the model id). Tools/agent-loop `-p` runs ride the
+  same resolution.
+- **Open: model picker against a multi-model remote.** The interactive TUI attach picks the
+  first listed `/v1/models` id; against a 4-model router it should offer the list (and `/model`
+  should switch by remote id).
+- **Open — the big one: `heim serve` with a remote upstream `/v1`.** The web UI, the Chrome
+  extension, and the agent loop all sit behind `heim serve`, which only spawns *local*
+  runtimes today. A `serve --upstream http://msai:1234` mode (proxy `/v1` to the remote,
+  keep heim's agent loop / MCP / confirm gate local) would decouple "where the models run"
+  from "where the assistant runs" — the extension keeps talking to a local heim while the
+  weights live on the LAN box. Design question: model locking (`--model X`) maps to a router
+  id, and `/api/status` should report the upstream's loaded model.
+- **Open: two stores.** The T9 library (`heim library`) and the router box's `/data/lab/models`
+  are now separate collections; `heim library manifest`/`sync` could feed the router box so
+  the drive stays the canonical archive.
 
 ## Other open ideas
 
