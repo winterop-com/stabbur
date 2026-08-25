@@ -1,4 +1,4 @@
-import { AudioLines, Boxes, PanelLeft, SquarePen } from "lucide-react";
+import { AudioLines, Boxes, PanelLeft, Settings, SquarePen } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -15,13 +15,15 @@ export function IconRail({
   onNew,
   onShowLibrary,
   onShowVoice,
+  onShowSettings,
   voiceEnabled = true,
 }: {
-  view: "chat" | "library" | "voice";
+  view: "chat" | "library" | "voice" | "settings";
   onExpand: () => void;
   onNew: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
+  onShowSettings: () => void;
   voiceEnabled?: boolean;
 }) {
   const item = (
@@ -55,9 +57,13 @@ export function IconRail({
       {item("New chat", <SquarePen className="h-4 w-4" />, onNew, view === "chat")}
       {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
       {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
-      {/* A tiny horizontal wordmark anchored at the bottom — fits the narrow rail (unlike the
-          full "Heim Studio") and keeps the brand present while collapsed. */}
-      <span className="mt-auto pb-0.5 text-[10px] font-semibold tracking-tight text-muted-foreground">heim</span>
+      {/* Settings pinned at the bottom (mirrors the expanded sidebar), then a tiny horizontal
+          wordmark — fits the narrow rail (unlike the full "Heim Studio") and keeps the brand
+          present while collapsed. */}
+      <div className="mt-auto flex flex-col items-center gap-1">
+        {item("Settings", <Settings className="h-4 w-4" />, onShowSettings, view === "settings")}
+        <span className="pb-0.5 text-[10px] font-semibold tracking-tight text-muted-foreground">heim</span>
+      </div>
     </aside>
   );
 }

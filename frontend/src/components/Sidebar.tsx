@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
-import { AudioLines, Boxes, Check, PanelLeftClose, PencilLine, Search, SquarePen, Trash2, X } from "lucide-react";
+import {
+  AudioLines,
+  Boxes,
+  Check,
+  MessagesSquare,
+  PanelLeftClose,
+  PencilLine,
+  Search,
+  Settings,
+  SquarePen,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,10 +23,46 @@ import {
 import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+/** A primary nav row: icon + title + one-line subtitle, with an accent bar when active. */
+function NavItem({
+  icon,
+  title,
+  subtitle,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "relative flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
+        active ? "bg-primary/10" : "hover:bg-accent/60",
+      )}
+    >
+      {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden />}
+      <span className={cn("mt-0.5 shrink-0", active ? "text-primary" : "text-muted-foreground")}>{icon}</span>
+      <span className="min-w-0">
+        <span className={cn("block text-sm font-medium leading-tight", active && "text-primary")}>{title}</span>
+        {subtitle && (
+          <span className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground">{subtitle}</span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 /**
- * ChatGPT-style left rail: compose + collapse at top, a search field, and a
- * "Recents" conversation list (hover reveals rename/delete). The current model
- * lives in the top bar, not here.
+ * The left rail: brand + compose at top, primary destinations as subtitled nav
+ * rows (Chat, Library, Voice), the "Recents" conversation list (hover reveals
+ * rename/delete), and Settings pinned at the bottom. The current model lives in
+ * the top bar, not here.
  */
 export function Sidebar({
   conversations,
@@ -22,8 +70,10 @@ export function Sidebar({
   view,
   onNew,
   onSelect,
+  onShowChat,
   onShowLibrary,
   onShowVoice,
+  onShowSettings,
   voiceEnabled = true,
   onRename,
   onDelete,
@@ -31,11 +81,13 @@ export function Sidebar({
 }: {
   conversations: Conversation[];
   activeId: string | null;
-  view: "chat" | "library" | "voice";
+  view: "chat" | "library" | "voice" | "settings";
   onNew: () => void;
   onSelect: (id: string) => void;
+  onShowChat: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
+  onShowSettings: () => void;
   voiceEnabled?: boolean;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -103,30 +155,29 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="px-2 pb-1">
-        <button
-          type="button"
+      <div className="flex flex-col gap-0.5 px-2 pb-1">
+        <NavItem
+          icon={<MessagesSquare className="h-4 w-4" />}
+          title="Chat"
+          subtitle="Talk to your models"
+          active={view === "chat"}
+          onClick={onShowChat}
+        />
+        <NavItem
+          icon={<Boxes className="h-4 w-4" />}
+          title="Library"
+          subtitle="Browse and load models"
+          active={view === "library"}
           onClick={onShowLibrary}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
-            view === "library" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-          )}
-        >
-          <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
-          Library
-        </button>
+        />
         {voiceEnabled && (
-          <button
-            type="button"
+          <NavItem
+            icon={<AudioLines className="h-4 w-4" />}
+            title="Voice"
+            subtitle="Speak, transcribe, clone"
+            active={view === "voice"}
             onClick={onShowVoice}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
-              view === "voice" ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-            )}
-          >
-            <AudioLines className="h-4 w-4 shrink-0 text-muted-foreground" />
-            Voice
-          </button>
+          />
         )}
       </div>
 
@@ -204,6 +255,16 @@ export function Sidebar({
             </div>
           );
         })}
+      </div>
+
+      {/* Settings pinned at the bottom, a primary destination like the reference UIs. */}
+      <div className="border-t border-border px-2 py-2">
+        <NavItem
+          icon={<Settings className="h-4 w-4" />}
+          title="Settings"
+          active={view === "settings"}
+          onClick={onShowSettings}
+        />
       </div>
     </aside>
   );

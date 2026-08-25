@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, PanelRight, Sun, Moon, X } from "lucide-react";
+import { ArrowDown, Download, Sun, Moon, X } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -47,7 +47,7 @@ import { ModelSelector } from "@/components/ModelSelector";
 import { TargetSelector } from "@/components/TargetSelector";
 import { LibraryView } from "@/components/LibraryView";
 import { VoiceView } from "@/components/VoiceView";
-import { SettingsPanel } from "@/components/SettingsPanel";
+import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
 import { ToolsControl } from "@/components/ToolsControl";
 import {
@@ -72,8 +72,8 @@ function conversationIdFromHash(): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-/** Which primary surface to show: the chat, the model library grid, or the voice studio. */
-type View = "chat" | "library" | "voice";
+/** Which primary surface to show: the chat, the model library grid, the voice studio, or settings. */
+type View = "chat" | "library" | "voice" | "settings";
 
 /** Map a raw runtime error / log tail to a friendly one-liner for known failures. */
 function friendlyRuntimeError(raw: string): string | null {
@@ -127,15 +127,19 @@ export function App() {
   // draft used before a conversation exists (the empty state); it seeds the first
   // conversation on send, then resets — so nothing carries between chats.
   const [draftSettings, setDraftSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [view, setView] = useState<View>(() =>
-    window.location.hash === "#/library" ? "library" : window.location.hash === "#/voice" ? "voice" : "chat",
+    window.location.hash === "#/library"
+      ? "library"
+      : window.location.hash === "#/voice"
+        ? "voice"
+        : window.location.hash === "#/settings"
+          ? "settings"
+          : "chat",
   );
 
-  // --- resizable layout: imperative handles to collapse/expand the rails. ---
+  // --- resizable layout: imperative handle to collapse/expand the left rail. ---
   const leftPanel = useRef<ImperativePanelHandle>(null);
-  const rightPanel = useRef<ImperativePanelHandle>(null);
   // Animate programmatic collapse/expand, but never during a manual drag (which
   // must track the cursor 1:1). react-resizable-panels sets flex inline, so a CSS
   // flex transition animates the collapse — suppressed while a handle is dragging.
@@ -165,12 +169,6 @@ export function App() {
     else if (sidebarOpen) p.expand();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
-  const toggleSettings = useCallback(() => {
-    const p = rightPanel.current;
-    if (!p) return;
-    if (p.isCollapsed()) p.expand();
-    else p.collapse();
-  }, []);
 
   // Chat state.
   const [input, setInput] = useState("");
@@ -203,7 +201,15 @@ export function App() {
   // so a reload / bookmark / back-button lands on the same chat. ---
   useEffect(() => {
     const target =
-      view === "library" ? "#/library" : view === "voice" ? "#/voice" : activeId ? `#/c/${activeId}` : "";
+      view === "library"
+        ? "#/library"
+        : view === "voice"
+          ? "#/voice"
+          : view === "settings"
+            ? "#/settings"
+            : activeId
+              ? `#/c/${activeId}`
+              : "";
     if (window.location.hash !== target) {
       if (target) window.location.hash = target;
       else history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -221,6 +227,10 @@ export function App() {
       }
       if (window.location.hash === "#/voice") {
         setView("voice");
+        return;
+      }
+      if (window.location.hash === "#/settings") {
+        setView("settings");
         return;
       }
       const id = conversationIdFromHash();
@@ -474,8 +484,10 @@ export function App() {
   // assistant; default on until status loads. Speak-replies default to the project's chat_voice.
   const voiceEnabled = status?.voice_enabled !== false;
   const effectiveTtsVoice = ttsVoice || status?.default_chat_voice || undefined;
+  const showChat = useCallback(() => setView("chat"), []);
   const showLibrary = useCallback(() => setView("library"), []);
   const showVoice = useCallback(() => setView("voice"), []);
+  const showSettings = useCallback(() => setView("settings"), []);
   // If Voice is disabled while we're on it, fall back to chat.
   useEffect(() => {
     if (!voiceEnabled && view === "voice") setView("chat");
@@ -909,12 +921,20 @@ export function App() {
                 selectConversation(id);
                 closeSidebar();
               }}
+              onShowChat={() => {
+                showChat();
+                closeSidebar();
+              }}
               onShowLibrary={() => {
                 showLibrary();
                 closeSidebar();
               }}
               onShowVoice={() => {
                 showVoice();
+                closeSidebar();
+              }}
+              onShowSettings={() => {
+                showSettings();
                 closeSidebar();
               }}
               voiceEnabled={voiceEnabled}
@@ -935,6 +955,7 @@ export function App() {
             onNew={startNewChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
+            onShowSettings={showSettings}
             voiceEnabled={voiceEnabled}
           />
         )}
@@ -964,8 +985,10 @@ export function App() {
             view={view}
             onNew={startNewChat}
             onSelect={selectConversation}
+            onShowChat={showChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
+            onShowSettings={showSettings}
             voiceEnabled={voiceEnabled}
             onRename={renameConversation}
             onDelete={deleteConversation}
@@ -1029,18 +1052,6 @@ export function App() {
                 </TooltipTrigger>
                 <TooltipContent>{theme === "dark" ? "Light mode" : "Dark mode"}</TooltipContent>
               </Tooltip>
-              {/* Open-only: when the panel is open, its own header button collapses
-                  it (mirrors the sidebar), so there's a single affordance at a time. */}
-              {!settingsOpen && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon-sm" onClick={toggleSettings} aria-label="Open settings panel">
-                      <PanelRight className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Open settings</TooltipContent>
-                </Tooltip>
-              )}
             </div>
           </header>
 
@@ -1074,6 +1085,19 @@ export function App() {
             />
           ) : view === "voice" ? (
             <VoiceView />
+          ) : view === "settings" ? (
+            <SettingsView
+              status={status}
+              library={library}
+              activeId={activeId}
+              settings={settings}
+              onChange={updateSettings}
+              onReloadContext={reloadWithContext}
+              busy={loadingName != null}
+              voices={voices}
+              ttsVoice={ttsVoice}
+              onChooseVoice={chooseVoice}
+            />
           ) : (
           <>
           {(error || status?.error) && (
@@ -1172,45 +1196,6 @@ export function App() {
           </>
           )}
         </main>
-        </Panel>
-
-        {/* Always mounted (so the PanelGroup child order stays stable), but the
-            hairline is hidden while the right rail is collapsed. */}
-        <ResizeHandle
-          onDragging={setDragging}
-          className={cn(!settingsOpen && "pointer-events-none bg-transparent")}
-        />
-
-        {/* Right rail: collapsible + resizable. Content mounts only when open so
-            the model-card fetch fires on open + model change. */}
-        <Panel
-          ref={rightPanel}
-          id="settings"
-          order={3}
-          collapsible
-          collapsedSize={0}
-          defaultSize={0}
-          minSize={16}
-          maxSize={40}
-          onCollapse={() => setSettingsOpen(false)}
-          onExpand={() => setSettingsOpen(true)}
-          className={cn("min-w-0", railTransition)}
-        >
-          {settingsOpen && (
-            <SettingsPanel
-              status={status}
-              library={library}
-              activeId={activeId}
-              settings={settings}
-              onChange={updateSettings}
-              onCollapse={toggleSettings}
-              onReloadContext={reloadWithContext}
-              busy={loadingName != null}
-              voices={voices}
-              ttsVoice={ttsVoice}
-              onChooseVoice={chooseVoice}
-            />
-          )}
         </Panel>
         </PanelGroup>
       </div>
