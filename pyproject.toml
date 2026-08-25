@@ -72,6 +72,9 @@ voice = [
     "mlx-audio>=0.4.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "misaki[en]>=0.9.4",  # grapheme->phoneme for Kokoro (English backend)
     "soundfile>=0.13.1",
+    # Some mlx-audio models import the soxr resampler at load time but mlx-audio does not
+    # declare it; without it those models die on "No module named 'soxr'".
+    "soxr>=0.5",
     # mlx-audio pulls in mlx-lm, which crashes at import on transformers 5.13 (the
     # AutoTokenizer.register break — see the `mlx` extra). A project using [voice] without
     # [mlx] would otherwise resolve an unbounded transformers and Whisper STT dies. Cap here

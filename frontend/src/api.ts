@@ -275,6 +275,7 @@ export interface SpeechOptions {
   refAudioB64?: string | null; // base64 WAV to clone a voice from (cloneable models)
   refText?: string | null; // exact transcript of refAudioB64
   seed?: number | null; // pin a seeded model's random voice
+  speed?: number | null; // playback speed multiplier (0.25-2.0); default 1
 }
 
 /** Synthesize speech via the OpenAI /v1/audio/speech endpoint; returns an audio blob. */
@@ -285,6 +286,7 @@ export async function synthesizeSpeech(opts: SpeechOptions): Promise<Blob> {
   if (opts.refAudioB64) body.ref_audio_b64 = opts.refAudioB64;
   if (opts.refText) body.ref_text = opts.refText;
   if (opts.seed != null) body.seed = opts.seed;
+  if (opts.speed != null && opts.speed !== 1) body.speed = opts.speed;
   const res = await apiFetch("/v1/audio/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

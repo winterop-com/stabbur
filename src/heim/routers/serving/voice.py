@@ -114,6 +114,7 @@ class SpeakRequest(BaseModel):
 
     text: str
     voice: str | None = None  # "kokoro:<name>"; None → the default Kokoro voice
+    speed: float | None = None  # playback speed multiplier (0.25-2.0); None → 1.0
 
 
 @router.post("/api/speak")
@@ -135,8 +136,9 @@ async def speak(req: SpeakRequest) -> Response:
     # kokoro.synthesize raise RuntimeError("unknown Kokoro voice …") that maps to a 500 below.
     if name not in {v.id for v in kokoro.voices()}:
         raise HTTPException(status_code=422, detail=f"unknown Kokoro voice {name!r}")
+    speed = _validated_speed(req.speed)
     try:
-        wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
+        wav_path = await asyncio.to_thread(lambda: kokoro.synthesize(text, name, None, speed=speed))
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     data = wav_path.read_bytes()
@@ -160,6 +162,16 @@ class AudioSpeechRequest(BaseModel):
     ref_audio_b64: str | None = None
     ref_text: str | None = None
     seed: int | None = None  # pin a seeded model's otherwise-random voice for reproducibility
+    speed: float | None = None  # playback speed multiplier (0.25-2.0); None → 1.0
+
+
+def _validated_speed(speed: float | None) -> float:
+    """Clamp-check a requested speed multiplier (422 outside 0.25-2.0); None -> 1.0."""
+    if speed is None:
+        return 1.0
+    if not 0.25 <= speed <= 2.0:
+        raise HTTPException(status_code=422, detail="speed must be between 0.25 and 2.0")
+    return speed
 
 
 def _voice_library_model(repo: str, *, kind: str | None = None) -> library_ops.LibraryModel:
@@ -202,11 +214,12 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
         raise HTTPException(status_code=422, detail=f"{req.model!r} isn't supported for synthesis in heim yet.")
     backend = spec.backend
 
+    speed = _validated_speed(req.speed)
     if backend == Backend.kokoro_onnx:
         if not kokoro.available():
             raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall heim (`uv sync`)")
         name = (req.voice or "af_heart").split(":")[-1]
-        wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
+        wav_path = await asyncio.to_thread(lambda: kokoro.synthesize(text, name, None, speed=speed))
         data = wav_path.read_bytes()
         wav_path.unlink(missing_ok=True)
     elif backend == Backend.mlx_audio:
@@ -221,6 +234,8 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
                 ref_path = Path(name)
                 ref_path.write_bytes(base64.b64decode(req.ref_audio_b64))
             params: dict[str, Any] = {"seed": req.seed} if req.seed is not None else {}
+            if speed != 1.0:
+                params["speed"] = speed  # honored by models that support it; ignored otherwise
             data = await asyncio.to_thread(
                 _synthesize_mlx, model.load_target, text, req.voice, ref_path, req.ref_text, params
             )

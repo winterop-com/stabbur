@@ -66,6 +66,10 @@ def speak(
         int | None,
         typer.Option("--seed", help="Pin a seeded model's otherwise-random voice for a reproducible result."),
     ] = None,
+    speed: Annotated[
+        float,
+        typer.Option("--speed", help="Playback speed multiplier, 0.25-2.0 (default 1.0)."),
+    ] = 1.0,
     fmt: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: wav, mp3, flac, opus, ogg, aac (non-wav needs ffmpeg)."),
@@ -112,9 +116,9 @@ def speak(
         raise typer.Exit(1)
     try:
         if voice is not None or spec is None:  # Kokoro (ONNX) — the lightweight default engine
-            data = _synth_kokoro(text, voice or "af_heart")
+            data = _synth_kokoro(text, voice or "af_heart", speed=speed)
         else:  # a registry voice model via the mlx-audio runtime
-            data = _synth_mlx(spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed)
+            data = _synth_mlx(spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed, speed=speed)
         data = audio_export.convert(data, fmt)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
@@ -122,7 +126,7 @@ def speak(
     _finish_speak(data, fmt, output, play)
 
 
-def _synth_kokoro(text: str, voice: str) -> bytes:
+def _synth_kokoro(text: str, voice: str, *, speed: float = 1.0) -> bytes:
     """Synthesize with Kokoro (ONNX) — the lightweight built-in engine; fetches its model on first use."""
     from heim.voice import kokoro  # noqa: PLC0415
 
@@ -133,10 +137,12 @@ def _synth_kokoro(text: str, voice: str) -> bytes:
         with console.status("[cyan]Downloading Kokoro voices (~310 MB, first run only)…", spinner="dots"):
             kokoro.ensure_assets()
     with console.status(f"[cyan]Synthesizing speech ({voice})…", spinner="dots"):
-        return kokoro.synthesize(text, voice, None).read_bytes()
+        return kokoro.synthesize(text, voice, None, speed=speed).read_bytes()
 
 
-def _synth_mlx(spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | None, seed: int | None) -> bytes:
+def _synth_mlx(
+    spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | None, seed: int | None, speed: float = 1.0
+) -> bytes:
     """Synthesize with the mlx-audio runtime, supporting voice cloning + a pinned seed."""
     from heim.voice import runtime as voice_runtime  # noqa: PLC0415
 
@@ -148,6 +154,8 @@ def _synth_mlx(spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | 
         typer.secho(f"{spec.display_name} is not in the library (`heim voice import`).", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
     extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
+    if speed != 1.0:
+        extra["speed"] = speed  # honored by models that support it; ignored otherwise
     with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
         return voice_runtime.synthesize(matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra)
 

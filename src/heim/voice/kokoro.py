@@ -197,8 +197,8 @@ def _get_engine() -> Any:
 _VOICE_IDS_SET = frozenset(_VOICE_IDS)
 
 
-def synthesize(text: str, voice: str, out_path: Path | None = None) -> Path:
-    """Generate a speech WAV for ``text`` in the built-in ``voice``.
+def synthesize(text: str, voice: str, out_path: Path | None = None, *, speed: float = 1.0) -> Path:
+    """Generate a speech WAV for ``text`` in the built-in ``voice`` at ``speed`` (1.0 = normal).
 
     Downloads the model on first use and loads it once (cached). Blocking — call
     from a worker thread in async contexts. Returns the written WAV path.
@@ -221,7 +221,7 @@ def synthesize(text: str, voice: str, out_path: Path | None = None) -> Path:
     else:  # NamedTemporaryFile closes its fd on __exit__ (mkstemp leaks it); delete=False keeps the file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             out = Path(f.name)
-    samples, sample_rate = _get_engine().create(text, voice=voice, speed=1.0, lang=lang_code(voice))
+    samples, sample_rate = _get_engine().create(text, voice=voice, speed=speed, lang=lang_code(voice))
     sf.write(str(out), samples, sample_rate)
     if not out.is_file() or out.stat().st_size == 0:
         raise RuntimeError("Kokoro synthesis produced no audio")

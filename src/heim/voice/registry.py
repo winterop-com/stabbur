@@ -147,8 +147,11 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/Spark-TTS-0.5B-bf16",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Bilingual (English + Chinese) TTS. Needs the `soxr` resampler (in the voice extra).",
+        description="Bilingual (English + Chinese) TTS with voice creation: pick a gender, or "
+        "clone from a reference clip.",
         voice_mode=VoiceMode.preset,
+        voices=["female", "male"],
+        cloneable=True,
         languages=["en", "zh"],
         sample_rate=24000,
         size_hint="~1 GB",
@@ -159,10 +162,18 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/csm-1b",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Conversational TTS with voice cloning from a reference clip (Sesame CSM) — give a "
-        "reference clip + its transcript to set the voice.",
+        description="Conversational TTS with voice cloning from a reference clip (Sesame CSM). The "
+        "named voices are prompt clips bundled with the model; a reference clip overrides them.",
         voice_mode=VoiceMode.clone,
         cloneable=True,
+        voices=[
+            "conversational_a",
+            "conversational_b",
+            "read_speech_a",
+            "read_speech_b",
+            "read_speech_c",
+            "read_speech_d",
+        ],
         languages=["en"],
         sample_rate=24000,
         size_hint="~2 GB",

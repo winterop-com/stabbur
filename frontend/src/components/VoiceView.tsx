@@ -85,6 +85,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [text, setText] = useState(() => defaultTextFor(ttsModels[0]));
   const [voice, setVoice] = useState<string>("af_heart");
   const [format, setFormat] = useState<string>("wav");
+  const [speed, setSpeed] = useState<number>(1); // playback speed multiplier (server-side synthesis speed)
   // A seeded model is stochastic — an unpinned voice varies (and can drone) every run.
   // Default to a pinned seed so it's repeatable out of the box; clear it for a random voice.
   const [seed, setSeed] = useState<string>("10");
@@ -173,6 +174,8 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     setClipUrl(null);
     setPeaks([]);
     setError(null);
+    // Seed the voice picker with the new model's first named voice (Kokoro keeps its own state).
+    if (model && model.backend !== "kokoro-onnx" && model.voices.length > 0) setVoice(model.voices[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model]);
 
@@ -250,13 +253,14 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       const blob = await synthesizeSpeech({
         model: voiceId(model),
         input: text,
-        voice: isKokoro ? voice : undefined,
+        voice: isKokoro || (model?.voices.length ?? 0) > 0 ? voice : undefined,
         responseFormat: format,
         refAudioB64: refB64 ?? undefined,
         refText: refB64 ? refText : undefined,
         // A non-numeric seed field must become "no seed" (undefined), not NaN — NaN serializes
         // to `"seed": null` in JSON, which the server reads as an explicit null, not "unset" (F-12).
         seed: seedOverride ?? (Number.isFinite(Number(seed)) && seed.trim() ? Number(seed) : undefined),
+        speed,
       });
       setClipUrl(URL.createObjectURL(blob));
       setPeaks([]); // clear the old waveform, then fill it once the clip is decoded
@@ -323,6 +327,25 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           </label>
         )}
 
+        {/* A model's own named voices (e.g. prompt clips bundled with a cloneable model). */}
+        {!isKokoro && (model?.voices?.length ?? 0) > 0 && (
+          <label className="text-[11px] text-muted-foreground">
+            Voice
+            <select
+              aria-label="Model voice"
+              value={voice}
+              onChange={(e) => setVoice(e.target.value)}
+              className="ml-2 h-8 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              {model!.voices.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         <label className="text-[11px] text-muted-foreground">
           Format
           <select
@@ -337,6 +360,21 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          Speed
+          <input
+            type="range"
+            aria-label="Speech speed"
+            min={0.5}
+            max={1.5}
+            step={0.05}
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            className="w-24 accent-primary"
+          />
+          <span className="w-9 tabular-nums">{speed.toFixed(2)}x</span>
         </label>
 
         {model?.seeded && (
