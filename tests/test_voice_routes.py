@@ -53,7 +53,7 @@ async def test_speak_kokoro_returns_wav_and_cleans_up_temp(
     monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: True)
     monkeypatch.setattr(
         "heim.routers.serving.voice.kokoro.synthesize",
-        lambda text, voice, out_path=None: wav,
+        lambda text, voice, out_path=None, speed=1.0: wav,
     )
     r = await client.post("/api/speak", json={"text": "hello there", "voice": "kokoro:af_heart"})
     assert r.status_code == 200
@@ -92,7 +92,7 @@ async def test_audio_speech_kokoro_happy_path_returns_wav(
     monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: True)
     monkeypatch.setattr(
         "heim.routers.serving.voice.kokoro.synthesize",
-        lambda text, voice, out_path=None: wav,
+        lambda text, voice, out_path=None, speed=1.0: wav,
     )
     r = await client.post("/v1/audio/speech", json={"model": "kokoro", "input": "hello world"})
     assert r.status_code == 200
@@ -110,7 +110,7 @@ async def test_audio_speech_mp3_goes_through_export_convert(
     monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: True)
     monkeypatch.setattr(
         "heim.routers.serving.voice.kokoro.synthesize",
-        lambda text, voice, out_path=None: wav,
+        lambda text, voice, out_path=None, speed=1.0: wav,
     )
     monkeypatch.setattr("heim.routers.serving.voice.audio_export.convert", lambda data, fmt: b"ID3-fake-mp3")
     r = await client.post("/v1/audio/speech", json={"model": "kokoro", "input": "hello", "response_format": "mp3"})
