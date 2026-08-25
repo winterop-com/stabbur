@@ -1057,3 +1057,41 @@ async def test_upstream_unload_clears_selection_only(upstream_client: AsyncClien
     r = await upstream_client.post("/api/unload")
     assert r.status_code == 200
     assert r.json()["model"] is None  # selection cleared; the remote itself is untouched
+
+
+def test_reasoning_fields_llama_dialect() -> None:
+    # The reasoning knob speaks llama-server's dialect (what its own webui sends):
+    # enable_thinking toggles the chat template, thinking_budget_tokens caps the effort.
+    assert agent.reasoning_fields(None) == {}
+    off = agent.reasoning_fields("off")
+    assert off["chat_template_kwargs"] == {"enable_thinking": False} and off["reasoning_control"] is True
+    assert "thinking_budget_tokens" not in off
+    assert agent.reasoning_fields("low")["thinking_budget_tokens"] == 512
+    assert agent.reasoning_fields("medium")["thinking_budget_tokens"] == 2048
+    high = agent.reasoning_fields("high")
+    assert high["thinking_budget_tokens"] == 8192 and high["chat_template_kwargs"] == {"enable_thinking": True}
+    assert "thinking_budget_tokens" not in agent.reasoning_fields("max")  # max = unbounded
+
+
+async def test_api_chat_forwards_reasoning(app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    seen: list[str | None] = []
+
+    async def fake_run(base: str, messages: list[dict[str, Any]], toolset: Any, *a: Any, **kw: Any) -> str:
+        seen.append(kw.get("reasoning"))
+        return "ok"
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    try:
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+        assert seen[-1] is None  # absent -> model default
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "reasoning": "low"})
+        assert seen[-1] == "low"
+        r = await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "reasoning": "huge"})
+        assert r.status_code == 422  # not a valid level
+    finally:
+        app.dependency_overrides.clear()

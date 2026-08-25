@@ -67,7 +67,7 @@ _SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
     ("/model", "/model ", "switch the running model (or /model to pick)"),
     ("/export", "/export ", "save the transcript to a markdown file"),
     ("/export --thinking", "/export --thinking", "export including each turn's thinking (folded)"),
-    ("/set", "/set ", "adjust sampling (temperature/top_p/top_k/…)"),
+    ("/set", "/set ", "adjust sampling (temperature/top_p/…) or reasoning (off/low/…/max)"),
     ("/system", "/system ", "show or replace the system prompt (history kept)"),
     ("/system clear", "/system clear", "drop the system prompt"),
     ("/clear", "/clear", "clear the conversation"),

@@ -145,6 +145,32 @@ async def _stream_turn(
     return content, ordered, usage
 
 
+ReasoningLevel = Literal["off", "low", "medium", "high", "max"]
+"""Reasoning-effort levels for thinking models, mirroring the llama.cpp webui's control."""
+
+_REASONING_BUDGETS: dict[str, int] = {"low": 512, "medium": 2048, "high": 8192}
+
+
+def reasoning_fields(level: "ReasoningLevel | None") -> dict[str, Any]:
+    """The request fields for a reasoning level; empty for ``None`` (the model default).
+
+    Speaks llama-server's dialect — exactly what its own webui sends: ``chat_template_kwargs.
+    enable_thinking`` toggles thinking in the chat template (Qwen-style models), ``thinking_
+    budget_tokens`` caps the thinking length (low 512 / medium 2048 / high 8192; ``max`` sends
+    no cap), and ``reasoning_control`` marks the request as reasoning-managed. Servers without
+    reasoning support ignore the unknown fields, so sending them is always safe.
+    """
+    if level is None:
+        return {}
+    fields: dict[str, Any] = {
+        "chat_template_kwargs": {"enable_thinking": level != "off"},
+        "reasoning_control": True,
+    }
+    if level in _REASONING_BUDGETS:
+        fields["thinking_budget_tokens"] = _REASONING_BUDGETS[level]
+    return fields
+
+
 async def run(
     base_url: str,
     messages: list[dict[str, Any]],
@@ -165,6 +191,7 @@ async def run(
     vision: bool = False,
     on_confirm: ConfirmSink | None = None,
     confirm_policy: Literal["all", "writes", "none"] = "none",
+    reasoning: "ReasoningLevel | None" = None,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -219,6 +246,8 @@ async def run(
                 body["min_p"] = min_p
             if repeat_penalty is not None:
                 body["repeat_penalty"] = repeat_penalty
+            # Reasoning effort (thinking on/off + budget) — llama-server dialect, see reasoning_fields.
+            body.update(reasoning_fields(reasoning))
             content, calls, usage = await _stream_turn(http, base_url, body, on_token, on_reasoning)
             if usage and on_usage:
                 on_usage(usage)

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/Markdown";
-import type { Settings } from "@/lib/store";
+import type { ReasoningLevel, Settings } from "@/lib/store";
 
 /** A titled settings section: heading + muted description, Capture-style. */
 function Section({
@@ -278,6 +278,31 @@ export function SettingsView({
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Blank = {rec?.top_p != null ? "the model's recommended value." : "model default."}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label htmlFor="reasoning" className="text-sm font-medium">
+                  Reasoning
+                </label>
+                <select
+                  id="reasoning"
+                  value={settings.reasoning ?? ""}
+                  onChange={(e) =>
+                    onChange({ ...settings, reasoning: (e.target.value || null) as ReasoningLevel | null })
+                  }
+                  className="h-8 rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="">Default · model decides</option>
+                  <option value="off">Off · no thinking</option>
+                  <option value="low">Low · up to 512 tokens</option>
+                  <option value="medium">Medium · up to 2,048 tokens</option>
+                  <option value="high">High · up to 8,192 tokens</option>
+                  <option value="max">Max · unlimited</option>
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  How long a thinking model may reason before answering. Needs a reasoning model
+                  served by llama.cpp; others ignore it.
                 </p>
               </div>
             </div>

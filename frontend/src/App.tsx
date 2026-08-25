@@ -551,6 +551,7 @@ export function App() {
           useTools: settings.useTools,
           enabledTools,
           systemPrompt: settings.systemPrompt,
+          reasoning: settings.reasoning,
           // Route this turn to the selected target only when a multi-target registry is present;
           // undefined otherwise leaves routing to the server default (generic/single-target apps).
           target: targets.length >= 2 ? (targetId ?? undefined) : undefined,

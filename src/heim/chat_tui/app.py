@@ -120,6 +120,7 @@ class ChatApp(App[None]):
         self._disabled: set[str] = set()  # MCP server prefixes the user turned off
         self._models_cache: list[library_ops.LibraryModel] | None = None  # switchable models (lazy)
         self._remote_models_cache: list[tuple[str, bool]] | None = None  # remote (id, loaded) rows (lazy)
+        self._reasoning: agent.ReasoningLevel | None = None  # thinking effort (/set reasoning …); None = default
         self._reason_collapsed_pref = False  # sticky: once the user collapses thinking, keep it collapsed
         self._reason_prog: dict[int, bool] = {}  # per reasoning box: the collapsed state heim set itself
         # A turn's reasoning is not part of self.messages (it's never resent to the model), so keep
@@ -308,15 +309,44 @@ class ChatApp(App[None]):
             value = getattr(self._sampling, field)
             body.append(f"  {field}", style="grey66")
             body.append(f"   {value if value is not None else '—'}\n", style="grey42")
-        body.append("\n/set <param> <value>  ·  e.g. /set temperature 0.7", style="grey42")
+        body.append("  reasoning", style="grey66")
+        body.append(f"   {self._reasoning or 'default'}\n", style="grey42")
+        body.append(
+            "\n/set <param> <value>  ·  e.g. /set temperature 0.7  ·  /set reasoning off|low|medium|high|max",
+            style="grey42",
+        )
         self._post(body)
 
     def _set_sampling(self, param: str, value: str) -> None:
         """Apply `/set <param> <value>` to the live sampling used for subsequent turns."""
+        if param.lower() == "reasoning":
+            # Thinking effort for reasoning models: off disables thinking, low/medium/high cap
+            # the thinking budget, max is unbounded; default restores the model's own behavior.
+            level = value.lower()
+            levels: dict[str, agent.ReasoningLevel] = {
+                "off": "off",
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "max": "max",
+            }
+            if level in ("default", "auto", "none"):
+                self._reasoning = None
+            elif level in levels:
+                self._reasoning = levels[level]
+            else:
+                self._post(Text(f"unknown reasoning level {value!r} — off/low/medium/high/max/default", style="grey50"))
+                return
+            self._post(Text(f"reasoning = {self._reasoning or 'default'}", style="grey50"))
+            self._refresh_status()
+            return
         field = _SAMPLING_FIELDS.get(param.lower())
         if field is None:
             self._post(
-                Text(f"unknown setting {param!r} — temperature/top_p/top_k/min_p/repeat_penalty", style="grey50")
+                Text(
+                    f"unknown setting {param!r} — temperature/top_p/top_k/min_p/repeat_penalty/reasoning",
+                    style="grey50",
+                )
             )
             return
         try:
@@ -972,6 +1002,7 @@ class ChatApp(App[None]):
                     vision=self._vision,
                     on_confirm=on_confirm,
                     confirm_policy=self._confirm_policy,
+                    reasoning=self._reasoning,
                 )
             except asyncio.CancelledError:  # ESC: drop the partial turn, keep the session
                 _stop_think()

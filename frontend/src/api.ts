@@ -133,6 +133,8 @@ export interface ChatOptions {
   enabledTools?: string[];
   /** Authoritative system prompt ("" = none); null/undefined → server's project default. */
   systemPrompt?: string | null;
+  /** Reasoning effort for thinking models; undefined → the model's default behavior. */
+  reasoning?: "off" | "low" | "medium" | "high" | "max" | null;
   /** Which tool calls require a per-action confirmation. Omit to let the server derive it from the
    *  bound assistant (the right default for the extension); only set to override that policy. */
   confirmTools?: "all" | "writes" | "none";
@@ -367,12 +369,14 @@ export async function* streamChat(
     system_prompt?: string;
     confirm_tools?: "all" | "writes" | "none";
     target?: string | null;
+    reasoning?: "off" | "low" | "medium" | "high" | "max";
   } = { messages, use_tools: options.useTools ?? true };
   if (options.maxTokens != null) body.max_tokens = options.maxTokens;
   if (options.temperature != null) body.temperature = options.temperature;
   if (options.topP != null) body.top_p = options.topP;
   if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
   if (options.systemPrompt != null) body.system_prompt = options.systemPrompt; // null → omit (use project default)
+  if (options.reasoning != null) body.reasoning = options.reasoning; // null → omit (model default)
   // Send `target` whenever the caller sets it (including an explicit null = narrow to primary+shared);
   // undefined means "leave routing to the server" (the full-library web app), so omit it then.
   if (options.target !== undefined) body.target = options.target;

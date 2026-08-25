@@ -483,3 +483,19 @@ async def test_system_prompt_override_keeps_history() -> None:
         app._run_command("/system clear")
         assert all(m.get("role") != "system" for m in app.messages)
         assert len(app.messages) == 2  # only the system message went
+
+
+async def test_set_reasoning_levels_and_reset() -> None:
+    # /set reasoning off|low|medium|high|max sets the thinking effort for later turns;
+    # default/auto/none resets to the model's own behavior; junk is rejected.
+    app = _app()
+    async with app.run_test():
+        assert app._reasoning is None
+        app._run_command("/set reasoning off")
+        assert app._reasoning == "off"
+        app._run_command("/set reasoning HIGH")
+        assert app._reasoning == "high"
+        app._run_command("/set reasoning bogus")
+        assert app._reasoning == "high"  # unknown level: unchanged, just a note
+        app._run_command("/set reasoning default")
+        assert app._reasoning is None

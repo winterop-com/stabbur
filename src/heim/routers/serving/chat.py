@@ -80,6 +80,10 @@ class ChatRequest(BaseModel):
     # server default: "writes" for a non-readonly assistant, "none" for free-play / readonly
     # (today's ungated behavior). "all" confirms every tool call, "none" gates nothing.
     confirm_tools: Literal["all", "writes", "none"] | None = None
+    # Reasoning effort for thinking models: "off" disables thinking, low/medium/high cap the
+    # thinking budget (512/2048/8192 tokens), "max" thinks unbounded. ``None`` (absent) leaves
+    # the model's default behavior untouched. llama-server dialect; others ignore it.
+    reasoning: agent.ReasoningLevel | None = None
 
 
 @router.post("/api/chat")
@@ -249,6 +253,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         vision=model_vision,
                         on_confirm=(on_confirm if policy != "none" else None),
                         confirm_policy=policy,
+                        reasoning=req.reasoning,
                     )
                 except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                     await queue.put({"type": "error", "detail": str(exc)})

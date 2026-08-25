@@ -20,7 +20,12 @@ export interface Settings {
   disabledTools: string[];
   /** Preferred context window (tokens) applied when a model is loaded; null = runtime default. */
   contextLength: number | null;
+  /** Reasoning effort for thinking models; null = the model's default behavior. */
+  reasoning: ReasoningLevel | null;
 }
+
+export type ReasoningLevel = "off" | "low" | "medium" | "high" | "max";
+const REASONING_LEVELS: readonly string[] = ["off", "low", "medium", "high", "max"];
 
 export const DEFAULT_SETTINGS: Settings = {
   systemPrompt: null, // default to the project prompt; the user can override or clear it
@@ -30,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   useTools: true,
   disabledTools: [],
   contextLength: null,
+  reasoning: null,
 };
 
 export function uid(): string {
@@ -49,6 +55,10 @@ export function normalizeSettings(parsed: Partial<Settings> | undefined | null):
       ? parsed.disabledTools.filter((t): t is string => typeof t === "string")
       : [],
     contextLength: typeof parsed.contextLength === "number" ? parsed.contextLength : null,
+    reasoning:
+      typeof parsed.reasoning === "string" && REASONING_LEVELS.includes(parsed.reasoning)
+        ? parsed.reasoning
+        : null,
   };
 }
 
