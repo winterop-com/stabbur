@@ -22,7 +22,7 @@ from heim import library as library_ops
 from heim import runtime as runtime_mod
 from heim import tools as mcp_tools
 from heim.chat_tui._util import _GERUNDS, _SAMPLING_FIELDS, _SLASH_COMMANDS, _SPINNER, _fmt_tokens
-from heim.chat_tui._widgets import ChatInput, ConfirmModal, _HeimCommands
+from heim.chat_tui._widgets import ChatInput, ConfirmModal, ModelPickerModal, _HeimCommands
 from heim.runtime import sampling as sampling_mod
 
 
@@ -366,40 +366,32 @@ class ChatApp(App[None]):
         self._remote_models_cache = await asyncio.to_thread(self._fetch_remote_models)
 
     def action_show_models(self) -> None:
-        """List the models the session can switch to (the current one marked), in the transcript."""
-        if isinstance(self._endpoint, RemoteEndpoint):
-            self.run_worker(self._show_remote_models(), group="models")
-            return
-        models = self._switchable_models()
-        if not models:
-            self._post(Text("No switchable models in the library.", style="grey50"))
-            return
-        body = Text("models  ", style="bold #fb7185")
-        body.append(f"· {len(models)}\n", style="grey42")
-        for m in models:
-            current = m.name == self._model_name
-            body.append(f"  {'● ' if current else '  '}{m.name}", style="#fb7185" if current else "grey66")
-            body.append(f"   {m.model_format.value}\n", style="grey42")
-        body.append("\n/model <name>  ·  switch the running model", style="grey42")
-        self._post(body)
+        """Open the model picker (arrow keys + Enter) — the remote's ids, or library models."""
+        self.run_worker(self._pick_model(), group="models")
 
-    async def _show_remote_models(self) -> None:
-        """List the remote server's models (a fresh probe), marking the current and loaded ones."""
-        self._remote_models_cache = await asyncio.to_thread(self._fetch_remote_models)
-        listed = self._remote_models_cache
-        if not listed:
-            self._post(Text(f"couldn't list models at {self._base} — is the server running?", style="grey50"))
+    async def _pick_model(self) -> None:
+        """Gather the switchable models, show the picker modal, and switch to the choice."""
+        if isinstance(self._endpoint, RemoteEndpoint):
+            self._remote_models_cache = await asyncio.to_thread(self._fetch_remote_models)
+            listed = self._remote_models_cache
+            if not listed:
+                self._post(Text(f"couldn't list models at {self._base} — is the server running?", style="grey50"))
+                return
+            rows = [(rid, "loaded" if is_loaded else "") for rid, is_loaded in listed]
+            current = self._model_target or self._model_name
+            title = f"models · {len(rows)} on {self._base}"
+        else:
+            models = self._switchable_models()
+            if not models:
+                self._post(Text("No switchable models in the library.", style="grey50"))
+                return
+            rows = [(m.name, m.model_format.value) for m in models]
+            current = self._model_name
+            title = f"models · {len(rows)} in the library"
+        choice = await self.push_screen_wait(ModelPickerModal(rows, current, title))
+        if choice is None or choice == current:
             return
-        current = self._model_target or self._model_name
-        body = Text("models  ", style="bold #fb7185")
-        body.append(f"· {len(listed)} on {self._base}\n", style="grey42")
-        for rid, is_loaded in listed:
-            body.append(f"  {'● ' if rid == current else '  '}{rid}", style="#fb7185" if rid == current else "grey66")
-            if is_loaded:
-                body.append("   loaded", style="grey42")
-            body.append("\n")
-        body.append("\n/model <name>  ·  switch (the server loads it on the next message)", style="grey42")
-        self._post(body)
+        self.action_switch_model(choice)
 
     def _switch_remote_model(self, name: str) -> None:
         """Point the session at another of the remote's models (matched against ``/v1/models``).
@@ -688,7 +680,7 @@ class ChatApp(App[None]):
             ("/mcp on|off <server>", "enable / disable a server's tools"),
             ("/mcp reconnect", "respawn the MCP servers"),
             ("/copy", "copy the last reply"),
-            ("/model [name]", "switch the running model (or list them)"),
+            ("/model [name]", "switch the running model (or pick from a list)"),
             ("/export [file]", "save the transcript to markdown (chat.md)"),
             ("/export --thinking", "export and include each turn's thinking (folded)"),
             ("/set <param> <value>", "adjust sampling (temperature/top_p/top_k/min_p/repeat_penalty)"),

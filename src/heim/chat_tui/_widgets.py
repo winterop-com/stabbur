@@ -1,8 +1,9 @@
-"""Chat-TUI widgets: the command palette provider, confirm modal, and the multi-line chat input."""
+"""Chat-TUI widgets: the command palette provider, modals (confirm, model picker), and the chat input."""
 
 import json
 from typing import Any
 
+from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -10,7 +11,8 @@ from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static, TextArea
+from textual.widgets import Button, Label, OptionList, Static, TextArea
+from textual.widgets.option_list import Option
 
 
 class _HeimCommands(Provider):
@@ -129,6 +131,67 @@ class ConfirmModal(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class ModelPickerModal(ModalScreen[str | None]):
+    """Pick a model with the arrow keys: Enter selects, Escape cancels.
+
+    Rows are ``(id, note)`` — the note is a dim annotation like the format or ``loaded``.
+    The current model's row is marked and pre-highlighted. Dismisses with the chosen id,
+    or ``None`` on cancel.
+    """
+
+    DEFAULT_CSS = """
+    ModelPickerModal { align: center middle; }
+    ModelPickerModal > #model-box {
+        width: 72; max-width: 90%; height: auto; padding: 1 2;
+        border: round #fb7185; background: $surface;
+    }
+    ModelPickerModal #model-title { text-style: bold; color: #fb7185; }
+    ModelPickerModal OptionList {
+        height: auto; max-height: 16; margin-top: 1;
+        background: transparent; border: none; padding: 0;
+    }
+    ModelPickerModal #model-hint { color: $text-muted; margin-top: 1; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, rows: list[tuple[str, str]], current: str | None, title: str) -> None:
+        super().__init__()
+        self._rows = rows
+        self._current = current
+        self._title = title
+
+    def compose(self) -> ComposeResult:
+        options: list[Option] = []
+        for rid, note in self._rows:
+            label = Text()
+            label.append("● " if rid == self._current else "  ", style="#fb7185")
+            label.append(rid)
+            if note:
+                label.append(f"   {note}", style="dim")
+            options.append(Option(label, id=rid))
+        with Vertical(id="model-box"):
+            yield Label(self._title, id="model-title")
+            yield OptionList(*options)
+            yield Static("↑/↓ select  ·  enter switch  ·  esc cancel", id="model-hint")
+
+    def on_mount(self) -> None:
+        picker = self.query_one(OptionList)
+        if self._current is not None:
+            try:
+                picker.highlighted = picker.get_option_index(self._current)
+            except Exception:  # noqa: BLE001 - the current model may not be in the listing
+                pass
+        picker.focus()
+
+    @on(OptionList.OptionSelected)
+    def _selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(str(event.option.id) if event.option.id is not None else None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class ChatInput(TextArea):
     """Multi-line input where Enter sends and Shift+Return inserts a newline.
 
@@ -174,4 +237,4 @@ class ChatInput(TextArea):
         await super()._on_key(event)
 
 
-__all__ = ["ChatInput", "ConfirmModal", "_HeimCommands"]
+__all__ = ["ChatInput", "ConfirmModal", "ModelPickerModal", "_HeimCommands"]

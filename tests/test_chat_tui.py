@@ -399,11 +399,19 @@ async def test_remote_attach_switches_by_repointing_model_id(monkeypatch: pytest
         assert app._model_name == "qwen-router-alias"  # unknown name: no change, just a note
         refused = [w for w in app.query(Static) if "does not serve" in str(w.render())]
         assert len(refused) == 1
+        # /model opens the arrow-key picker over the remote's ids; a selection switches.
+        from heim.chat_tui._widgets import ModelPickerModal
+
         app.action_show_models()
+        for _ in range(20):
+            if isinstance(app.screen, ModelPickerModal):
+                break
+            await pilot.pause()
+        assert isinstance(app.screen, ModelPickerModal)
+        app.screen.dismiss("pub/Served-GGUF")  # what an arrow-key + Enter selection resolves to
         await app.workers.wait_for_complete()
         await pilot.pause()
-        listed = [w for w in app.query(Static) if "qwen-router-alias" in str(w.render())]
-        assert listed  # /model lists the remote's ids
+        assert app._model_name == "pub/Served-GGUF"  # the picked model became the session's
 
 
 def test_run_interactive_stops_owned_runtime_only(monkeypatch: pytest.MonkeyPatch) -> None:

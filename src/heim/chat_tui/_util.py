@@ -64,7 +64,7 @@ _SLASH_COMMANDS: tuple[tuple[str, str, str], ...] = (
     ("/mcp off <server>", "/mcp off ", "disable a server's tools"),
     ("/mcp reconnect", "/mcp reconnect", "respawn the MCP servers"),
     ("/copy", "/copy", "copy the last reply"),
-    ("/model", "/model ", "switch the running model (or /model to list)"),
+    ("/model", "/model ", "switch the running model (or /model to pick)"),
     ("/export", "/export ", "save the transcript to a markdown file"),
     ("/export --thinking", "/export --thinking", "export including each turn's thinking (folded)"),
     ("/set", "/set ", "adjust sampling (temperature/top_p/top_k/…)"),
