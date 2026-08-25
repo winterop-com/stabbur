@@ -376,7 +376,9 @@ async def test_remote_attach_chats_against_the_server(monkeypatch: pytest.Monkey
     assert seen["model"] is None  # no local load_target; the field is omitted
 
 
-async def test_remote_attach_blocks_model_switching(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_remote_attach_switches_by_repointing_model_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A remote attach never touches local runtimes: switching is just changing the OpenAI
+    # ``model`` field (a router-mode server hot-swaps on the next request).
     from textual.widgets import Static
 
     def _boom(*_a: Any, **_k: Any) -> None:
@@ -384,14 +386,24 @@ async def test_remote_attach_blocks_model_switching(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", _boom)
     monkeypatch.setattr(chat_tui.app.runtime_mod, "start", _boom)
+    listing = [("pub/Served-GGUF", False), ("qwen-router-alias", True)]
+    monkeypatch.setattr(chat_tui.ChatApp, "_fetch_remote_models", lambda self: listing)
     app = _remote_app()
     async with app.run_test() as pilot:
-        app.action_switch_model("pub/Other-GGUF")
-        app.action_show_models()
+        app.action_switch_model("qwen-router-alias")
         await pilot.pause()
-        blocked = [w for w in app.query(Static) if "attached to a remote server" in str(w.render())]
-        assert len(blocked) == 2  # both actions posted the /model-unavailable note instead of switching
-    assert app._model_name == "pub/Served-GGUF"  # nothing changed
+        assert app._model_name == "qwen-router-alias"
+        assert app._model_target == "qwen-router-alias"  # the OpenAI model field follows the switch
+        app.action_switch_model("not-served")
+        await pilot.pause()
+        assert app._model_name == "qwen-router-alias"  # unknown name: no change, just a note
+        refused = [w for w in app.query(Static) if "does not serve" in str(w.render())]
+        assert len(refused) == 1
+        app.action_show_models()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        listed = [w for w in app.query(Static) if "qwen-router-alias" in str(w.render())]
+        assert listed  # /model lists the remote's ids
 
 
 def test_run_interactive_stops_owned_runtime_only(monkeypatch: pytest.MonkeyPatch) -> None:

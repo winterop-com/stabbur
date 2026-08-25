@@ -119,6 +119,7 @@ class ChatApp(App[None]):
         self._queue: list[str] = []  # prompts submitted while a reply is streaming
         self._disabled: set[str] = set()  # MCP server prefixes the user turned off
         self._models_cache: list[library_ops.LibraryModel] | None = None  # switchable models (lazy)
+        self._remote_models_cache: list[tuple[str, bool]] | None = None  # remote (id, loaded) rows (lazy)
         self._reason_collapsed_pref = False  # sticky: once the user collapses thinking, keep it collapsed
         self._reason_prog: dict[int, bool] = {}  # per reasoning box: the collapsed state heim set itself
         # A turn's reasoning is not part of self.messages (it's never resent to the model), so keep
@@ -179,6 +180,9 @@ class ChatApp(App[None]):
         await transcript.mount(Static(self._intro(), classes="intro"))
         self._refresh_status()
         self.query_one(ChatInput).focus()
+        # Prime the remote model list (for /model and its name completion) off the UI thread.
+        if isinstance(self._endpoint, RemoteEndpoint):
+            self.run_worker(self._prime_remote_models(), group="models")
         # Connecting MCP servers can take a moment; do it after the UI is up.
         if self._servers:
             self.toolset = await self._stack.enter_async_context(mcp_tools.connect(self._servers))
@@ -335,21 +339,36 @@ class ChatApp(App[None]):
                 self._models_cache = []
         return self._models_cache
 
-    def _remote_switch_blocked(self) -> bool:
-        """Post the /model-unavailable note when attached to a remote server (heim can't switch it)."""
-        if not isinstance(self._endpoint, RemoteEndpoint):
-            return False
-        self._post(
-            Text(
-                "attached to a remote server — /model isn't available; switch the model on the server, then /clear",
-                style="grey50",
-            )
-        )
-        return True
+    def _fetch_remote_models(self) -> list[tuple[str, bool]]:
+        """The remote's ``GET /v1/models`` as ``(id, loaded)`` rows — empty on any failure.
+
+        ``loaded`` comes from llama-server router mode's per-model ``status``; servers that
+        don't report one (LM Studio, mlx-lm, a plain llama-server) just read as not-loaded.
+        """
+        import httpx  # noqa: PLC0415 - keep the TUI module import-light
+
+        try:
+            data = httpx.get(f"{self._base}/v1/models", timeout=5).json()
+        except (httpx.HTTPError, ValueError):
+            return []
+        rows = data.get("data") if isinstance(data, dict) else None
+        out: list[tuple[str, bool]] = []
+        if isinstance(rows, list):
+            for row in rows:
+                rid = row.get("id") if isinstance(row, dict) else None
+                if isinstance(rid, str):
+                    status = row.get("status")
+                    out.append((rid, isinstance(status, dict) and status.get("value") == "loaded"))
+        return out
+
+    async def _prime_remote_models(self) -> None:
+        """Fill the remote model cache off the UI thread (for /model and its name completion)."""
+        self._remote_models_cache = await asyncio.to_thread(self._fetch_remote_models)
 
     def action_show_models(self) -> None:
         """List the models the session can switch to (the current one marked), in the transcript."""
-        if self._remote_switch_blocked():
+        if isinstance(self._endpoint, RemoteEndpoint):
+            self.run_worker(self._show_remote_models(), group="models")
             return
         models = self._switchable_models()
         if not models:
@@ -364,12 +383,64 @@ class ChatApp(App[None]):
         body.append("\n/model <name>  ·  switch the running model", style="grey42")
         self._post(body)
 
-    def action_switch_model(self, name: str) -> None:
-        """Switch the runtime to another library model (by full name or bare repo tail)."""
-        if self._remote_switch_blocked():
+    async def _show_remote_models(self) -> None:
+        """List the remote server's models (a fresh probe), marking the current and loaded ones."""
+        self._remote_models_cache = await asyncio.to_thread(self._fetch_remote_models)
+        listed = self._remote_models_cache
+        if not listed:
+            self._post(Text(f"couldn't list models at {self._base} — is the server running?", style="grey50"))
             return
+        current = self._model_target or self._model_name
+        body = Text("models  ", style="bold #fb7185")
+        body.append(f"· {len(listed)} on {self._base}\n", style="grey42")
+        for rid, is_loaded in listed:
+            body.append(f"  {'● ' if rid == current else '  '}{rid}", style="#fb7185" if rid == current else "grey66")
+            if is_loaded:
+                body.append("   loaded", style="grey42")
+            body.append("\n")
+        body.append("\n/model <name>  ·  switch (the server loads it on the next message)", style="grey42")
+        self._post(body)
+
+    def _switch_remote_model(self, name: str) -> None:
+        """Point the session at another of the remote's models (matched against ``/v1/models``).
+
+        No teardown: a router-mode server hot-swaps on the next request, so switching is just
+        changing the OpenAI ``model`` field. The conversation carries over — the new model sees
+        the full history. A single-model server simply lists nothing else to switch to.
+        """
+        listed = self._remote_models_cache if self._remote_models_cache else self._fetch_remote_models()
+        self._remote_models_cache = listed
+        ids = [rid for rid, _ in listed]
+        if not ids:
+            self._post(Text(f"couldn't list models at {self._base} — is the server running?", style="grey50"))
+            return
+        want = name.strip().lower()
+        want_base = want.rsplit("/", 1)[-1]
+        match = next((rid for rid in ids if rid.lower() == want or rid.lower().rsplit("/", 1)[-1] == want_base), None)
+        if match is None:
+            self._post(Text(f"{self._base} does not serve {name!r} — /model to list", style="grey50"))
+            return
+        endpoint = self._endpoint
+        assert isinstance(endpoint, RemoteEndpoint)  # only called for remote attaches
+        if match == (endpoint.model_id or self._model_name):
+            self._post(Text(f"already on {match}", style="grey50"))
+            return
+        endpoint.model_id = match
+        endpoint.model_name = match
+        endpoint.model = None  # any local library metadata described the previous model
+        endpoint.n_ctx = None  # so does the context window the old status reported
+        self._model = None
+        self._apply_model()
+        self._refresh_status()
+        self._post(Text(f"switched to {match} — the server loads it on the next message", style="grey50"))
+
+    def action_switch_model(self, name: str) -> None:
+        """Switch the running model: swap the local runtime, or repoint a remote attach."""
         if self._busy:
             self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
+            return
+        if isinstance(self._endpoint, RemoteEndpoint):
+            self._switch_remote_model(name)
             return
         if self._switching:
             self.notify("Already switching models.", severity="warning", timeout=2)
@@ -435,6 +506,26 @@ class ChatApp(App[None]):
         query = text.lstrip("/").lower()
         return [c for c in _SLASH_COMMANDS if c[0].lstrip("/").lower().startswith(query)]
 
+    def _match_model_args(self, text: str) -> list[tuple[str, str, str]]:
+        """Model-name completions for ``/model <partial>``: library models, or the remote's ids.
+
+        Matches by prefix on the full name or its basename (the part after the last ``/``), the
+        same shapes ``/model <name>`` itself accepts. The remote candidates come from the cache
+        primed at mount / by ``/model`` — never a network call per keystroke.
+        """
+        if not text.startswith("/model ") or "\n" in text:
+            return []
+        partial = text[len("/model ") :].strip().lower()
+        if isinstance(self._endpoint, RemoteEndpoint):
+            candidates = [(rid, "loaded" if is_loaded else "") for rid, is_loaded in (self._remote_models_cache or [])]
+        else:
+            candidates = [(m.name, m.model_format.value) for m in self._switchable_models()]
+        return [
+            (cand, f"/model {cand}", note)
+            for cand, note in candidates
+            if not partial or cand.lower().startswith(partial) or cand.lower().rsplit("/", 1)[-1].startswith(partial)
+        ]
+
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         self._update_suggestions()
 
@@ -442,7 +533,9 @@ class ChatApp(App[None]):
         """Show/refresh the autocomplete menu while a slash command is being typed."""
         suggest = self.query_one("#suggest", Static)
         text = self.query_one(ChatInput).text
-        matches = self._match_commands(text) if text.startswith("/") and "\n" not in text else []
+        matches: list[tuple[str, str, str]] = []
+        if text.startswith("/") and "\n" not in text:
+            matches = self._match_model_args(text) or self._match_commands(text)
         if not matches:
             suggest.display = False
             return
@@ -460,9 +553,9 @@ class ChatApp(App[None]):
         suggest.display = True
 
     def _complete_slash(self) -> None:
-        """Tab: fill the input with the matching command (or the common prefix of several)."""
+        """Tab: fill the input with the matching command or model name (or their common prefix)."""
         input_w = self.query_one(ChatInput)
-        matches = self._match_commands(input_w.text)
+        matches = self._match_model_args(input_w.text) or self._match_commands(input_w.text)
         if not matches:
             return
         completions = [c[1] for c in matches]
