@@ -1,4 +1,4 @@
-"""`heim voice` - list, speak, import, and set up TTS/STT voice models."""
+"""`heim voice` - list, speak, and import TTS/STT voice models."""
 
 import os
 import tempfile
@@ -19,7 +19,6 @@ from heim.cli._common import (
     _pull_voice_all,
     console,
 )
-from heim.config import get_settings
 from heim.models import ModelSource
 
 
@@ -51,11 +50,13 @@ def speak(
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option("--model", "-m", help="Voice model: an mlx-audio model (dia, qwen3-tts) or a library OuteTTS."),
+        typer.Option("--model", "-m", help="A voice model from the registry (see `heim voice list`)."),
     ] = None,
     ref_audio: Annotated[
         Path | None,
-        typer.Option("--ref-audio", help="Reference clip to clone a voice from (Dia; pair with --ref-text)."),
+        typer.Option(
+            "--ref-audio", help="Reference clip to clone a voice from (cloneable models; pair with --ref-text)."
+        ),
     ] = None,
     ref_text: Annotated[
         str | None,
@@ -63,7 +64,7 @@ def speak(
     ] = None,
     seed: Annotated[
         int | None,
-        typer.Option("--seed", help="Pin Dia's otherwise-random voice for a reproducible result."),
+        typer.Option("--seed", help="Pin a seeded model's otherwise-random voice for a reproducible result."),
     ] = None,
     fmt: Annotated[
         str,
@@ -81,10 +82,10 @@ def speak(
     """Text-to-speech: synthesize ``text`` to audio.
 
     ``--voice`` picks one of Kokoro's built-in voices (the lightweight default engine).
-    ``--model dia`` (or ``qwen3-tts``) uses the mlx-audio runtime — with ``--ref-audio`` +
-    ``--ref-text`` Dia clones the voice in that clip, or ``--seed`` pins its random voice.
-    Any other ``--model`` uses ``llama-tts``/OuteTTS. ``--format`` transcodes the result
-    (ffmpeg); with ``-o`` writes there, otherwise a temp file is played.
+    ``--model`` uses a registry voice model via the mlx-audio runtime — with ``--ref-audio``
+    + ``--ref-text`` a cloneable model mimics the voice in that clip, and ``--seed`` pins a
+    seeded model's random voice. ``--format`` transcodes the result (ffmpeg); with ``-o``
+    writes there, otherwise a temp file is played.
     """
     from heim.voice import audio as audio_export  # noqa: PLC0415
     from heim.voice import registry as voice_registry  # noqa: PLC0415
@@ -98,23 +99,22 @@ def speak(
         raise typer.Exit(1)
 
     if voice is not None and model is not None:
-        console.print(
-            f"[yellow]--voice takes precedence[/] — ignoring `--model {model}` (that's for mlx-audio/OuteTTS)."
-        )
+        console.print(f"[yellow]--voice takes precedence[/] — ignoring `--model {model}` (that's for mlx-audio).")
     spec = voice_registry.get(model) if model else None
     spec = spec or (voice_registry.by_repo(model) if model else None)
+    if model is not None and spec is None:
+        typer.secho(f"No voice model matches {model!r} (see `heim voice list`).", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
     # Enforce the registry's supported flag at the action (A6/VO-M3): reject an unsupported model
-    # (e.g. Qwen3-TTS) upfront with a clear reason instead of loading it and failing on empty audio.
+    # upfront with a clear reason instead of loading it and failing on empty audio.
     if spec is not None and not spec.supported:
         typer.secho(f"{spec.display_name} isn't supported for synthesis in heim yet.", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
     try:
-        if voice is not None:  # Kokoro (ONNX) — the lightweight preset engine
-            data = _synth_kokoro(text, voice)
-        elif spec is not None and spec.backend == voice_registry.Backend.mlx_audio:  # Dia / Qwen3-TTS
+        if voice is not None or spec is None:  # Kokoro (ONNX) — the lightweight default engine
+            data = _synth_kokoro(text, voice or "af_heart")
+        else:  # a registry voice model via the mlx-audio runtime
             data = _synth_mlx(spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed)
-        else:  # llama-tts / OuteTTS
-            data = _synth_oute(model, text)
         data = audio_export.convert(data, fmt)
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
@@ -137,7 +137,7 @@ def _synth_kokoro(text: str, voice: str) -> bytes:
 
 
 def _synth_mlx(spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | None, seed: int | None) -> bytes:
-    """Synthesize with the mlx-audio runtime (Dia / Qwen3-TTS), supporting voice cloning + a pinned seed."""
+    """Synthesize with the mlx-audio runtime, supporting voice cloning + a pinned seed."""
     from heim.voice import runtime as voice_runtime  # noqa: PLC0415
 
     if not voice_runtime.available():
@@ -150,21 +150,6 @@ def _synth_mlx(spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | 
     extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
     with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
         return voice_runtime.synthesize(matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra)
-
-
-def _synth_oute(model: str | None, text: str) -> bytes:
-    """Synthesize with llama-tts / OuteTTS — the default when no ``--voice`` or mlx-audio model is given."""
-    from heim.voice import tts  # noqa: PLC0415
-
-    model_path = vocoder_path = None
-    if model is not None:
-        matches = [m for m in library_ops.find(model) if m.tts]
-        if not matches:
-            typer.secho(f"No TTS model matches {model!r} (see `heim library ls`).", fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
-        model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
-    with console.status("[cyan]Synthesizing speech…", spinner="dots"):
-        return tts.synthesize(text, None, model_path, vocoder_path).read_bytes()
 
 
 def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> None:
@@ -201,35 +186,6 @@ def _finish_speak(data: bytes, fmt: str, output: Path | None, play: bool) -> Non
 
 # Attachment helpers live in heim.attach (shared with the Textual chat); alias the
 # names used below.
-
-
-@voice_app.command("setup")
-def voice_setup() -> None:
-    """Make Dia self-contained: seed its DAC codec into the (drive) HF cache.
-
-    Dia decodes through ``descript-audio-codec-44khz``, which mlx-audio fetches by repo
-    id at synth time — separately from Dia's own weights. With the HF cache redirected
-    onto the library drive, this downloads the codec there once so Dia works offline and
-    travels with the drive.
-    """
-    from heim import hfcache  # noqa: PLC0415
-    from heim.voice import dac  # noqa: PLC0415
-
-    cache = hfcache.drive_cache_dir()
-    where = f"[green]{cache}[/] (on the drive)" if cache else "[yellow]~/.cache/huggingface[/] (machine-local)"
-    console.print(f"HF cache: {where}")
-    if not cache:
-        console.print("[dim]Set[/] HEIM_LIBRARY_ROOT [dim]to a real library drive so the codec travels with it.[/]")
-    if dac.codec_present():
-        console.print(f"[green]DAC codec already present[/] [dim]({dac.DAC_REPO}).[/]")
-        return
-    console.print(f"[dim]Downloading[/] {dac.DAC_REPO} [dim](~293 MB)…[/]")
-    try:
-        path = dac.seed_codec(token=get_settings().hf_token)
-    except Exception as exc:  # noqa: BLE001 - a network/hub failure is user-facing, not a crash
-        console.print(f"[red]Failed to seed the DAC codec:[/] {exc}")
-        raise typer.Exit(1) from exc
-    console.print(f"[green]Seeded[/] the DAC codec [dim]→ {path}[/]. Dia is now self-contained.")
 
 
 @voice_app.command("list")

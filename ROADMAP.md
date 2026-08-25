@@ -207,20 +207,21 @@ completion token.
 
 ## Voice follow-ups
 
-- **Qwen3-TTS support.** Flagged `supported=False`: mlx-audio's `load_model` doesn't wire up its
-  separate speech tokenizer (`Qwen3TTSSpeechTokenizer` in the repo's `speech_tokenizer/`), so
-  `generate_audio` errors. Enable by loading the tokenizer + `model.load_speech_tokenizer(...)`.
-- **Get the not-yet-working mlx-audio models running** — they load but the high-level `generate`
-  produces no audio without bespoke args: `qwen3-tts`, KittenTTS (needs a named voice),
-  OuteTTS-1.0-mlx, Qwen3-TTS-VoiceDesign (needs a voice-design prompt), Voxtral-TTS.
+**Model-set reshuffle (2026-08-26):** Dia and OuteTTS are retired — Dia's curated seeds don't
+survive MLX upgrades (the seed→voice mapping is a function of the mlx version) and it was slow;
+llama.cpp's rebuilt `llama-tts` dropped the OuteTTS/WavTokenizer pipeline, and heim's llama-tts
+engine was removed with it. Qwen3-TTS flipped to `supported=True` (mlx-audio 0.4.6 ships its
+speech tokenizer). The audition set — Chatterbox, CSM-1B, Soprano, Spark — is pulled into the
+library; Kokoro stays the fast in-chat baseline.
+
+- **Audition the new TTS set** — pick the expressive slot's winner (Chatterbox's
+  emotion/exaggeration control is the leading candidate) and verify each entry's registry
+  metadata (voices, cloning, seeds) against real synthesis. mlx-audio 0.4.6 also added
+  many more families (vibevoice, voxcpm2, higgs_audio_v3, sesame, zonos2, …) worth a look.
 - **New audio capabilities** — **speaker diarization** (MOSS-Transcribe-Diarize — gated repo, needs
   auth; VibeVoice-ASR) for who-said-what + timestamps; **speech enhancement** (DeepFilterNet /
   MossFormer2-SE) to denoise mic input before STT; **endpoint detection** (Smart Turn) for better
   turn-taking than the silence-based VAD recorder.
-- **Expressive / emotion-controllable voices.** Kokoro/OuteTTS give natural prosody but no emotion
-  knob. **Chatterbox** (already in the registry) is the most promising path — an intensity param,
-  native MLX. Heavier alternatives stay PyTorch/GPU-leaning (CosyVoice 2, Parler-TTS, Orpheus-3B).
-  A deliberate later add-on, not a replacement for the Kokoro baseline.
 - **Polish** — voice cloning affordance in the Textual TUI (already in the web UI + CLI); a richer
   audio UI from [ElevenLabs UI](https://ui.elevenlabs.io/) (shadcn/Tailwind waveform/orb components).
 

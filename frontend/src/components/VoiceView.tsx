@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 /** Output formats offered in the playground (WAV always; the rest need ffmpeg). */
 const FORMATS = ["wav", "mp3", "opus", "flac"] as const;
 
-/** Dia nonverbal cues, inserted into the dialogue at a click. */
+/** Nonverbal cues (expressive models), inserted into the dialogue at a click. */
 const NONVERBALS = ["(laughs)", "(sighs)", "(coughs)", "(gasps)", "(clears throat)", "(whispers)"];
 
 function shortName(name: string): string {
@@ -57,28 +57,21 @@ function toBase64(blob: Blob): Promise<string> {
 function voiceId(m: VoiceModelInfo): string {
   const n = shortName(m.name).toLowerCase();
   if (n.includes("kokoro")) return "kokoro";
-  if (n.includes("dia")) return "dia";
   if (n.includes("qwen3-tts")) return "qwen3-tts";
-  if (n.includes("oute")) return "outetts";
   if (n.includes("whisper")) return "whisper";
   return m.name; // fall back to the repo; the endpoint resolves by_repo too
 }
 
-/** A default sample line per model — it names the voice so you hear which is which, and
- *  showcases what's distinctive (Dia's nonverbal cues). Plain text (no [S1]) for Dia,
- *  since a leading speaker tag degrades mlx-audio's Dia. */
+/** A default sample line per model — it names the voice so you hear which is which. A
+ *  multi-speaker model gets a two-voice exchange to showcase the dialogue tags. */
 function defaultTextFor(m: VoiceModelInfo | undefined): string {
+  if (m?.multi_speaker)
+    return "[S1] Hey there, welcome to heim! (laughs) [S2] Everything you hear runs right here on your own machine.";
   switch (m ? voiceId(m) : "") {
-    case "dia":
-      // Dia's strength is multi-speaker dialogue — default to a two-voice [S1]/[S2] exchange.
-      // Keep the nonverbal cue mid-line, not last: Dia clips a trailing cue at end-of-audio.
-      return "[S1] Hey there, welcome to heim! (laughs) [S2] Everything you hear runs right here on your own machine.";
     case "kokoro":
       return "Hi, I'm Kokoro, a small and fast voice running fully on your machine.";
     case "qwen3-tts":
       return "This is Qwen3 TTS, a compact multilingual voice.";
-    case "outetts":
-      return "This is OuteTTS, speaking through llama dot cpp.";
     default:
       return "Hello from heim. This voice runs fully on your own machine.";
   }
@@ -92,8 +85,8 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [text, setText] = useState(() => defaultTextFor(ttsModels[0]));
   const [voice, setVoice] = useState<string>("af_heart");
   const [format, setFormat] = useState<string>("wav");
-  // Dia is stochastic — an unpinned voice varies (and can drone) every run. Default to a
-  // known-good seed so it's reliable + repeatable out of the box; clear it for a random voice.
+  // A seeded model is stochastic — an unpinned voice varies (and can drone) every run.
+  // Default to a pinned seed so it's repeatable out of the box; clear it for a random voice.
   const [seed, setSeed] = useState<string>("10");
   const [refText, setRefText] = useState("");
   const [refB64, setRefB64] = useState<string | null>(null);

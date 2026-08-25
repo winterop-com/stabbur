@@ -2,7 +2,7 @@
 
 ``registry`` declares the known models (and how their voices work); ``catalog`` finds where
 they live (HF cache vs the library's ``voice/`` bucket). Runtime/serving and the web Voice
-section build on these. Kokoro stays the lightweight in-chat voice; heavier models (Dia, …)
+section build on these. Kokoro stays the lightweight in-chat voice; heavier models (Chatterbox, …)
 are for the standalone Voice section.
 """
 

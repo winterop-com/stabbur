@@ -8,10 +8,9 @@ only when its backend is new). Nothing in this module loads weights or imports a
 
 The key axis is ``voice_mode`` — how a TTS model's voice is determined:
 
-* ``preset`` — pick from named built-in voices (Kokoro's 54, OuteTTS speakers).
-* ``clone`` — the voice comes from a short reference clip (Dia's audio prompt).
-* ``seeded`` — no fixed voice; a fresh one each run unless a seed is pinned (Dia with no
-  reference clip). This is why "Dia sounds different every time".
+* ``preset`` — pick from named built-in voices.
+* ``clone`` — the voice comes from a short reference clip.
+* ``seeded`` — no fixed voice; a fresh one each run unless a seed is pinned.
 """
 
 from __future__ import annotations
@@ -41,8 +40,7 @@ class Backend(StrEnum):
     """The external runtime that executes a voice model."""
 
     kokoro_onnx = "kokoro-onnx"  # cross-platform ONNX; heim's built-in Kokoro path
-    mlx_audio = "mlx-audio"  # Apple Silicon; serves Dia / Kokoro / Qwen3-TTS / Whisper
-    llama_tts = "llama-tts"  # llama.cpp TTS (a GGUF TTS model + a vocoder)
+    mlx_audio = "mlx-audio"  # Apple Silicon; the mlx-audio TTS/STT runtime
 
 
 class VoiceModel(BaseModel):
@@ -50,7 +48,7 @@ class VoiceModel(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    id: str  # heim's short id, e.g. "kokoro", "dia", "whisper"
+    id: str  # heim's short id, e.g. "kokoro", "whisper"
     display_name: str
     repo: str  # the Hugging Face repo heim prefers (MLX variant on Apple Silicon)
     kind: VoiceKind
@@ -60,7 +58,7 @@ class VoiceModel(BaseModel):
     # --- TTS voicing (ignored for STT) ---
     voice_mode: VoiceMode = VoiceMode.none
     cloneable: bool = False  # accepts a reference clip to clone a voice
-    multi_speaker: bool = False  # dialogue with speaker tags (Dia's [S1]/[S2])
+    multi_speaker: bool = False  # dialogue with speaker tags ([S1]/[S2])
     voices: list[str] = Field(default_factory=list)  # named presets, if statically known
 
     languages: list[str] = Field(default_factory=list)  # BCP-47-ish; empty = unspecified
@@ -95,45 +93,16 @@ BUILTIN: tuple[VoiceModel, ...] = (
         chat_default=True,
     ),
     VoiceModel(
-        id="dia",
-        display_name="Dia-1.6B",
-        repo="mlx-community/Dia-1.6B",
-        kind=VoiceKind.tts,
-        backend=Backend.mlx_audio,
-        description="Expressive TTS with nonverbal cues (laughter, coughs) and voice cloning "
-        "from a reference clip. Its voice is random each run — pin a seed for a repeatable, "
-        "reliable result (an unlucky seed can drone instead of speak).",
-        voice_mode=VoiceMode.seeded,
-        cloneable=True,
-        multi_speaker=True,
-        languages=["en"],
-        sample_rate=44100,
-        size_hint="~6 GB",
-    ),
-    VoiceModel(
         id="qwen3-tts",
         display_name="Qwen3-TTS-0.6B",
         repo="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Compact multilingual TTS. Not yet runnable in heim: mlx-audio's simple "
-        "loader doesn't wire up its separate speech tokenizer, so synthesis is disabled for now.",
+        description="Compact multilingual TTS. Runnable since mlx-audio 0.4.6, which ships and "
+        "wires its separate speech tokenizer (earlier versions could not load it).",
         voice_mode=VoiceMode.preset,
         sample_rate=24000,
         size_hint="~1.2 GB",
-        supported=False,
-    ),
-    VoiceModel(
-        id="outetts",
-        display_name="OuteTTS-0.2-500M",
-        repo="OuteAI/OuteTTS-0.2-500M-GGUF",
-        kind=VoiceKind.tts,
-        backend=Backend.llama_tts,
-        description="GGUF TTS run via llama.cpp with a vocoder; speaker-conditioned voices.",
-        voice_mode=VoiceMode.preset,
-        languages=["en", "zh", "ja", "ko"],
-        sample_rate=24000,
-        size_hint="~500 MB",
     ),
     VoiceModel(
         id="whisper",
@@ -165,12 +134,12 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/chatterbox-fp16",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Expressive TTS with an emotion/exaggeration control and voice cloning — the "
-        "native-MLX path to emotion-controllable speech.",
-        voice_mode=VoiceMode.preset,
+        description="Expressive TTS with an emotion/exaggeration control. One built-in default "
+        "voice; any other voice comes from a short reference clip (voice cloning).",
+        voice_mode=VoiceMode.clone,
         cloneable=True,
         sample_rate=24000,
-        size_hint="~1 GB",
+        size_hint="~2.4 GB",
     ),
     VoiceModel(
         id="spark",

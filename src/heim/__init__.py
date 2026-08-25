@@ -19,7 +19,7 @@ import os
 os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
 
 # Point the HF hub cache at the library drive (before huggingface_hub is imported), so
-# assets some runtimes fetch by repo id — e.g. mlx-audio's Dia DAC codec — travel with
+# assets some runtimes fetch by repo id — e.g. an mlx-audio model's codec — travel with
 # the drive instead of living in ~/.cache/huggingface. Best-effort + guarded: a no-op if
 # the user set HF_HOME/HF_HUB_CACHE, or there's no real configured library (unset, or an
 # unmounted drive → falls back to the machine cache). See heim.hfcache.

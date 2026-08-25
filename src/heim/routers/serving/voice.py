@@ -25,15 +25,15 @@ from heim.voice.registry import Backend
 class VoiceModelInfo(BaseModel):
     """A library voice (TTS/STT) model, enriched with registry metadata, for the Voice UI."""
 
-    name: str  # library repo/name, e.g. "mlx-community/Dia-1.6B"
+    name: str  # library repo/name
     kind: str  # "tts" | "stt"
     backend: str  # "kokoro-onnx" | "mlx-audio" | "llama-tts"
     display_name: str
     description: str = ""
     size_human: str
-    cloneable: bool = False  # accepts a reference clip to clone a voice (Dia)
-    multi_speaker: bool = False  # dialogue with [S1]/[S2] speaker tags (Dia)
-    seeded: bool = False  # a fresh random voice per run unless a seed is pinned (Dia)
+    cloneable: bool = False  # accepts a reference clip to clone a voice
+    multi_speaker: bool = False  # dialogue with [S1]/[S2] speaker tags
+    seeded: bool = False  # a fresh random voice per run unless a seed is pinned
     voices: list[str] = []  # named preset voices, if statically known
     languages: list[str] = []
     chat_default: bool = False  # the lightweight in-chat "speak replies" voice (Kokoro)
@@ -50,9 +50,7 @@ def voice_models() -> list[VoiceModelInfo]:
     seen: set[str] = set()
     for m in library_ops.scan():
         spec = voice_registry.by_repo(m.name)
-        # Voice models are the voice/ bucket (voice_kind set) plus llama-tts GGUF models
-        # (the legacy tts/ bucket) that the registry knows — so OuteTTS shows here too.
-        if (not m.voice_kind and not (m.tts and spec is not None)) or m.name in seen:
+        if not m.voice_kind or m.name in seen:
             continue
         seen.add(m.name)
         out.append(
@@ -90,86 +88,55 @@ def tts_models() -> list[TTSModelInfo]:
 
 
 class VoiceInfo(BaseModel):
-    """A selectable voice for the Listen picker, spanning both TTS engines."""
+    """A selectable voice for the Listen picker."""
 
     id: str
-    """Voice id: ``kokoro:<name>``, ``oute`` (default), or ``oute:<model>``."""
+    """Voice id: ``kokoro:<name>``."""
     label: str
-    engine: str  # "kokoro" | "oute"
+    engine: str  # "kokoro"
     language: str = ""
     gender: str = ""
 
 
 @router.get("/api/voices")
 def voices() -> list[VoiceInfo]:
-    """Every available voice: Kokoro's built-in voices plus OuteTTS (llama-tts).
-
-    Kokoro (the ``tts`` extra) contributes 54 named voices; OuteTTS contributes a
-    default plus any library TTS models. Empty if neither engine is installed.
-    """
-    out: list[VoiceInfo] = []
-    if kokoro.available():
-        out += [
-            VoiceInfo(id=f"kokoro:{v.id}", label=v.name, engine="kokoro", language=v.language, gender=v.gender)
-            for v in kokoro.voices()
-        ]
-    if tts.available():
-        out.append(VoiceInfo(id="oute", label="OuteTTS (default)", engine="oute"))
-        out += [
-            VoiceInfo(id=f"oute:{m.name}", label=m.name.split("/")[-1], engine="oute", language=", ".join(m.languages))
-            for m in library_ops.tts_models()
-        ]
-    return out
+    """Every available Listen voice: Kokoro's 54 built-ins (empty if the engine is missing)."""
+    if not kokoro.available():
+        return []
+    return [
+        VoiceInfo(id=f"kokoro:{v.id}", label=v.name, engine="kokoro", language=v.language, gender=v.gender)
+        for v in kokoro.voices()
+    ]
 
 
 class SpeakRequest(BaseModel):
     """Text to synthesize into speech, with an optional voice id."""
 
     text: str
-    voice: str | None = None  # "kokoro:<name>" | "oute" | "oute:<model>"; None → default
-    model: str | None = None  # deprecated: a library OuteTTS model name (→ oute:<model>)
-
-
-def _default_voice() -> str:
-    """The voice to use when a request specifies none (Kokoro if installed)."""
-    return "kokoro:af_heart" if kokoro.available() else "oute"
+    voice: str | None = None  # "kokoro:<name>"; None → the default Kokoro voice
 
 
 @router.post("/api/speak")
 async def speak(req: SpeakRequest) -> Response:
-    """Text-to-speech: synthesize ``text`` to a WAV via the chosen voice's engine.
+    """Text-to-speech: synthesize ``text`` to a WAV via Kokoro (the in-chat Listen engine).
 
-    Markdown is reduced to prose first (so syntax/code aren't read aloud). Kokoro
-    voices route to the ONNX engine (``tts`` extra); ``oute``/``oute:<model>``
-    route to ``llama-tts``. Blocking synthesis runs in a worker thread; returns
-    ``audio/wav`` bytes. 503 if the chosen engine isn't installed.
+    Markdown is reduced to prose first (so syntax/code aren't read aloud). Blocking
+    synthesis runs in a worker thread; returns ``audio/wav`` bytes. 503 if the engine
+    is unavailable. Other voice models speak through the OpenAI ``/v1/audio/speech``
+    route, which knows the full registry.
     """
     text = tts.speech_text(req.text)
     if not text:
         raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
-
-    voice = req.voice or (f"oute:{req.model}" if req.model else _default_voice())
+    if not kokoro.available():
+        raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall heim (`uv sync`)")
+    name = (req.voice or "kokoro:af_heart").split(":", 1)[-1]
+    # An unknown voice id is a client error: validate here so it 422s, rather than letting
+    # kokoro.synthesize raise RuntimeError("unknown Kokoro voice …") that maps to a 500 below.
+    if name not in {v.id for v in kokoro.voices()}:
+        raise HTTPException(status_code=422, detail=f"unknown Kokoro voice {name!r}")
     try:
-        if voice.startswith("kokoro:"):
-            if not kokoro.available():
-                raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall heim (`uv sync`)")
-            name = voice.split(":", 1)[1]
-            # An unknown voice id is a client error: validate here so it 422s, rather than letting
-            # kokoro.synthesize raise RuntimeError("unknown Kokoro voice …") that maps to a 500 below.
-            if name not in {v.id for v in kokoro.voices()}:
-                raise HTTPException(status_code=422, detail=f"unknown Kokoro voice {name!r}")
-            wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
-        else:
-            if not tts.available():
-                raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
-            model_path = vocoder_path = None
-            if voice.startswith("oute:"):
-                name = voice.split(":", 1)[1]
-                matches = [m for m in library_ops.find(name) if m.tts]
-                if not matches:
-                    raise HTTPException(status_code=404, detail=f"No TTS model matches {name!r}")
-                model_path, vocoder_path = matches[0].load_target, matches[0].vocoder
-            wav_path = await asyncio.to_thread(tts.synthesize, text, None, model_path, vocoder_path)
+        wav_path = await asyncio.to_thread(kokoro.synthesize, text, name, None)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     data = wav_path.read_bytes()
@@ -185,14 +152,14 @@ _OPENAI_TTS_ALIASES = frozenset({"tts-1", "tts-1-hd", "gpt-4o-mini-tts"})
 class AudioSpeechRequest(BaseModel):
     """OpenAI ``/v1/audio/speech`` request, plus heim's voice-cloning extensions."""
 
-    model: str = "kokoro"  # a voice id ("kokoro"/"dia"/"qwen3-tts") or a library repo
+    model: str = "kokoro"  # a registry voice id, or a library repo
     input: str  # the text to speak
-    voice: str | None = None  # named preset voice (Kokoro/Qwen3-TTS); ignored when cloning
+    voice: str | None = None  # named preset voice; ignored when cloning
     response_format: str = "wav"  # wav | mp3 | flac | opus | ogg | aac (non-wav needs ffmpeg)
-    # heim extensions for voice cloning (Dia): a reference clip (base64 WAV) + its transcript.
+    # heim extensions for voice cloning: a reference clip (base64 WAV) + its transcript.
     ref_audio_b64: str | None = None
     ref_text: str | None = None
-    seed: int | None = None  # pin Dia's otherwise-random voice for reproducibility
+    seed: int | None = None  # pin a seeded model's otherwise-random voice for reproducibility
 
 
 def _voice_library_model(repo: str, *, kind: str | None = None) -> library_ops.LibraryModel:
@@ -208,8 +175,8 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
     """Synthesize speech (OpenAI ``/v1/audio/speech``) across heim's voice backends.
 
     Routes by the model's backend: Kokoro -> the cross-platform ONNX path (heim's
-    lightweight chat voice); mlx-audio models (Dia, Qwen3-TTS) -> the Apple-Silicon
-    runtime, where ``ref_audio_b64`` + ``ref_text`` clone a voice (Dia). Markdown is
+    lightweight chat voice); other registry models -> the Apple-Silicon mlx-audio
+    runtime, where ``ref_audio_b64`` + ``ref_text`` clone a voice. Markdown is
     reduced to prose first; blocking synthesis runs off-loop. Returns ``audio/wav``.
     """
     text = tts.speech_text(req.input)
@@ -262,18 +229,6 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
         finally:
             if ref_path is not None:
                 ref_path.unlink(missing_ok=True)
-    elif backend == Backend.llama_tts:
-        if not tts.available():
-            raise HTTPException(status_code=503, detail="llama-tts is not installed (install llama.cpp)")
-        # Resolve a copy that carries its vocoder (the functional tts/ layout), not a
-        # bare weights dup — llama-tts needs both the model and its paired vocoder.
-        repo = spec.repo if spec else req.model
-        matches = [m for m in library_ops.tts_models() if m.name == repo and m.vocoder]
-        if not matches:
-            raise HTTPException(status_code=404, detail=f"{repo!r} has no runnable llama-tts copy (missing vocoder)")
-        wav_path = await asyncio.to_thread(tts.synthesize, text, None, matches[0].load_target, matches[0].vocoder)
-        data = wav_path.read_bytes()
-        wav_path.unlink(missing_ok=True)
     else:
         raise HTTPException(status_code=422, detail=f"model {req.model!r} is not a TTS model")
 

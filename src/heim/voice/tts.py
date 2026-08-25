@@ -1,26 +1,11 @@
-"""Text-to-speech via llama.cpp's ``llama-tts`` (OuteTTS + WavTokenizer vocoder).
+"""Speech-text preparation shared by the TTS engines.
 
-``llama-tts`` ships with llama.cpp (the same install heim already uses for GGUF
-chat). It's a one-shot CLI: given text it writes a WAV, using a small OuteTTS
-GGUF plus a vocoder. ``--tts-oute-default`` auto-fetches both into the HF cache
-on first use, so no library wiring is needed for a first cut.
+Assistant replies are Markdown; read verbatim, a TTS model would speak the
+syntax ("asterisk asterisk", backticks, raw URLs) and recite whole code blocks.
+:func:`speech_text` reduces a reply to the prose worth hearing.
 """
 
 import re
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
-
-from heim import host
-
-_TTS_BIN = "llama-tts"
-
-
-def available() -> bool:
-    """Whether the ``llama-tts`` binary is on PATH."""
-    return shutil.which(_TTS_BIN) is not None
-
 
 # Markdown-to-speech cleanup. Assistant replies are Markdown; read verbatim, a
 # TTS model would speak the syntax ("asterisk asterisk", backticks, raw URLs) and
@@ -61,41 +46,3 @@ def speech_text(raw: str) -> str:
     text = _EXTRA_SPACE.sub(" ", text)
     text = _EXTRA_NEWLINE.sub("\n\n", text)
     return text.strip()
-
-
-def synthesize(
-    text: str,
-    out_path: Path | None = None,
-    model: Path | None = None,
-    vocoder: Path | None = None,
-) -> Path:
-    """Generate a speech WAV from ``text``.
-
-    With ``model`` + ``vocoder`` (a library TTS model and its paired vocoder),
-    uses those; otherwise the default OuteTTS models (auto-downloaded on first
-    use). Returns the path to the written WAV (a temp file if ``out_path`` is
-    omitted).
-
-    Raises:
-        RuntimeError: If ``llama-tts`` is missing, the pairing is incomplete, or
-            synthesis fails.
-    """
-    if shutil.which(_TTS_BIN) is None:
-        raise RuntimeError(f"{_TTS_BIN!r} not found on PATH. {host.llama_cpp_hint()}")
-    if not text.strip():
-        raise RuntimeError("nothing to speak (empty text)")
-    if model is not None and vocoder is None:
-        raise RuntimeError(f"{model.name} has no paired vocoder; can't synthesize")
-    if out_path:
-        out = out_path
-    else:  # NamedTemporaryFile closes its fd on __exit__ (mkstemp leaks it); delete=False keeps the file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            out = Path(f.name)
-    if model is not None and vocoder is not None:
-        cmd = [_TTS_BIN, "-m", str(model), "-mv", str(vocoder), "-p", text, "-o", str(out)]
-    else:
-        cmd = [_TTS_BIN, "--tts-oute-default", "-p", text, "-o", str(out)]
-    proc = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603 - fixed binary, args not shell-interpolated
-    if proc.returncode != 0 or not out.is_file() or out.stat().st_size == 0:
-        raise RuntimeError(f"{_TTS_BIN} failed: {(proc.stderr or proc.stdout)[-500:].strip()}")
-    return out

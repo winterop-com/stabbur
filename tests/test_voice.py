@@ -9,7 +9,7 @@ from heim.voice import Backend, VoiceKind, VoiceMode
 def test_registry_is_well_formed() -> None:
     ids = [m.id for m in voice.BUILTIN]
     assert len(ids) == len(set(ids))  # ids unique
-    assert {"kokoro", "dia", "whisper"} <= set(ids)
+    assert {"kokoro", "chatterbox", "whisper"} <= set(ids)
     # Every TTS model declares a voice_mode; STT uses none.
     for m in voice.BUILTIN:
         if m.kind is VoiceKind.tts:
@@ -18,11 +18,11 @@ def test_registry_is_well_formed() -> None:
             assert m.voice_mode is VoiceMode.none
 
 
-def test_dia_is_a_seeded_cloneable_dialogue_model() -> None:
-    dia = voice.get("dia")
-    assert dia is not None
-    assert dia.voice_mode is VoiceMode.seeded  # new voice per run unless seeded/cloned
-    assert dia.cloneable and dia.multi_speaker
+def test_csm_is_a_cloneable_model() -> None:
+    csm = voice.get("csm")
+    assert csm is not None
+    assert csm.voice_mode is VoiceMode.clone  # the voice comes from a reference clip
+    assert csm.cloneable
 
 
 def test_kokoro_is_the_lightweight_chat_voice() -> None:
@@ -33,7 +33,7 @@ def test_kokoro_is_the_lightweight_chat_voice() -> None:
 
 
 def test_lookup_helpers() -> None:
-    assert voice.by_repo("mlx-community/Dia-1.6B") is voice.get("dia")
+    assert voice.by_repo("mlx-community/chatterbox-fp16") is voice.get("chatterbox")
     assert voice.get("nope") is None
 
 
@@ -43,15 +43,15 @@ def test_discover_reports_presence(tmp_path: Path, monkeypatch: object) -> None:
 
     assert isinstance(monkeypatch, pytest.MonkeyPatch)
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
-    # A library with one voice model present (dia), as a directory under voice/<repo>.
+    # A library with one voice model present, as a directory under voice/<repo>.
     lib = tmp_path / "lib"
-    dia_dir = voice.voice_dir(lib) / "mlx-community/Dia-1.6B"
-    dia_dir.mkdir(parents=True)
-    (dia_dir / "model.safetensors").write_bytes(b"x" * 2048)
+    cb_dir = voice.voice_dir(lib) / "mlx-community/chatterbox-fp16"
+    cb_dir.mkdir(parents=True)
+    (cb_dir / "model.safetensors").write_bytes(b"x" * 2048)
 
     found = {p.spec.id: p for p in voice.discover(lib)}
-    assert found["dia"].in_library and found["dia"].library_bytes == 2048
-    assert found["dia"].location == "library"
+    assert found["chatterbox"].in_library and found["chatterbox"].library_bytes == 2048
+    assert found["chatterbox"].location == "library"
     assert not found["kokoro"].available  # nothing downloaded for it here
     assert found["kokoro"].location == "not downloaded"
 

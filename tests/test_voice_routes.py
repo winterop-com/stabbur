@@ -3,7 +3,7 @@
 test_api.py already covers the qwen3-tts 422, the unknown-model 404, and the tts-1 alias;
 these cover the backend-dispatch branches those don't reach, by monkeypatching the engine
 modules (``kokoro`` / ``tts`` / ``voice_runtime`` / ``audio_export``) rather than requiring
-real, platform-gated engines. They pin down: engine routing (kokoro vs oute vs mlx), the
+real, platform-gated engines. They pin down: engine routing (kokoro vs mlx), the
 503-when-uninstalled gates, the 404 for a voice/repo not in the library, temp-WAV cleanup,
 the 422 for unspeakable input, and the non-WAV transcode path.
 """
@@ -62,30 +62,12 @@ async def test_speak_kokoro_returns_wav_and_cleans_up_temp(
     assert not wav.exists()  # temp file cleaned up after the response is built
 
 
-async def test_speak_oute_model_not_in_library_is_404(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    # oute:<model> resolves the named model from the library; when nothing matches (or nothing
-    # is a TTS model) it must 404, not fall through to a default synthesis.
-    monkeypatch.setattr("heim.routers.serving.voice.tts.available", lambda: True)
-    monkeypatch.setattr("heim.routers.serving.voice.library_ops.find", lambda name: [])
-    r = await client.post("/api/speak", json={"text": "hello", "voice": "oute:no-such-model"})
-    assert r.status_code == 404
-    assert "no-such-model" in r.json()["detail"]
-
-
 async def test_speak_kokoro_unavailable_is_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # A kokoro voice when the tts extra isn't installed must 503 (install hint), not 500.
     monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: False)
     r = await client.post("/api/speak", json={"text": "hello", "voice": "kokoro:af_heart"})
     assert r.status_code == 503
     assert "kokoro" in r.json()["detail"].lower()
-
-
-async def test_speak_llama_tts_unavailable_is_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    # An oute voice when llama-tts isn't installed must 503, not 500.
-    monkeypatch.setattr("heim.routers.serving.voice.tts.available", lambda: False)
-    r = await client.post("/api/speak", json={"text": "hello", "voice": "oute"})
-    assert r.status_code == 503
-    assert "llama-tts" in r.json()["detail"].lower()
 
 
 async def test_speak_unspeakable_input_is_422(client: AsyncClient) -> None:
@@ -140,10 +122,10 @@ async def test_audio_speech_mp3_goes_through_export_convert(
 async def test_audio_speech_mlx_backend_unavailable_is_503(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # An mlx-audio model (dia) when the voice runtime isn't installed (Linux / no extra) must
+    # An mlx-audio model when the voice runtime isn't installed (Linux / no extra) must
     # 503 with the install hint, not attempt to load and 500.
     monkeypatch.setattr("heim.routers.serving.voice.voice_runtime.available", lambda: False)
-    r = await client.post("/v1/audio/speech", json={"model": "dia", "input": "hello"})
+    r = await client.post("/v1/audio/speech", json={"model": "chatterbox", "input": "hello"})
     assert r.status_code == 503
     assert "mlx-audio" in r.json()["detail"].lower()
 

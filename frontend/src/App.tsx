@@ -841,7 +841,7 @@ export function App() {
     localStorage.setItem(TARGET_KEY, id);
   }, []);
 
-  // TTS voice (a global preference for the Listen button): "" = default OuteTTS.
+  // TTS voice (a global preference for the Listen button): "" = the default voice.
   const chooseVoice = useCallback((name: string) => {
     setTtsVoice(name);
     if (name) localStorage.setItem("heim.tts_voice", name);

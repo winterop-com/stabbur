@@ -186,11 +186,12 @@ seeds a minimal global default (`datetime`).
 Non-obvious landmines that aren't self-evident from the code:
 
 - **Voice.** Runtime is in-process mlx-audio (Apple) + Kokoro-ONNX (cross-platform, the
-  lightweight chat voice). Dia seeds only apply via `mx.random.seed()` — `generate_audio`
-  ignores a `seed` kwarg, so pin one or Dia varies every run. A leading `[S1]` degrades
-  mlx-audio Dia (plain text is more reliable; keep nonverbal cues mid-line — a trailing one
-  clips). Qwen3-TTS is unsupported (registry `supported=False`; mlx-audio can't load its
-  speech tokenizer) and is rejected at the synthesis choke point.
+  lightweight chat voice). A seeded model honors a seed only via `mx.random.seed()`
+  (`generate_audio` ignores a `seed` kwarg) — and the seed→voice mapping is a function of
+  the installed mlx version, so curated seeds do not survive an MLX upgrade. Models the
+  registry flags `supported=False` are rejected at the synthesis choke point. Help text and
+  docstrings stay model-agnostic: name concrete models only in the registry entries and in
+  listings, never in `--help` or generic comments (another machine may hold none of them).
 - **Capabilities.** Tool detection requires a tool-*calling* marker (`tool_call` /
   `function_call` / `available_tools`), not a bare "tools" — the latter false-flagged audio
   specialists.

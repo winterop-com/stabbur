@@ -220,16 +220,16 @@ export async function getAssistants(): Promise<AssistantTarget[]> {
 /** Fetch the system-health report (runtimes, library, project). */
 export const getDoctor = () => apiFetch("/api/doctor").then(json<DoctorReport>);
 
-/** A selectable Listen voice, spanning both TTS engines (Kokoro + OuteTTS). */
+/** A selectable Listen voice (Kokoro's built-in voices). */
 export interface Voice {
-  id: string; // "kokoro:<name>" | "oute" | "oute:<model>"
+  id: string; // "kokoro:<name>"
   label: string;
-  engine: string; // "kokoro" | "oute"
+  engine: string; // "kokoro"
   language: string;
   gender: string;
 }
 
-/** List every available voice (Kokoro built-ins + OuteTTS); empty if no engine. */
+/** List every available Listen voice (Kokoro built-ins); empty if the engine is missing. */
 export const getVoices = () => apiFetch("/api/voices").then(json<Voice[]>);
 
 /** Synthesize text to speech for a chosen voice id; returns a WAV blob to play. */
@@ -268,13 +268,13 @@ export const getVoiceModels = () => apiFetch("/api/voice").then(json<VoiceModelI
 
 /** Options for /v1/audio/speech: a model + text, an optional preset voice, or a clone clip. */
 export interface SpeechOptions {
-  model: string; // a voice id ("kokoro"/"dia"/"qwen3-tts") or a library repo
+  model: string; // a registry voice id, or a library repo
   input: string;
   voice?: string | null; // preset voice (Kokoro); ignored when cloning
   responseFormat?: string; // wav | mp3 | flac | opus | ogg | aac
-  refAudioB64?: string | null; // base64 WAV to clone a voice from (Dia)
+  refAudioB64?: string | null; // base64 WAV to clone a voice from (cloneable models)
   refText?: string | null; // exact transcript of refAudioB64
-  seed?: number | null; // pin Dia's random voice
+  seed?: number | null; // pin a seeded model's random voice
 }
 
 /** Synthesize speech via the OpenAI /v1/audio/speech endpoint; returns an audio blob. */

@@ -508,11 +508,25 @@ async def test_status_locked_reads_app_settings_not_global(monkeypatch: pytest.M
     assert body["locked"] is False
 
 
-async def test_audio_speech_rejects_unsupported_model_upfront(client: AsyncClient) -> None:
-    # A6/VO-M3: a registry-unsupported voice model (Qwen3-TTS — mlx-audio can't load its speech
-    # tokenizer) is rejected at the endpoint with a clear 422, not attempted and failed as a slow
-    # opaque 502. Runs before any backend dispatch, so it needs no mlx-audio installed.
-    r = await client.post("/v1/audio/speech", json={"model": "qwen3-tts", "input": "hello"})
+async def test_audio_speech_rejects_unsupported_model_upfront(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A6/VO-M3: a registry-unsupported voice model is rejected at the endpoint with a clear 422,
+    # not attempted and failed as a slow opaque 502. Runs before any backend dispatch, so it
+    # needs no mlx-audio installed. (No built-in entry is unsupported right now, so inject one.)
+    from heim.voice import registry as voice_registry
+
+    fake = voice_registry.VoiceModel(
+        id="fake-tts",
+        display_name="Fake-TTS",
+        repo="acme/Fake-TTS",
+        kind=voice_registry.VoiceKind.tts,
+        backend=voice_registry.Backend.mlx_audio,
+        voice_mode=voice_registry.VoiceMode.preset,
+        supported=False,
+    )
+    monkeypatch.setattr("heim.routers.serving.voice.voice_registry.get", lambda _id: fake)
+    r = await client.post("/v1/audio/speech", json={"model": "fake-tts", "input": "hello"})
     assert r.status_code == 422
     assert "supported" in r.json()["detail"].lower()
 

@@ -63,9 +63,9 @@ mlx = [
 # NOTE: Kokoro-82M (ONNX) TTS moved to [project.dependencies] — it's the always-available
 # in-chat voice, no longer an opt-in extra. See the note there.
 
-# Full voice runtime via mlx-audio (Apple Silicon): Dia (dialogue + cloning), Kokoro,
-# Qwen3-TTS, and Whisper STT, served through mlx-audio's OpenAI /v1/audio server which heim
-# spawns + proxies. mlx-audio is gated (mlx, Apple-only, no Linux wheels); its per-model
+# Full voice runtime via mlx-audio (Apple Silicon): the registry's TTS/STT models
+# (see heim.voice.registry), run in-process. mlx-audio is gated (mlx, Apple-only, no
+# Linux wheels); its per-model
 # helpers (misaki G2P for Kokoro, soundfile) are cross-platform. On Linux, the base
 # Kokoro-ONNX dep covers TTS. Install with `uv sync --extra voice` on an M-series Mac.
 voice = [

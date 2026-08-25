@@ -1,10 +1,10 @@
 """Redirect the Hugging Face hub cache onto the library drive.
 
 Some runtimes fetch assets by repo id straight from the HF cache rather than from
-heim's library — notably mlx-audio's Dia, which loads its DAC codec
+heim's library — e.g. an mlx-audio model that fetches a companion codec
 (``mlx-community/descript-audio-codec-44khz``) via ``snapshot_download`` with no
 ``cache_dir``. Left alone that lands in ``~/.cache/huggingface`` on the machine, so
-Dia breaks offline or on another machine even though the model itself is on the drive.
+such a model breaks offline or on another machine even though it is on the drive.
 
 Pointing ``HF_HOME`` at ``<library_root>/.cache/huggingface`` makes those assets live
 on the drive and travel with it. huggingface_hub freezes its cache path from

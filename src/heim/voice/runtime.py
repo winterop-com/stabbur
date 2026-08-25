@@ -51,7 +51,7 @@ def synthesize(
     """Synthesize ``text`` to audio bytes.
 
     Give ``voice`` for a preset model (Kokoro) or ``ref_audio`` + ``ref_text`` to clone a
-    voice (Dia). ``model`` is a library path so mlx-audio loads it off the drive.
+    voice (a cloneable model). ``model`` is a library path so mlx-audio loads it off the drive.
     """
     if not available():
         raise RuntimeError("mlx-audio not installed — run `uv sync --extra voice` (Apple Silicon).")
@@ -59,7 +59,7 @@ def synthesize(
 
     loaded = _load(str(model))
     # mlx-audio's generate_audio has no `seed` arg (it silently ignores one), so a seed only
-    # takes effect by seeding MLX's RNG here — that's what makes a seeded model (Dia)
+    # takes effect by seeding MLX's RNG here — that's what makes a seeded model
     # reproducible instead of a fresh random voice every run.
     seed = params.pop("seed", None)
     if seed is not None:

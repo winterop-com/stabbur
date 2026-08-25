@@ -44,7 +44,3 @@ def test_speech_text_drops_images_and_tables_pipes() -> None:
 
 def test_speech_text_empty_for_code_only() -> None:
     assert tts.speech_text("```\njust code\n```") == ""
-
-
-def test_available_is_bool() -> None:
-    assert isinstance(tts.available(), bool)

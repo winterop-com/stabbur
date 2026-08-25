@@ -391,9 +391,8 @@ export function SettingsView({
             })()}
           </Section>
 
-          {/* Voice — which voice the Listen button uses (output speech). Kokoro
-              contributes many named voices (grouped by language); OuteTTS is the
-              fallback engine. */}
+          {/* Voice — which Kokoro voice the Listen button uses (output speech),
+              grouped by language. */}
           <Section
             title="Voice (text-to-speech)"
             description="Used by the Listen button on replies. 54 built-in Kokoro voices across 9 languages."
@@ -420,17 +419,6 @@ export function SettingsView({
                   ))}
                 </optgroup>
               ))}
-              {voices.some((v) => v.engine === "oute") && (
-                <optgroup label="OuteTTS (llama-tts)">
-                  {voices
-                    .filter((v) => v.engine === "oute")
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.label}
-                      </option>
-                    ))}
-                </optgroup>
-              )}
             </select>
           </Section>
 
