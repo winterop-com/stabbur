@@ -242,13 +242,16 @@ is the next serving thread.
 - **Open: model picker against a multi-model remote.** The interactive TUI attach picks the
   first listed `/v1/models` id; against a 4-model router it should offer the list (and `/model`
   should switch by remote id).
-- **Open — the big one: `heim serve` with a remote upstream `/v1`.** The web UI, the Chrome
-  extension, and the agent loop all sit behind `heim serve`, which only spawns *local*
-  runtimes today. A `serve --upstream http://msai:1234` mode (proxy `/v1` to the remote,
-  keep heim's agent loop / MCP / confirm gate local) would decouple "where the models run"
-  from "where the assistant runs" — the extension keeps talking to a local heim while the
-  weights live on the LAN box. Design question: model locking (`--model X`) maps to a router
-  id, and `/api/status` should report the upstream's loaded model.
+- **Shipped (2026-08-26): `heim serve --upstream <url>`.** The web UI, extension backend, and
+  agent loop can now front a remote `/v1`: `UpstreamManager` duck-types `ServerManager`'s read
+  surface, so the serving routers hold either. In upstream mode `/api/library` lists the
+  remote's ids (format `remote`, modality flags, a `loaded` tag), `/api/load` selects an id
+  (the router hot-swaps on the next request; unknown names 404 with the remote's list),
+  `/v1` proxies to the remote, startup auto-selects the remote's loaded model (or validates
+  `--model` against the remote's ids for a locked serve), and no library is required.
+  Verified live against the msai router: status, picker, chat SSE, switching, locked mode.
+  Remaining polish: model cards/tags/`n_ctx` are library-only (a remote model shows none),
+  and the SPA size column shows a dash for remote rows.
 - **Open: two stores.** The T9 library (`heim library`) and the router box's `/data/lab/models`
   are now separate collections; `heim library manifest`/`sync` could feed the router box so
   the drive stays the canonical archive.

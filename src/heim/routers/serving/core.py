@@ -20,7 +20,7 @@ from heim.routers.serving._base import (  # shared router + request deps
 )
 from heim.runtime import sampling
 from heim.runtime.sampling import ModelSampling
-from heim.server import ServerManager
+from heim.server import ServerManager, UpstreamManager
 from heim.tools import MCPBridge, MCPToolset, TargetRouting
 
 
@@ -54,7 +54,7 @@ class LibraryModelInfo(BaseModel):
 
 
 async def _status(
-    manager: ServerManager,
+    manager: ServerManager | UpstreamManager,
     settings: Settings,
     system_prompt: str = "",
     project_model: str | None = None,
@@ -90,11 +90,33 @@ async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> Se
 
 
 @router.get("/api/library")
-def library(settings: ConfDep) -> list[LibraryModelInfo]:
-    """List runnable (generative) library models for the UI's picker.
+def library(manager: ManagerDep, settings: ConfDep) -> list[LibraryModelInfo]:
+    """List the models the UI's picker can load: the library, or the upstream's ids.
 
-    Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
+    Sync (``def``) so the filesystem scan (or the upstream probe) runs in a worker
+    thread, off the loop. In upstream mode the rows are the remote's ``/v1/models``:
+    format ``remote``, no size, vision/audio from the reported modalities, and a
+    ``loaded`` tag marking what the remote has resident right now. ``tools`` is left
+    on — heim's agent loop supplies tools server-side regardless of the remote.
     """
+    if isinstance(manager, UpstreamManager):
+        try:
+            rows = manager.models()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return [
+            LibraryModelInfo(
+                name=r.name,
+                model_format="remote",
+                size_bytes=0,
+                size_human="—",
+                vision=r.vision,
+                audio=r.audio,
+                tools=True,
+                tags=(["loaded"] if r.loaded else []),
+            )
+            for r in rows
+        ]
     tag_maps: dict[str, dict[str, list[str]]] = {}  # cache tags.json per library root
     out: list[LibraryModelInfo] = []
     for m in library_ops.scan():

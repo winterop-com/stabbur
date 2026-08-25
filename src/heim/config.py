@@ -152,6 +152,12 @@ class Settings(BaseSettings):
     # backend. Empty means free model switching.
     serve_model: str | None = None
 
+    # Front a remote OpenAI-compatible /v1 (a llama-server in router mode, LM Studio, …)
+    # instead of spawning local runtimes: heim's agent loop, tools, confirm gate, and the
+    # web UI run here while the models run on the remote box. Set via `heim serve
+    # --upstream <url>`. Empty means local runtimes (the default).
+    upstream: str | None = None
+
     # Bearer token required on the API (``/api``, ``/v1``, ``/models``) when set. Empty (the
     # default) disables auth — safe for the loopback-only default bind. ``heim serve`` auto-fills
     # a random one when it binds a non-loopback address, so exposing the server to the LAN never

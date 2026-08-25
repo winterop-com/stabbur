@@ -18,7 +18,7 @@ from heim import tools as mcp_tools
 from heim.config import Settings, get_settings
 from heim.routers import catalog, health, serving
 from heim.runtime import supervisor
-from heim.server import ServerManager
+from heim.server import ServerManager, UpstreamManager
 from heim.targets import AssistantRegistry
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -90,7 +90,7 @@ def _auth_failed(request: Request, token: str) -> bool:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Start a shared HTTP client, runtime manager, and MCP tools; clean up after."""
     settings: Settings = app.state.settings
-    manager: ServerManager = app.state.manager
+    manager: ServerManager | UpstreamManager = app.state.manager
 
     # Reclaim any runtime orphaned by a previously-crashed heim before we start ours (A4).
     try:
@@ -98,7 +98,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001 - a sweep failure must never block startup
         pass
 
-    if settings.serve_model:
+    if isinstance(manager, UpstreamManager):
+        if settings.serve_model:
+            # Locked upstream serve: the name must match one of the remote's ids — fail
+            # startup with the remote's own list otherwise (parity with the local check).
+            manager.load_by_name(settings.serve_model)
+        else:
+            # Start on whatever the upstream already has loaded (a router hot-swaps on
+            # request, so any other default would evict it on the first message).
+            manager.select_loaded()
+    elif settings.serve_model:
         matches = library_ops.find(settings.serve_model)
         if len(matches) != 1:
             raise RuntimeError(
@@ -124,7 +133,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # The model the UI auto-loads on open: the project's bound model (a project is a
         # reproducible assistant: model + prompt + tools), or — outside a project — the machine
         # default (`heim config set model`), so free-play serve --ui still opens on a model.
-        app.state.project_model = project.resolve_model(None, proj)
+        # In upstream mode those are library names the remote won't know: auto-load the
+        # already-selected remote model instead (the upstream's loaded one, or the lock).
+        if isinstance(manager, UpstreamManager):
+            app.state.project_model = manager.current.name if manager.current is not None else None
+        else:
+            app.state.project_model = project.resolve_model(None, proj)
         # The project's spoken-reply voice + whether the Voice surface is enabled, surfaced in
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
@@ -168,9 +182,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
-    # Honor the passed settings' runtime_port; the CLI --runtime-port override
-    # (process-global) still wins when set. None → ServerManager auto-picks.
-    app.state.manager = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
+    if settings.upstream:
+        # Remote backend (`serve --upstream`): no local runtime is ever spawned — the
+        # manager selects among the remote's /v1 models and the proxy targets its URL.
+        app.state.manager = UpstreamManager(settings.upstream)
+    else:
+        # Honor the passed settings' runtime_port; the CLI --runtime-port override
+        # (process-global) still wins when set. None → ServerManager auto-picks.
+        app.state.manager = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
     # Serializes model load/unload so two concurrent requests can't interleave and
     # corrupt the manager's process state (ServerManager has no internal lock, and
     # load/unload now run in worker threads). Async, so waiting doesn't block the loop.

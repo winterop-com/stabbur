@@ -14,13 +14,16 @@ from heim import (
 from heim import library as library_ops
 from heim.cli._app import app
 from heim.cli._common import (
+    _normalize_server_url,
     _resolve_library_model,
     console,
 )
 from heim.config import get_settings
 
 
-def _export_serve_env(*, ui: bool, model: str | None, runtime_port: int | None, debug: bool) -> None:
+def _export_serve_env(
+    *, ui: bool, model: str | None, runtime_port: int | None, debug: bool, upstream: str | None = None
+) -> None:
     """The one place ``serve`` hands its config to the app — the deliberate env-as-API (A8).
 
     With ``--reload``, uvicorn imports the app in a *fresh subprocess*, where the CLI callback's
@@ -38,6 +41,8 @@ def _export_serve_env(*, ui: bool, model: str | None, runtime_port: int | None, 
         os.environ["HEIM_RUNTIME_PORT"] = str(runtime_port)
     if debug:
         os.environ["HEIM_DEBUG"] = "true"
+    if upstream is not None:
+        os.environ["HEIM_UPSTREAM"] = upstream
 
 
 @app.command()
@@ -46,6 +51,15 @@ def serve(
     model: Annotated[
         str | None,
         typer.Option("--model", help="Lock the server to one model (extension backend); no switching."),
+    ] = None,
+    upstream: Annotated[
+        str | None,
+        typer.Option(
+            "--upstream",
+            help="Front a remote OpenAI-compatible /v1 (e.g. a llama-server router: http://msai:1234) "
+            "instead of spawning local runtimes — the agent loop, tools, and UI run here; the models "
+            "run there.",
+        ),
     ] = None,
     host: Annotated[str | None, typer.Option("--host", help="Bind address (default 127.0.0.1).")] = None,
     port: Annotated[
@@ -64,7 +78,9 @@ def serve(
 
     import uvicorn  # noqa: PLC0415
 
-    library_ops.roots()  # fail fast + clean if no library is configured (rather than 500ing per request)
+    upstream_url = _normalize_server_url(upstream)
+    if upstream_url is None:
+        library_ops.roots()  # fail fast + clean if no library is configured (rather than 500ing per request)
 
     # A project is a locked, purpose-built assistant: it binds the server to its model
     # (no picker, like --model), so `heim serve` in a project == serve --model <project.model>.
@@ -74,14 +90,25 @@ def serve(
     locked_by_project = model is None and locked_model is not None
     if locked_model is not None:
         # Validate the locked model up front (like `heim chat`) so a bad name gives a clean message
-        # here, not a uvicorn "Application startup failed" traceback from the app lifespan.
-        _resolve_library_model(locked_model, None)
+        # here, not a uvicorn "Application startup failed" traceback from the app lifespan. In
+        # upstream mode the name must match one of the REMOTE's ids, not a library model.
+        if upstream_url is not None:
+            from heim.server import UpstreamManager  # noqa: PLC0415
+
+            try:
+                UpstreamManager(upstream_url).load_by_name(locked_model)
+            except RuntimeError as exc:
+                console.print(f"[red]{exc}[/]")
+                raise typer.Exit(1) from exc
+        else:
+            _resolve_library_model(locked_model, None)
     # Hand the serve config to the (possibly reloaded) worker process — one documented env API.
     _export_serve_env(
         ui=ui,
         model=locked_model,
         runtime_port=config.runtime_port_override(),
         debug=config.debug_enabled(),
+        upstream=upstream_url,
     )
 
     get_settings.cache_clear()
@@ -109,6 +136,8 @@ def serve(
         )
     if auth_token:
         console.print("  Auth:     [bold]bearer token required[/] [dim](Authorization: Bearer <token>)[/]")
+    if upstream_url is not None:
+        console.print(f"  Upstream: [bold]{upstream_url}[/] [dim]· remote models, no local runtimes[/]")
     if locked_model is not None:
         console.print(f"  Locked:   [bold]{locked_model}[/] [dim]· {'project' if locked_by_project else '--model'}[/]")
     # A tokenized URL lets the user just open the SPA: it captures ?token= into the browser and

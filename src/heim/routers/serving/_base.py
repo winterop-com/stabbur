@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from heim.config import Settings
-from heim.server import ServerManager
+from heim.server import ServerManager, UpstreamManager
 
 router = APIRouter(tags=["serving"])
 
@@ -17,9 +17,9 @@ router = APIRouter(tags=["serving"])
 _DROP_HEADERS = {"content-length", "transfer-encoding", "connection", "host"}
 
 
-def get_manager(request: Request) -> ServerManager:
-    """Dependency: the app's singleton runtime manager."""
-    manager: ServerManager = request.app.state.manager
+def get_manager(request: Request) -> "ServerManager | UpstreamManager":
+    """Dependency: the app's singleton backend manager (local runtime, or remote upstream)."""
+    manager: ServerManager | UpstreamManager = request.app.state.manager
     return manager
 
 
@@ -41,7 +41,7 @@ def get_lifecycle_lock(request: Request) -> asyncio.Lock:
     return lock
 
 
-ManagerDep = Annotated[ServerManager, Depends(get_manager)]
+ManagerDep = Annotated[ServerManager | UpstreamManager, Depends(get_manager)]
 HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
 LockDep = Annotated[asyncio.Lock, Depends(get_lifecycle_lock)]
 ConfDep = Annotated[Settings, Depends(get_conf)]

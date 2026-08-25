@@ -143,7 +143,12 @@ AI SDK / AI Elements / assistant-ui don't expect (impedance mismatch), so we avo
 ## Running models — llama.cpp first, mlx_lm for MLX
 
 Serving is OpenAI-compatible so any client (and our SPA) can attach. Runtimes are
-**external processes heim spawns**, not imported libs.
+**external processes heim spawns**, not imported libs. Alternatively **`heim serve
+--upstream <url>` fronts a remote OpenAI `/v1`** (e.g. a llama-server in router mode on
+another box): heim's agent loop, tools, confirm gate, and UI run locally while the models
+run there — `UpstreamManager` (in `heim.server`) mirrors `ServerManager`'s read surface,
+and "loading" just selects a remote id. `heim chat --server <url>` is the CLI/TUI
+counterpart; both prefer the remote's currently-loaded model so attaching never evicts it.
 
 - **GGUF → llama.cpp `llama-server`** — primary, cross-platform, OpenAI `/v1`, tool calling
   (`--jinja` default), and a native router mode (`--models-dir`, hot-swap by name). A C++

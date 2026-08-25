@@ -1,8 +1,10 @@
-"""Manage a single local model-runtime process behind a stable API.
+"""Manage the model backend behind a stable API: a local runtime process, or a remote /v1.
 
 The API process proxies ``/v1`` to whichever model is currently loaded, so the
 browser SPA (and the Chrome extension) talk to one stable origin while the
 underlying ``llama-server`` / ``mlx_lm.server`` process is swapped underneath.
+:class:`UpstreamManager` is the remote counterpart (``serve --upstream``): same
+read surface, but "loading" a model means selecting one of the remote's ids.
 """
 
 import shutil
@@ -10,6 +12,7 @@ import threading
 from enum import StrEnum
 
 import httpx
+from pydantic import BaseModel, ConfigDict
 
 from heim import runtime
 from heim.library import LibraryModel
@@ -169,3 +172,149 @@ class ServerManager:
             self._model = None
             self._n_ctx = None
             self._reset_proc()  # killpg + wait + clean up the captured log/state (no-op if stopped)
+
+
+class UpstreamModel(BaseModel):
+    """A model the upstream server lists on its ``/v1/models``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str  # the remote's model id (parity with LibraryModel.name for the routers)
+    loaded: bool = False  # llama-server router mode reports per-model state; others read as False
+    vision: bool = False  # from the listing's input_modalities, when reported
+    audio: bool = False
+
+
+class UpstreamManager:
+    """Front a remote OpenAI-compatible ``/v1`` instead of spawning local runtimes.
+
+    The ``serve --upstream`` backend: heim's agent loop, MCP tools, confirm gate, and the
+    web UI run here while the models run on the remote box (a llama-server in router mode,
+    LM Studio, mlx-lm, another heim serve). Duck-types :class:`ServerManager`'s read surface
+    (``current``/``state``/``ready``/``n_ctx``/``base_url``/``last_error``/``stop``) so the
+    serving routers can hold either. "Loading" a model is selecting one of the remote's ids —
+    a router-mode server hot-swaps on the next request, so no process is ever spawned or
+    stopped here, and ``stop`` merely clears the selection (nothing is unloaded remotely).
+    """
+
+    def __init__(self, upstream: str) -> None:
+        # Accept with or without a trailing /v1 — routes append their own /v1 paths.
+        self._upstream = upstream.strip().rstrip("/").removesuffix("/v1").rstrip("/")
+        self._selected: UpstreamModel | None = None
+        self._last_error: str | None = None
+        self._lock = threading.Lock()  # serializes selection writes (routes mutate off-loop)
+
+    @property
+    def base_url(self) -> str:
+        """Base URL of the upstream server (no trailing ``/v1``)."""
+        return self._upstream
+
+    @property
+    def current(self) -> UpstreamModel | None:
+        """The selected remote model, or ``None``."""
+        return self._selected
+
+    @property
+    def last_error(self) -> str | None:
+        """Why the upstream looked unhealthy on the last probe, else ``None``."""
+        return self._last_error
+
+    @property
+    def n_ctx(self) -> int | None:
+        """Context window — decided by the remote's own presets, unknown here."""
+        return None
+
+    def models(self) -> list[UpstreamModel]:
+        """The upstream's ``GET /v1/models`` as :class:`UpstreamModel` rows.
+
+        ``loaded`` comes from llama-server router mode's per-model ``status``; the
+        vision/audio flags from ``architecture.input_modalities`` when reported.
+
+        Raises:
+            RuntimeError: If the upstream is unreachable or answers garbage.
+        """
+        try:
+            resp = httpx.get(f"{self._upstream}/v1/models", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError(f"upstream {self._upstream} unreachable: {exc}") from exc
+        rows = data.get("data") if isinstance(data, dict) else None
+        out: list[UpstreamModel] = []
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+                    continue
+                status = row.get("status")
+                arch = row.get("architecture")
+                modalities = arch.get("input_modalities") if isinstance(arch, dict) else None
+                mods = [m for m in modalities if isinstance(m, str)] if isinstance(modalities, list) else []
+                out.append(
+                    UpstreamModel(
+                        name=row["id"],
+                        loaded=isinstance(status, dict) and status.get("value") == "loaded",
+                        vision="image" in mods,
+                        audio="audio" in mods,
+                    )
+                )
+        return out
+
+    def load_by_name(self, name: str) -> None:
+        """Select the remote model matching ``name`` (exact, case-insensitive, or basename).
+
+        Raises:
+            RuntimeError: If the upstream is unreachable, or nothing matches (the message
+                lists what the upstream actually serves).
+        """
+        rows = self.models()
+        want = name.strip().lower()
+        want_base = want.rsplit("/", 1)[-1]
+        match = next(
+            (r for r in rows if r.name.lower() == want or r.name.lower().rsplit("/", 1)[-1] == want_base),
+            None,
+        )
+        if match is None:
+            served = ", ".join(r.name for r in rows) or "(nothing)"
+            raise RuntimeError(f"{name!r} is not served by {self._upstream} — available: {served}")
+        with self._lock:
+            self._selected = match
+            self._last_error = None
+
+    def select_loaded(self) -> None:
+        """Best-effort: select the model the upstream already has loaded (startup default).
+
+        A router hot-swaps on request, so defaulting to anything else would evict what the
+        user has running the moment the first message goes out. No loaded model (or an
+        unreachable upstream) just leaves nothing selected — the UI then offers the picker.
+        """
+        try:
+            rows = self.models()
+        except RuntimeError as exc:
+            with self._lock:
+                self._last_error = str(exc)
+            return
+        match = next((r for r in rows if r.loaded), None)
+        if match is not None:
+            with self._lock:
+                self._selected = match
+
+    async def ready(self) -> bool:
+        """Whether the upstream answers its ``/v1/models``."""
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{self._upstream}/v1/models")
+                return resp.status_code < 500
+        except httpx.HTTPError:
+            return False
+
+    async def state(self) -> ServerState:
+        """Coarse lifecycle state for the UI (an unreachable upstream reads as stopped)."""
+        if not await self.ready():
+            self._last_error = f"upstream {self._upstream} unreachable"
+            return ServerState.stopped
+        return ServerState.ready if self._selected is not None else ServerState.stopped
+
+    def stop(self) -> None:
+        """Clear the selection. The remote keeps running — nothing is unloaded there."""
+        with self._lock:
+            self._selected = None

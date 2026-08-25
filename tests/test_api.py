@@ -995,3 +995,65 @@ async def test_audio_speech_openai_alias_maps_to_default_voice(
     monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: False)
     r = await client.post("/v1/audio/speech", json={"model": "tts-1", "input": "hello"})
     assert r.status_code == 503
+
+
+# --- upstream mode (serve --upstream) ---------------------------------------
+
+
+@pytest.fixture
+def upstream_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    """App fronting a fake remote /v1 (no network: models() and ready() are stubbed)."""
+    from heim.server import UpstreamManager, UpstreamModel
+
+    rows = [
+        UpstreamModel(name="gemma-4-12b-qat", loaded=False, vision=True, audio=True),
+        UpstreamModel(name="qwen3-coder", loaded=True),
+    ]
+    monkeypatch.setattr(UpstreamManager, "models", lambda self: list(rows))
+
+    async def _ready(self: UpstreamManager) -> bool:
+        return True
+
+    monkeypatch.setattr(UpstreamManager, "ready", _ready)
+    return create_app(Settings(upstream="http://up:1234"))
+
+
+@pytest.fixture
+async def upstream_client(upstream_app: FastAPI):
+    transport = ASGITransport(app=upstream_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+async def test_upstream_library_lists_remote_models(upstream_client: AsyncClient) -> None:
+    # The picker rows are the remote's /v1/models: format "remote", modality flags from the
+    # listing, and a "loaded" tag marking what the remote has resident.
+    body = (await upstream_client.get("/api/library")).json()
+    assert [m["name"] for m in body] == ["gemma-4-12b-qat", "qwen3-coder"]
+    assert all(m["model_format"] == "remote" for m in body)
+    assert body[0]["vision"] and body[0]["audio"] and body[0]["tags"] == []
+    assert body[1]["tags"] == ["loaded"]
+
+
+async def test_upstream_load_selects_remote_id(upstream_app: FastAPI, upstream_client: AsyncClient) -> None:
+    # "Loading" selects a remote id (matched case-insensitively); the remote itself loads it
+    # on the next request. An unknown name 404s with what the remote actually serves.
+    r = await upstream_client.post("/api/load/QWEN3-CODER")
+    assert r.status_code == 200, r.text
+    assert r.json()["model"] == "qwen3-coder"
+    assert r.json()["state"] == "ready"
+    status = (await upstream_client.get("/api/status")).json()
+    assert status["model"] == "qwen3-coder"
+
+    r = await upstream_client.post("/api/load/not-served")
+    assert r.status_code == 404
+    assert "available" in r.json()["detail"]
+    # A failed switch keeps the selection.
+    assert (await upstream_client.get("/api/status")).json()["model"] == "qwen3-coder"
+
+
+async def test_upstream_unload_clears_selection_only(upstream_client: AsyncClient) -> None:
+    await upstream_client.post("/api/load/gemma-4-12b-qat")
+    r = await upstream_client.post("/api/unload")
+    assert r.status_code == 200
+    assert r.json()["model"] is None  # selection cleared; the remote itself is untouched

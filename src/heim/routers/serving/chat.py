@@ -23,6 +23,7 @@ from heim.routers.serving._base import (  # shared router + request deps
 )
 from heim.routers.serving.core import ServerStatus, _status
 from heim.runtime import sampling
+from heim.server import UpstreamManager, UpstreamModel
 from heim.tools import MCPToolset, TargetRouting, narrow_to_servers
 
 _MAX_DETAIL = 2000  # cap on a tool SSE detail so one giant result can't flood the stream / the UI
@@ -200,13 +201,23 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                 yield 'data: {"type": "done"}\n\n'
                 return
             base = manager.base_url
-            model_target = current.load_target
-            try:
-                model_vision = capabilities.capabilities(current).vision  # feed tool images back only if seen
-            except Exception:  # noqa: BLE001 - detection is best-effort; a failure just disables image feedback
-                model_vision = False
-            # Model-recommended sampling (LM Studio parity); an explicit request value wins.
-            rec = sampling.recommended(current)
+            if isinstance(current, UpstreamModel):
+                # Remote model: the OpenAI ``model`` field is the remote's id (a router-mode
+                # server selects — and hot-swaps — by it), vision comes from the listing's
+                # modalities, and sampling falls back to the anti-loop default (nothing else
+                # is knowable without a local copy).
+                model_field: str | None = current.name
+                model_vision = current.vision
+                rec = sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
+            else:
+                model_target = current.load_target
+                try:
+                    model_vision = capabilities.capabilities(current).vision  # feed tool images back only if seen
+                except Exception:  # noqa: BLE001 - detection is best-effort; a failure just disables image feedback
+                    model_vision = False
+                # Model-recommended sampling (LM Studio parity); an explicit request value wins.
+                rec = sampling.recommended(current)
+                model_field = str(model_target) if model_target else None
             eff_temperature = req.temperature if req.temperature is not None else rec.temperature
             eff_top_p = req.top_p if req.top_p is not None else rec.top_p
             # A client that omits max_tokens gets the configured default cap so a small model
@@ -231,9 +242,10 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         top_k=rec.top_k,
                         min_p=rec.min_p,
                         repeat_penalty=rec.repeat_penalty,
-                        # mlx-vlm requires the OpenAI ``model`` field match what it loaded
-                        # (the launch path); harmless for llama-server / mlx-lm.
-                        model=str(model_target) if model_target else None,
+                        # mlx-vlm requires the OpenAI ``model`` field match what it loaded (the
+                        # launch path); a remote router selects by it; harmless for llama-server
+                        # and mlx-lm, which ignore it.
+                        model=model_field,
                         vision=model_vision,
                         on_confirm=(on_confirm if policy != "none" else None),
                         confirm_policy=policy,
@@ -299,6 +311,17 @@ async def load(
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
     if n_ctx is not None and n_ctx < 1:
         raise HTTPException(status_code=422, detail="n_ctx must be a positive integer")
+    if isinstance(manager, UpstreamManager):
+        # Upstream mode: "loading" selects one of the remote's ids (matched exactly, case-
+        # insensitively, or by basename); the remote itself loads it on the next request.
+        # ``n_ctx`` is decided by the remote's own presets, so it is ignored here.
+        try:
+            async with lock:
+                _reject_if_generating(request)  # don't repoint the backend under a live generation
+                await asyncio.to_thread(manager.load_by_name, name)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return await _status(manager, settings)
     matches = library_ops.find(name)
     if not matches:
         raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
