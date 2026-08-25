@@ -444,22 +444,29 @@ def _remote_model_id(base_url: str, requested: str | None) -> str:
     Probes ``GET /v1/models`` (llama-server — router mode included — LM Studio, mlx-lm, and
     heim serve all answer it). With ``requested``, matches it against the listed ids: exact,
     case-insensitive, then by basename (so a short router alias finds its full id and vice
-    versa). With no name, the first listed id wins (single-model servers list exactly one).
+    versa). With no name, the model the server currently has LOADED wins (a router hot-swaps
+    on request, so defaulting to the first listed id would silently evict whatever the user
+    had running); with nothing loaded, the first listed id (single-model servers list one).
     Exits with the available ids when nothing matches — clearer than the server's own 400.
     """
     listed = _probe_json(f"{base_url}/v1/models")
     rows = listed.get("data") if listed is not None else None
     ids: list[str] = []
+    loaded: list[str] = []
     if isinstance(rows, list):
         for row in rows:
             rid = row.get("id") if isinstance(row, dict) else None
             if isinstance(rid, str):
                 ids.append(rid)
+                # llama-server router reports per-model state; other servers just omit it.
+                status = row.get("status") if isinstance(row, dict) else None
+                if isinstance(status, dict) and status.get("value") == "loaded":
+                    loaded.append(rid)
     if not ids:
         console.print(f"[red]{base_url} lists no models[/] — is the server running?")
         raise typer.Exit(1)
     if requested is None:
-        return ids[0]
+        return loaded[0] if loaded else ids[0]
     want = requested.lower()
     want_base = want.rsplit("/", 1)[-1]
     for cand in ids:

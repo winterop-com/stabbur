@@ -791,3 +791,18 @@ def test_remote_model_id_no_models(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_cli, "_probe_json", lambda url: None)  # nothing answering
     with pytest.raises(typer.Exit):
         chat_cli._remote_model_id("http://x", "anything")
+
+
+def test_remote_model_id_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from heim.cli import chat as chat_cli
+
+    # Free-play -p must not evict what the user has running: a router hot-swaps on request,
+    # so with no name given the currently loaded model wins over the first listed one.
+    listing = {
+        "data": [
+            {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
+            {"id": "qwen3.6-hauhaucs-q8", "status": {"value": "loaded"}},
+        ]
+    }
+    monkeypatch.setattr(chat_cli, "_probe_json", lambda url: listing)
+    assert chat_cli._remote_model_id("http://x", None) == "qwen3.6-hauhaucs-q8"
