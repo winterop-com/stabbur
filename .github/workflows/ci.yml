@@ -31,13 +31,13 @@ jobs:
     name: check (ubuntu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
           python-version: "3.13"
           enable-cache: true
       # pyright (a Node tool under the hood) needs Node on PATH.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - run: uv sync --all-extras
@@ -47,7 +47,7 @@ jobs:
     name: frontend (typecheck + build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -59,3 +59,19 @@ jobs:
         working-directory: frontend
       - run: bun run build
         working-directory: frontend
+
+  extension:
+    name: extension (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # The extension is a workspace member of the ROOT bun.lock (unlike frontend,
+      # which carries its own lockfile), so install at the repo root.
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
+        working-directory: extension
+      - run: bun run build
+        working-directory: extension
