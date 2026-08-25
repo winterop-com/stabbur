@@ -681,6 +681,7 @@ class ChatApp(App[None]):
             ("/mcp reconnect", "respawn the MCP servers"),
             ("/copy", "copy the last reply"),
             ("/model [name]", "switch the running model (or pick from a list)"),
+            ("/system [text]", "show or replace the system prompt (clear to drop; history kept)"),
             ("/export [file]", "save the transcript to markdown (chat.md)"),
             ("/export --thinking", "export and include each turn's thinking (folded)"),
             ("/set <param> <value>", "adjust sampling (temperature/top_p/top_k/min_p/repeat_penalty)"),
@@ -762,10 +763,50 @@ class ChatApp(App[None]):
                 self.action_switch_model(parts[1])
             else:
                 self.action_show_models()
+        elif name == "system":
+            # Split on the RAW text (not the lowercased parts): the prompt keeps its case/spacing.
+            rest = raw.lstrip("/").split(None, 1)
+            new_prompt = rest[1].strip() if len(rest) > 1 else ""
+            if new_prompt:
+                self.action_set_system(new_prompt)
+            else:
+                self.action_show_system()
         elif name in ("clear", "reset"):
             self.action_clear()
         else:
             self._post(Text(f"unknown command {raw!r} — /help for commands", style="grey50"))
+
+    def action_show_system(self) -> None:
+        """Show the current system prompt in the transcript."""
+        has = bool(self.messages) and self.messages[0].get("role") == "system"
+        body = Text("system  ", style="bold #fb7185")
+        if has:
+            body.append("\n")
+            body.append(str(self.messages[0]["content"]), style="grey66")
+        else:
+            body.append("· none", style="grey42")
+        body.append("\n\n/system <text>  ·  replace   /system clear  ·  drop  (history kept)", style="grey42")
+        self._post(body)
+
+    def action_set_system(self, text: str) -> None:
+        """Replace — or with ``clear``, drop — the system prompt, keeping the conversation.
+
+        The system message is ``messages[0]``; the rest of the history stays, so the change
+        applies from the next message onward with full context.
+        """
+        has = bool(self.messages) and self.messages[0].get("role") == "system"
+        if text.lower() == "clear":
+            if has:
+                self.messages.pop(0)
+                self._post(Text("system prompt cleared — history kept", style="grey50"))
+            else:
+                self._post(Text("no system prompt set", style="grey50"))
+            return
+        if has:
+            self.messages[0]["content"] = text
+        else:
+            self.messages.insert(0, {"role": "system", "content": text})
+        self._post(Text("system prompt updated — applies from the next message (history kept)", style="grey50"))
 
     def _pump(self) -> None:
         """Start the next queued prompt if nothing is generating."""

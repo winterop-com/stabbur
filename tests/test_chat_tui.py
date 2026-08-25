@@ -465,3 +465,21 @@ async def test_ctrl_y_copies_last_reply(monkeypatch: pytest.MonkeyPatch) -> None
         await pilot.press("ctrl+y")
         await pilot.pause()
     assert copied == ["Copy me"]
+
+
+async def test_system_prompt_override_keeps_history() -> None:
+    # /system replaces (or inserts) messages[0] without touching the conversation; /system
+    # clear drops it. The raw text keeps its case and spacing.
+    app = _remote_app()  # started with no system prompt -> first /system inserts
+    async with app.run_test():
+        app.messages.append({"role": "user", "content": "hi"})
+        app.messages.append({"role": "assistant", "content": "hello"})
+        app._run_command("/system Be Terse. Always.")
+        assert app.messages[0] == {"role": "system", "content": "Be Terse. Always."}
+        assert len(app.messages) == 3  # history kept
+        app._run_command("/system Be verbose.")
+        assert app.messages[0]["content"] == "Be verbose."
+        assert sum(1 for m in app.messages if m.get("role") == "system") == 1  # replaced, not stacked
+        app._run_command("/system clear")
+        assert all(m.get("role") != "system" for m in app.messages)
+        assert len(app.messages) == 2  # only the system message went
