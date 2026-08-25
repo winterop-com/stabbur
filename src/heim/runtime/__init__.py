@@ -213,44 +213,68 @@ def _serve(model: LibraryModel) -> Generator[str, None, None]:
 
 
 def generate(
-    model: LibraryModel,
+    model: LibraryModel | None,
     prompt: str,
     max_tokens: int | None = None,
     system_prompt: str = "",
     images: list[str] | None = None,
     audios: list[str] | None = None,
     base_url: str | None = None,
+    model_id: str | None = None,
 ) -> str:
     """One-shot chat completion; returns just the reply text (clean for scripting).
 
     ``images`` / ``audios`` are data-URL strings sent to a multimodal model. With ``base_url`` set
-    (a running ``heim serve``), attach to that server's ``/v1`` instead of spawning a per-call
-    runtime — the model stays loaded, so there's no reload latency.
+    (a running ``heim serve`` or any OpenAI-compatible server), attach to that server's ``/v1``
+    instead of spawning a per-call runtime — the model stays loaded, so there's no reload latency.
+    ``model_id`` names the remote's model when there is no library copy (``model=None`` is only
+    valid with both ``base_url`` and ``model_id`` set — there's nothing local to serve).
     """
-    from contextlib import nullcontext  # noqa: PLC0415
+    from contextlib import AbstractContextManager, nullcontext  # noqa: PLC0415
 
     from heim import agent  # noqa: PLC0415 - avoid import cycle at module load
 
-    served = nullcontext(base_url) if base_url is not None else _serve(model)
+    served: AbstractContextManager[str]
+    if base_url is not None:
+        served = nullcontext(base_url)
+    else:
+        if model is None:
+            raise RuntimeError("generate() without a library model needs base_url (and model_id)")
+        served = _serve(model)
     with served as base:
         messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": agent.user_content(prompt, images, audios)})
-        return _chat(base, model, messages, max_tokens)
+        return _chat(base, model, messages, max_tokens, model_id)
 
 
-def _chat(base: str, model: LibraryModel, messages: list[dict[str, Any]], max_tokens: int | None = None) -> str:
+def _chat(
+    base: str,
+    model: LibraryModel | None,
+    messages: list[dict[str, Any]],
+    max_tokens: int | None = None,
+    model_id: str | None = None,
+) -> str:
     """POST one chat completion to an already-served ``base`` and return the reply text."""
     from heim.runtime import sampling  # noqa: PLC0415 - avoid import cycle at module load
 
-    # mlx-vlm requires the OpenAI ``model`` field and matches it against what it loaded
-    # (the launch path); llama-server / mlx-lm ignore it.
-    body: dict[str, object] = {"messages": messages, "model": str(model.load_target)}
+    # mlx-vlm requires the OpenAI ``model`` field and matches it against what it loaded (the
+    # launch path); a remote router selects by it; llama-server / mlx-lm ignore it.
+    if model_id is None:
+        assert model is not None  # generate() guarantees a model or an explicit model_id
+        model_id = str(model.load_target)
+    body: dict[str, object] = {"messages": messages, "model": model_id}
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
-    # Model-recommended sampling (incl. the anti-loop repeat_penalty default).
-    body.update(sampling.recommended(model).model_dump(exclude_none=True))
+    # Model-recommended sampling (incl. the anti-loop repeat_penalty default); without a local
+    # copy only the mild anti-loop default applies (nothing else is knowable remotely).
+    rec = (
+        sampling.recommended(model)
+        if model is not None
+        else sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
+    )
+    body.update(rec.model_dump(exclude_none=True))
     resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
     resp.raise_for_status()
     content: str = resp.json()["choices"][0]["message"]["content"]

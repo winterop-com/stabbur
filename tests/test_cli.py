@@ -476,7 +476,9 @@ def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPa
 
     seen: dict[str, object] = {}
 
-    def _fake_chat(base: str, model: object, messages: object, max_tokens: object = None) -> str:
+    def _fake_chat(
+        base: str, model: object, messages: object, max_tokens: object = None, model_id: object = None
+    ) -> str:
         seen["base"] = base
         return "attached reply"
 
@@ -495,7 +497,7 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
     captured: dict[str, object] = {}
 
     def _fake_generate(model: object, prompt: str, *a: object) -> str:
-        captured["base_url"] = a[-1]  # base_url is the last positional
+        captured["base_url"] = a[4]  # (max_tokens, system_prompt, images, audios, base_url, model_id)
         return "ok"
 
     monkeypatch.setattr(runtime, "generate", _fake_generate)
@@ -516,7 +518,7 @@ def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) 
         serve_registry, "discover", lambda name: ServeRecord(base_url="http://127.0.0.1:9", model=name, pid=1)
     )
     captured: dict[str, object] = {}
-    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[-1]) or "ok")
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] == "http://127.0.0.1:9"
@@ -531,7 +533,7 @@ def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
     monkeypatch.setattr(serve_registry, "discover", lambda _name: None)  # nothing running
     captured: dict[str, object] = {}
-    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[-1]) or "ok")
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] is None  # falls back to spawning a local runtime
@@ -762,3 +764,30 @@ def test_mcp_tools_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: [])
     result = runner.invoke(cli.app, ["mcp", "tools"])
     assert result.exit_code == 0 and "No MCP servers configured" in result.output
+
+
+def test_remote_model_id_matches_router_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    from heim.cli import chat as chat_cli
+
+    # A llama-server router (or LM Studio) lists its own model ids, which need not exist in
+    # the local library: the remote one-shot resolves the requested name against that listing.
+    listing = {"data": [{"id": "gemma-4-12b-qat"}, {"id": "qwen3-coder-next-q6"}]}
+    monkeypatch.setattr(chat_cli, "_probe_json", lambda url: listing)
+    assert chat_cli._remote_model_id("http://x", None) == "gemma-4-12b-qat"  # no name -> first listed
+    assert chat_cli._remote_model_id("http://x", "gemma-4-12b-qat") == "gemma-4-12b-qat"
+    assert chat_cli._remote_model_id("http://x", "GEMMA-4-12B-QAT") == "gemma-4-12b-qat"  # case-insensitive
+    assert chat_cli._remote_model_id("http://x", "org/gemma-4-12b-qat") == "gemma-4-12b-qat"  # basename match
+    with pytest.raises(typer.Exit):  # unknown name -> exit listing what IS available
+        chat_cli._remote_model_id("http://x", "not-served")
+
+
+def test_remote_model_id_no_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    from heim.cli import chat as chat_cli
+
+    monkeypatch.setattr(chat_cli, "_probe_json", lambda url: None)  # nothing answering
+    with pytest.raises(typer.Exit):
+        chat_cli._remote_model_id("http://x", "anything")

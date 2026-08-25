@@ -168,10 +168,19 @@ def chat(
     base_url = _normalize_server_url(server or get_settings().chat_server)
     interactive_remote = base_url is not None and prompt is None
     model: library_ops.LibraryModel | None
+    remote_model_id: str | None = None
     if interactive_remote:
         # Only an explicitly typed name supplies local metadata: the server decides what runs,
         # so letting the machine/project *default* model label the session would mislead.
         model = _maybe_library_model(name, model_format) if name is not None else None
+    elif base_url is not None:
+        # Remote one-shot (-p against --server): the server may hold models that are not in
+        # the local library (e.g. a llama-server router with its own store). Resolve the name
+        # locally for metadata when possible; otherwise — or with no name at all — pick the
+        # id from the server's own /v1/models listing instead of failing.
+        model = _maybe_library_model(model_name, model_format) if model_name is not None else None
+        if model is None:
+            remote_model_id = _remote_model_id(base_url, model_name)
     else:
         if model_name is None:
             console.print(
@@ -235,14 +244,16 @@ def chat(
         if prompt is not None and not mcp_servers:
             # Scripted one-shot, no tools: the reply is the full string, so rendering is free.
             # Raw prints only the reply to stdout (clean for piping); errors go to stderr.
-            assert model is not None
-            reply = runtime.generate(model, prompt, max_tokens, system_prompt, images, audios, base_url)
+            assert model is not None or remote_model_id is not None
+            reply = runtime.generate(
+                model, prompt, max_tokens, system_prompt, images, audios, base_url, remote_model_id
+            )
             if render:
                 _render_markdown(reply)
             else:
                 print(reply)  # noqa: T201
         else:
-            assert model is not None
+            assert model is not None or remote_model_id is not None
             _chat_with_tools(
                 model,
                 mcp_servers,
@@ -257,6 +268,7 @@ def chat(
                 confirm_policy=confirm_policy,
                 target_routing=target_routing,
                 target_id=resolved_target_id,
+                model_id=remote_model_id,
             )
     except (RuntimeError, httpx.HTTPError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
@@ -426,8 +438,39 @@ def _probe_json(url: str) -> dict[str, object] | None:
     return data if isinstance(data, dict) else None
 
 
+def _remote_model_id(base_url: str, requested: str | None) -> str:
+    """Pick the model id to send to a remote ``/v1`` whose model isn't in the library.
+
+    Probes ``GET /v1/models`` (llama-server — router mode included — LM Studio, mlx-lm, and
+    heim serve all answer it). With ``requested``, matches it against the listed ids: exact,
+    case-insensitive, then by basename (so a short router alias finds its full id and vice
+    versa). With no name, the first listed id wins (single-model servers list exactly one).
+    Exits with the available ids when nothing matches — clearer than the server's own 400.
+    """
+    listed = _probe_json(f"{base_url}/v1/models")
+    rows = listed.get("data") if listed is not None else None
+    ids: list[str] = []
+    if isinstance(rows, list):
+        for row in rows:
+            rid = row.get("id") if isinstance(row, dict) else None
+            if isinstance(rid, str):
+                ids.append(rid)
+    if not ids:
+        console.print(f"[red]{base_url} lists no models[/] — is the server running?")
+        raise typer.Exit(1)
+    if requested is None:
+        return ids[0]
+    want = requested.lower()
+    want_base = want.rsplit("/", 1)[-1]
+    for cand in ids:
+        if cand.lower() == want or cand.lower().rsplit("/", 1)[-1] == want_base:
+            return cand
+    console.print(f"[red]{base_url} does not serve {requested!r}[/] — available: {', '.join(ids)}")
+    raise typer.Exit(1)
+
+
 def _chat_with_tools(
-    model: library_ops.LibraryModel,
+    model: library_ops.LibraryModel | None,
     mcp_servers: list[tuple[str | None, list[str], dict[str, str]]],
     prompt: str | None,
     max_tokens: int | None,
@@ -440,6 +483,7 @@ def _chat_with_tools(
     confirm_policy: Literal["all", "writes", "none"] = "none",
     target_routing: "mcp_tools.TargetRouting | None" = None,
     target_id: str | None = None,
+    model_id: str | None = None,
 ) -> None:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
@@ -467,9 +511,18 @@ def _chat_with_tools(
 
     servers = mcp_servers  # already (name, argv, env) specs
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default), applied
-    # to every CLI chat turn just like the web path does.
-    rec = sampling.recommended(model)
-    model_vision = capabilities.capabilities(model).vision  # feed tool-returned images back only if seen
+    # to every CLI chat turn just like the web path does. A remote-only model (``model_id``
+    # with no library copy) has no local metadata: keep the anti-loop default and treat it
+    # as vision-capable, the same way the interactive remote attach loads media unwarned.
+    if model is not None:
+        rec = sampling.recommended(model)
+        model_vision = capabilities.capabilities(model).vision  # feed tool-returned images back only if seen
+    else:
+        rec = sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
+        model_vision = True
+    if model_id is None:
+        assert model is not None  # every caller supplies a library model or a remote id
+        model_id = str(model.load_target)
     # Tool activity is meta → stderr, so `-p` stdout stays just the answer.
     err = Console(stderr=True)
 
@@ -558,7 +611,7 @@ def _chat_with_tools(
                 top_k=rec.top_k,
                 min_p=rec.min_p,
                 repeat_penalty=rec.repeat_penalty,
-                model=str(model.load_target),  # required by mlx-vlm; ignored by llama-server/mlx-lm
+                model=model_id,  # required by mlx-vlm and remote routers; ignored by llama-server/mlx-lm
                 vision=model_vision,
                 on_confirm=on_confirm,
                 confirm_policy=confirm_policy,
@@ -574,6 +627,7 @@ def _chat_with_tools(
         asyncio.run(_run_oneshot(base_url))
         return
 
+    assert model is not None  # a model-id-only chat is always a remote one-shot, handled above
     rt = runtime.load(model)  # start the runtime (with a load spinner); caller/TUI owns stop()
     if prompt is not None:
         try:
