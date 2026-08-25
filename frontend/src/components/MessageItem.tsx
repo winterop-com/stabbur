@@ -92,12 +92,12 @@ export function MessageItem({
   return (
     <div className="group flex flex-col items-start">
       {message.reasoning && (
-        <details
-          open={streaming && !message.content}
-          className="mb-2 w-full rounded-lg border border-border/60 bg-muted/30 px-3 py-2"
-        >
+        /* Collapsed by default (uncontrolled <details>): thinking is a debugging aid, not the
+           answer. The summary pulses while the model is still reasoning so liveness is visible
+           without expanding; click to open at any time (React never forces it shut again). */
+        <details className="mb-2 w-full rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
           <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">
-            Thinking
+            {streaming && !message.content ? <span className="animate-pulse">Thinking…</span> : "Thinking"}
           </summary>
           <div className="mt-1.5 whitespace-pre-wrap text-xs italic leading-relaxed text-muted-foreground">
             {message.reasoning}

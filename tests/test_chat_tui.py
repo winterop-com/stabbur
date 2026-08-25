@@ -233,17 +233,20 @@ async def test_thinking_collapse_preference_is_sticky(monkeypatch: pytest.Monkey
         await pilot.press("enter")
         await app.workers.wait_for_complete()
         await pilot.pause()
-        # The auto-collapse after the answer must NOT flip the preference.
-        assert app._reason_collapsed_pref is False
+        # Collapsed by default (thinking is a debugging aid); the auto-collapse after the
+        # answer must NOT flip the preference.
+        assert app._reason_collapsed_pref is True
         box1 = app.query_one(Collapsible)
+        assert box1.collapsed is True  # started collapsed
 
-        # Simulate the user expanding then collapsing the thinking block.
+        # Simulate the user expanding the thinking block: the expansion sticks...
         box1.collapsed = False
         await pilot.pause()
         assert app._reason_collapsed_pref is False
+        # ...and collapsing it again sticks back.
         box1.collapsed = True
         await pilot.pause()
-        assert app._reason_collapsed_pref is True  # the user's collapse stuck
+        assert app._reason_collapsed_pref is True
 
         # Next turn: the new thinking block starts collapsed by that preference.
         await pilot.press("y", "o")

@@ -121,7 +121,9 @@ class ChatApp(App[None]):
         self._models_cache: list[library_ops.LibraryModel] | None = None  # switchable models (lazy)
         self._remote_models_cache: list[tuple[str, bool]] | None = None  # remote (id, loaded) rows (lazy)
         self._reasoning: agent.ReasoningLevel | None = None  # thinking effort (/set reasoning …); None = default
-        self._reason_collapsed_pref = False  # sticky: once the user collapses thinking, keep it collapsed
+        # Thinking blocks start COLLAPSED (a debugging aid, not the answer); sticky the other
+        # way too — once the user expands one, later turns start expanded until re-collapsed.
+        self._reason_collapsed_pref = True
         self._reason_prog: dict[int, bool] = {}  # per reasoning box: the collapsed state heim set itself
         # A turn's reasoning is not part of self.messages (it's never resent to the model), so keep
         # it here keyed by the assistant message's id() for `/export --thinking` to pull back.
