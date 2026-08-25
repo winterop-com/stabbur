@@ -6,6 +6,7 @@ score candidate solutions) and `heim-mcp-exec` (the assistant's Python scratchpa
 
 ```python
 from heim_sandbox import run_code, docker_available
+
 if docker_available():
     print(run_code("python", "print(6 * 7)").stdout)  # -> "42\n"
 ```

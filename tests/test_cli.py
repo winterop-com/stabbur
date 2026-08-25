@@ -101,24 +101,24 @@ def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> N
     assert "not a chat model" in result.output
 
 
-def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import tomllib
 
     # A configured shared library holding the model → init uses it (no pull, no local store).
     monkeypatch.setattr(library_ops, "configured", lambda *a, **k: True)
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
     monkeypatch.setattr(cli.project, "_pick_tools_interactive", lambda: [])
-    with runner.isolated_filesystem():
-        # input = blank lines accepting the defaults for the kind + system-prompt questions
-        first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
-        assert first.exit_code == 0, first.output
-        parsed = tomllib.loads(Path("heim.toml").read_text())
-        assert parsed["project"]["model"] == "unsloth/X-GGUF"
-        assert "libraries" not in parsed  # uses the shared library — no project-local store
+    monkeypatch.chdir(tmp_path)
+    # input = blank lines accepting the defaults for the kind + system-prompt questions
+    first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
+    assert first.exit_code == 0, first.output
+    parsed = tomllib.loads(Path("heim.toml").read_text())
+    assert parsed["project"]["model"] == "unsloth/X-GGUF"
+    assert "libraries" not in parsed  # uses the shared library — no project-local store
 
-        again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n")
-        assert again.exit_code == 1  # refuses to clobber an existing project
-        assert "already exists" in again.output
+    again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n")
+    assert again.exit_code == 1  # refuses to clobber an existing project
+    assert "already exists" in again.output
 
 
 def test_pick_model_rejects_zero(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,7 +133,7 @@ def test_pick_model_rejects_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.exit_code == 1
 
 
-def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import typer
 
     # Canceling the wizard mid-prompt must not leave an empty project directory behind.
@@ -141,11 +141,11 @@ def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch)
         raise typer.Abort
 
     monkeypatch.setattr(cli.project, "_pick_model_interactive", _abort)
-    with runner.isolated_filesystem():
-        # answer the kind question, then the (mocked) model step aborts
-        result = runner.invoke(cli.app, ["project", "new", "hello"], input="1\n")
-        assert result.exit_code != 0
-        assert not Path("hello").exists()  # nothing created on cancel
+    monkeypatch.chdir(tmp_path)
+    # answer the kind question, then the (mocked) model step aborts
+    result = runner.invoke(cli.app, ["project", "new", "hello"], input="1\n")
+    assert result.exit_code != 0
+    assert not Path("hello").exists()  # nothing created on cancel
 
 
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:

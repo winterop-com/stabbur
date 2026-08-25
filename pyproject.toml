@@ -143,7 +143,7 @@ web = "heim.mcp_servers.web.plugin:PLUGIN"
 benchmark = "heim.benchmark.plugin:PLUGIN"
 
 [build-system]
-requires = ["uv_build>=0.11,<0.12"]
+requires = ["uv_build>=0.11,<0.13"]
 build-backend = "uv_build"
 
 # uv workspace: the app (this package) plus the sole remaining member, heim-sandbox — the
