@@ -357,10 +357,12 @@ def _probe_remote(base_url: str, model: library_ops.LibraryModel | None, request
         if listed is None:
             console.print(f"[red]Nothing answering at {base_url}[/] — is the server running?")
             raise typer.Exit(1)
-        rows = listed.get("data")
-        first = rows[0] if isinstance(rows, list) and rows else None
-        got = first.get("id") if isinstance(first, dict) else None
-        model_id = got if isinstance(got, str) and got else None
+        model_rows = _model_rows(listed)
+        # Prefer the model the server has LOADED: a router-mode server hot-swaps on request,
+        # so starting the session on the first listed id would evict the loaded one (and
+        # mislabel the session) the moment the first message goes out.
+        loaded_first = next((rid for rid, is_loaded in model_rows if is_loaded), None)
+        model_id = loaded_first if loaded_first is not None else (model_rows[0][0] if model_rows else None)
         remote_name = model_id
 
     display = model.name if model is not None else (remote_name or base_url)
@@ -438,6 +440,23 @@ def _probe_json(url: str) -> dict[str, object] | None:
     return data if isinstance(data, dict) else None
 
 
+def _model_rows(listed: dict[str, object]) -> list[tuple[str, bool]]:
+    """Parse a ``GET /v1/models`` body into ``(id, loaded)`` rows.
+
+    ``loaded`` comes from llama-server router mode's per-model ``status``; servers that
+    don't report one (LM Studio, mlx-lm, a plain llama-server) just read as not-loaded.
+    """
+    rows = listed.get("data")
+    out: list[tuple[str, bool]] = []
+    if isinstance(rows, list):
+        for row in rows:
+            rid = row.get("id") if isinstance(row, dict) else None
+            if isinstance(rid, str):
+                status = row.get("status") if isinstance(row, dict) else None
+                out.append((rid, isinstance(status, dict) and status.get("value") == "loaded"))
+    return out
+
+
 def _remote_model_id(base_url: str, requested: str | None) -> str:
     """Pick the model id to send to a remote ``/v1`` whose model isn't in the library.
 
@@ -450,18 +469,9 @@ def _remote_model_id(base_url: str, requested: str | None) -> str:
     Exits with the available ids when nothing matches — clearer than the server's own 400.
     """
     listed = _probe_json(f"{base_url}/v1/models")
-    rows = listed.get("data") if listed is not None else None
-    ids: list[str] = []
-    loaded: list[str] = []
-    if isinstance(rows, list):
-        for row in rows:
-            rid = row.get("id") if isinstance(row, dict) else None
-            if isinstance(rid, str):
-                ids.append(rid)
-                # llama-server router reports per-model state; other servers just omit it.
-                status = row.get("status") if isinstance(row, dict) else None
-                if isinstance(status, dict) and status.get("value") == "loaded":
-                    loaded.append(rid)
+    model_rows = _model_rows(listed) if listed is not None else []
+    ids = [rid for rid, _ in model_rows]
+    loaded = [rid for rid, is_loaded in model_rows if is_loaded]
     if not ids:
         console.print(f"[red]{base_url} lists no models[/] — is the server running?")
         raise typer.Exit(1)

@@ -806,3 +806,25 @@ def test_remote_model_id_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -
     }
     monkeypatch.setattr(chat_cli, "_probe_json", lambda url: listing)
     assert chat_cli._remote_model_id("http://x", None) == "qwen3.6-hauhaucs-q8"
+
+
+def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from heim.cli import chat as chat_cli
+
+    # Interactive attach to a plain OpenAI server (no /api/status): the session must start on
+    # the model the server has LOADED, not the first listed one — a router hot-swaps on
+    # request, so first-listed would both mislabel the session and evict the loaded model.
+    def fake_probe(url: str) -> dict | None:
+        if url.endswith("/api/status"):
+            return None  # not a heim serve
+        return {
+            "data": [
+                {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
+                {"id": "qwen3.6-hauhaucs-q8", "status": {"value": "loaded"}},
+            ]
+        }
+
+    monkeypatch.setattr(chat_cli, "_probe_json", fake_probe)
+    endpoint = chat_cli._probe_remote("http://x", None, None)
+    assert endpoint.model_id == "qwen3.6-hauhaucs-q8"
+    assert endpoint.model_name == "qwen3.6-hauhaucs-q8"
