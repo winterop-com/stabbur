@@ -207,17 +207,10 @@ completion token.
 
 ## Voice follow-ups
 
-**Model-set reshuffle (2026-08-26):** Dia and OuteTTS are retired — Dia's curated seeds don't
-survive MLX upgrades (the seed→voice mapping is a function of the mlx version) and it was slow;
-llama.cpp's rebuilt `llama-tts` dropped the OuteTTS/WavTokenizer pipeline, and heim's llama-tts
-engine was removed with it. Qwen3-TTS flipped to `supported=True` (mlx-audio 0.4.6 ships its
-speech tokenizer). The audition set — Chatterbox, CSM-1B, Soprano, Spark — is pulled into the
-library; Kokoro stays the fast in-chat baseline.
-
-- **Audition the new TTS set** — pick the expressive slot's winner (Chatterbox's
-  emotion/exaggeration control is the leading candidate) and verify each entry's registry
-  metadata (voices, cloning, seeds) against real synthesis. mlx-audio 0.4.6 also added
-  many more families (vibevoice, voxcpm2, higgs_audio_v3, sesame, zonos2, …) worth a look.
+- **Scout the expressive TTS slot.** Nothing so far beats Kokoro's quality-per-millisecond
+  (current set: Kokoro in-chat default, Spark for gender + pinned-seed voice creation).
+  mlx-audio ships many untried families (vibevoice, voxcpm2, higgs_audio_v3, zonos2, …);
+  audition before adopting, and verify registry metadata against real synthesis first.
 - **New audio capabilities** — **speaker diarization** (MOSS-Transcribe-Diarize — gated repo, needs
   auth; VibeVoice-ASR) for who-said-what + timestamps; **speech enhancement** (DeepFilterNet /
   MossFormer2-SE) to denoise mic input before STT; **endpoint detection** (Smart Turn) for better
@@ -227,35 +220,14 @@ library; Kokoro stays the fast in-chat baseline.
 
 ## Remote model host (llama-server router on another box)
 
-The serving reality is shifting: a dedicated LAN box (`msai:1234`, llama-server in **router
-mode** with its own model store) now hosts the models for day-to-day testing, instead of this
-machine spawning runtimes against the library drive. heim already meets it halfway; the rest
-is the next serving thread.
+Day-to-day models are served by a LAN box (`msai:1234`, llama-server in router mode); the CLI,
+TUI, and `heim serve --upstream` all front it. Open threads:
 
-- **Shipped (2026-08-25): remote model-id resolution for the one-shot CLI.** `heim chat -p`
-  against a `--server` (or the `heim config set server` default) no longer requires the model
-  to exist in the local library: an unresolved (or absent) name is matched against the
-  server's own `GET /v1/models` — exact, case-insensitive, or by basename — so a router alias
-  like `gemma-4-12b-qat` just works, free-play `-p` uses the server's first model, and an
-  unknown name exits listing what the server actually serves (previously: a bare 400, because
-  heim sent the local `load_target` path as the model id). Tools/agent-loop `-p` runs ride the
-  same resolution.
-- **Open: model picker against a multi-model remote.** The interactive TUI attach picks the
-  first listed `/v1/models` id; against a 4-model router it should offer the list (and `/model`
-  should switch by remote id).
-- **Shipped (2026-08-26): `heim serve --upstream <url>`.** The web UI, extension backend, and
-  agent loop can now front a remote `/v1`: `UpstreamManager` duck-types `ServerManager`'s read
-  surface, so the serving routers hold either. In upstream mode `/api/library` lists the
-  remote's ids (format `remote`, modality flags, a `loaded` tag), `/api/load` selects an id
-  (the router hot-swaps on the next request; unknown names 404 with the remote's list),
-  `/v1` proxies to the remote, startup auto-selects the remote's loaded model (or validates
-  `--model` against the remote's ids for a locked serve), and no library is required.
-  Verified live against the msai router: status, picker, chat SSE, switching, locked mode.
-  Remaining polish: model cards/tags/`n_ctx` are library-only (a remote model shows none),
-  and the SPA size column shows a dash for remote rows.
-- **Open: two stores.** The T9 library (`heim library`) and the router box's `/data/lab/models`
-  are now separate collections; `heim library manifest`/`sync` could feed the router box so
-  the drive stays the canonical archive.
+- **Remote model metadata.** Cards/tags/`n_ctx` are library concepts — a remote model shows
+  none, and the SPA size column is a dash. Decide what a remote row should surface.
+- **Two stores.** The T9 library (`heim library`) and the router box's `/data/lab/models` are
+  separate collections; `heim library manifest`/`sync` could feed the router box so the drive
+  stays the canonical archive.
 
 ## Other open ideas
 

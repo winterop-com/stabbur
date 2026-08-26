@@ -1,6 +1,6 @@
 """Tests for the voice HTTP surface (``heim.routers.serving.voice``).
 
-test_api.py already covers the qwen3-tts 422, the unknown-model 404, and the tts-1 alias;
+test_api.py already covers the unsupported-model 422, the unknown-model 404, and the tts-1 alias;
 these cover the backend-dispatch branches those don't reach, by monkeypatching the engine
 modules (``kokoro`` / ``tts`` / ``voice_runtime`` / ``audio_export``) rather than requiring
 real, platform-gated engines. They pin down: engine routing (kokoro vs mlx), the
@@ -125,7 +125,7 @@ async def test_audio_speech_mlx_backend_unavailable_is_503(
     # An mlx-audio model when the voice runtime isn't installed (Linux / no extra) must
     # 503 with the install hint, not attempt to load and 500.
     monkeypatch.setattr("heim.routers.serving.voice.voice_runtime.available", lambda: False)
-    r = await client.post("/v1/audio/speech", json={"model": "chatterbox", "input": "hello"})
+    r = await client.post("/v1/audio/speech", json={"model": "spark", "input": "hello"})
     assert r.status_code == 503
     assert "mlx-audio" in r.json()["detail"].lower()
 

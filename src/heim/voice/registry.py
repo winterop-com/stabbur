@@ -93,18 +93,6 @@ BUILTIN: tuple[VoiceModel, ...] = (
         chat_default=True,
     ),
     VoiceModel(
-        id="qwen3-tts",
-        display_name="Qwen3-TTS-0.6B",
-        repo="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
-        kind=VoiceKind.tts,
-        backend=Backend.mlx_audio,
-        description="Compact multilingual TTS. Runnable since mlx-audio 0.4.6, which ships and "
-        "wires its separate speech tokenizer (earlier versions could not load it).",
-        voice_mode=VoiceMode.preset,
-        sample_rate=24000,
-        size_hint="~1.2 GB",
-    ),
-    VoiceModel(
         id="whisper",
         display_name="Whisper large-v3-turbo",
         repo="mlx-community/whisper-large-v3-turbo-asr-fp16",
@@ -113,33 +101,6 @@ BUILTIN: tuple[VoiceModel, ...] = (
         description="Fast multilingual speech-to-text — the voice-input side (mic -> prompt).",
         voice_mode=VoiceMode.none,
         size_hint="~1.6 GB",
-    ),
-    # --- validated against mlx-audio 2026-07-04 (Apple Silicon) ---
-    VoiceModel(
-        id="soprano",
-        display_name="Soprano-1.1-80M",
-        repo="mlx-community/Soprano-1.1-80M-bf16",
-        kind=VoiceKind.tts,
-        backend=Backend.mlx_audio,
-        description="Tiny (80M) high-quality English TTS with a single built-in voice — a "
-        "lightweight alternative to Kokoro (this base checkpoint takes no voice selection).",
-        voice_mode=VoiceMode.preset,
-        languages=["en"],
-        sample_rate=24000,
-        size_hint="~160 MB",
-    ),
-    VoiceModel(
-        id="chatterbox",
-        display_name="Chatterbox",
-        repo="mlx-community/chatterbox-fp16",
-        kind=VoiceKind.tts,
-        backend=Backend.mlx_audio,
-        description="Expressive TTS with an emotion/exaggeration control. One built-in default "
-        "voice; any other voice comes from a short reference clip (voice cloning).",
-        voice_mode=VoiceMode.clone,
-        cloneable=True,
-        sample_rate=24000,
-        size_hint="~2.4 GB",
     ),
     VoiceModel(
         id="spark",
@@ -156,28 +117,6 @@ BUILTIN: tuple[VoiceModel, ...] = (
         languages=["en", "zh"],
         sample_rate=24000,
         size_hint="~1 GB",
-    ),
-    VoiceModel(
-        id="csm",
-        display_name="CSM-1B",
-        repo="mlx-community/csm-1b",
-        kind=VoiceKind.tts,
-        backend=Backend.mlx_audio,
-        description="Conversational TTS with voice cloning from a reference clip (Sesame CSM). The "
-        "named voices are prompt clips bundled with the model; a reference clip overrides them.",
-        voice_mode=VoiceMode.clone,
-        cloneable=True,
-        voices=[
-            "conversational_a",
-            "conversational_b",
-            "read_speech_a",
-            "read_speech_b",
-            "read_speech_c",
-            "read_speech_d",
-        ],
-        languages=["en"],
-        sample_rate=24000,
-        size_hint="~2 GB",
     ),
     VoiceModel(
         id="parakeet",

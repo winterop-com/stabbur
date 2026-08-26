@@ -280,35 +280,6 @@ hear replies spoken back (Kokoro). Open the web Voice surface with `uv run heim 
 Whisper (`whisper-large-v3-turbo`) is the transcription model; replies are voiced by Kokoro.
 """
 
-_DIA_PROMPTS_MD = """\
-# Dia — expressive dialogue + voice cloning (Voice studio)
-
-Dia is a Voice-studio model (dialogue and voice cloning), used via `heim voice`, not as an
-in-chat reply voice. The chat assistant here speaks replies with Kokoro; explore Dia with:
-
-```bash
-uv run heim voice speak --model dia --seed 42 "Heim can talk. [laughs] Isn't that nice?"
-# Clone a voice from a short clip:
-uv run heim voice speak --model dia --ref-audio ref.wav --ref-text "exact transcript" "New line in that voice."
-```
-
-Pin `--seed` for a reproducible voice (Dia is otherwise random each run). Run `uv run heim
-voice setup` once so Dia's codec lives on the drive and works offline.
-"""
-
-_QWEN3TTS_PROMPTS_MD = """\
-# Qwen3-TTS (Voice studio)
-
-Qwen3-TTS is included as a Voice-studio TTS model. Note: mlx-audio does not yet load its
-separate speech tokenizer, so `generate` produces no audio today (tracked in heim's roadmap);
-this project stages the model + config so it works once support lands. The chat assistant
-speaks replies with Kokoro in the meantime.
-
-```bash
-# Once supported:
-uv run heim voice speak --model qwen3-tts "Hello from Qwen3-TTS."
-```
-"""
 
 # --- shared prompt fragments ----------------------------------------------------------------
 
@@ -698,31 +669,6 @@ TEMPLATES: dict[str, ProjectTemplate] = {
             "A full voice loop: Whisper transcribes your mic (Apple Silicon `voice` extra), Kokoro\n"
             "speaks replies (built in).\n"
             "  uv sync && uv run heim serve --ui        # use the Voice surface"
-        ),
-    ),
-    "voice-dia": ProjectTemplate(
-        model="unsloth/Qwen3.5-4B-GGUF",
-        system_prompt=_VOICE_ASSISTANT_PROMPT,
-        files={"examples/prompts.md": _DIA_PROMPTS_MD},
-        extras=["voice"],
-        chat_voice="kokoro:af_heart",
-        next_steps=(
-            "Dia (dialogue + voice cloning) is used via `heim voice speak --model dia` (Apple Silicon\n"
-            "`voice` extra). Chat replies use Kokoro.\n"
-            "  uv sync && uv run heim voice setup      # seed Dia's codec onto the drive (offline-ready)\n"
-            "  uv run heim serve --ui"
-        ),
-    ),
-    "voice-qwen3-tts": ProjectTemplate(
-        model="unsloth/Qwen3.5-4B-GGUF",
-        system_prompt=_VOICE_ASSISTANT_PROMPT,
-        files={"examples/prompts.md": _QWEN3TTS_PROMPTS_MD},
-        extras=["voice"],
-        chat_voice="kokoro:af_heart",
-        next_steps=(
-            "Qwen3-TTS is staged as a Voice-studio model; mlx-audio can't yet synthesize with it (see\n"
-            "heim's roadmap). Chat replies use Kokoro in the meantime.\n"
-            "  uv sync && uv run heim serve --ui"
         ),
     ),
 }

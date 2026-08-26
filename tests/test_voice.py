@@ -9,7 +9,7 @@ from heim.voice import Backend, VoiceKind, VoiceMode
 def test_registry_is_well_formed() -> None:
     ids = [m.id for m in voice.BUILTIN]
     assert len(ids) == len(set(ids))  # ids unique
-    assert {"kokoro", "chatterbox", "whisper"} <= set(ids)
+    assert {"kokoro", "spark", "whisper"} <= set(ids)
     # Every TTS model declares a voice_mode; STT uses none.
     for m in voice.BUILTIN:
         if m.kind is VoiceKind.tts:
@@ -18,11 +18,11 @@ def test_registry_is_well_formed() -> None:
             assert m.voice_mode is VoiceMode.none
 
 
-def test_csm_is_a_cloneable_model() -> None:
-    csm = voice.get("csm")
-    assert csm is not None
-    assert csm.voice_mode is VoiceMode.clone  # the voice comes from a reference clip
-    assert csm.cloneable
+def test_spark_is_a_seeded_cloneable_model() -> None:
+    spark = voice.get("spark")
+    assert spark is not None
+    assert spark.voice_mode is VoiceMode.seeded  # a fresh timbre per run unless a seed is pinned
+    assert spark.cloneable and spark.voices == ["female", "male"]
 
 
 def test_kokoro_is_the_lightweight_chat_voice() -> None:
@@ -33,7 +33,7 @@ def test_kokoro_is_the_lightweight_chat_voice() -> None:
 
 
 def test_lookup_helpers() -> None:
-    assert voice.by_repo("mlx-community/chatterbox-fp16") is voice.get("chatterbox")
+    assert voice.by_repo("mlx-community/Spark-TTS-0.5B-bf16") is voice.get("spark")
     assert voice.get("nope") is None
 
 
@@ -45,13 +45,13 @@ def test_discover_reports_presence(tmp_path: Path, monkeypatch: object) -> None:
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     # A library with one voice model present, as a directory under voice/<repo>.
     lib = tmp_path / "lib"
-    cb_dir = voice.voice_dir(lib) / "mlx-community/chatterbox-fp16"
+    cb_dir = voice.voice_dir(lib) / "mlx-community/Spark-TTS-0.5B-bf16"
     cb_dir.mkdir(parents=True)
     (cb_dir / "model.safetensors").write_bytes(b"x" * 2048)
 
     found = {p.spec.id: p for p in voice.discover(lib)}
-    assert found["chatterbox"].in_library and found["chatterbox"].library_bytes == 2048
-    assert found["chatterbox"].location == "library"
+    assert found["spark"].in_library and found["spark"].library_bytes == 2048
+    assert found["spark"].location == "library"
     assert not found["kokoro"].available  # nothing downloaded for it here
     assert found["kokoro"].location == "not downloaded"
 
