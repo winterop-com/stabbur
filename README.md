@@ -32,11 +32,11 @@ The web UI is the **Loft** — the storehouse's upper floor, reached by its own 
 was worth keeping was actually kept and looked over. The CLI fills the store; the loft is where you
 go in and use it.
 
-> **Proprietary, source-available.** stabbur is not open-source. Copyright (c) 2026 Morten
-> Hansen, all rights reserved (see [`LICENSE`](LICENSE)). The source is published for
-> reference and evaluation; running it requires a written license — contact
-> <morten@winterop.com>. Published on PyPI so it can be run with `uvx`; the licence still
-> governs use.
+> **Source-available, not open-source.** Copyright (c) 2026 Morten Hansen (see
+> [`LICENSE`](https://github.com/winterop-com/stabbur/blob/main/LICENSE)). You may run and
+> evaluate it freely on your own hardware — that is why it is on PyPI. Redistributing it,
+> hosting it as a service, or building a commercial product on it needs written permission:
+> contact <morten@winterop.com>.
 
 ![stabbur web UI](https://raw.githubusercontent.com/winterop-com/stabbur/main/docs/assets/web-ui.png)
 

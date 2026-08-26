@@ -26,12 +26,12 @@ the intended home; moving to a different machine or drive is just a change to
   and README uses `uv` — `uv tool install`, `uv run`, `uv sync`, `uvx`. NEVER use bare
   `pip` (or `python -m pip`); at absolute worst use `uv pip`, but prefer `uv sync` /
   `uv add`. This applies to install instructions shown to users too.
-- **Proprietary, all rights reserved** (see `LICENSE`) — copyright Morten Hansen. The repo is
-  public and source-available, NOT open-source. **stabbur is published to PyPI** so it can be run
-  with `uvx stabbur` / `uv tool install stabbur`; the `Private :: Do Not Upload` classifier that
-  previously blocked that is gone. Note the tension this creates and keep it in view: a package
-  anyone can `uvx` is a package anyone will run, while `LICENSE` says running it needs written
-  permission. Whether to relax the licence is an open decision, not something to assume either way.
+- **Source-available, not open-source** (see `LICENSE`) — copyright Morten Hansen. The repo is
+  public and **stabbur is published to PyPI**, so it runs with `uvx stabbur` / `uv tool install
+  stabbur`. `LICENSE` grants running and evaluating it on your own hardware — the earlier version
+  withheld that, which contradicted publishing to an index people install from. Redistribution,
+  hosting it as a service, and commercial use still need written permission. **Going fully
+  open-source is planned for 1.0.0**; until then don't describe it as open-source.
 - Python 3.13, `uv` (with the `uv_build` backend), **src layout**.
 - **Typer** CLI; entry point `stabbur = "stabbur.cli:app"` (guarded via `stabbur.cli:main`).
 - **FastAPI + Pydantic + pydantic-settings** for the browse/serve layer.

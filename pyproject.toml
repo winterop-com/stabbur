@@ -1,6 +1,6 @@
 [project]
 name = "stabbur"
-version = "0.6.0"
+version = "0.6.1"
 description = "Stabbur — build a local LLM library, then run, chat, and serve it — fully on-box"
 readme = "README.md"
 requires-python = ">=3.13"

@@ -17,12 +17,12 @@ flowchart LR
     lib["Library on your drive<br/>gguf/ · mlx/ · cards + metadata"] -->|chat / serve --ui| rt["llama-server / mlx_lm.server<br/>OpenAI /v1 "]
 ```
 
-!!! info "Proprietary, source-available"
-    stabbur is **not** open-source. Copyright (c) 2026 Morten Hansen, all rights reserved
-    (see [`LICENSE`](https://github.com/winterop-com/stabbur/blob/main/LICENSE)). The source is
-    published for reference and evaluation; running it requires a written license — contact
-    **<morten@winterop.com>**. Published on PyPI so it can be run with `uvx`; the licence still
-    governs use. See [Getting started](getting-started.md).
+!!! info "Source-available, not open-source"
+    Copyright (c) 2026 Morten Hansen (see
+    [`LICENSE`](https://github.com/winterop-com/stabbur/blob/main/LICENSE)). You may run and
+    evaluate stabbur freely on your own hardware — that is why it is on PyPI. Redistributing it,
+    hosting it as a service, or building a commercial product on it needs written permission:
+    contact **<morten@winterop.com>**. See [Getting started](getting-started.md).
 
 ## Why
 

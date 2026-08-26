@@ -1,20 +1,44 @@
-stabbur — Proprietary Software License
+stabbur — Source-Available License
 
 Copyright (c) 2026 Morten Hansen. All rights reserved.
 
 This software and its source code (the "Software") are the exclusive property of
-Morten Hansen (the "Owner"). The Software is made source-available for reference
-and evaluation only. It is NOT open-source and is NOT licensed for use.
+Morten Hansen (the "Owner"). The Software is source-available. It is NOT
+open-source.
 
-No license or right is granted, whether express or implied, to any person or
-entity to use, copy, run, execute, deploy, host, modify, adapt, translate,
-create derivative works of, distribute, sublicense, sell, or otherwise exploit
-the Software, in whole or in part, for any purpose, without the prior written
-permission of the Owner.
+1. PERMITTED USE
 
-Viewing the source in the public repository does not grant any right to use it.
-Any use of the Software requires a separate written license agreement with the
-Owner. To request permission, contact morten@winterop.com.
+Subject to the terms below, the Owner grants any person a non-exclusive,
+worldwide, royalty-free, revocable license to download, install, run, and
+evaluate the Software for personal, internal, educational, or research purposes,
+including running it on hardware they own or control.
+
+This permission exists so that the Software can be installed and run from the
+package index it is published to, without a separate agreement.
+
+2. RESERVED RIGHTS
+
+All other rights are reserved. Without the prior written permission of the
+Owner, no person or entity may:
+
+  (a) redistribute, publish, sublicense, sell, rent, or lease the Software, or
+      make it available to third parties as a hosted or managed service;
+  (b) use the Software, in whole or in part, to provide a commercial product or
+      service to third parties;
+  (c) modify, adapt, translate, or create derivative works of the Software for
+      any purpose outside the permitted use in Section 1;
+  (d) remove or alter this license, the copyright notice, or attribution.
+
+Permission for any of the above requires a separate written license agreement
+with the Owner. To request one, contact morten@winterop.com.
+
+3. TERMINATION
+
+The permission in Section 1 terminates automatically if the terms of this
+license are breached. The Owner may revoke it at any time, for any person or
+entity, on written notice.
+
+4. NO WARRANTY
 
 Unless required by applicable law or agreed to in writing, the Software is
 provided "AS IS", WITHOUT WARRANTY OF ANY KIND, express or implied, including

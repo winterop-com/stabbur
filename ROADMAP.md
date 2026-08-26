@@ -55,6 +55,11 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
 
 ## Open issues
 
+- **Relicense to open source at 1.0.0.** [Decided] The current `LICENSE` permits running and
+  evaluating but reserves redistribution, hosting-as-a-service, and commercial use — the interim
+  step that made publishing to PyPI coherent. Pick the target licence (MIT or Apache-2.0; Apache
+  adds an explicit patent grant) and drop the reserved-rights section when 1.0.0 is cut.
+
 - **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes fine, but
   Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the audio.
   stabbur's path looks correct (capabilities from `clip.has_audio_encoder`, `--mmproj` passed,
