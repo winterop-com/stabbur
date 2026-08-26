@@ -944,6 +944,30 @@ def test_serve_refuses_a_busy_port_instead_of_moving(monkeypatch: pytest.MonkeyP
     assert "--port" in result.output  # tells the user how to move it
 
 
+def test_port_free_ignores_time_wait_leftovers() -> None:
+    # Restarting right after stopping a serve must work: uvicorn closes its keep-alives on
+    # shutdown, so the *server* side sits in TIME_WAIT for ~15s. The pre-flight binds the way
+    # uvicorn does (SO_REUSEADDR) or it refuses a port uvicorn would have taken.
+    import socket
+
+    from heim.cli.serve import _port_free
+
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    assert not _port_free("127.0.0.1", port)  # a live listener is still a real collision
+
+    client = socket.create_connection(("127.0.0.1", port))
+    conn, _ = srv.accept()
+    conn.close()  # server closes first -> its socket enters TIME_WAIT on `port`
+    client.close()
+    srv.close()
+
+    assert _port_free("127.0.0.1", port)
+
+
 def test_chat_save_writes_the_exchange(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # `-p --save` records the one-shot exchange in the same Markdown the TUI's /export writes,
     # so a scripted run leaves a transcript without a second tool.

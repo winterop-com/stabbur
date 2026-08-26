@@ -47,9 +47,14 @@ def _export_serve_env(
 def _port_free(host: str, port: int) -> bool:
     """Whether ``port`` can be bound on ``host`` right now (a pre-flight, so the failure is ours).
 
-    Deliberately does not set SO_REUSEADDR: the question is whether something already holds the
-    port, not whether we could share it. A race with another process between this check and
-    uvicorn's bind is possible but harmless — uvicorn then reports the collision itself.
+    Probes with SO_REUSEADDR because that is what uvicorn binds with: the question this answers
+    has to be "can uvicorn bind here?", not a stricter one it would refuse on. Without it, the
+    TIME_WAIT sockets a just-stopped server leaves behind (uvicorn closes its keep-alives on
+    shutdown, so the *server* side holds TIME_WAIT for ~15s) read as "in use" — heim then refuses
+    to restart on a port uvicorn would have taken happily. SO_REUSEADDR does not let anything
+    steal a live server's port: a running listener still fails to bind either way. A race with
+    another process between this check and uvicorn's bind is possible but harmless — uvicorn then
+    reports the collision itself.
     """
     import socket  # noqa: PLC0415
 
@@ -63,6 +68,7 @@ def _port_free(host: str, port: int) -> bool:
     for family, socktype, proto, _canon, sockaddr in infos:
         try:
             with socket.socket(family, socktype, proto) as probe:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 probe.bind(sockaddr)
         except OSError:
             return False
