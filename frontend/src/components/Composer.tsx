@@ -19,7 +19,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -120,51 +119,16 @@ export function Composer({
   // documents and PDFs (they end up in the prompt as text); image/audio depend on the
   // model, which is what the attach menu below exists to say out loud.
   const canAttach = ready;
-  // While capabilities are still resolving nothing definite may be claimed — saying
-  // "needs a vision model" about a model that turns out to have vision is worse than
-  // saying nothing — so the entry stays live and non-committal, matching the
-  // optimistic path `kindOf` takes for a drop during the same window.
-  const resolving = "Checking what this model can read…";
-  const pdfNote = !pdfAsImage
-    ? "Its text is extracted, so every model reads it."
-    : accept.image || !accept.known
-      ? 'Pages come in as images — "Parse PDF as image" is on.'
-      : '"Parse PDF as image" is on, but this one can\'t see — text is attached instead.';
-  // The attach menu. A media kind the model can't take stays *visible* and says why:
-  // an absent control teaches nothing, and the whole point is that a vision model and
-  // a text-only one differ. Text and PDF are never gated — heim turns them into prompt
-  // text itself, so they ask nothing of the model.
-  const attachKinds: { kind: PickKind; icon: LucideIcon; label: string; note: string; enabled: boolean }[] = [
-    {
-      kind: "image",
-      icon: ImageIcon,
-      label: "Images",
-      note: !accept.known
-        ? resolving
-        : accept.image
-          ? "PNG, JPEG, WebP, GIF."
-          : "Needs a vision model — this one can't see.",
-      enabled: accept.image || !accept.known,
-    },
-    {
-      kind: "audio",
-      icon: AudioLines,
-      label: "Audio",
-      note: !accept.known
-        ? resolving
-        : accept.audio
-          ? "WAV, MP3, M4A, OGG."
-          : "Needs an audio model — this one can't hear.",
-      enabled: accept.audio || !accept.known,
-    },
-    {
-      kind: "text",
-      icon: FileText,
-      label: "Text & code",
-      note: "Markdown, CSV, JSON, source files — inlined into the prompt.",
-      enabled: true,
-    },
-    { kind: "pdf", icon: FileType, label: "PDF", note: pdfNote, enabled: true },
+  // Labels only. What heim does with a file is obvious from its kind — a PDF becomes text,
+  // that is what attaching a PDF to a chat means — and a sentence per row turns a four-item
+  // menu into something to read. A kind this model cannot take is greyed, which says the one
+  // thing that is not obvious. While capabilities are still resolving nothing is greyed:
+  // claiming a limit that may not exist is worse than briefly offering one that does not work.
+  const attachKinds: { kind: PickKind; icon: LucideIcon; label: string; enabled: boolean }[] = [
+    { kind: "image", icon: ImageIcon, label: "Images", enabled: accept.image || !accept.known },
+    { kind: "audio", icon: AudioLines, label: "Audio", enabled: accept.audio || !accept.known },
+    { kind: "text", icon: FileText, label: "Text & code", enabled: true },
+    { kind: "pdf", icon: FileType, label: "PDF", enabled: true },
   ];
 
   const addFiles = async (files: FileList | File[]) => {
@@ -446,7 +410,7 @@ export function Composer({
                   <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     What you can attach
                   </div>
-                  {attachKinds.map(({ kind, icon: Icon, label, note, enabled }) => (
+                  {attachKinds.map(({ kind, icon: Icon, label, enabled }) => (
                     <DropdownMenuItem
                       key={kind}
                       disabled={!enabled}
@@ -459,14 +423,9 @@ export function Composer({
                       <Icon className="mt-0.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0">
                         <span className="block text-sm font-medium">{label}</span>
-                        <span className="block text-sm text-muted-foreground">{note}</span>
                       </span>
                     </DropdownMenuItem>
                   ))}
-                  <DropdownMenuSeparator />
-                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Files can also be dropped on the composer or pasted into it.
-                  </p>
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
