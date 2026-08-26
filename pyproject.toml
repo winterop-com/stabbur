@@ -8,6 +8,11 @@ license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 keywords = ["llm", "local-llm", "self-hosted", "mcp", "agent", "dhis2", "fastapi", "huggingface"]
 classifiers = [
+    # PyPI refuses an upload carrying this, which is the point: heim is source-available and
+    # proprietary, installed from the repo with `uv tool install`. CLAUDE.md has claimed this
+    # guard exists since the rename that dropped it, so the claim is made true rather than
+    # deleted - the intent behind it never changed.
+    "Private :: Do Not Upload",
     "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3.13",
     "Operating System :: MacOS",
