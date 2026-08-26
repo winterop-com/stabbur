@@ -332,17 +332,32 @@ def _mcp_checks(
     return checks
 
 
+def _loaded_model(manager: ServerManager | UpstreamManager) -> doctor.LoadedModel:
+    """What this server has resident, for the doctor's ``Model`` row.
+
+    The one fact ``heim doctor`` cannot see for itself: the CLI has no runtime, so it reports the
+    model that *would* load, while a serving heim knows the one that did. ``last_error`` is only the
+    story when nothing is current — a live model plus a stale error from a previous crash is a
+    healthy server, and the row should say so.
+    """
+    current = manager.current
+    if current is None:
+        return doctor.LoadedModel(error=manager.last_error)
+    return doctor.LoadedModel(name=current.name, n_ctx=manager.n_ctx)
+
+
 @router.get("/api/doctor")
-def doctor_report(settings: ConfDep, request: Request) -> doctor.DoctorReport:
-    """System health: runtime binaries, the backend, library, the current project, and its MCP servers.
+def doctor_report(manager: ManagerDep, settings: ConfDep, request: Request) -> doctor.DoctorReport:
+    """System health: the backend, the loaded model, runtimes, library, the project, and its MCP servers.
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
-    Mirrors the ``heim doctor`` CLI so the UI can show the same status. The MCP section reports both the
+    Mirrors the ``heim doctor`` CLI so the UI can show the same status, plus the one thing the CLI can't
+    know — which model this server actually has loaded. The MCP section reports both the
     **live** servers (tool counts / failures) and any **deferred** ones — a non-primary scoped target's
     servers that spawn on first use — so a lazily-pending server is disclosed here before it's ever used.
     Those rows are children of the ``Tools (MCP)`` check (see ``Check.group``).
     """
-    report = doctor.run_checks(settings)
+    report = doctor.run_checks(settings, loaded=_loaded_model(manager))
     state = request.app.state
     toolset: MCPToolset | None = getattr(state, "toolset", None)
     bridge: MCPBridge | None = getattr(state, "mcp_bridge", None)
@@ -353,8 +368,11 @@ def doctor_report(settings: ConfDep, request: Request) -> doctor.DoctorReport:
     # launch, another target's own servers), so check_project may not have emitted the parent those
     # rows nest under. Never leave a child orphaned by a missing group: synthesize the summary row.
     if mcp_rows and not any(c.name == doctor.MCP_GROUP for c in checks):
-        names = ", ".join(c.name for c in mcp_rows)
-        parent = doctor.Check(name=doctor.MCP_GROUP, status=doctor.CheckStatus.ok, detail=f"{len(mcp_rows)} ({names})")
+        parent = doctor.Check(
+            name=doctor.MCP_GROUP,
+            status=doctor.CheckStatus.ok,
+            detail=f"{len(mcp_rows)} server{'' if len(mcp_rows) == 1 else 's'}",
+        )
         checks.insert(len(report.checks), parent)
     return doctor.DoctorReport(checks=checks)
 

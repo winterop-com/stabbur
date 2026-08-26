@@ -312,10 +312,14 @@ Pre-flight system health: are the runtime binaries heim spawns installed
 library reachable and non-empty, and does the project point at a present model.
 Exits non-zero if any check fails.
 
-The **Backend** row says where the models actually run. Normally `Local runtime`;
-with an upstream configured (`HEIM_UPSTREAM`, or `heim serve --upstream`) it probes
-the remote `/v1` and reports what it serves — or fails with the reason it could not
-be reached (unresolvable name, refused connection, no answer, not an OpenAI `/v1`).
+Two rows lead the report and the rest is filed under them. **Backend** says where the
+models actually run: normally `Local runtime`; with an upstream configured
+(`HEIM_UPSTREAM`, or `heim serve --upstream`) it probes the remote `/v1` and reports
+what it serves — or fails with the reason it could not be reached (unresolvable name,
+refused connection, no answer, not an OpenAI `/v1`). **Model** names the model in play:
+the one a running `heim serve` has loaded, or — on the CLI, where there is no runtime to
+ask — the default that would load. Everything else (runtimes, library, project, tools)
+is indented under a group row, and `/api/doctor` sends the same tree to the web UI.
 
 ```bash
 heim doctor

@@ -43,12 +43,15 @@ def test_project_no_shared_warning_when_library_root_set(tmp_path: Path, monkeyp
     assert not any(c.name == "Shared library (@shared)" for c in doctor.check_project(settings))
 
 
-def test_platform_check_reports_os() -> None:
-    checks = doctor.check_platform()
-    assert len(checks) == 1
-    assert checks[0].name == "Platform"
-    assert checks[0].status is doctor.CheckStatus.ok
-    assert checks[0].detail  # e.g. "Linux x86_64"
+def test_runtimes_group_carries_the_platform_and_owns_the_binaries() -> None:
+    # The OS/arch is the group's heading, not a top-level row: it exists to make "not applicable on
+    # this platform" readable, and that is only ever read inside this group.
+    checks = doctor.check_runtimes()
+    parent, children = checks[0], checks[1:]
+    assert parent.name == doctor.RUNTIMES_GROUP
+    assert parent.group is None and parent.detail  # e.g. "Linux x86_64"
+    assert children and all(c.group == doctor.RUNTIMES_GROUP for c in children)
+    assert "llama.cpp (GGUF)" in {c.name for c in children}
 
 
 def test_report_status_rolls_up_worst() -> None:
@@ -89,9 +92,10 @@ def test_runtime_check_present_reports_path(monkeypatch: pytest.MonkeyPatch) -> 
 def test_check_library_offline_drive_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library, "scan", lambda: [])
     checks = doctor.check_library(_settings(tmp_path, drive=False))
-    root = next(c for c in checks if c.name == "Libraries")
+    root = next(c for c in checks if c.name == doctor.LIBRARY_GROUP)
     models = next(c for c in checks if c.name == "Runnable models")
     assert root.status is doctor.CheckStatus.warn  # not mounted
+    assert root.group is None and models.group == doctor.LIBRARY_GROUP  # what's inside nests
     assert models.status is doctor.CheckStatus.warn  # empty
 
 
@@ -109,12 +113,44 @@ def test_check_library_counts_by_format(tmp_path: Path, monkeypatch: pytest.Monk
     assert "2 gguf" in models.detail and "1 mlx" in models.detail
 
 
-def test_check_project_missing_model_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_model_missing_from_library_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Absent"))
     monkeypatch.setattr(library, "find", lambda *_a, **_k: [])
-    check = next(c for c in doctor.check_project(_settings(tmp_path)) if c.name == "Default model")
+    check = next(c for c in doctor.check_model(_settings(tmp_path)) if c.name == doctor.MODEL_ROW)
     assert check.status is doctor.CheckStatus.warn
     assert check.hint is not None
+
+
+def test_check_model_prefers_what_is_actually_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A serving heim knows the resident model; the configured default is then not the answer, and
+    # must not also appear — one fact, one row.
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Default"))
+    rows = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel(name="pub/Running", n_ctx=32768))
+    assert len(rows) == 1
+    assert rows[0].status is doctor.CheckStatus.ok
+    assert rows[0].detail == "pub/Running - loaded, 32,768 ctx"
+    assert "pub/Default" not in rows[0].detail
+
+
+def test_check_model_idle_server_is_not_a_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Nothing loaded yet is the normal state of a freshly opened tab; an amber dot for it would
+    # train people to ignore the dot. A runtime that DIED is the case worth colouring.
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Default"))
+    idle = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel())[0]
+    assert idle.status is doctor.CheckStatus.ok
+    assert "none loaded" in idle.detail and "pub/Default" in idle.detail
+    dead = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel(error="exited with code 1"))[0]
+    assert dead.status is doctor.CheckStatus.fail
+    assert "exited with code 1" in dead.detail
+
+
+def test_check_model_falls_back_to_the_upstreams_resident(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Under an upstream heim may have selected nothing, while the remote still has a model resident —
+    # that is what a message sent right now would run on, so it is the honest answer.
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    row = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel(), resident="qwen3-coder")[0]
+    assert row.status is doctor.CheckStatus.ok
+    assert row.detail.startswith("qwen3-coder - loaded")
 
 
 def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,7 +215,7 @@ def _chained(exc: httpx.HTTPError, cause: BaseException) -> httpx.HTTPError:
 
 
 def _backend(settings: Settings) -> doctor.Check:
-    checks = doctor.check_upstream(settings)
+    checks = doctor.check_upstream(settings).checks
     assert len(checks) == 1  # exactly one row, in both modes
     return checks[0]
 
@@ -194,19 +230,24 @@ def test_backend_row_says_local_when_no_upstream(tmp_path: Path) -> None:
 
 def test_backend_reachable_upstream_reports_what_it_serves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     urls = _stub_get(monkeypatch, _FakeResponse(_UPSTREAM_LISTING))
-    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234/v1/"))
+    probe = doctor.check_upstream(Settings(library_root=tmp_path, upstream="http://up:1234/v1/"))
+    row = probe.checks[0]
     assert row.status is doctor.CheckStatus.ok
     assert urls == ["http://up:1234/v1/models"]  # trailing /v1 normalized, not doubled
-    assert row.detail == "Upstream up:1234 - reachable, 2 models, loaded: qwen3-coder"
+    assert row.detail == "Upstream up:1234 - reachable, 2 models"
     assert row.hint is None
+    # The resident model is handed to the Model row rather than stated here — probed once, said once.
+    assert probe.resident == "qwen3-coder"
+    assert "qwen3-coder" not in row.detail
 
 
 def test_backend_upstream_without_a_loaded_model_is_still_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Only llama-server router mode reports per-model `loaded`; its absence is not a fault.
     _stub_get(monkeypatch, _FakeResponse({"data": [{"id": "some-model"}]}))
-    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
-    assert row.status is doctor.CheckStatus.ok
-    assert row.detail == "Upstream up:1234 - reachable, 1 model (none reported loaded)"
+    probe = doctor.check_upstream(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert probe.checks[0].status is doctor.CheckStatus.ok
+    assert probe.checks[0].detail == "Upstream up:1234 - reachable, 1 model"
+    assert probe.resident is None
 
 
 def test_backend_upstream_serving_nothing_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -260,11 +301,25 @@ def test_backend_probe_never_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "probe failed" in row.detail
 
 
-def test_checks_are_top_level_unless_grouped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # `group` is opt-in: adding it must leave every existing check a flat, top-level row.
+def test_every_grouped_check_has_its_parent_in_the_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The whole hierarchy travels in the payload, so a child whose parent isn't there is a row that
+    # renders nowhere. Every `group` must name a top-level check in the same report.
     monkeypatch.setattr(library, "scan", lambda: [])
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
-    assert all(c.group is None for c in doctor.run_checks(_settings(tmp_path)).checks)
+    checks = doctor.run_checks(_settings(tmp_path)).checks
+    parents = {c.name for c in checks if c.group is None}
+    assert {c.group for c in checks if c.group} <= parents
+
+
+def test_top_level_is_the_two_facts_then_the_groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # What the menu shows without opening anything: is the backend alive, what is loaded, and a
+    # short shelf of headings. Anything else added here has to earn a top-level row.
+    monkeypatch.setattr(library, "scan", lambda: [])
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    monkeypatch.setattr(doctor.mcpservers, "resolve", lambda: [])
+    report = doctor.run_checks(_settings(tmp_path), loaded=doctor.LoadedModel(name="pub/Running"))
+    top = [c.name for c in report.checks if c.group is None]
+    assert top == [doctor.BACKEND_ROW, doctor.MODEL_ROW, doctor.RUNTIMES_GROUP, doctor.LIBRARY_GROUP]
 
 
 def test_mcp_children_nest_under_the_tools_summary() -> None:
@@ -281,15 +336,15 @@ def test_mcp_children_nest_under_the_tools_summary() -> None:
     assert [(c.name, c.group) for c in rows] == [("datetime", doctor.MCP_GROUP)]  # no "MCP: " prefix
 
 
-def test_backend_row_is_part_of_the_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_backend_row_leads_the_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library, "scan", lambda: [])
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
     names = [c.name for c in doctor.run_checks(_settings(tmp_path)).checks]
-    assert names.count("Backend") == 1
-    assert names.index("Backend") > names.index("Platform")
+    assert names.count(doctor.BACKEND_ROW) == 1
+    assert names[0] == doctor.BACKEND_ROW  # the first thing a reader wants answered
 
 
-def test_check_project_shows_machine_default_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_model_shows_machine_default_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Outside a project, the machine default model (heim config set model) is surfaced.
     from heim import config, library
 
@@ -300,7 +355,7 @@ def test_check_project_shows_machine_default_model(tmp_path: Path, monkeypatch: 
     cfg.write_text('default_model = "pub/Def"\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     config.get_settings.cache_clear()
-    row = next(c for c in doctor.check_project(_settings(tmp_path)) if c.name == "Default model")
+    row = next(c for c in doctor.check_model(_settings(tmp_path)) if c.name == doctor.MODEL_ROW)
     assert row.status is doctor.CheckStatus.ok
     assert "pub/Def" in row.detail and "machine default" in row.detail
     config.get_settings.cache_clear()

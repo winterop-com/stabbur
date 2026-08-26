@@ -6,6 +6,13 @@ testable without a terminal. The CLI (:func:`heim.cli.doctor`) renders them.
 Checks cover the things that make ``heim run/serve`` actually work: the backend the
 models run on (local runtimes or a remote ``/v1``), the runtime binaries heim spawns
 (llama.cpp / MLX), the library location, what's in it, and the current project manifest.
+
+The report has a **shape**, not just a length. Two rows sit at the top level — ``Backend``
+(is the thing that runs models alive) and ``Model`` (which one is in play) — because those
+are the two facts someone opens a health readout to learn. Everything else is detail, and
+nests under one of the group parents below via :attr:`Check.group`, so a consumer renders
+three or four collapsed headings instead of a wall. The hierarchy travels in the payload;
+no consumer re-derives it from names.
 """
 
 import socket
@@ -52,9 +59,47 @@ class Check(BaseModel):
     group: str | None = None
 
 
-# Parent row for the per-server MCP checks (emitted by check_project, children by the API layer's
-# _mcp_checks). Named once here so the two sides can't drift apart on the string.
+# The parent rows. A report a person actually reads answers two things at the top — is the backend
+# alive, and which model is in play — and files the rest under a handful of headings they only open
+# when they want it. Each constant is the ``name`` its children carry in ``Check.group``, stated once
+# here because the emitters are spread across this module and the API layer (see _mcp_checks): two
+# spellings of the same heading silently orphans every child under it.
+RUNTIMES_GROUP = "Runtimes"
+LIBRARY_GROUP = "Library"
+PROJECT_GROUP = "Project"
 MCP_GROUP = "Tools (MCP)"
+
+# The two top-level rows, likewise named once (the serving layer replaces neither, but it does have
+# to know MODEL_ROW is the row it is feeding).
+BACKEND_ROW = "Backend"
+MODEL_ROW = "Model"
+
+
+class LoadedModel(BaseModel):
+    """What a *serving* heim knows about the model resident right now.
+
+    Passed into :func:`run_checks` by the API layer, which holds the ``ServerManager`` /
+    ``UpstreamManager`` this module has no access to. Absent (``None``) on the CLI, where there is
+    no runtime and the best answer is the model that *would* load — see :func:`check_model`.
+    """
+
+    name: str | None = None
+    n_ctx: int | None = None  # context window it was loaded with (None = the runtime's own default)
+    error: str | None = None  # why the runtime died, when nothing is loaded because it fell over
+
+
+class BackendProbe(BaseModel):
+    """The ``Backend`` row, plus the one thing the probe learned that another check needs.
+
+    ``check_upstream`` is the only code that talks to the remote, and the remote's ``/v1/models``
+    is the only place the *resident* model name exists — but that fact belongs to the ``Model``
+    row, not to this one. Rather than probe twice (a doctor run is interactive, and the UI polls
+    it) or state the model in both rows, the probe hands it out here and :func:`run_checks` routes
+    it to the check that owns it.
+    """
+
+    checks: list[Check]
+    resident: str | None = None
 
 
 class DoctorReport(BaseModel):
@@ -72,11 +117,6 @@ class DoctorReport(BaseModel):
         return CheckStatus.ok
 
 
-def check_platform() -> list[Check]:
-    """Report the OS/arch so the rest of the report (esp. N/A rows) reads in context."""
-    return [Check(name="Platform", status=CheckStatus.ok, detail=host.os_label())]
-
-
 def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = True) -> Check:
     """Check that a runtime binary is on PATH.
 
@@ -88,21 +128,30 @@ def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = T
     """
     path = runtime.resolve_binary(binary)
     if path is not None:
-        return Check(name=name, status=CheckStatus.ok, detail=path)
+        return Check(name=name, status=CheckStatus.ok, detail=path, group=RUNTIMES_GROUP)
     if not relevant:
-        return Check(name=name, status=CheckStatus.ok, detail="not applicable on this platform")
+        return Check(name=name, status=CheckStatus.ok, detail="not applicable on this platform", group=RUNTIMES_GROUP)
     return Check(
         name=name,
         status=CheckStatus.fail if required else CheckStatus.warn,
         detail=f"{binary!r} not found (checked heim's environment and PATH)",
         hint=runtime._INSTALL_HINTS.get(binary),
+        group=RUNTIMES_GROUP,
     )
 
 
 def check_runtimes() -> list[Check]:
-    """Check the model-runtime binaries heim spawns."""
+    """Check the model-runtime binaries heim spawns, under one collapsible parent.
+
+    The parent's detail is the OS/arch that used to be a top-level ``Platform`` row of its own.
+    The platform was only ever there as context for these rows — "not applicable on this platform"
+    means nothing without it, and nothing else in the report reads differently on Linux — so as the
+    heading of the group it explains it is stated once, in the one place it is needed, and costs no
+    row at the top level.
+    """
     mlx_relevant = host.is_apple_silicon()
     return [
+        Check(name=RUNTIMES_GROUP, status=CheckStatus.ok, detail=host.os_label()),
         # GGUF is the cross-platform backbone; without llama-server nothing GGUF runs.
         _runtime_check("llama.cpp (GGUF)", "llama-server", required=True),
         # MLX runtimes are optional and Apple-Silicon-only.
@@ -144,35 +193,37 @@ def _connect_failure(exc: Exception) -> str:
     return f"connection failed ({exc})"
 
 
-def check_upstream(settings: Settings) -> list[Check]:
+def check_upstream(settings: Settings) -> BackendProbe:
     """Check the backend the models actually run on: a remote ``/v1``, or heim's own runtimes.
 
-    One row in **both** modes, and it must stand on its own: system health is the only place heim
-    names its backend, so this row alone has to answer "which host is this talking to, and is it
-    answering". Staying silent in local mode would leave the first half unanswered — the same reason
-    the MLX rows say "not applicable on this platform" instead of vanishing.
+    One row in **both** modes, and it must stand on its own: it is the report's headline answer to
+    "is the thing that runs models alive", so it has to name which host that is and say whether it
+    answered. Staying silent in local mode would leave the first half unanswered — the same reason
+    the MLX rows say "not applicable on this platform" instead of vanishing. It names the backend;
+    it does not explain what one is. "Local runtime - heim spawns the model process on this machine"
+    told the reader something they did not ask and cost two wrapped lines at the top of the menu.
 
     Under ``serve --upstream`` the remote is the hardest dependency heim has — if it's down nothing
-    generates at all — so it's probed for real: reachable reports what the remote serves and which
-    model it has resident, unreachable is a ``fail`` that says *how* it failed and names the URL to
-    go and look at. Never raises: a doctor run reports a failed check, it doesn't traceback.
+    generates at all — so it's probed for real: reachable reports what the remote serves, unreachable
+    is a ``fail`` that says *how* it failed and names the URL to go and look at. The resident model
+    the probe sees is returned rather than stated here — it is the ``Model`` row's fact, and a fact
+    stated in two rows is a fact that will one day disagree with itself. Never raises: a doctor run
+    reports a failed check, it doesn't traceback.
     """
     upstream = (settings.upstream or "").strip()
     if not upstream:
-        return [
-            Check(
-                name="Backend",
-                status=CheckStatus.ok,
-                detail="Local runtime - heim spawns the model process on this machine",
-            )
-        ]
+        return BackendProbe(
+            checks=[Check(name=BACKEND_ROW, status=CheckStatus.ok, detail="Local runtime on this machine")]
+        )
     # Same normalization as UpstreamManager: accept the URL with or without a trailing /v1.
     base = upstream.rstrip("/").removesuffix("/v1").rstrip("/")
     label = f"Upstream {_host_label(base)}"
     hint = f"Check the server at {base} is up (`curl {base}/v1/models`); or drop --upstream to run models locally."
 
-    def _fail(detail: str) -> list[Check]:
-        return [Check(name="Backend", status=CheckStatus.fail, detail=f"{label} - {detail}", hint=hint)]
+    def _fail(detail: str) -> BackendProbe:
+        return BackendProbe(
+            checks=[Check(name=BACKEND_ROW, status=CheckStatus.fail, detail=f"{label} - {detail}", hint=hint)]
+        )
 
     try:
         resp = httpx.get(f"{base}/v1/models", timeout=_UPSTREAM_TIMEOUT)
@@ -198,28 +249,35 @@ def check_upstream(settings: Settings) -> list[Check]:
         return _fail(f"probe failed: {exc!r}")
 
     if not rows:
-        return [
-            Check(
-                name="Backend",
-                status=CheckStatus.warn,
-                detail=f"{label} - reachable, but serves no models",
-                hint="The remote answered an empty /v1/models; nothing can be selected until it loads one.",
-            )
-        ]
+        return BackendProbe(
+            checks=[
+                Check(
+                    name=BACKEND_ROW,
+                    status=CheckStatus.warn,
+                    detail=f"{label} - reachable, but serves no models",
+                    hint="The remote answered an empty /v1/models; nothing can be selected until it loads one.",
+                )
+            ]
+        )
     # `loaded` only comes from llama-server router mode's per-model status; other servers (LM
     # Studio, mlx-lm, another heim) never report it, so its absence isn't a fault.
     resident = next((r.name for r in rows if r.loaded), None)
-    served = f"reachable, {len(rows)} model{'' if len(rows) == 1 else 's'}"
-    detail = f"{label} - {served}, loaded: {resident}" if resident else f"{label} - {served} (none reported loaded)"
-    return [Check(name="Backend", status=CheckStatus.ok, detail=detail)]
+    detail = f"{label} - reachable, {len(rows)} model{'' if len(rows) == 1 else 's'}"
+    return BackendProbe(checks=[Check(name=BACKEND_ROW, status=CheckStatus.ok, detail=detail)], resident=resident)
 
 
 def check_library(settings: Settings) -> list[Check]:
-    """Check the library roots and what's in them."""
+    """Check the library roots and what's in them, under one collapsible parent.
+
+    The **parent** is where the roots go, because "is the drive there" is the one library fact worth
+    seeing without opening anything — a library on an ejected disk is the failure this section
+    exists to catch, and it reads at a glance as a path with ``(not mounted)`` after it. What is
+    *inside* the roots is the detail a reader goes looking for, so it nests.
+    """
     if not library_ops.configured(settings):
         return [
             Check(
-                name="Libraries",
+                name=LIBRARY_GROUP,
                 status=CheckStatus.fail,
                 detail="not configured",
                 hint="Set HEIM_LIBRARY_ROOT to your library path, or run `heim project init`.",
@@ -231,7 +289,7 @@ def check_library(settings: Settings) -> list[Check]:
     detail = "\n".join(f"{r}" + ("" if r.is_dir() else " (not mounted)") for r in lib_roots)
     checks.append(
         Check(
-            name="Libraries",
+            name=LIBRARY_GROUP,
             status=CheckStatus.ok if not missing else CheckStatus.warn,
             detail=detail,
             hint=None if not missing else "A library isn't mounted; models in the others still work.",
@@ -251,23 +309,91 @@ def check_library(settings: Settings) -> list[Check]:
             hint=None
             if models
             else "Pull one with `heim library pull` (or `heim library sources` to see local caches).",
+            group=LIBRARY_GROUP,
         )
     )
     return checks
 
 
-def check_project(settings: Settings) -> list[Check]:
-    """Check the current project (if any) and the effective default model.
+def check_model(settings: Settings, *, loaded: LoadedModel | None = None, resident: str | None = None) -> list[Check]:
+    """Which model is in play — the one running right now, else the one that would.
 
-    A project is optional (free-play is valid), so its rows only appear when a ``heim.toml``
-    is present. The **default model** row is always shown when one is resolvable — the project's
-    model, else the machine default (``heim config set model``) — since that's what ``heim chat``
-    and ``serve --ui`` load without an explicit name.
+    ONE row for a question with two sources. A serving heim knows what is actually resident
+    (``loaded`` from its manager, ``resident`` from the upstream's own listing when heim itself has
+    selected nothing yet); the CLI has no runtime and can only name the default ``heim chat`` would
+    load — the project's model, else the machine default. Those are the same question asked at
+    different moments, so they share a row and the detail says which of the two it is. Two rows
+    ("Model" and "Default model") would put the model in the menu twice and start disagreeing the
+    instant someone loads one that isn't the default.
+
+    Args:
+        settings: Effective settings (the machine default lives here).
+        loaded: What a serving heim has resident, or ``None`` on the CLI.
+        resident: The model an upstream reports loaded, from :func:`check_upstream`'s probe.
+    """
+    proj = project_ops.load()
+    default_model = project_ops.resolve_model(None, proj)
+    # heim's own selection wins over the remote's: under an upstream both are true, and the one
+    # heim will actually name in the next request is the one a reader is asking about.
+    running = (loaded.name if loaded else None) or resident
+    if running:
+        # n_ctx belongs to a local runtime we spawned; it says nothing about a remote's presets.
+        ctx = f", {loaded.n_ctx:,} ctx" if loaded and loaded.name == running and loaded.n_ctx else ""
+        return [Check(name=MODEL_ROW, status=CheckStatus.ok, detail=f"{running} - loaded{ctx}")]
+
+    if loaded is not None:
+        # Serving, with nothing resident. A runtime that fell over is the actionable case and says
+        # so; an idle server is simply waiting to be asked and stays green — a health dot that turns
+        # amber every time you open a fresh tab teaches people to ignore it.
+        if loaded.error:
+            return [
+                Check(
+                    name=MODEL_ROW,
+                    status=CheckStatus.fail,
+                    detail=f"none loaded - {loaded.error}",
+                    hint="The runtime exited; pick a model again to restart it.",
+                )
+            ]
+        detail = "none loaded" + (f" (default: {default_model})" if default_model else "")
+        return [Check(name=MODEL_ROW, status=CheckStatus.ok, detail=detail)]
+
+    if default_model is None:
+        # A project usually pins a model; flag when it doesn't. (No project + no machine default is
+        # plain free-play — nothing to report.)
+        if proj is None:
+            return []
+        return [
+            Check(
+                name=MODEL_ROW,
+                status=CheckStatus.warn,
+                detail="not set",
+                hint="Set one in heim.toml, or a machine default: `heim config set model <name>`.",
+            )
+        ]
+    resolved = library_ops.find(default_model)
+    source = "project default" if (proj and proj.model) else "machine default"
+    return [
+        Check(
+            name=MODEL_ROW,
+            status=CheckStatus.ok if resolved else CheckStatus.warn,
+            detail=f"{default_model} - {source}" + ("" if resolved else ", not in library"),
+            hint=None if resolved else f"Pull it: `heim library pull huggingface {default_model}`.",
+        )
+    ]
+
+
+def check_project(settings: Settings) -> list[Check]:
+    """Check the current project (if any) and the tools it resolves to.
+
+    A project is optional (free-play is valid), so its parent row only appears when a ``heim.toml``
+    is present — and what nests under it is what a project can get *wrong*, which today is exactly
+    one thing: a ``@shared`` library that doesn't resolve. The model a project pins is not here; it
+    is the ``Model`` row's business (:func:`check_model`), whichever manifest it came from.
     """
     proj = project_ops.load()
     checks: list[Check] = []
     if proj is not None:
-        checks.append(Check(name="Project (heim.toml)", status=CheckStatus.ok, detail="found"))
+        checks.append(Check(name=PROJECT_GROUP, status=CheckStatus.ok, detail="heim.toml found"))
         # A project that lists @shared but whose library_root is unset silently drops the shared
         # archive (see library.roots): it runs from its own libraries, but the drive's models are
         # invisible with no error. Warn so it's not a mystery.
@@ -279,54 +405,42 @@ def check_project(settings: Settings) -> list[Check]:
                     detail="listed in this project but unreachable — HEIM_LIBRARY_ROOT is not set",
                     hint="Set HEIM_LIBRARY_ROOT (e.g. export it in your shell profile) so @shared resolves; "
                     "until then this project runs only from its own libraries.",
+                    group=PROJECT_GROUP,
                 )
             )
 
-    # The effective default model: project model > machine default (settings.default_model).
-    default_model = project_ops.resolve_model(None, proj)
-    if default_model is not None:
-        resolved = library_ops.find(default_model)
-        from_project = bool(proj and proj.model)
-        detail = (
-            default_model + ("" if from_project else " (machine default)") + ("" if resolved else " — not in library")
-        )
-        checks.append(
-            Check(
-                name="Default model",
-                status=CheckStatus.ok if resolved else CheckStatus.warn,
-                detail=detail,
-                hint=None if resolved else f"Pull it: `heim library pull huggingface {default_model}`.",
-            )
-        )
-    elif proj is not None:
-        # A project usually pins a model; flag when it doesn't. (No project + no machine default
-        # is plain free-play — nothing to report.)
-        checks.append(
-            Check(
-                name="Default model",
-                status=CheckStatus.warn,
-                detail="not set",
-                hint="Set one in heim.toml, or a machine default: `heim config set model <name>`.",
-            )
-        )
-
     # Effective tools: the resolved mcp.json servers (global + project). Shown whenever any exist.
+    # A count, not a list: which servers they are is one row down, and a parent that recites its own
+    # children says the same thing twice and grows a comma-separated sentence as they multiply.
     servers = mcpservers.resolve()
     if servers:
-        names = ", ".join(s.name for s in servers)
-        checks.append(Check(name=MCP_GROUP, status=CheckStatus.ok, detail=f"{len(servers)} ({names})"))
+        checks.append(
+            Check(
+                name=MCP_GROUP,
+                status=CheckStatus.ok,
+                detail=f"{len(servers)} server{'' if len(servers) == 1 else 's'}",
+            )
+        )
     return checks
 
 
-def run_checks(settings: Settings | None = None) -> DoctorReport:
-    """Run every health check and return the aggregated report."""
+def run_checks(settings: Settings | None = None, loaded: LoadedModel | None = None) -> DoctorReport:
+    """Run every health check and return the aggregated report.
+
+    Order is the reading order: the two rows a person opens the menu for come first (is the backend
+    alive, what is loaded), then the groups they open only when they want the detail.
+
+    Args:
+        settings: Effective settings; the process defaults when omitted.
+        loaded: What a serving heim has resident right now. ``None`` on the CLI, where there is no
+            runtime to ask and the ``Model`` row names the default instead.
+    """
     conf = settings or get_settings()
+    backend = check_upstream(conf)
     checks = [
-        *check_platform(),
+        *backend.checks,
+        *check_model(conf, loaded=loaded, resident=backend.resident),
         *check_runtimes(),
-        # After the runtime rows: it says whether those binaries are even in play (upstream mode
-        # runs the models elsewhere) before the report moves on to the library and the project.
-        *check_upstream(conf),
         *check_library(conf),
         *check_project(conf),
     ]
