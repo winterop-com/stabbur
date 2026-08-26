@@ -135,6 +135,12 @@ frontend-pack: frontend
 	@rm -rf src/stabbur/webui
 	@cp -R frontend/dist src/stabbur/webui
 
+# Recapture the docs hero (docs/assets/web-ui.png). The shot is derived from the SPA but
+# nothing fails when it drifts, so it is a one-command job rather than a remembered procedure.
+hero: frontend
+	@echo ">>> Recapturing the docs hero → docs/assets/web-ui.png"
+	@uv run --extra web python scripts/capture_hero.py
+
 frontend-dev:
 	@echo ">>> Vite dev server (proxies /api + /v1 to STABBUR_DEV_API or :8000)"
 	@echo ">>> Run 'stabbur serve --port 8000' alongside for the backend"

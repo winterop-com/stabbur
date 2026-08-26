@@ -213,3 +213,13 @@ Non-obvious landmines that aren't self-evident from the code:
 - The gate covers the **SPA** too: `oxlint` (`frontend/.oxlintrc.json`, via `bun run lint`) for its
   JS/TS, and `scripts/check_ui_classes.py` for the class conventions a JS linter cannot see inside
   a `className`. Both need `bun`; the Makefile does a frozen install itself.
+- **Change the chat UI's appearance → run `make hero`, in the same commit.** `docs/assets/web-ui.png`
+  is a *derived artifact* of the SPA, but nothing rebuilds it and no check fails when it drifts, so
+  it silently advertises a UI that no longer exists (it has gone stale twice, once across two whole
+  renames). It is also public: it is the README, the docs landing page, *and* the PyPI project page.
+  The script serves the UI against a mock `/v1` so the model chip never leaks a real model name from
+  the machine taking the shot — never point a capture at your own running server.
+- **Ship the built SPA when packaging.** `make frontend-pack` stages `frontend/dist` into
+  `src/stabbur/webui`, which the wheel carries and `Settings.frontend_dir` prefers. Without it
+  `serve --ui` answers 404 for every install while every checkout works — the class of bug a
+  checkout cannot catch, so verify the *artifact*, not the repo.
