@@ -58,26 +58,26 @@ def test_report_status_rolls_up_worst() -> None:
 
 
 def test_runtime_check_missing_required_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(doctor.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(doctor.runtime, "resolve_binary", lambda _b: None)
     c = doctor._runtime_check("GGUF", "llama-server", required=True)
     assert c.status is doctor.CheckStatus.fail
     assert c.hint  # carries an install hint
 
 
 def test_runtime_check_missing_optional_warns(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(doctor.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(doctor.runtime, "resolve_binary", lambda _b: None)
     assert doctor._runtime_check("MLX", "mlx_lm.server", required=False).status is doctor.CheckStatus.warn
 
 
 def test_runtime_check_not_relevant_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     # MLX off Apple Silicon: missing binary is fine (N/A), not a warning.
-    monkeypatch.setattr(doctor.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(doctor.runtime, "resolve_binary", lambda _b: None)
     c = doctor._runtime_check("MLX", "mlx_lm.server", required=False, relevant=False)
     assert c.status is doctor.CheckStatus.ok
 
 
 def test_runtime_check_present_reports_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(doctor.shutil, "which", lambda _b: "/usr/bin/llama-server")
+    monkeypatch.setattr(doctor.runtime, "resolve_binary", lambda _b: "/usr/bin/llama-server")
     c = doctor._runtime_check("GGUF", "llama-server", required=True)
     assert c.status is doctor.CheckStatus.ok
     assert c.detail == "/usr/bin/llama-server"

@@ -162,3 +162,25 @@ async def test_upstream_ready_paces_probes_and_forgives_jitter() -> None:
     assert await manager.ready()
     manager._ready_at = now - 60  # grace exhausted -> report the outage
     assert not await manager.ready()
+
+
+def test_resolve_binary_prefers_heims_own_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The MLX runtimes are heim extras, so they land in heim's own environment where a
+    # `uv tool install` exposes nothing on PATH. Look beside the interpreter first, so
+    # installing the extra "into heim" works without a global install.
+    from heim import runtime as runtime_mod
+
+    envbin = tmp_path / "bin"
+    envbin.mkdir()
+    (envbin / "python").write_text("")
+    tool = envbin / "mlx_lm.server"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    monkeypatch.setattr(runtime_mod.sys, "executable", str(envbin / "python"))
+    monkeypatch.setattr(runtime_mod.shutil, "which", lambda _n: None)  # nothing on PATH
+    assert runtime_mod.resolve_binary("mlx_lm.server") == str(tool)
+    assert runtime_mod.resolve_binary("absent-binary") is None
+
+    # A binary only on PATH is still found (the normal llama.cpp case).
+    monkeypatch.setattr(runtime_mod.shutil, "which", lambda _n: "/opt/homebrew/bin/llama-server")
+    assert runtime_mod.resolve_binary("llama-server") == "/opt/homebrew/bin/llama-server"

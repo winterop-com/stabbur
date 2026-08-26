@@ -8,7 +8,6 @@ binaries heim spawns (llama.cpp / MLX), the library location, what's in it, and
 the current project manifest.
 """
 
-import shutil
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -65,7 +64,7 @@ def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = T
         required: If missing, ``fail`` (a needed runtime) vs ``warn`` (optional).
         relevant: If false (e.g. MLX off Apple Silicon), report ``ok`` as N/A.
     """
-    path = shutil.which(binary)
+    path = runtime.resolve_binary(binary)
     if path is not None:
         return Check(name=name, status=CheckStatus.ok, detail=path)
     if not relevant:
@@ -73,7 +72,7 @@ def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = T
     return Check(
         name=name,
         status=CheckStatus.fail if required else CheckStatus.warn,
-        detail=f"{binary!r} not found on PATH",
+        detail=f"{binary!r} not found (checked heim's environment and PATH)",
         hint=runtime._INSTALL_HINTS.get(binary),
     )
 

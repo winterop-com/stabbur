@@ -8,7 +8,9 @@
 identically for GGUF and MLX.
 """
 
+import os
 import shutil
+import sys
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -120,6 +122,23 @@ def _early_exit_error(cmd: list[str], code: int | None, log_path: Path | None, p
 RuntimeProc = supervisor.RuntimeHandle
 
 
+def resolve_binary(name: str) -> str | None:
+    """Locate a runtime executable: heim's own environment first, then PATH.
+
+    The MLX runtimes are heim ``extras``, so `uv tool install -e ".[mlx]"` puts
+    ``mlx_lm.server`` in heim's tool environment — where uv exposes only heim's *own*
+    entry points, leaving the runtime off PATH. Looking beside the running interpreter
+    first means installing the extra "into heim" works without polluting a global PATH
+    (the same reason :func:`heim.tools._bin_dir` exists for the bundled MCP servers).
+
+    Returns the absolute path, or ``None`` when it is nowhere to be found.
+    """
+    own = Path(sys.executable).parent / name
+    if own.is_file() and os.access(own, os.X_OK):
+        return str(own)
+    return shutil.which(name)
+
+
 def start(model: LibraryModel) -> RuntimeProc:
     """Spawn the model's runtime server and return a handle — does NOT wait for readiness.
 
@@ -130,14 +149,23 @@ def start(model: LibraryModel) -> RuntimeProc:
         RuntimeError: If the runtime binary is missing.
     """
     binary = build_command(model, "127.0.0.1", 0)[0]
-    if shutil.which(binary) is None:
+    resolved = resolve_binary(binary)
+    if resolved is None:
         raise RuntimeError(f"{binary!r} not found on PATH. {_INSTALL_HINTS.get(binary, '')}".strip())
     debug = debug_enabled()
     if debug:
         _status_console.print(f"[dim]runtime →[/] {' '.join(build_command(model, '127.0.0.1', 0))}")
+
+    def _command(port: int) -> list[str]:
+        # Spawn the resolved path, not the bare name: it may live in heim's own environment
+        # rather than on PATH, which the child process would not search the same way.
+        cmd = build_command(model, "127.0.0.1", port)
+        cmd[0] = resolved
+        return cmd
+
     # Pinned port (if any) is honored; otherwise the supervisor auto-picks and retries on collision.
     handle = supervisor.spawn(
-        lambda port: build_command(model, "127.0.0.1", port),
+        _command,
         port=pinned_runtime_port(),
         stream_logs=debug,  # --debug: inherit stderr (live to terminal) instead of a log file
         name=model.name,

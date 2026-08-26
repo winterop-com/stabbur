@@ -16,7 +16,15 @@ from pathlib import Path
 # Runtime binaries heim spawns / shells out to, and how to install them per OS.
 # MLX is Apple-Silicon-only, so its hint is the same everywhere (an install hint
 # for a runtime that only exists on the Mac).
-_MLX_HINT = "Install the MLX runtimes: `uv sync --extra mlx` (Apple Silicon only)."
+# Two install shapes, because the right command depends on how heim itself was installed:
+# a dev checkout syncs its own venv, while a `uv tool install`ed heim needs the extra added
+# to the tool environment (heim finds runtimes there — see runtime.resolve_binary — so this
+# never requires a global install). Apple Silicon only; there are no MLX wheels elsewhere.
+_MLX_HINT = (
+    "Install the MLX runtimes (Apple Silicon only): in a heim checkout "
+    "`uv sync --extra mlx`; for an installed heim `uv tool install --force -e \".[mlx]\"` "
+    "from the checkout."
+)
 
 
 def is_macos() -> bool:
