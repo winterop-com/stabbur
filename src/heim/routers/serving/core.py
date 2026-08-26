@@ -267,6 +267,23 @@ def _pending_owners(prefix: str, routing: TargetRouting | None) -> list[str]:
     return sorted(tid for tid, prefixes in routing.explicit.items() if prefix in prefixes)
 
 
+_TOOLS_SHOWN = 3
+"""How many tool names a server's health row names before summarising the rest."""
+
+
+def _tool_summary(names: list[str]) -> str:
+    """Name a server's first few tools, then count the rest.
+
+    A bare "13 tool(s)" says how much a server brought without saying what any of it is, which is
+    no help to someone opening health to find out whether the thing they want is attached. The
+    names are what answer that; the tail is a count because the row is one line in a narrow
+    flyout, and the full list with its per-chat switches already lives in the chat settings panel.
+    """
+    shown = sorted(names)[:_TOOLS_SHOWN]
+    rest = len(names) - len(shown)
+    return ", ".join(shown) + (f", +{rest} more" if rest > 0 else "")
+
+
 def _mcp_checks(
     toolset: MCPToolset | None,
     bridge: MCPBridge | None = None,
@@ -291,13 +308,13 @@ def _mcp_checks(
     if toolset is None:
         return []
     checks: list[doctor.Check] = []
-    counts: dict[str, int] = {}
+    tools: dict[str, list[str]] = {}
     for schema in toolset.schemas:
-        server = schema["function"]["name"].split("__")[0]
-        counts[server] = counts.get(server, 0) + 1
-    for server, n in counts.items():
+        server, _, tool = schema["function"]["name"].partition("__")
+        tools.setdefault(server, []).append(tool or schema["function"]["name"])
+    for server, names in tools.items():
         checks.append(
-            doctor.Check(name=server, status=doctor.CheckStatus.ok, detail=f"{n} tool(s)", group=doctor.MCP_GROUP)
+            doctor.Check(name=server, status=doctor.CheckStatus.ok, detail=_tool_summary(names), group=doctor.MCP_GROUP)
         )
     error_labels = {label for label, _ in toolset.errors}
     for label, reason in toolset.errors:
