@@ -8,35 +8,35 @@ Desktop, Claude Code, and Cursor use, so a server's README snippet pastes straig
 It lives at two levels that **merge**:
 
 - **Global** — `~/.config/stabbur/mcp.json`, the machine-wide default toolset every chat
-  gets (what `stabbur setup` seeds and `stabbur mcp add --global` writes).
+  gets (what `sb setup` seeds and `sb mcp add --global` writes).
 - **Project** — `./.mcp.json` next to `stabbur.toml`, the assistant's own tools
-  (`stabbur mcp add`). A project entry overrides a global one of the same name.
+  (`sb mcp add`). A project entry overrides a global one of the same name.
 
 The bundled first-party `stabbur-mcp-*` servers (`datetime`, `utils`, `memory`,
 `weather-yr`, `search`, `files`, `git`, `exec`, `http`) are always available (base deps) and entered
 by package name. (The `benchmark` package is a dev tool and does *not* advertise itself
 as an assistant tool.) `stabbur.toml` does **not** carry tools.
 
-## Browse and add — `stabbur mcp`
+## Browse and add — `sb mcp`
 
-`stabbur mcp list` shows two groups: **installed plugins first** (first-party
+`sb mcp list` shows two groups: **installed plugins first** (first-party
 `stabbur-mcp-*` packages that stabbur controls — the recommended set, no external runtime),
 then an **external catalog** of third-party servers (DHIS2, `fetch`, `git`, `sqlite`,
 `filesystem`, …) as a fallback for tools stabbur doesn't ship yet. A `✓` marks a server
 already in the current project's `.mcp.json`.
 
 ```bash
-stabbur mcp list             # installed plugins, then external catalog (✓ = already in .mcp.json)
-stabbur mcp add utils        # add to this project's ./.mcp.json
-stabbur mcp add --global datetime   # add to the machine-global ~/.config/stabbur/mcp.json
-stabbur mcp add dhis2        # external server — prints a "setup:" hint when it needs config
-stabbur mcp remove utils     # drop it again (--global for the machine layer)
+sb mcp list             # installed plugins, then external catalog (✓ = already in .mcp.json)
+sb mcp add utils        # add to this project's ./.mcp.json
+sb mcp add --global datetime   # add to the machine-global ~/.config/stabbur/mcp.json
+sb mcp add dhis2        # external server — prints a "setup:" hint when it needs config
+sb mcp remove utils     # drop it again (--global for the machine layer)
 ```
 
-`stabbur mcp add` resolves the name against installed plugins first, then the external
+`sb mcp add` resolves the name against installed plugins first, then the external
 catalog, and writes an entry to `.mcp.json` (or the global file with `--global`).
 External commands may carry a placeholder (a path, a DHIS2 profile) — the `setup:` hint
-says what to edit. You can also pick plugin tools interactively in the `stabbur project init`
+says what to edit. You can also pick plugin tools interactively in the `sb project init`
 wizard, or write the JSON by hand:
 
 ### First-party servers
@@ -81,8 +81,8 @@ One heavier first-party server is **optional**:
   tries a cheap static HTTP GET first and only falls back to a **headless browser**
   (Playwright/Chromium) for JavaScript-rendered pages, so simple pages skip the browser.
   Because the browser is heavy, it's shipped as an extra: `make install-web` (or `uv sync
-  --extra web` then `playwright install chromium`) — `stabbur mcp list` shows it with that hint
-  even before it's installed. Once installed it advertises itself, so `stabbur mcp add web` wires
+  --extra web` then `playwright install chromium`) — `sb mcp list` shows it with that hint
+  even before it's installed. Once installed it advertises itself, so `sb mcp add web` wires
   it into a project. An SSRF guard refuses private/loopback hosts (the static and browser paths,
   and every browser subrequest); `STABBUR_WEB_ALLOW_PRIVATE=1` opts into internal hosts.
 
@@ -100,8 +100,8 @@ One heavier first-party server is **optional**:
 Several of these servers read environment variables that decide **what they can reach** —
 `STABBUR_FILES_ROOT` is the only directory the assistant can browse, `STABBUR_MCP_HTTP_ALLOWLIST` the
 only hosts it can fetch. Each server declares those variables, so the Tools panel in
-`stabbur serve --ui` shows the value **actually in force** on the server's card (an unset
-`STABBUR_FILES_ROOT` resolves to the directory `stabbur serve` was launched in — worth checking before
+`sb serve --ui` shows the value **actually in force** on the server's card (an unset
+`STABBUR_FILES_ROOT` resolves to the directory `sb serve` was launched in — worth checking before
 wondering why the assistant answered about the wrong project) and lets you change it there.
 
 The edit is written to the machine-global `~/.config/stabbur/mcp.json` as an `env` entry on the
@@ -117,7 +117,7 @@ server, exactly as if you had typed it:
 
 Two caveats the panel states rather than hides: a server has to be **switched on** before it can be
 configured (its settings live in that entry), and a server that is **already running** keeps the
-environment it was started with — the change is saved but needs a `stabbur serve` restart. A server
+environment it was started with — the change is saved but needs a `sb serve` restart. A server
 switched on by a project's own `.mcp.json` is edited there; stabbur never rewrites a project file from
 the web UI.
 
@@ -140,8 +140,8 @@ uv tool install dhis2w-mcp            # full — for a big-context model
 uv tool install dhis2w-mcp-bridge     # bridge — for a smaller model
 ```
 
-Then add it to a project's `.mcp.json` (`stabbur mcp add dhis2`, or select it in
-`stabbur project init`). For a big model:
+Then add it to a project's `.mcp.json` (`sb mcp add dhis2`, or select it in
+`sb project init`). For a big model:
 
 ```json
 {
@@ -152,7 +152,7 @@ Then add it to a project's `.mcp.json` (`stabbur mcp add dhis2`, or select it in
 ```
 
 For a smaller model, swap in the bridge — `"command": "dhis2w-mcp-bridge"`.
-`stabbur serve --ui` (or `stabbur chat`) in that directory then binds the model with the
+`sb serve --ui` (or `sb chat`) in that directory then binds the model with the
 DHIS2 tools available.
 
 ### Selecting the target server (profiles)

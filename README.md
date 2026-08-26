@@ -20,17 +20,23 @@ them into a single library (browse via a **Typer CLI** or a **browser chat UI**)
 and runs them from there. The library lives under one configurable root you point
 at an external drive (e.g. a 5TB drive).
 
-**Short form.** Every command is also available as `sb` — `sb chat`, `sb serve`, `sb library ls`.
+**`sb` is `stabbur`.** Both names run the same app — `sb chat` is `stabbur chat`. These docs
+use the short form throughout; use whichever you prefer.
 
 **The name.** A *stabbur* is the Norwegian storehouse — raised on pillars, off the ground and
 out of the damp, where a household kept what it had gathered and wanted to keep. That is what this
 is: your models, pulled in from wherever they came from and kept somewhere of your own, on your own
 box, rather than in someone else's cloud.
 
+The web UI is the **Loft** — the storehouse's upper floor, reached by its own ladder, where what
+was worth keeping was actually kept and looked over. The CLI fills the store; the loft is where you
+go in and use it.
+
 > **Proprietary, source-available.** stabbur is not open-source. Copyright (c) 2026 Morten
 > Hansen, all rights reserved (see [`LICENSE`](LICENSE)). The source is published for
 > reference and evaluation; running it requires a written license — contact
-> <morten@winterop.com>. Install is from source with `uv` (there is no `pip install stabbur`).
+> <morten@winterop.com>. Published on PyPI so it can be run with `uvx`; the licence still
+> governs use.
 
 ![stabbur web UI](https://raw.githubusercontent.com/winterop-com/stabbur/main/docs/assets/web-ui.png)
 
@@ -60,7 +66,7 @@ make install-mlx              # optional: MLX runtimes (Apple Silicon)
 uv sync --extra voice         # optional: mlx-audio runtimes (Dia/Whisper, Apple Silicon)
 make frontend                 # optional: build the web UI (needs Bun)
 export STABBUR_LIBRARY_ROOT=/path/to/your/library   # required: where your library lives
-stabbur doctor                   # verify what's installed
+sb doctor                   # verify what's installed
 ```
 
 **Point stabbur at a library.** stabbur won't guess a location — set `STABBUR_LIBRARY_ROOT`
@@ -76,30 +82,29 @@ uv tool install "git+https://github.com/winterop-com/stabbur" # or straight from
 ```
 
 Only `uv sync` + llama.cpp are needed to run GGUF models; the rest are optional.
-The `benchmark` extra adds the `stabbur benchmark` eval command; drop it if you don't need it.
+The `benchmark` extra adds the `sb benchmark` eval command; drop it if you don't need it.
 See [getting started](docs/getting-started.md) for details.
 
-stabbur is installed **from source** (`uv sync` / `uv tool install -e .`), not from PyPI. It builds
-as a single self-contained wheel — the bundled first-party MCP servers are vendored into the `stabbur`
-package (`src/stabbur/mcp_servers/*`) rather than published as separate packages — but stabbur is
-proprietary/source-available and is not distributed on PyPI.
+stabbur ships as a single self-contained wheel — the bundled first-party MCP servers are vendored
+into the `stabbur` package (`src/stabbur/mcp_servers/*`) rather than published alongside it — so
+there is nothing else to install.
 
 ## CLI
 
 ```bash
-stabbur library ls                     # your library (the models on your drive)
-stabbur library sources                # models in app caches (HF/Ollama/LM Studio) you could pull
-stabbur library pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
-stabbur library pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
-stabbur doctor                         # pre-flight: runtimes, library, project
-stabbur serve --ui                     # browse + chat in the browser (Chat · Voice · Library)
-stabbur chat gemma-4-12B-it-QAT-GGUF -p "hi"             # one-shot, scriptable
-stabbur chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
-stabbur voice ls                       # voice models (TTS/STT) in the library
-stabbur voice import --all             # import known voice models to the library
-stabbur voice speak -v af_heart "hello there"           # text-to-speech (Kokoro)
-stabbur voice speak --model dia --seed 10 "hi there"    # Dia (pin a seed for a stable voice)
-stabbur project init                   # scaffold a project assistant (model + tools + prompt)
+sb library ls                     # your library (the models on your drive)
+sb library sources                # models in app caches (HF/Ollama/LM Studio) you could pull
+sb library pull lmstudio lmstudio-community/gemma-4-12B-it-QAT-GGUF
+sb library pull ollama gemma4:31b --move   # copy to the library, then delete the local copy
+sb doctor                         # pre-flight: runtimes, library, project
+sb serve --ui                     # browse + chat in the browser (Chat · Voice · Library)
+sb chat gemma-4-12B-it-QAT-GGUF -p "hi"             # one-shot, scriptable
+sb chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
+sb voice ls                       # voice models (TTS/STT) in the library
+sb voice import --all             # import known voice models to the library
+sb voice speak -v af_heart "hello there"           # text-to-speech (Kokoro)
+sb voice speak --model dia --seed 10 "hi there"    # Dia (pin a seed for a stable voice)
+sb project init                   # scaffold a project assistant (model + tools + prompt)
 ```
 
 **Two model families:** **Chat** (language models you talk to — text in/out; some
@@ -122,8 +127,8 @@ OpenAI-compatible `/v1` — a `llama-server` in router mode on a workstation, an
 server, anything that speaks the protocol:
 
 ```bash
-stabbur serve --ui --upstream http://msai:1234/v1   # web UI here, models there
-stabbur chat --server http://msai:1234/v1           # same, from the terminal
+sb serve --ui --upstream http://msai:1234/v1   # web UI here, models there
+sb chat --server http://msai:1234/v1           # same, from the terminal
 ```
 
 The agent loop, tools, confirm gate, chat history, and UI all run locally; only generation
@@ -132,7 +137,7 @@ evicts it — useful when the far end holds one model at a time.
 
 ## API
 
-`stabbur serve` exposes an OpenAI-compatible surface plus browse/voice endpoints:
+`sb serve` exposes an OpenAI-compatible surface plus browse/voice endpoints:
 `/api/status`, `/api/library`, `/api/voice`, `/api/chat` (tool-aware SSE),
 `/v1/*` (proxied to the loaded model), and `/v1/audio/speech` +
 `/v1/audio/transcriptions`. See the [web UI guide](docs/guides/web-ui.md) for the
@@ -141,11 +146,11 @@ full endpoint table and the single-origin proxy design.
 ## Chrome side panel & the DHIS2 assistant
 
 stabbur ships an **MV3 Chrome side panel** (`extension/`, built with WXT) — a thin client for
-a local or remote `stabbur serve` that puts your own model + tools next to any page. It builds
+a local or remote `sb serve` that puts your own model + tools next to any page. It builds
 in two flavors from one codebase: the generic **stabbur** panel and **stabbur for DHIS2**
 (`STABBUR_FLAVOR=dhis2`).
 
-Pointed at a DHIS2 project (`stabbur project new --template dhis2`), it becomes the north-star
+Pointed at a DHIS2 project (`sb project new --template dhis2`), it becomes the north-star
 assistant: chat grounded in the page you are viewing, a target banner (verify + tab
 match/mismatch), and **"Use my login"** — mint a read-only, GET-scoped Personal Access Token
 in the DHIS2 tab's own security context and hand it to stabbur once, so the tools act as *you*
@@ -154,7 +159,7 @@ leaves the box.
 
 ```bash
 cd extension && bun install && bun run build          # -> extension/.output/chrome-mv3(-dhis2)
-# chrome://extensions -> Load unpacked -> the built dir; then `stabbur serve` and open the panel
+# chrome://extensions -> Load unpacked -> the built dir; then `sb serve` and open the panel
 ```
 
 See the [Chrome side panel guide](docs/guides/extension.md) and
@@ -173,9 +178,9 @@ Two separate concepts:
   export STABBUR_LIBRARY_ROOT=/path/to/your/library     # e.g. a mounted external drive
   ```
 
-- **A project** (`stabbur.toml`, via `stabbur project init` / `stabbur project new <dir>`) — a
+- **A project** (`stabbur.toml`, via `sb project init` / `sb project new <dir>`) — a
   purpose-built **assistant**: `[project].model` + `system_prompt`, with tools in a sibling
-  `.mcp.json` (standard `mcpServers`). In a project, `stabbur serve` / `stabbur chat` bind to that
+  `.mcp.json` (standard `mcpServers`). In a project, `sb serve` / `sb chat` bind to that
   model (like `--model`, with its tools + prompt); **outside** a project it's free-play
   (pick/switch any model). A project uses the machine library by default.
 

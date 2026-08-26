@@ -9,9 +9,10 @@
 
 ## Install
 
-stabbur installs **from source with [uv](https://docs.astral.sh/uv/)** — it is not published on
-PyPI, so there is no `pip install stabbur`. Everything below uses `uv`. You need **Python 3.13**
-and access to the stabbur repository.
+The quickest way in is `uvx stabbur` — no install, no checkout. Everything below uses
+[uv](https://docs.astral.sh/uv/) and needs **Python 3.13**.
+
+`stabbur` and `sb` are the same command; these docs use the short form.
 
 ### 1. stabbur itself
 
@@ -24,7 +25,7 @@ uv tool install --editable ".[mlx,voice,tts,benchmark]"   # stabbur on your PATH
 ```
 
 Pick only the extras you need — `mlx` and `voice` are Apple-Silicon runtimes, `tts` adds
-Kokoro dependencies, `benchmark` adds the `stabbur benchmark` eval command. On Linux, drop
+Kokoro dependencies, `benchmark` adds the `sb benchmark` eval command. On Linux, drop
 `mlx`/`voice` (no wheels). You can also install straight from git without a manual clone
 (requires repo access; installs the core CLI, non-editable):
 
@@ -43,7 +44,7 @@ uv run stabbur doctor            # run any command with `uv run stabbur …`
 Either way you get the **`stabbur`** command (with a hidden `ls` alias for `list`) plus the
 bundled first-party MCP tool servers (`datetime`, `files`, `memory`, …), so tools work out of
 the box. Use `make install` (= `uv sync --extra benchmark`) for a dev sync that includes the
-`stabbur benchmark` eval command.
+`sb benchmark` eval command.
 
 stabbur is installed **from this workspace**, not as a standalone PyPI wheel — the bundled
 `stabbur-mcp-*` servers are unpublished workspace members that resolve as editable siblings, so
@@ -84,19 +85,19 @@ The browser UI is built from source (**[Bun](https://bun.sh)** required); it isn
 make frontend        # bun install + build -> frontend/dist
 ```
 
-Then run `stabbur serve --ui`. Skip this if you only use the CLI.
+Then run `sb serve --ui`. Skip this if you only use the CLI.
 
 ### Set up this machine
 
 ```bash
-stabbur setup           # first-run: sets the library location + a default model, builds the UI
-stabbur doctor          # or just check runtimes, library, and the current project
+sb setup           # first-run: sets the library location + a default model, builds the UI
+sb doctor          # or just check runtimes, library, and the current project
 ```
 
-`stabbur setup` is the write-mode companion to `stabbur doctor`: it persists per-machine
+`sb setup` is the write-mode companion to `sb doctor`: it persists per-machine
 defaults (see below), builds the browser UI if [Bun](https://bun.sh) is present, and
 prints an OS-specific hint for anything it can't install (the llama.cpp binary). It's
-safe to re-run. Prefer to do it by hand? Everything it writes is a `stabbur config` call.
+safe to re-run. Prefer to do it by hand? Everything it writes is a `sb config` call.
 With no drive mounted, its fallback library location is the XDG data dir
 (`~/.local/share/stabbur/library`); point it at your external drive when you have one.
 
@@ -109,12 +110,12 @@ The library location is the `library_root` setting. The simplest way to set it
 per machine — no shell edits — is the **machine config**:
 
 ```bash
-stabbur config set library-root /path/to/your/library   # -> ~/.config/stabbur/config.toml
-stabbur config set model lmstudio-community/gemma-4-12B-it-QAT-GGUF   # default model outside a project
+sb config set library-root /path/to/your/library   # -> ~/.config/stabbur/config.toml
+sb config set model lmstudio-community/gemma-4-12B-it-QAT-GGUF   # default model outside a project
 ```
 
 A **project** can instead pin its own library + model in **`stabbur.toml`** (run
-`stabbur project init` to scaffold one; see [stabbur.toml.example](https://github.com/winterop-com/stabbur/blob/main/stabbur.toml.example)):
+`sb project init` to scaffold one; see [stabbur.toml.example](https://github.com/winterop-com/stabbur/blob/main/stabbur.toml.example)):
 
 ```toml
 # stabbur.toml
@@ -135,11 +136,11 @@ See [The library](guides/library.md) for storage notes.
 ## First run
 
 ```bash
-stabbur library ls                                   # your library (empty at first)
-stabbur library sources                                # models in app caches you could pull
-stabbur library pull lmstudio lmstudio-community/...    # pull one into the library
-stabbur library ls                                   # now it's in your library
-stabbur serve --ui                             # browse + chat in the browser
+sb library ls                                   # your library (empty at first)
+sb library sources                                # models in app caches you could pull
+sb library pull lmstudio lmstudio-community/...    # pull one into the library
+sb library ls                                   # now it's in your library
+sb serve --ui                             # browse + chat in the browser
 ```
 
 Then explore: [Pulling models](guides/pulling.md) ·

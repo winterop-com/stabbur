@@ -367,7 +367,9 @@ export function Composer({
             void addFiles(files);
           }}
           rows={1}
-          placeholder={ready ? "Message stabbur…" : "Select a model to start"}
+          // Not "Message stabbur": you are not talking to the app, you are talking to whichever
+          // model is loaded - and the row below already names it, so repeating it here is noise.
+          placeholder={ready ? "Ask anything…" : "Select a model to start"}
           className="max-h-[200px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>

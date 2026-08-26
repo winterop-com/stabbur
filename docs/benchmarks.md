@@ -3,7 +3,7 @@
 How local models score on stabbur's coding and tool-use benchmarks. Each cell is the
 percentage of problems fully passed (a problem passes only if every check passes).
 
-Regenerate with `stabbur benchmark leaderboard` after `stabbur benchmark run ... --save`.
+Regenerate with `sb benchmark leaderboard` after `sb benchmark run ... --save`.
 
 | Rank | Model | python | rust | tools-datetime | tools-dhis2 | tools-dhis2-write | tools-utils | Overall |
 |---|---|---|---|---|---|---|---|---|

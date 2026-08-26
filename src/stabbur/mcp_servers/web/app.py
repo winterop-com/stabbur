@@ -179,11 +179,15 @@ async def _get_browser() -> Browser:
     async with _browser_lock:
         if _browser is not None and _browser.is_connected():
             return _browser
-        _playwright = await async_playwright().start()
+        # Bind the started Playwright locally: a type checker cannot narrow a module-level global
+        # across an await (another task may reassign it), so `_playwright.chromium` reads as
+        # possibly-None. The local also keeps the cleanup below on the object we actually started.
+        playwright = await async_playwright().start()
+        _playwright = playwright
         try:
-            _browser = await _playwright.chromium.launch(headless=True)
+            _browser = await playwright.chromium.launch(headless=True)
         except Exception as exc:  # noqa: BLE001 - most likely the browser isn't installed
-            await _playwright.stop()
+            await playwright.stop()
             _playwright = None
             raise ValueError(
                 f"could not launch Chromium ({exc}). Install it once with `playwright install chromium`."

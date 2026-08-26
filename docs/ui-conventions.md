@@ -8,7 +8,7 @@ to a sibling app unchanged. stabbur's visual family is
 disagree, this page is stabbur's answer and the reasoning is stated, because the
 sibling is a codebase, not a specification.
 
-Scope: `frontend/` (the SPA served by `stabbur serve --ui`). See
+Scope: `frontend/` (the SPA served by `sb serve --ui`). See
 [Not yet swept](#not-yet-swept) for what this does not cover.
 
 ---
@@ -185,7 +185,7 @@ Four separate reports of the same fault, all fixed the same way:
   — and the model governs the next message, so it belongs beside the box that
   message is typed into. The pill is gone.
 - The **status sentence** (backend, model count, tool count) was a line across the
-  status bar, and every fact in it was already a row in `stabbur doctor`, which the
+  status bar, and every fact in it was already a row in `sb doctor`, which the
   health menu renders. A hand-written copy of a list that maintains itself can only
   drift. The bar states none of them now.
 
@@ -214,7 +214,7 @@ the divider inset 48px from it rather than hugging it.
 nothing at all, and that is the finished state rather than a gap to fill: the
 frame closes the window, the Settings segment continues the rail's column past its
 foot, and the facts live where they are maintained. The single exception is the
-one thing no other surface can report — "Not connected to a stabbur server", which is
+one thing no other surface can report — "Not connected to a sb server", which is
 an alarm, not a readout, and which the health menu cannot show because a server
 that is down does not answer `/api/doctor` either.
 

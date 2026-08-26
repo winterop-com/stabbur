@@ -19,6 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { StabburMark } from "@/components/StabburMark";
 import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -145,8 +146,12 @@ export function Sidebar({
     // against exactly this ground, so the rail has to actually be it for them to land as designed.
     <aside className="flex h-full w-full min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-3 py-3">
-        {/* Lowercase, as the brand is spelled everywhere else: CLI, README, composer placeholder. */}
-        <span className="px-1 text-sm font-semibold tracking-tight">stabbur</span>
+        {/* The narrow rail and small screens get the bare brand; there is no room for both words. */}
+        <span className="flex items-center gap-1.5 px-1 text-sm font-semibold tracking-tight">
+          <StabburMark className="h-5 w-5 shrink-0 text-brand" />
+          <span className="md:hidden">Stabbur</span>
+          <span className="hidden md:inline">Stabbur Loft</span>
+        </span>
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>

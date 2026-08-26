@@ -16,7 +16,7 @@ smaller local model.
     Everything below is scaffolded by a single template:
 
     ```bash
-    stabbur project new mydhis2 --template dhis2 --copy --git
+    sb project new mydhis2 --template dhis2 --copy --git
     ```
 
     That presets the model (`Ornith-1.0-9B`, the [benchmark](model-catalog.md) winner), a
@@ -46,13 +46,13 @@ smaller local model.
 
 ## 1. Scaffold the project with a local model copy
 
-`stabbur project new <dir>` runs an interactive wizard. `--model` skips the model
+`sb project new <dir>` runs an interactive wizard. `--model` skips the model
 picker; `--copy` (alias `--local`) copies the chosen model **into the project's own
 `library/`** instead of relying on the shared library — that is what makes the
 project portable.
 
 ```bash
-stabbur project new dhis2 \
+sb project new dhis2 \
   --model lmstudio-community/gemma-4-12B-it-QAT-GGUF \
   --copy \
   --git
@@ -114,13 +114,13 @@ retarget later, swap `play42` for another profile name (e.g. `play43`) — no ot
 
 ## 3. Verify the tool wiring
 
-`stabbur project show` (run inside `dhis2/`) prints the resolved model and **spawns the
+`sb project show` (run inside `dhis2/`) prints the resolved model and **spawns the
 MCP servers to list their real tools** — so it confirms the bridge connects before
 you ever load the model:
 
 ```bash
 cd dhis2
-stabbur project show
+sb project show
 ```
 
 ```
@@ -134,8 +134,8 @@ You can also list installed plugin servers (the bridge is a project MCP, not a
 plugin, so it won't appear here) with either spelling:
 
 ```bash
-stabbur mcp list      # or the alias:
-stabbur mcp ls
+sb mcp list      # or the alias:
+sb mcp ls
 ```
 
 ## 4. Try it — the model calls the tool
@@ -145,7 +145,7 @@ connects the bridge, and runs the agent loop: the model emits a `dhis2_cli` tool
 call, stabbur executes it against `play42`, and feeds the result back:
 
 ```bash
-stabbur chat -p "What DHIS2 version is the server running, and what is the system name? Use your dhis2 tool to check, don't guess."
+sb chat -p "What DHIS2 version is the server running, and what is the system name? Use your dhis2 tool to check, don't guess."
 ```
 
 ```
@@ -156,11 +156,11 @@ The DHIS2 server is running version 2.42.6-SNAPSHOT, and the system name is
 DHIS 2 Demo - Sierra Leone.
 ```
 
-For the interactive TUI (or the browser), run `stabbur chat` or `stabbur serve --ui` in the
+For the interactive TUI (or the browser), run `sb chat` or `sb serve --ui` in the
 same directory — both bind to the project's model with the DHIS2 tool available.
 
 !!! tip "Next to a live DHIS2 tab"
-    Scaffold from the **`dhis2` template** (`stabbur project new mydhis2 --template dhis2`) to also
+    Scaffold from the **`dhis2` template** (`sb project new mydhis2 --template dhis2`) to also
     get an `[assistant]` block, then serve it on a pinned port and drive it from the
     [Chrome side panel](extension.md): a target banner that confirms your active tab matches the
     instance, **Verify**, **Who am I here?**, and **Use my login** to let the tools act as you
@@ -170,8 +170,8 @@ same directory — both bind to the project's model with the DHIS2 tool availabl
 
 | Step | Command |
 | --- | --- |
-| Scaffold + copy model | `stabbur project new dhis2 --model …gemma-4-12B-it-QAT-GGUF --copy` |
+| Scaffold + copy model | `sb project new dhis2 --model …gemma-4-12B-it-QAT-GGUF --copy` |
 | Attach bridge | add a `.mcp.json` entry: `uvx dhis2w-mcp-bridge` with `env.DHIS2_PROFILE=play42` |
-| Verify tools | `stabbur project show` |
-| Try it | `stabbur chat -p "…"` (or `stabbur serve --ui`) |
+| Verify tools | `sb project show` |
+| Try it | `sb chat -p "…"` (or `sb serve --ui`) |
 | Retarget server | change the profile name in the `env` prefix |

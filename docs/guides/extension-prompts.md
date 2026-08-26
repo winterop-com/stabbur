@@ -11,7 +11,7 @@ reality.
 ## How to use
 
 1. Install and open the side panel (see the [Chrome side panel](extension.md) guide).
-2. Point it at a running `stabbur serve` (Settings -> stabbur base URL).
+2. Point it at a running `sb serve` (Settings -> stabbur base URL).
 3. Turn on **Page context** (the pill in the composer, or the Settings checkbox). This
    attaches the page URL, title, and your current text selection to the next message.
 4. For whole-page tasks, also turn on **Page text** (the second pill / the "Include full
@@ -303,7 +303,7 @@ model by the harness in `extension/e2e/prompts/`:
 - **Replay** (`replay.ts` + `context.ts`): the harness reuses the extension's own
   `formatPageContext` to build the context block (a `format-parity.spec.ts` unit test
   guards that they stay identical), prepends it to the prompt, and POSTs to `/api/chat`
-  with `use_tools=false` and a low temperature against a locked-model `stabbur serve`.
+  with `use_tools=false` and a low temperature against a locked-model `sb serve`.
 - **Assert** (`checks.ts`): each prompt has a mechanical check - JSON parse + shape +
   item count, Markdown table header/row counts, CSV column counts, keyword/regex
   presence, the honesty refusal, or summary length/bullet bounds.
@@ -316,7 +316,7 @@ model by the harness in `extension/e2e/prompts/`:
 make extension-prompts
 ```
 
-This captures the sites, starts a `stabbur serve` locked to `gemma-4-12B`, replays every
+This captures the sites, starts a `sb serve` locked to `gemma-4-12B`, replays every
 prompt, writes `extension/e2e/prompts/results/` (git-ignored: `results.json` + per-prompt
 raw outputs under `outputs/`), and regenerates the table above. Use
 `STABBUR_PROMPT_BASE_URL=http://127.0.0.1:PORT bun run prompts --no-capture` (from

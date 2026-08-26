@@ -1,7 +1,7 @@
 # Chrome side panel
 
 The stabbur **side panel** puts your local model — and its tools — next to every page
-you browse. It is a thin Chrome MV3 client for a running `stabbur serve`: stabbur owns the
+you browse. It is a thin Chrome MV3 client for a running `sb serve`: stabbur owns the
 model, the agent loop, and the MCP tools; the panel just renders the chat and streams
 the answer. It is the same chat UI the web app ships (one SPA, wrapped as a side
 panel), so Markdown, code highlighting, and tool-call chips all behave identically.
@@ -14,7 +14,7 @@ dashboard — with page context on so your question is grounded in the page.</fi
 
 It works with **any** stabbur backend:
 
-- a **generic** `stabbur serve` (pick-a-model free-play, or a locked single model), or
+- a **generic** `sb serve` (pick-a-model free-play, or a locked single model), or
 - a **project assistant** — a `stabbur.toml` with an `[assistant]` block, such as the
   [`dhis2` template](projects.md#templates) — which adds the target banner, session
   probes, and the "Use my login" bind flow shown below.
@@ -40,7 +40,7 @@ cd extension && bun run build:dhis2 # DHIS2   -> extension/.output/chrome-mv3-dh
 Then load it — pick `.output/chrome-mv3` for the generic panel or
 `.output/chrome-mv3-dhis2` to sit next to your DHIS2 work:
 
-1. Start a stabbur server on a **pinned port**, e.g. `stabbur serve --ui --port 2222`.
+1. Start a sb server on a **pinned port**, e.g. `sb serve --ui --port 2222`.
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. **Load unpacked** -> select `extension/.output/chrome-mv3` (or
    `extension/.output/chrome-mv3-dhis2`).
@@ -50,9 +50,9 @@ For the full DHIS2 experience (target banner, Verify, Use my login), serve a pro
 scaffolded from the dhis2 template instead of a bare model:
 
 ```bash
-stabbur project new --template dhis2 myassistant && cd myassistant
+sb project new --template dhis2 myassistant && cd myassistant
 mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo credentials
-stabbur serve --port 2222
+sb serve --port 2222
 ```
 
 ### Allow the extension (cors_origins)
@@ -62,7 +62,7 @@ Read-only traffic (status, tools, chat streaming) works immediately. Mutating re
 extension's origin. An unpacked extension's id is derived per machine, so it differs on
 every checkout; the panel's **Settings** shows *your* exact id with a copy button, and
 the connection gate detects the 403 symptom and hints the fix. Add the line to your
-stabbur config and restart `stabbur serve`:
+sb config and restart `sb serve`:
 
 ```toml
 cors_origins = ["chrome-extension://<your-extension-id>"]
@@ -203,7 +203,7 @@ The happy path mints a **personal access token** entirely in the tab's own conte
 1. Log in to the instance in a normal tab.
 2. Click **Use my login**, then **Create token** on the consent card.
 3. The panel mints a scoped PAT — **GET-only** for a read-only assistant — with a
-   30-day expiry, stores it in the stabbur project's profile, and shows an **Acting as
+   30-day expiry, stores it in the sb project's profile, and shows an **Acting as
    \<you\> (your login)** chip.
 
 ![Bound state: an Acting as admin (your login) chip with Rebind and Unbind](../img/extension/06-bind-acting-as.png)
@@ -261,14 +261,14 @@ write.
 
     ![The same confirmation auto-denied after the timeout, model continuing](../img/extension/11-confirm-declined.png)
 
-The non-interactive one-shot (`stabbur chat -p`) has no card to click, so it **fail-safe-denies
+The non-interactive one-shot (`sb chat -p`) has no card to click, so it **fail-safe-denies
 every write** unless you pass `--allow-writes` — an explicit opt-in for scripted runs.
 
 ## Troubleshooting
 
 | Symptom | Cause & fix |
 | --- | --- |
-| **403 on load / "cross-site guard"** | The extension origin isn't allowed. Add `cors_origins = ["chrome-extension://<your-id>"]` (the gate and Settings show the exact line) and restart `stabbur serve`. |
+| **403 on load / "cross-site guard"** | The extension origin isn't allowed. Add `cors_origins = ["chrome-extension://<your-id>"]` (the gate and Settings show the exact line) and restart `sb serve`. |
 | **401 / token prompt** | The server requires auth. Paste the `auth_token` into Settings (Access token); the panel prompts for it automatically. |
 | **Every call 404s** | A trailing slash in the base URL (`.../`) — the panel normalizes it on save, so re-save the backend. |
 | **"No model is loaded" / stuck loading** | A locked project has a model but it isn't running: click **Load \<model\>**. A cold start can take a while (a `409`/loading state is expected); it flips to ready on the next status poll. |
@@ -279,7 +279,7 @@ every write** unless you pass `--allow-writes` — an explicit opt-in for script
 
 !!! info "Regenerating the screenshots"
     The panel-detail images (`NN-*.png`, `01`-`11`) are generated headlessly against mock
-    backends (no real `stabbur serve`, ephemeral ports, a pinned light-theme viewport) using
+    backends (no real `sb serve`, ephemeral ports, a pinned light-theme viewport) using
     the DHIS2-flavored build. `09`-`11` cover the write flow: the "Allow writes" bind
     consent, the mid-chat Approve/Deny confirmation card (pending), and the same card
     auto-denied on timeout. The **hero composites** (`hero-*.png`) join two real

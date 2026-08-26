@@ -296,6 +296,23 @@ async function mockHero2Panel(
   }
 }
 
+/**
+ * Open the bind consent card.
+ *
+ * The card is BOTH auto-offered and manually triggerable: once it auto-offers, TargetBanner
+ * unmounts the "Use my login" button (it renders only while `!showBindFlow`). A script that
+ * waits for the button and clicks it some seconds later therefore races - the button is visible
+ * at the wait and gone by the click. Click it only if it is still there, then wait for the card
+ * either way.
+ */
+async function openBindConsent(panel: Page): Promise<void> {
+  const trigger = panel.getByTestId("bind-use-my-login");
+  if (await trigger.isVisible().catch(() => false)) {
+    await trigger.click().catch(() => {});
+  }
+  await panel.getByTestId("bind-consent").waitFor({ timeout: 15_000 });
+}
+
 async function main(): Promise<void> {
   const extPath = existsSync(DHIS2_EXTENSION_PATH) ? DHIS2_EXTENSION_PATH : EXTENSION_PATH;
   if (!existsSync(extPath)) {
@@ -401,15 +418,17 @@ async function main(): Promise<void> {
         const tab = await context.newPage();
         await tab.goto(`${target.baseUrl()}/dhis`);
         await tab.bringToFront();
-        await panel.getByTestId("bind-use-my-login").waitFor({ timeout: 15_000 });
+        await panel
+          .locator('[data-testid="bind-use-my-login"], [data-testid="bind-consent"]')
+          .first()
+          .waitFor({ timeout: 15_000 });
         await panel.getByText(TAB_MATCHED).waitFor({ timeout: 15_000 });
         await expandTarget(panel);
         await panel.getByRole("button", { name: "Who am I here?" }).click();
         await panel.getByText(/Admin User/).waitFor({ timeout: 15_000 });
         await snap(panel, "04-target-unbound");
 
-        await panel.getByTestId("bind-use-my-login").click();
-        await panel.getByTestId("bind-consent").waitFor({ timeout: 10_000 });
+        await openBindConsent(panel);
         await panel.getByText(/read-only \(GET\)/).waitFor({ timeout: 10_000 });
         await snap(panel, "05-bind-consent");
 
@@ -498,9 +517,7 @@ async function main(): Promise<void> {
         const tab = await context.newPage();
         await tab.goto(`${target.baseUrl()}/dhis`);
         await tab.bringToFront();
-        await panel.getByTestId("bind-use-my-login").waitFor({ timeout: 15_000 });
-        await panel.getByTestId("bind-use-my-login").click();
-        await panel.getByTestId("bind-consent").waitFor({ timeout: 10_000 });
+        await openBindConsent(panel);
         // Enable writes: the consent copy flips to "read-write" (mints the full-method PAT).
         await panel.getByTestId("bind-allow-writes").check();
         await panel.getByText(/read-write/).waitFor({ timeout: 10_000 });
@@ -729,10 +746,12 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
         const tab = await context.newPage();
         await tab.goto(`${target.baseUrl()}/dhis`);
         await tab.bringToFront();
-        await panel.getByTestId("bind-use-my-login").waitFor({ timeout: 15_000 });
+        await panel
+          .locator('[data-testid="bind-use-my-login"], [data-testid="bind-consent"]')
+          .first()
+          .waitFor({ timeout: 15_000 });
         await panel.getByText(TAB_MATCHED).waitFor({ timeout: 15_000 });
-        await panel.getByTestId("bind-use-my-login").click();
-        await panel.getByTestId("bind-consent").waitFor({ timeout: 10_000 });
+        await openBindConsent(panel);
         await panel.getByText(/read-only \(GET\)/).waitFor({ timeout: 10_000 });
         const panelPng = path.join(scratchDir, "panel-hero-3.png");
         await snapTo(panel, panelPng);

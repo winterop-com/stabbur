@@ -10,7 +10,7 @@ drive). A [project](../guides/projects.md) can compose more libraries in front o
 it. List what's in scope with:
 
 ```bash
-stabbur library ls
+sb library ls
 ```
 
 ## Layout
@@ -32,7 +32,7 @@ Both Hugging Face and LM Studio pulls land in the **format** bucket (`gguf/`, `m
 
 !!! tip "Migrating an older library"
     Libraries built before this used `huggingface/<repo>`. Reorganize them into the format
-    buckets with `stabbur library migrate` — a dry-run prints the plan; `--apply` performs it (a
+    buckets with `sb library migrate` — a dry-run prints the plan; `--apply` performs it (a
     same-drive rename per model, and it removes any copy already duplicated in a bucket).
 
 The scanner finds runnable models **anywhere** under the root (any directory with
@@ -51,8 +51,8 @@ Each model's card (its README) is what the UI/CLI info panel shows. Hugging Face
 some LM Studio downloads (and older pulls) don't. Backfill the missing ones:
 
 ```bash
-stabbur library cards            # fetch a missing README from HF into each model's .stabbur/ sidecar
-stabbur library cards --refresh  # re-fetch even models that already have a card
+sb library cards            # fetch a missing README from HF into each model's .stabbur/ sidecar
+sb library cards --refresh  # re-fetch even models that already have a card
 ```
 
 It infers the HF repo from the model's `<publisher>/<repo>` name, is idempotent (skips models that
@@ -63,13 +63,13 @@ generated card (built from the manifest).
 
 The library keeps **one canonical copy** per `(model, format)`. Some runtimes read
 a loose GGUF/MLX in place (LM Studio, llama.cpp), but **Ollama** keeps a
-content-addressed blob store and needs the GGUF *imported* first. `stabbur library
+content-addressed blob store and needs the GGUF *imported* first. `sb library
 install` feeds it from the canonical copy, so the drive stays the single source of
 truth and the Ollama copy is regenerable:
 
 ```bash
-stabbur library install Qwen3.5-4B-GGUF            # → ollama create qwen3.5-4b
-stabbur library install Qwen3.5-4B-GGUF --name qwen-fast --system "Be terse."
+sb library install Qwen3.5-4B-GGUF            # → ollama create qwen3.5-4b
+sb library install Qwen3.5-4B-GGUF --name qwen-fast --system "Be terse."
 ollama run qwen3.5-4b
 ```
 
@@ -83,8 +83,8 @@ and `mlx/<publisher>/<repo>/` buckets already match LM Studio's layout — so it
 just a pointer:
 
 ```bash
-stabbur library install Qwen3.5-4B-GGUF --to lmstudio      # symlink into LM Studio's models dir
-stabbur library install gemma-4-26B-A4B-MLX --to lmstudio  # MLX works too (--format to disambiguate)
+sb library install Qwen3.5-4B-GGUF --to lmstudio      # symlink into LM Studio's models dir
+sb library install gemma-4-26B-A4B-MLX --to lmstudio  # MLX works too (--format to disambiguate)
 ```
 
 This symlinks `<lmstudio_models_dir>/<publisher>/<repo>` to the library copy (the link lives on
@@ -104,9 +104,9 @@ The install is reversible, and you can see what's fed where — the library alwa
 canonical copy:
 
 ```bash
-stabbur library installed                            # which runtimes each model is installed into
-stabbur library uninstall Qwen3.5-4B-GGUF --from lmstudio   # remove stabbur's LM Studio symlink
-stabbur library uninstall Qwen3.5-4B-GGUF --from ollama     # ollama rm the imported copy
+sb library installed                            # which runtimes each model is installed into
+sb library uninstall Qwen3.5-4B-GGUF --from lmstudio   # remove stabbur's LM Studio symlink
+sb library uninstall Qwen3.5-4B-GGUF --from ollama     # ollama rm the imported copy
 ```
 
 `installed` cross-references the drive against LM Studio (a stabbur symlink pointing into the
@@ -126,23 +126,23 @@ Format is a **per-model choice**, not "keep every format of everything":
   models you'll re-quantize or fine-tune — not blanket. Pull on demand, drop when done.
 
 Default policy: keep **GGUF + MLX** ready for a model you actually use; fetch safetensors only
-when you need to convert or train. `stabbur library rm <model> --format safetensors` reclaims space
+when you need to convert or train. `sb library rm <model> --format safetensors` reclaims space
 once a conversion is done.
 
-`stabbur library formats` makes this actionable: one row per model with a column per format present
+`sb library formats` makes this actionable: one row per model with a column per format present
 and their sizes, flagging any **redundant** safetensors copy (a GGUF/MLX build already exists) and
 any model that's **only** safetensors (no ready-to-run quant), with the total space reclaimable by
 dropping the redundant copies.
 
 ## Checking integrity
 
-`stabbur library verify` checks each model on disk is intact — the declared weights (and vision
+`sb library verify` checks each model on disk is intact — the declared weights (and vision
 projector) exist and are non-empty, and the recorded model card is present:
 
 ```bash
-stabbur library verify            # all models
-stabbur library verify Ornith     # one
-stabbur library verify --deep     # also re-hash Ollama blobs against their sha256
+sb library verify            # all models
+sb library verify Ornith     # one
+sb library verify --deep     # also re-hash Ollama blobs against their sha256
 ```
 
 Ollama's store is content-addressed, so `--deep` gives true content integrity there. HF/LM Studio
@@ -151,14 +151,14 @@ pulls carry no per-file checksums, so their check is structural (present + non-e
 ## Rebuild a drive
 
 Because every model already records where it came from, the library **is** its own manifest.
-`stabbur library manifest --save models.toml` writes a portable want list — a `[[model]]` entry per
+`sb library manifest --save models.toml` writes a portable want list — a `[[model]]` entry per
 model (source + name + format). Keep that file anywhere (commit it to a repo, drop it on another
 machine); nothing is stored back in the library. On a fresh or replacement drive, point
-`STABBUR_LIBRARY_ROOT` at it and run `stabbur library sync models.toml`: it diffs the list against what's
+`STABBUR_LIBRARY_ROOT` at it and run `sb library sync models.toml`: it diffs the list against what's
 present and re-pulls only what's missing, via the normal per-source paths (`--dry-run` first to
 preview). One model failing doesn't stop the rest, and it exits non-zero if any did. LM Studio
 backups re-pull from their Hugging Face equivalent; Ollama entries need the model in your local
-Ollama store first (`ollama pull <name>`). See [`stabbur library manifest` / `sync`](../cli.md).
+Ollama store first (`ollama pull <name>`). See [`sb library manifest` / `sync`](../cli.md).
 
 ## Model cards & metadata
 
@@ -178,8 +178,8 @@ libraries = ["models", "@shared"]   # project-local first, then the machine defa
 ```
 
 `@shared` is the token for the machine's default library (`STABBUR_LIBRARY_ROOT`), so
-the file stays portable. `stabbur project init` scaffolds a `models/` directory and
-this list; reads span all listed libraries (first match wins), while `stabbur library
+the file stays portable. `sb project init` scaffolds a `models/` directory and
+this list; reads span all listed libraries (first match wins), while `sb library
 pull` targets the first (project-local) one by default (`--shared` for the shared
 one). See [Projects](projects.md).
 
@@ -200,5 +200,5 @@ machine; the models and their tags come along.
     Some runtimes fetch assets by Hugging Face repo id rather than from the library — e.g.
     mlx-audio's Dia loads its DAC codec that way. So they don't get left behind in
     `~/.cache/huggingface`, stabbur points `HF_HOME` at `<library_root>/.cache/huggingface` (unless
-    you've set `HF_HOME`/`HF_HUB_CACHE` yourself). Run `stabbur voice setup` once to seed Dia's codec
+    you've set `HF_HOME`/`HF_HUB_CACHE` yourself). Run `sb voice setup` once to seed Dia's codec
     onto the drive; Dia then works offline and travels with it.

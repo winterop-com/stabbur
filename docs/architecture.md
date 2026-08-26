@@ -32,7 +32,7 @@ src/stabbur/
 ## Two views of "models"
 
 - **Sources** (`catalog` + `sources/`) — what's in the local HF cache, Ollama,
-  and LM Studio stores; the candidates for `stabbur library pull`.
+  and LM Studio stores; the candidates for `sb library pull`.
 - **Library** (`library`) — what's on the drive under `library_root`; the
   runnable set. `LibraryModel` carries `load_target` (the exact file/dir to hand
   the runtime) and `mmproj` (multimodal projector, if any).
@@ -138,9 +138,9 @@ Despite the two readers, the file has **one parser and one writer** (`project.py
 - `project.read_raw()` is the single TOML parse. `config.py`'s settings source routes through it
   too, so a malformed `stabbur.toml` fails one way — a clean `ProjectError` — instead of crashing
   differently in each reader.
-- `project.render_manifest()` renders a fresh manifest from values (`stabbur project init` / `new`);
+- `project.render_manifest()` renders a fresh manifest from values (`sb project init` / `new`);
   `project.add_mcp()` appends a server and **re-parses the result to validate before writing**,
-  so an edit (`stabbur mcp add`) can never leave a half-written or broken `stabbur.toml` behind.
+  so an edit (`sb mcp add`) can never leave a half-written or broken `stabbur.toml` behind.
 
 ### Import-time HF cache (the one deliberate side effect)
 
@@ -154,7 +154,7 @@ is the only intentional import-time side effect; everything else is lazy.
 
 ### Serve → worker config handoff
 
-`stabbur serve` passes its runtime config to the app through a small set of `STABBUR_*` env vars
+`sb serve` passes its runtime config to the app through a small set of `STABBUR_*` env vars
 (`_export_serve_env`). This env channel is deliberate: with `--reload`, uvicorn imports the app in
 a *fresh subprocess* that has none of the CLI's in-process overrides, so env is the only thing
 that crosses. Centralized in one documented function rather than scattered `os.environ` writes.
@@ -175,7 +175,7 @@ server (`ServerManager`) go through one **supervisor** (`runtime/supervisor.py`)
   PID-reuse guard), so a crashed stabbur never leaves a model holding memory with no way to reclaim it.
 - The auto-picked runtime port is retried on a bind collision, closing the find-a-free-port race.
 
-Because the CLI and `stabbur serve` are expected to run **concurrently** against the same library,
+Because the CLI and `sb serve` are expected to run **concurrently** against the same library,
 mutations that read-modify-write shared files take a per-library advisory lock (`locking.py`, a
 `flock` on `<root>/.stabbur/lock`): tag edits and destructive removes can't lose each other's changes
 across processes. Long-running pulls are intentionally not held under this lock (they stage into

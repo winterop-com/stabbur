@@ -1,14 +1,14 @@
 # Using stabbur's API
 
-`stabbur serve` is an HTTP service, not only a UI host. Anything the browser app does,
+`sb serve` is an HTTP service, not only a UI host. Anything the browser app does,
 your own code can do — and for work that runs per request (moderation, captioning,
-extraction), calling the API is the right shape. `stabbur chat -p` spawns a process and
+extraction), calling the API is the right shape. `sb chat -p` spawns a process and
 resolves the library on every invocation, which is fine for sweeping a directory by
 hand and wrong for a path a user waits on.
 
 ```bash
-stabbur serve --port 2222                              # local runtimes
-stabbur serve --port 2222 --upstream http://box:1234   # models run on another machine
+sb serve --port 2222                              # local runtimes
+sb serve --port 2222 --upstream http://box:1234   # models run on another machine
 ```
 
 Both expose the same surface. In upstream mode stabbur's agent loop, tools and confirm
@@ -145,7 +145,7 @@ so an existing client works. See [Voice](voice.md).
 
 ## Access
 
-A loopback server is reachable by anything on the machine. `stabbur config set host` and
+A loopback server is reachable by anything on the machine. `sb config set host` and
 `--host` control the bind address; a non-loopback bind should carry a token, and the
 browser guard that protects `/api` against drive-by cross-site calls is described in
 [the architecture notes](../architecture.md). Do not expose an unauthenticated stabbur to a

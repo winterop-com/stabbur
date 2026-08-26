@@ -1,6 +1,6 @@
 # Model catalog (validated)
 
-A running list of models validated with stabbur — **copy-paste the `stabbur library pull`
+A running list of models validated with stabbur — **copy-paste the `sb library pull`
 commands** to rebuild a library on a new drive or laptop. Everything the library holds is
 just files under `STABBUR_LIBRARY_ROOT`, so "rebuild" = set that root, then run these pulls.
 This page grows as models are validated; if a model isn't here, it hasn't been confirmed
@@ -20,47 +20,47 @@ Pulled from the Hugging Face Hub (stabbur picks a balanced GGUF quant, or the ML
 
 ```bash
 # --- small (fast, run alongside a voice model) ---
-stabbur library pull huggingface unsloth/Qwen3.5-4B-GGUF               # 2.6 GB · tool-capable
-stabbur library pull huggingface lmstudio-community/Qwen3.5-4B-MLX-4bit # 2.9 GB · MLX
-stabbur library pull huggingface unsloth/Llama-3.2-3B-Instruct-GGUF    # ~2 GB · tiny starter
+sb library pull huggingface unsloth/Qwen3.5-4B-GGUF               # 2.6 GB · tool-capable
+sb library pull huggingface lmstudio-community/Qwen3.5-4B-MLX-4bit # 2.9 GB · MLX
+sb library pull huggingface unsloth/Llama-3.2-3B-Instruct-GGUF    # ~2 GB · tiny starter
 
 # --- mid (capable all-rounders) ---
-stabbur library pull huggingface lmstudio-community/gemma-4-12B-it-QAT-GGUF  # 6.7 GB · tools+vision+audio
-stabbur library pull huggingface deepreinforce-ai/Ornith-1.0-9B-GGUF        # 5.2 GB
-stabbur library pull huggingface TheDrummer/Rocinante-X-12B-v1-GGUF         # 7.0 GB · roleplay
-stabbur library pull huggingface unsloth/gpt-oss-20b-GGUF                   # 10.8 GB · strong reasoning + tools
+sb library pull huggingface lmstudio-community/gemma-4-12B-it-QAT-GGUF  # 6.7 GB · tools+vision+audio
+sb library pull huggingface deepreinforce-ai/Ornith-1.0-9B-GGUF        # 5.2 GB
+sb library pull huggingface TheDrummer/Rocinante-X-12B-v1-GGUF         # 7.0 GB · roleplay
+sb library pull huggingface unsloth/gpt-oss-20b-GGUF                   # 10.8 GB · strong reasoning + tools
 
 # --- large (big-context / coding / vision) ---
-stabbur library pull huggingface unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF  # 17.3 GB · coding
-stabbur library pull huggingface lmstudio-community/Qwen3.6-27B-GGUF        # 16.3 GB
-stabbur library pull huggingface mlx-community/Qwen3.6-27B-4bit             # 15.0 GB · MLX
-stabbur library pull huggingface lmstudio-community/gemma-4-31B-it-QAT-GGUF # 17.6 GB · vision
-stabbur library pull huggingface lmstudio-community/gemma-4-26B-A4B-it-QAT-MLX-4bit # 14.6 GB · MLX vision
-stabbur library pull huggingface TheDrummer/Cydonia-24B-v4.3-GGUF          # 13.3 GB
-stabbur library pull huggingface mradermacher/MN-Violet-Lotus-12B-GGUF     # 12.1 GB
+sb library pull huggingface unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF  # 17.3 GB · coding
+sb library pull huggingface lmstudio-community/Qwen3.6-27B-GGUF        # 16.3 GB
+sb library pull huggingface mlx-community/Qwen3.6-27B-4bit             # 15.0 GB · MLX
+sb library pull huggingface lmstudio-community/gemma-4-31B-it-QAT-GGUF # 17.6 GB · vision
+sb library pull huggingface lmstudio-community/gemma-4-26B-A4B-it-QAT-MLX-4bit # 14.6 GB · MLX vision
+sb library pull huggingface TheDrummer/Cydonia-24B-v4.3-GGUF          # 13.3 GB
+sb library pull huggingface mradermacher/MN-Violet-Lotus-12B-GGUF     # 12.1 GB
 ```
 
 ## Voice models
 
-`stabbur library pull voice <id>` (downloads, or fast-copies from another reachable library).
+`sb library pull voice <id>` (downloads, or fast-copies from another reachable library).
 TTS speaks; STT transcribes. Except `kokoro` (ONNX, cross-platform) and `outetts` (llama.cpp),
 these run on **mlx-audio (Apple Silicon)**.
 
 ```bash
 # --- TTS ---
-stabbur library pull voice kokoro       # Kokoro-82M · 54 named voices · the in-chat voice · cross-platform
-stabbur library pull voice soprano      # 80M · tiny high-quality English (Kokoro-family)
-stabbur library pull voice chatterbox   # expressive · emotion/exaggeration control + cloning
-stabbur library pull voice spark        # 0.5B · English + Chinese
-stabbur library pull voice csm          # 1B · voice cloning from a reference clip
-stabbur library pull voice dia          # 1.6B · nonverbal cues + cloning + multi-speaker (seed it)
-stabbur library pull voice outetts      # 500M · GGUF via llama.cpp · cross-platform
+sb library pull voice kokoro       # Kokoro-82M · 54 named voices · the in-chat voice · cross-platform
+sb library pull voice soprano      # 80M · tiny high-quality English (Kokoro-family)
+sb library pull voice chatterbox   # expressive · emotion/exaggeration control + cloning
+sb library pull voice spark        # 0.5B · English + Chinese
+sb library pull voice csm          # 1B · voice cloning from a reference clip
+sb library pull voice dia          # 1.6B · nonverbal cues + cloning + multi-speaker (seed it)
+sb library pull voice outetts      # 500M · GGUF via llama.cpp · cross-platform
 
 # --- STT (speech-to-text) ---
-stabbur library pull voice whisper        # large-v3-turbo · multilingual · the default
-stabbur library pull voice parakeet       # 0.6B · fast · English + 25 EU languages
-stabbur library pull voice qwen3-asr      # 1.7B · multilingual
-stabbur library pull voice distil-whisper # faster distilled Whisper (English)
+sb library pull voice whisper        # large-v3-turbo · multilingual · the default
+sb library pull voice parakeet       # 0.6B · fast · English + 25 EU languages
+sb library pull voice qwen3-asr      # 1.7B · multilingual
+sb library pull voice distil-whisper # faster distilled Whisper (English)
 ```
 
 ### Validated (2026-07-04) — voice detail
@@ -85,8 +85,8 @@ the roadmap (`ROADMAP.md` in the repo); revisit as mlx-audio adds support.
 
 ## Benchmarks
 
-Tool-calling and code/reasoning are measured by the `stabbur benchmark` suites (`tools-datetime`,
-`tools-utils`, `tools-search`, `tools-web`, `tools-dhis2`, `python`, `rust`). Run `stabbur benchmark`
+Tool-calling and code/reasoning are measured by the `sb benchmark` suites (`tools-datetime`,
+`tools-utils`, `tools-search`, `tools-web`, `tools-dhis2`, `python`, `rust`). Run `sb benchmark`
 to score a model against them; use the results to pick which chat model to bind in a project.
 
 **DHIS2 (`tools-dhis2`, read-only):** the standout is **`deepreinforce-ai/Ornith-1.0-9B-GGUF`** —

@@ -11,9 +11,9 @@ of them through an OpenAI-compatible API and a browser chat UI.
 
 ```mermaid
 flowchart LR
-    hf["HF cache"] -->|stabbur library pull| lib
-    ol["Ollama"] -->|stabbur library pull| lib
-    ls["LM Studio"] -->|stabbur library pull| lib
+    hf["HF cache"] -->|sb library pull| lib
+    ol["Ollama"] -->|sb library pull| lib
+    ls["LM Studio"] -->|sb library pull| lib
     lib["Library on your drive<br/>gguf/ · mlx/ · cards + metadata"] -->|chat / serve --ui| rt["llama-server / mlx_lm.server<br/>OpenAI /v1 "]
 ```
 
@@ -21,8 +21,8 @@ flowchart LR
     stabbur is **not** open-source. Copyright (c) 2026 Morten Hansen, all rights reserved
     (see [`LICENSE`](https://github.com/winterop-com/stabbur/blob/main/LICENSE)). The source is
     published for reference and evaluation; running it requires a written license — contact
-    **<morten@winterop.com>**. Install is from source with `uv` (there is no `pip install stabbur`);
-    see [Getting started](getting-started.md).
+    **<morten@winterop.com>**. Published on PyPI so it can be run with `uvx`; the licence still
+    governs use. See [Getting started](getting-started.md).
 
 ## Why
 
@@ -37,11 +37,11 @@ flowchart LR
 
 ```bash
 uv sync
-stabbur library ls                       # your library (the models on your drive)
-stabbur library sources                    # models in app caches you could pull
-stabbur library pull lmstudio <name>       # pull one into the library (--move to relocate)
-stabbur serve --ui                 # browse + chat in the browser
-stabbur chat <name> -p "hello"     # one-shot, scriptable answer
+sb library ls                       # your library (the models on your drive)
+sb library sources                    # models in app caches you could pull
+sb library pull lmstudio <name>       # pull one into the library (--move to relocate)
+sb serve --ui                 # browse + chat in the browser
+sb chat <name> -p "hello"     # one-shot, scriptable answer
 make run MODEL=<name>           # backend + browser UI, locked to one model
 ```
 

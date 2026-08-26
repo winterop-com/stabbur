@@ -40,7 +40,7 @@ complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 
 ## What was measured
 
-The `tools-dhis2` suite (`stabbur benchmark run tools-dhis2`) attaches the
+The `tools-dhis2` suite (`sb benchmark run tools-dhis2`) attaches the
 [`dhis2w-mcp-bridge`](https://winterop-com.github.io/dhis2w-utils/) against the **play42** profile
 (the public DHIS2 "Sierra Leone" demo, v2.42) in **read-only** mode
 (`DHIS2_MCP_READONLY=1`), then asks 12 questions of increasing difficulty. A problem passes only
@@ -164,8 +164,8 @@ DHIS2_PASSWORD=district d2w profile add play42 \
   --url https://play.im.dhis2.org/dev-2-42 --auth basic --username admin --verify
 
 # run the suite against every tool-capable model in your library
-stabbur benchmark run tools-dhis2 --all --save
-stabbur benchmark leaderboard        # regenerates docs/benchmarks.md
+sb benchmark run tools-dhis2 --all --save
+sb benchmark leaderboard        # regenerates docs/benchmarks.md
 ```
 
 See [DHIS2 tools & profiles](dhis2.md) for the bridge tiers and prompts, and the
@@ -174,7 +174,7 @@ See [DHIS2 tools & profiles](dhis2.md) for the bridge tiers and prompts, and the
 ## Writes: create, update, delete
 
 The read-only suite above measures *reading* DHIS2. The **write** suite
-(`tools-dhis2-write`, `stabbur benchmark run tools-dhis2-write`) measures whether a model can *safely
+(`tools-dhis2-write`, `sb benchmark run tools-dhis2-write`) measures whether a model can *safely
 mutate* it — the harder, higher-stakes half. Bottom line: it can't, not yet, not unattended.
 
 ### What was measured
@@ -278,15 +278,15 @@ DHIS2_PASSWORD=district d2w profile add local_basic \
   --url http://localhost:8080 --auth basic --username admin --verify
 
 # run the write suite across your tool-capable models
-stabbur benchmark run tools-dhis2-write --all --save
-stabbur benchmark leaderboard        # regenerates docs/benchmarks.md
+sb benchmark run tools-dhis2-write --all --save
+sb benchmark leaderboard        # regenerates docs/benchmarks.md
 ```
 
 The benchmark drives the bridge directly (auto-approving mutations) to measure raw model
-capability. In the interactive surfaces — `stabbur serve --ui`, the Chrome side panel, and the
+capability. In the interactive surfaces — `sb serve --ui`, the Chrome side panel, and the
 Textual TUI — the same writes are instead **gated per action**: the assistant prompts the user to
 approve or deny each mutation before it runs (a declined call returns `error: user declined this
-action` and the model continues). The scripted one-shot `stabbur chat -p` has no confirm channel, so
+action` and the model continues). The scripted one-shot `sb chat -p` has no confirm channel, so
 it **fail-safe denies** gated writes unless `--allow-writes` is passed. See `CHROME.md` for the
 gate's design and the `ROADMAP.md` "DHIS2 write reliability" thread for what improves it next
 (stronger write models; the typed `dhis2w-mcp-router` so reads skip the prompt; verification that

@@ -8,8 +8,8 @@ clip — from the CLI, the web UI, and the OpenAI-compatible API.
 ## Models
 
 stabbur keeps a small registry of voice models it knows how to run. Add one to your
-library — like any model — with `stabbur library pull voice <id>` (e.g.
-`stabbur library pull voice kokoro`). It lands in the **project-local** library by default
+library — like any model — with `sb library pull voice <id>` (e.g.
+`sb library pull voice kokoro`). It lands in the **project-local** library by default
 (`--shared` for the archive), and acquires it the cheapest way: if another library in
 scope (like `@shared`) already has it, it's **copied** (fast, no download); otherwise
 it's pulled from the HF cache or downloaded from Hugging Face:
@@ -36,22 +36,22 @@ On Linux, Kokoro (ONNX) covers TTS; the mlx-audio models are macOS-only.
 ## CLI
 
 ```bash
-stabbur library pull voice kokoro  # add a voice model to the project-local library (downloads if needed)
-stabbur library pull voice kokoro --shared   # ...into the shared/default library instead
-stabbur voice list                 # voice models + where each lives (project libraries + @shared)
-stabbur voice import --all         # back-compat alias: import everything already in the HF cache
-stabbur voice voices               # list Kokoro's 54 named voices
-stabbur voice speak "Hello there"                 # speak with the default engine
-stabbur voice speak "Hi" --voice af_heart         # a specific Kokoro voice
-stabbur voice speak "Hi" --model dia --seed 0     # Dia (pin a seed for reliability)
-stabbur voice speak "Hi" --model dia \            # clone the voice in a clip
+sb library pull voice kokoro  # add a voice model to the project-local library (downloads if needed)
+sb library pull voice kokoro --shared   # ...into the shared/default library instead
+sb voice list                 # voice models + where each lives (project libraries + @shared)
+sb voice import --all         # back-compat alias: import everything already in the HF cache
+sb voice voices               # list Kokoro's 54 named voices
+sb voice speak "Hello there"                 # speak with the default engine
+sb voice speak "Hi" --voice af_heart         # a specific Kokoro voice
+sb voice speak "Hi" --model dia --seed 0     # Dia (pin a seed for reliability)
+sb voice speak "Hi" --model dia \            # clone the voice in a clip
   --ref-audio sample.wav --ref-text "exact transcript of sample.wav"
-stabbur voice speak "Hi" --format mp3 -o out.mp3  # export via ffmpeg
+sb voice speak "Hi" --format mp3 -o out.mp3  # export via ffmpeg
 ```
 
 ## Web UI — the Voice studio
 
-`stabbur serve --ui` has a **Voice** studio (a peer surface to Chat), plus the voice
+`sb serve --ui` has a **Voice** studio (a peer surface to Chat), plus the voice
 models listed in the **Library** (under the *Voice* category, alongside *Chat*).
 The studio:
 
@@ -68,7 +68,7 @@ lightweight voice never loads a multi-GB model just to speak a reply).
 
 ## API (OpenAI-compatible)
 
-Served by `stabbur serve`, so any OpenAI client works:
+Served by `sb serve`, so any OpenAI client works:
 
 ```bash
 # Text to speech (wav | mp3 | flac | opus | ogg | aac)

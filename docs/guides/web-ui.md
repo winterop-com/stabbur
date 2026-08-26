@@ -1,6 +1,6 @@
 # Web UI (`serve --ui`)
 
-`stabbur serve` runs the FastAPI app: a browse API, an OpenAI `/v1` proxy to the
+`sb serve` runs the FastAPI app: a browse API, an OpenAI `/v1` proxy to the
 loaded model, plus `/v1/audio/*` for speech, and — with `--ui` — the browser
 single-page app (React/Vite + Tailwind).
 
@@ -70,7 +70,7 @@ Three surfaces, reachable from the sidebar (or the collapsed icon rail):
   sampling (with model-recommended defaults shown), and **context length**
   (presets + custom; reloads the model). Settings are **per conversation**, so
   each chat starts fresh.
-- **System health** — a status dot opening the same checks as `stabbur doctor`.
+- **System health** — a status dot opening the same checks as `sb doctor`.
 
 **Build the UI once** (it's not committed — only its source is):
 
@@ -81,13 +81,13 @@ make frontend                         # bun install + build → frontend/dist
 Then serve it:
 
 ```bash
-stabbur serve --ui                       # browse + chat in the browser, switch models
-stabbur serve --ui --port 2222           # pin the port for a stable URL/bookmark
-stabbur serve --ui --model <name>        # locked to one model (extension backend)
+sb serve --ui                       # browse + chat in the browser, switch models
+sb serve --ui --port 2222           # pin the port for a stable URL/bookmark
+sb serve --ui --model <name>        # locked to one model (extension backend)
 ```
 
 For UI development, `make frontend-dev` runs Vite with hot reload (it proxies
-`/api` + `/v1` to `STABBUR_DEV_API` or `:2222`, so a plain `stabbur serve` (which binds 2222)
+`/api` + `/v1` to `STABBUR_DEV_API` or `:2222`, so a plain `sb serve` (which binds 2222)
 alongside).
 
 By default `serve` **auto-picks a free port** and prints the URL on startup, so it
@@ -116,7 +116,7 @@ The app keeps one stable origin while swapping the underlying runtime:
 | `GET /api/tools` | attached MCP tools (namespaced `<server>__<tool>`) |
 | `GET /api/assistant` | project `[assistant]` target metadata for UI clients (404 if none); `?verify=1` runs the verify recipe |
 | `POST /api/assistant/bind`, `/unbind` | install/remove a client-minted credential (the side panel's "Use my login") |
-| `GET /api/doctor` | system-health report (mirrors `stabbur doctor`) |
+| `GET /api/doctor` | system-health report (mirrors `sb doctor`) |
 | `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV (chat Listen) |
 | `POST /v1/audio/speech` | OpenAI TTS: text → audio (Kokoro/Dia/…), formats via ffmpeg, voice cloning |
 | `POST /v1/audio/transcriptions` | OpenAI STT: audio → text (Whisper) |
@@ -130,7 +130,7 @@ So the SPA only ever talks to `serve`'s origin; `serve` starts `llama-server` /
 ## Locked single-model mode
 
 ```bash
-stabbur serve --ui --model <name>        # or: make run MODEL=<name>
+sb serve --ui --model <name>        # or: make run MODEL=<name>
 ```
 
 Locks the server to one model: no switching, the composer's model picker is hidden
@@ -139,7 +139,7 @@ Locks the server to one model: no switching, the composer's model picker is hidd
 to the extension's origin so it can call across origins (see below).
 
 **A project locks too.** In a directory with a `stabbur.toml` whose `[project].model`
-is set, `stabbur serve` binds to that model the same way (a project is a purpose-built
+is set, `sb serve` binds to that model the same way (a project is a purpose-built
 assistant: model + system prompt + tools). Working **without** a project is free-play
 — pick and switch any chat model. An explicit `--model` overrides a project.
 

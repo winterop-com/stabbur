@@ -13,7 +13,7 @@ MCP servers can do, the canonical reference is the official docs:
 ## The pieces
 
 ```
-your model (stabbur serve --ui / stabbur chat)
+your model (sb serve --ui / sb chat)
   -> agent loop + MCP client (stabbur)
       -> dhis2w-mcp-bridge  (the dhis2_cli tool)
           -> d2w CLI  --(profile: URL + auth)-->  DHIS2 server
@@ -108,7 +108,7 @@ play servers.
 stabbur ships a curated entry, so one command adds the bridge to a project's `.mcp.json`:
 
 ```bash
-stabbur mcp add dhis2     # then edit DHIS2_PROFILE in the generated entry
+sb mcp add dhis2     # then edit DHIS2_PROFILE in the generated entry
 ```
 
 That writes a standard `mcpServers` entry roughly like:
@@ -132,16 +132,16 @@ non-uv project the command is `uvx dhis2w-mcp-bridge`; the older single-string f
 Confirm the model reaches it:
 
 ```bash
-stabbur project show          # lists the wired MCP servers + their tool counts
-stabbur chat                  # then: "How many organisation units are there? Use the tools."
+sb project show          # lists the wired MCP servers + their tool counts
+sb chat                  # then: "How many organisation units are there? Use the tools."
 ```
 
-In `stabbur chat`, type `/mcp` to see the loaded servers and tools, or press `Ctrl+P` for the
+In `sb chat`, type `/mcp` to see the loaded servers and tools, or press `Ctrl+P` for the
 command palette (enable/disable/reconnect a server).
 
 ## Suggested prompts
 
-Copy-paste these into `stabbur chat` (or the web chat) with the DHIS2 bridge attached. They
+Copy-paste these into `sb chat` (or the web chat) with the DHIS2 bridge attached. They
 work against the **play42** demo (DHIS2 "Sierra Leone"); adapt names/UIDs for your server.
 The system prompt should tell the model to **always use the tools, never answer from memory**.
 
@@ -205,5 +205,5 @@ refused):
   banner, Verify, "Who am I here?", and "Use my login" (read-only PAT bind).
 - [Tools (MCP)](tools.md) — how stabbur's MCP client and agent loop work across all servers.
 - [Model catalog](model-catalog.md) — validated chat models; the `tools-dhis2` benchmark
-  suite (`stabbur benchmark run tools-dhis2`) scores which of them best drive the bridge.
+  suite (`sb benchmark run tools-dhis2`) scores which of them best drive the bridge.
 - Official `dhis2w-utils` docs: <https://winterop-com.github.io/dhis2w-utils/>.

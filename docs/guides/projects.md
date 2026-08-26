@@ -2,7 +2,7 @@
 
 A **project** is a purpose-built assistant captured in a `stabbur.toml` file: which
 model to load, its system prompt, its MCP tools, and which libraries it reads. In a
-project directory both `stabbur chat` and `stabbur serve --ui` bind to that definition —
+project directory both `sb chat` and `sb serve --ui` bind to that definition —
 so the app boots straight into the right model with its tools, no manual picking.
 
 A project is **portable and committable**: it references models by name (never by
@@ -14,8 +14,8 @@ another machine and still runs.
 Two entry points, same wizard:
 
 ```bash
-stabbur project init              # scaffold stabbur.toml in the current directory
-stabbur project new my-assistant  # create a fresh directory and scaffold in it (like `cargo new`)
+sb project init              # scaffold stabbur.toml in the current directory
+sb project new my-assistant  # create a fresh directory and scaffold in it (like `cargo new`)
 ```
 
 The wizard asks for a kind (chat/voice), a default model (a library model or a
@@ -60,7 +60,7 @@ DHIS2 profile, and example prompts — see the
 one command — a model, a system prompt, tools, and example files:
 
 ```bash
-stabbur project new mydhis2 --template dhis2 --copy --git
+sb project new mydhis2 --template dhis2 --copy --git
 ```
 
 | Template | Model | Tools |
@@ -70,11 +70,11 @@ stabbur project new mydhis2 --template dhis2 --copy --git
 | `research` | `gemma-4-12B` | `search` + `fetch` |
 
 In a uv project the template's pip-installable tools are pinned in `pyproject.toml`
-automatically; bundled stabbur servers and node (`bunx`) servers are left as-is. Override the
-model with `--model`, and add more tools later with `stabbur mcp add` (also uv-aware).
+automatically; bundled sb servers and node (`bunx`) servers are left as-is. Override the
+model with `--model`, and add more tools later with `sb mcp add` (also uv-aware).
 
 ```bash
-stabbur project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
+sb project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
 ```
 
 ## What it writes
@@ -99,20 +99,20 @@ Tools are **not** in `stabbur.toml` — they live in a sibling `.mcp.json` (see 
 
 ## A locked assistant
 
-Binding `[project].model` makes the project a **locked assistant**: `stabbur serve --ui`
+Binding `[project].model` makes the project a **locked assistant**: `sb serve --ui`
 in that directory hides the model picker and serves only that model (the UI shows a
-locked state); `stabbur chat` defaults to it. Outside a project, stabbur is free-play (pick
+locked state); `sb chat` defaults to it. Outside a project, stabbur is free-play (pick
 any model). Pass `--model` to override the binding.
 
 ## Tools
 
 Tools are the standard `mcpServers` JSON in `./.mcp.json` (plus the machine-global
 `~/.config/stabbur/mcp.json`, which merges in). Browse a curated catalog and add one with
-`stabbur mcp`:
+`sb mcp`:
 
 ```bash
-stabbur mcp list        # curated servers + installed plugins (✓ = already in .mcp.json)
-stabbur mcp add fetch   # add to ./.mcp.json  (--global for ~/.config/stabbur/mcp.json)
+sb mcp list        # curated servers + installed plugins (✓ = already in .mcp.json)
+sb mcp add fetch   # add to ./.mcp.json  (--global for ~/.config/stabbur/mcp.json)
 ```
 
 …or write the JSON by hand:
@@ -134,11 +134,11 @@ the tool).
 
 ## Inspect
 
-`stabbur project show` prints the resolved project: the bound model's detail card, the
+`sb project show` prints the resolved project: the bound model's detail card, the
 system prompt, and the **actual tools** (it connects to the MCP servers and lists
 what they expose, not just the server names).
 
 ```bash
-stabbur project show
-stabbur project show --card    # also render the model card (README)
+sb project show
+sb project show --card    # also render the model card (README)
 ```
