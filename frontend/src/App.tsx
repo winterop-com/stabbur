@@ -111,6 +111,18 @@ export function App() {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
   const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("heim.tts_voice") || "");
+  const [ttsSpeed, setTtsSpeed] = useState<number>(() => {
+    const raw = Number(localStorage.getItem("heim.tts_speed"));
+    return Number.isFinite(raw) && raw >= 0.25 && raw <= 2 ? raw : 1;
+  });
+  const chooseSpeed = useCallback((v: number) => {
+    setTtsSpeed(v);
+    try {
+      localStorage.setItem("heim.tts_speed", String(v));
+    } catch {
+      /* storage full/blocked: the pick still applies this session */
+    }
+  }, []);
   const [health, setHealth] = useState<DoctorReport | null>(null);
   const [loadingName, setLoadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1157,6 +1169,10 @@ export function App() {
                       onRegenerate={regenerate}
                       onResolveConfirm={resolveConfirm}
                       ttsVoice={effectiveTtsVoice}
+                      voices={voices}
+                      onChooseVoice={chooseVoice}
+                      ttsSpeed={ttsSpeed}
+                      onChooseSpeed={chooseSpeed}
                     />
                   ))}
                 </div>

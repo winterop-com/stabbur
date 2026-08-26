@@ -233,11 +233,11 @@ export interface Voice {
 export const getVoices = () => apiFetch("/api/voices").then(json<Voice[]>);
 
 /** Synthesize text to speech for a chosen voice id; returns a WAV blob to play. */
-export async function speak(text: string, voice?: string | null): Promise<Blob> {
+export async function speak(text: string, voice?: string | null, speed?: number | null): Promise<Blob> {
   const res = await apiFetch("/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, ...(voice ? { voice } : {}) }),
+    body: JSON.stringify({ text, ...(voice ? { voice } : {}), ...(speed && speed !== 1 ? { speed } : {}) }),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
