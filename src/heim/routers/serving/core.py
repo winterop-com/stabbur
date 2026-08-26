@@ -32,6 +32,11 @@ class ServerStatus(BaseModel):
     locked: bool = False
     n_ctx: int | None = None  # context window the current model was loaded with (None = runtime default)
     error: str | None = None  # why the runtime died (stderr tail), if it exited unexpectedly
+    # Which backend the models actually run on: the remote's base URL under ``serve --upstream``,
+    # None when heim spawns its own runtimes. Nothing else in this payload distinguishes the two —
+    # a remote id looks like a local model name — so a UI that wants to say where a reply comes
+    # from has no other way to know.
+    upstream: str | None = None
     default_system_prompt: str = ""  # the project (heim.toml) system prompt, so the UI can prefill/show it
     project_model: str | None = None  # the project's bound model, so the UI auto-loads it on open
     default_chat_voice: str | None = None  # the project's [project] chat_voice, so the UI defaults the Listen voice
@@ -74,6 +79,7 @@ async def _status(
         locked=settings.serve_model is not None,
         n_ctx=manager.n_ctx,
         error=manager.last_error if current is None else None,
+        upstream=manager.base_url if isinstance(manager, UpstreamManager) else None,
         default_system_prompt=system_prompt,
         project_model=project_model,
         default_chat_voice=chat_voice,

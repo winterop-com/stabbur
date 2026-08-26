@@ -39,6 +39,7 @@ async def test_status_reports_stopped_when_no_model(client: AsyncClient) -> None
     assert body["state"] == "stopped"
     assert body["model"] is None
     assert body["locked"] is False
+    assert body["upstream"] is None  # this heim spawns its own runtimes; there is no remote to name
 
 
 async def test_status_exposes_project_model(app: FastAPI, client: AsyncClient) -> None:
@@ -1127,6 +1128,14 @@ async def test_upstream_library_lists_remote_models(upstream_client: AsyncClient
     assert all(m["model_format"] == "remote" for m in body)
     assert body[0]["vision"] and body[0]["audio"] and body[0]["tags"] == []
     assert body[1]["tags"] == ["loaded"]
+
+
+async def test_upstream_status_names_the_remote(upstream_client: AsyncClient) -> None:
+    # Nothing else in /api/status distinguishes a remote from a local runtime (a remote id looks
+    # like a model name), so the base URL is reported for a UI that wants to say where a reply
+    # comes from. Normalised the way UpstreamManager takes it — no trailing /v1.
+    body = (await upstream_client.get("/api/status")).json()
+    assert body["upstream"] == "http://up:1234"
 
 
 async def test_upstream_load_selects_remote_id(upstream_app: FastAPI, upstream_client: AsyncClient) -> None:
