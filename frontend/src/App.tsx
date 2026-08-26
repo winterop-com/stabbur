@@ -1189,6 +1189,9 @@ export function App() {
                 </TooltipTrigger>
                 <TooltipContent>Command palette</TooltipContent>
               </Tooltip>
+              <HealthMenu health={health} />
+              {/* Last in the row, because the panel's own close button sits at the far right when
+                  it is open — anywhere else and the control jumps sideways as you toggle it. */}
               {view === "chat" && !chatSettingsOpen && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1204,7 +1207,6 @@ export function App() {
                   <TooltipContent>Chat settings</TooltipContent>
                 </Tooltip>
               )}
-              <HealthMenu health={health} />
             </div>
           </header>
 
