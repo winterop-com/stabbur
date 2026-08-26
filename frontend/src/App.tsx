@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type TransitionEvent } from "react";
 import { ArrowDown, PanelRight, Search, X } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ import {
   type Voice,
 } from "@/api";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
@@ -72,6 +73,36 @@ function conversationIdFromHash(): string | null {
 
 /** Which primary surface to show: the chat, the model library grid, the voice studio, or settings. */
 type View = "chat" | "library" | "voice" | "settings";
+
+/** The resizable panels, in group order. Matches each `<Panel id>` (and so `data-panel-id`). */
+type PanelId = "sidebar" | "main" | "chat-settings";
+
+// How wide the chat settings rail has to be to be worth having. Below this its sliders lose their
+// track and "Max response tokens" wraps to three lines — at which point an overlay that covers the
+// chat is strictly better than a rail that ruins it.
+const CHAT_SETTINGS_MIN_PX = 320;
+// And the width below which it stops being a rail at all. The panels are sized as *percentages* of
+// the group, so a fixed 18% shrinks with the window (176px on a 1024px iPad, 141px on an 834px one)
+// — a px floor alone would just eat the chat instead. So: 48px of icon rail + 320px of settings +
+// ~560px of chat is ~930px, rounded up to Tailwind's lg so the chat keeps a comfortable 656px. This
+// is about narrow, not about phones: a desktop window snapped to half a screen lands here too.
+const CHAT_SETTINGS_RAIL_MIN_VIEWPORT = 1024;
+// ...which makes this the narrowest panel group the rail is ever laid out in: the breakpoint less
+// the collapsed sidebar's icon rail (`w-12`). Never derive the floor from anything narrower — see
+// `chatSettingsMin`. 320 of 976 is 32.8%, comfortably under the rail's 40% maximum.
+const NARROWEST_RAIL_GROUP = CHAT_SETTINGS_RAIL_MIN_VIEWPORT - 48;
+
+/** A programmatic collapse/expand in flight — see `beginRailAnim` for why the content is pinned. */
+type RailAnim = {
+  /** Which rail is moving — the right panel unmounts its content on collapse, so it needs to know. */
+  rail: PanelId;
+  /** Bumped per toggle, so re-toggling mid-animation re-measures rather than reusing stale widths. */
+  nonce: number;
+  /** Each panel's width the instant before the toggle — the fallback for one collapsing to nothing. */
+  before: Record<string, number>;
+  /** Pinned content width per panel id, in px. Null until the layout effect has read the targets. */
+  widths: Record<string, number> | null;
+};
 
 /** Map a raw runtime error / log tail to a friendly one-liner for known failures. */
 function friendlyRuntimeError(raw: string): string | null {
@@ -175,19 +206,115 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   // react-resizable-panels animates the panel via inline flex-grow; transition that.
   const railTransition = dragging ? "" : "transition-[flex-grow] duration-200 ease-out";
-  // On phones a resizable rail squeezes the content, so the sidebar becomes an overlay drawer
-  // (see the `isMobile` branches below); on desktop it stays the resizable panel.
+  // flex-grow is a *layout* property, so on its own that transition re-runs layout every frame and
+  // the panels' text re-wraps all the way in — the "squished text growing into its space" look. So
+  // for the 200ms of a toggle we pin each panel's content to the width it ends at and let the panel
+  // (which the library already gives `overflow: hidden`) clip it: one layout, then a pure slide.
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const [railAnim, setRailAnim] = useState<RailAnim | null>(null);
+  const railAnimNonce = useRef(0);
+  // Snapshot each panel's width the instant before the toggle, while the old layout is still the
+  // rendered one — that is the only exact record of it once the transition is under way.
+  const beginRailAnim = useCallback((rail: PanelId) => {
+    const root = layoutRef.current;
+    if (!root) return;
+    const before: Record<string, number> = {};
+    for (const el of root.querySelectorAll<HTMLElement>("[data-panel-id]")) {
+      before[el.dataset.panelId ?? ""] = el.getBoundingClientRect().width;
+    }
+    railAnimNonce.current += 1;
+    setRailAnim({ rail, nonce: railAnimNonce.current, before, widths: null });
+  }, []);
+  // Post-commit, pre-paint: React has just written the *target* flex-grow inline on every panel
+  // (only the rendered width animates), so every final width is derivable now — before the browser
+  // has painted a single intermediate frame. Panels are flex-basis:0 with flex-grow set to their
+  // percentage of the group, so their widths sum to the group's content box however far the
+  // transition has got; that sum splits by the targets. It has to be measured *here* rather than
+  // alongside the snapshot above, because expanding the sidebar unmounts the collapsed-state icon
+  // rail and so widens the group by its width. Reading the DOM (not getSize()) also picks up a rail
+  // the user has dragged to a custom width, and a window resized while a rail sat collapsed.
+  useLayoutEffect(() => {
+    const root = layoutRef.current;
+    if (!railAnim || railAnim.widths || !root) return;
+    const panels = [...root.querySelectorAll<HTMLElement>("[data-panel-id]")];
+    const total = panels.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0);
+    const widths: Record<string, number> = {};
+    for (const el of panels) {
+      const id = el.dataset.panelId ?? "";
+      const target = parseFloat(el.style.flexGrow) || 0;
+      // A panel collapsing to nothing has no final layout to settle into, so it keeps the one it
+      // already had and slides out behind the clip instead of being crushed to zero.
+      widths[id] = target > 0 ? (total * target) / 100 : (railAnim.before[id] ?? 0);
+    }
+    setRailAnim((a) => (a && a.nonce === railAnim.nonce ? { ...a, widths } : a));
+  }, [railAnim]);
+  // Release the pin. transitionend is authoritative — unlike a hardcoded timeout it can't drift out
+  // of sync with the duration — but a transition that never runs (a toggle that didn't change the
+  // width, prefers-reduced-motion, a background tab) must not leave content pinned to a width that
+  // then goes stale, so a timer and any window resize release it too.
+  useEffect(() => {
+    if (!railAnim) return;
+    const release = () => setRailAnim(null);
+    const timer = setTimeout(release, 600);
+    window.addEventListener("resize", release);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", release);
+    };
+  }, [railAnim]);
+  const onRailTransitionEnd = useCallback((e: TransitionEvent<HTMLElement>) => {
+    // Panels only; every button and hairline in here transitions something of its own.
+    if (e.propertyName === "flex-grow" && (e.target as HTMLElement).hasAttribute?.("data-panel-id")) {
+      setRailAnim(null);
+    }
+  }, []);
+  const onHandleDragging = useCallback((isDragging: boolean) => {
+    setDragging(isDragging);
+    if (isDragging) setRailAnim(null); // a drag tracks the cursor 1:1 — nothing may be pinned
+  }, []);
+  /** The pinned width for one panel's content, or undefined when nothing is animating. */
+  const pinned = useCallback(
+    (id: PanelId) => (railAnim?.widths ? { width: railAnim.widths[id] } : undefined),
+    [railAnim],
+  );
+  // On a narrow window a resizable rail squeezes the content, so it becomes an overlay instead (see
+  // the branches below); wide enough, and both stay resizable panels. The two rails have different
+  // thresholds because they need different room: a list of chat titles reads fine at 200px, a column
+  // of labelled sliders does not.
   const isMobile = useIsMobile();
+  const chatSettingsAsSheet = useIsMobile(CHAT_SETTINGS_RAIL_MIN_VIEWPORT);
+  // The rail's minSize is a percentage of the group, so translate the px floor into whatever
+  // percentage *this* group makes it — that, plus the breakpoint above, is what guarantees the rail
+  // is never rendered narrower than CHAT_SETTINGS_MIN_PX at any window size. Floored at the
+  // narrowest group the rail is used in: below the breakpoint the panel is a Sheet and the
+  // constraint is moot, but a percentage that ballooned down there would leak back as an over-wide
+  // rail on the way up, because the media query and the group's own resize don't land in the same
+  // frame (a 786px group would ask for 41%, and the rail would come back at its 40% maximum).
+  const [groupWidth, setGroupWidth] = useState(0);
+  const chatSettingsMin = (CHAT_SETTINGS_MIN_PX / Math.max(groupWidth, NARROWEST_RAIL_GROUP)) * 100;
+  useEffect(() => {
+    const el = layoutRef.current?.querySelector<HTMLElement>("[data-panel-group]");
+    if (!el) return;
+    const measure = () => setGroupWidth(el.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const toggleSidebar = useCallback(() => {
     const p = leftPanel.current;
     if (!p) return;
+    beginRailAnim("sidebar");
     if (p.isCollapsed()) p.expand();
     else p.collapse();
-  }, []);
+  }, [beginRailAnim]);
   const openSidebar = useCallback(() => {
     if (isMobile) setSidebarOpen(true); // open the overlay drawer, don't expand the rail
-    else leftPanel.current?.expand();
-  }, [isMobile]);
+    else {
+      beginRailAnim("sidebar");
+      leftPanel.current?.expand();
+    }
+  }, [isMobile, beginRailAnim]);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   // Cmd/Ctrl+K anywhere opens the palette; it also closes it, so the chord toggles.
   useEffect(() => {
@@ -200,13 +327,22 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
   const toggleChatSettings = useCallback(() => {
+    // As a Sheet there is no rail to widen, so nothing to animate and nothing to pin.
+    if (chatSettingsAsSheet) {
+      setChatSettingsOpen((v) => !v);
+      return;
+    }
     const p = rightPanel.current;
     if (!p) return;
+    beginRailAnim("chat-settings");
     if (p.isCollapsed()) p.expand();
     else p.collapse();
-  }, []);
-  // Entering mobile collapses the rail to 0 (the drawer replaces it); leaving mobile with the
-  // sidebar "open" restores the rail so it doesn't vanish on resize/rotate.
+  }, [chatSettingsAsSheet, beginRailAnim]);
+  const closeChatSettings = useCallback(() => setChatSettingsOpen(false), []);
+  // Crossing a breakpoint collapses the rail to 0 (the overlay replaces it) — and, via onCollapse,
+  // leaves it closed, so neither direction ever strands one open. Crossing back with it "open"
+  // restores the rail so it doesn't vanish on resize/rotate. One effect per rail: they have
+  // different thresholds, and each must react only to its own.
   useEffect(() => {
     const p = leftPanel.current;
     if (!p) return;
@@ -214,6 +350,13 @@ export function App() {
     else if (sidebarOpen) p.expand();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
+  useEffect(() => {
+    const p = rightPanel.current;
+    if (!p) return;
+    if (chatSettingsAsSheet) p.collapse();
+    else if (chatSettingsOpen) p.expand();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatSettingsAsSheet]);
 
   // Chat state.
   const [input, setInput] = useState("");
@@ -1006,6 +1149,33 @@ export function App() {
     </>
   );
 
+  // One definition, two surfaces: the desktop rail and the mobile drawer render the same panel,
+  // and only ever one of them at a time.
+  const chatSettingsEl = (
+    <ChatSettingsPanel
+      status={status}
+      library={library}
+      activeId={activeId}
+      settings={settings}
+      onChange={updateSettings}
+      onCollapse={toggleChatSettings}
+      onReloadContext={reloadWithContext}
+      busy={loadingName != null}
+      voices={voices}
+      defaultVoice={ttsVoice}
+      defaultSpeed={ttsSpeed}
+      tools={tools}
+      disabled={disabledSet}
+      allowedServers={allowedServers}
+      mcp={mcp}
+      onToggleUse={setUseTools}
+      onToggleTool={toggleTool}
+      onToggleServer={toggleServer}
+      tab={chatSettingsTab}
+      onTabChange={setChatSettingsTab}
+    />
+  );
+
   // Shown above the composer when a better audio model is available for the attachment.
   const nudgeEl = audioNudge && (
     <div className="mx-auto mb-2 flex w-full max-w-4xl items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-[12px]">
@@ -1096,7 +1266,23 @@ export function App() {
           </div>
         </div>
       )}
-      <div className="flex h-full overflow-hidden">
+      {/* Mobile: chat settings becomes an overlay too — as a rail it squeezes itself and the chat
+          into nothing (61px of panel at 390px). A Sheet rather than the sidebar's hand-rolled
+          drawer: Radix gives the backdrop dismiss, Escape, focus trap and scroll lock, and it is
+          the same component the sibling dhis2w projects use. 92vw so the sampling controls and
+          their descriptions have room at 390px, while the backdrop stays tappable. */}
+      <Sheet open={chatSettingsAsSheet && chatSettingsOpen} onOpenChange={(open) => !open && closeChatSettings()}>
+        <SheetContent
+          side="right"
+          showCloseButton={false} // the panel's own header carries one
+          aria-describedby={undefined}
+          className="w-[92vw] max-w-sm gap-0 p-0"
+        >
+          <SheetTitle className="sr-only">Chat settings</SheetTitle>
+          {chatSettingsAsSheet && chatSettingsEl}
+        </SheetContent>
+      </Sheet>
+      <div ref={layoutRef} onTransitionEnd={onRailTransitionEnd} className="flex h-full overflow-hidden">
         {/* When the sidebar is collapsed, a thin icon rail keeps new-chat + Models +
             Voice reachable (and usable on mobile) rather than hiding nav entirely. */}
         {!sidebarOpen && (
@@ -1130,6 +1316,9 @@ export function App() {
           onExpand={() => setSidebarOpen(true)}
           className={cn("min-w-0", railTransition)}
         >
+          {/* The pin (see railAnim) needs an element of its own: Sidebar itself is w-full, and the
+              Panel's own width is what animates. */}
+          <div className="h-full" style={pinned("sidebar")}>
           <Sidebar
             conversations={conversations}
             activeId={activeId}
@@ -1145,17 +1334,19 @@ export function App() {
             onDelete={deleteConversation}
             onCollapse={toggleSidebar}
           />
+          </div>
         </Panel>
 
-        {/* Always mounted (stable child order); hairline hidden when the left
-            rail is collapsed so there's no stray divider at the edge. */}
+        {/* Always mounted (stable child order); hairline hidden when the left rail is collapsed so
+            there's no stray divider at the edge — and on mobile, where "open" means the drawer is
+            showing and the rail behind it must stay at zero. */}
         <ResizeHandle
-          onDragging={setDragging}
-          className={cn(!sidebarOpen && "pointer-events-none bg-transparent")}
+          onDragging={onHandleDragging}
+          className={cn((isMobile || !sidebarOpen) && "pointer-events-none bg-transparent")}
         />
 
         <Panel id="main" order={2} minSize={30} className={cn("flex min-w-0 flex-col", railTransition)}>
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col" style={pinned("main")}>
           {/* top bar */}
           <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
             {/* Collapsed-sidebar actions (open + new chat) live in the persistent
@@ -1356,8 +1547,8 @@ export function App() {
 
         {/* Always mounted (stable PanelGroup child order); the hairline hides while collapsed. */}
         <ResizeHandle
-          onDragging={setDragging}
-          className={cn(!chatSettingsOpen && "pointer-events-none bg-transparent")}
+          onDragging={onHandleDragging}
+          className={cn((chatSettingsAsSheet || !chatSettingsOpen) && "pointer-events-none bg-transparent")}
         />
 
         <Panel
@@ -1367,36 +1558,19 @@ export function App() {
           collapsible
           collapsedSize={0}
           defaultSize={0}
-          minSize={18}
+          minSize={chatSettingsMin}
           maxSize={40}
           onCollapse={() => setChatSettingsOpen(false)}
           onExpand={() => setChatSettingsOpen(true)}
           className={cn("min-w-0", railTransition)}
         >
-          {chatSettingsOpen && (
-            <ChatSettingsPanel
-              status={status}
-              library={library}
-              activeId={activeId}
-              settings={settings}
-              onChange={updateSettings}
-              onCollapse={toggleChatSettings}
-              onReloadContext={reloadWithContext}
-              busy={loadingName != null}
-              voices={voices}
-              defaultVoice={ttsVoice}
-              defaultSpeed={ttsSpeed}
-              tools={tools}
-              disabled={disabledSet}
-              allowedServers={allowedServers}
-              mcp={mcp}
-              onToggleUse={setUseTools}
-              onToggleTool={toggleTool}
-              onToggleServer={toggleServer}
-              tab={chatSettingsTab}
-              onTabChange={setChatSettingsTab}
-            />
-          )}
+          {/* Never both: on mobile the drawer above owns it, or a second instance would run its
+              own fetches and input state. Kept mounted for the length of a desktop collapse
+              (onCollapse has already flipped chatSettingsOpen) so the panel slides out behind
+              the clip instead of blanking. */}
+          <div className="h-full" style={pinned("chat-settings")}>
+            {!chatSettingsAsSheet && (chatSettingsOpen || railAnim?.rail === "chat-settings") && chatSettingsEl}
+          </div>
         </Panel>
         </PanelGroup>
       </div>
