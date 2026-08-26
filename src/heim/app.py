@@ -2,6 +2,7 @@
 
 import asyncio
 import secrets
+import threading
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from urllib.parse import urlsplit
@@ -97,6 +98,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         supervisor.sweep_orphans()
     except Exception:  # noqa: BLE001 - a sweep failure must never block startup
         pass
+
+    # Pre-warm the in-chat voice: Kokoro's assets (~310 MB) download on first use, which
+    # otherwise happens inside the user's first Listen click and reads as a hang. Fetch them
+    # in the background at startup instead; best-effort, never blocks serving.
+    def _warm_kokoro() -> None:
+        from heim.voice import kokoro  # noqa: PLC0415
+
+        try:
+            if kokoro.available() and not kokoro.assets_present():
+                kokoro.ensure_assets()
+        except Exception:  # noqa: BLE001 - the first Listen just downloads instead
+            pass
+
+    threading.Thread(target=_warm_kokoro, name="kokoro-warm", daemon=True).start()
 
     if isinstance(manager, UpstreamManager):
         if settings.serve_model:

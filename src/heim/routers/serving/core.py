@@ -79,6 +79,11 @@ async def _status(
 @router.get("/api/status")
 async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> ServerStatus:
     """Report the loaded model and runtime state."""
+    # A generation actively streaming through this server IS proof the upstream is alive —
+    # and a busy llama-server answers /v1/models slowly mid-generation, so probing it right
+    # then is how a healthy backend reads as down. Skip the probe while tokens are flowing.
+    if isinstance(manager, UpstreamManager) and request.app.state.active_generations > 0:
+        manager.touch()
     return await _status(
         manager,
         settings,
