@@ -118,7 +118,7 @@ def tailscale_ip() -> list[str]:
 
 @mcp.tool
 def tailscale_host() -> str:
-    """This machine's full Tailscale (MagicDNS) hostname, e.g. ``msai.tail1234.ts.net``.
+    """This machine's full Tailscale (MagicDNS) hostname, e.g. ``host.tailnet.ts.net``.
 
     The FQDN you can reach this node at on the tailnet — the short hostname plus the tailnet's
     MagicDNS suffix. Prefer this over the bare hostname when asked for the "Tailscale host". Empty

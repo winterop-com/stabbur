@@ -233,7 +233,7 @@ ignores the configured server and skips the auto-attach above, so the model real
 here. `--server` and `--no-server` are mutually exclusive.
 
 ```bash
-heim config set server http://msai:1234      # every chat now attaches to the remote
+heim config set server http://gpu-box:8080   # every chat now attaches to the remote
 heim chat <name> -p "prompt" --no-server     # ...except this one, which loads locally
 ```
 
@@ -323,7 +323,7 @@ is indented under a group row, and `/api/doctor` sends the same tree to the web 
 
 ```bash
 heim doctor
-HEIM_UPSTREAM=http://msai:1234 heim doctor   # also check the remote backend
+HEIM_UPSTREAM=http://gpu-box:8080 heim doctor  # also check the remote backend
 ```
 
 ## `heim serve`

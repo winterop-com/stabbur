@@ -697,7 +697,7 @@ best product uses both, with explicit matching between them.
 The local `d2w` and MCP bridge/router workspace is:
 
 ```text
-/Users/morteoh/dev/local/dhis2w-utils
+/path/to/dhis2w-utils
 ```
 
 For local development, point heim directly at that workspace rather than relying
@@ -708,7 +708,7 @@ on a published `uvx` package:
   "mcpServers": {
     "dhis2": {
       "command": "uv",
-      "args": ["--directory", "/Users/morteoh/dev/local/dhis2w-utils", "run", "dhis2w-mcp-bridge"],
+      "args": ["--directory", "/path/to/dhis2w-utils", "run", "dhis2w-mcp-bridge"],
       "env": { "DHIS2_PROFILE": "play42", "DHIS2_MCP_READONLY": "1" }
     }
   }
@@ -731,7 +731,7 @@ Example `mcp-router.json`:
       "args": [
         "run",
         "--directory",
-        "/Users/morteoh/dev/local/dhis2w-utils",
+        "/path/to/dhis2w-utils",
         "dhis2w-mcp"
       ],
       "env": { "DHIS2_PROFILE": "play42" },
@@ -748,7 +748,7 @@ Then point heim at the router:
   "mcpServers": {
     "dhis2": {
       "command": "uv",
-      "args": ["--directory", "/Users/morteoh/dev/local/dhis2w-utils", "run", "dhis2w-mcp-router"],
+      "args": ["--directory", "/path/to/dhis2w-utils", "run", "dhis2w-mcp-router"],
       "env": { "MCP_ROUTER_CONFIG": "mcp-router.json", "MCP_ROUTER_READONLY": "1" }
     }
   }
@@ -777,7 +777,7 @@ capability that does not exist yet, add it in `dhis2w-utils` and expose it throu
 the bridge/router (or a small `dhis2w-core` function heim calls), rather than
 reimplementing DHIS2 logic inside heim.
 
-Relevant packages (workspace at `/Users/morteoh/dev/local/dhis2w-utils`):
+Relevant packages (workspace at `/path/to/dhis2w-utils`):
 
 - `dhis2w-core` — profile discovery/resolution, auth factory, token store, the
   first-party plugin registry. This is where target-metadata and credential work
@@ -1399,7 +1399,7 @@ reserve only if a future feature needs heim to call back into the browser (see t
 ## Practical first milestone
 
 1. Create a DHIS2 heim project with a locked model.
-2. Configure the local bridge from `/Users/morteoh/dev/local/dhis2w-utils`.
+2. Configure the local bridge from `/path/to/dhis2w-utils`.
 3. Run `heim serve --port 8000`.
 4. Build a minimal MV3 side panel with a base URL setting.
 5. Connect to `/api/status`; if it reports no model, `POST /api/load/{name}` and

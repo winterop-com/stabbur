@@ -166,7 +166,7 @@ def check_runtimes() -> list[Check]:
 
 
 def _host_label(url: str) -> str:
-    """A base URL as a place: ``http://msai:1234`` -> ``msai:1234``.
+    """A base URL as a place: ``http://gpu-box:8080`` -> ``gpu-box:8080``.
 
     An unparseable string falls back to itself: an operator typed it, so show what heim was
     actually given rather than something tidier that isn't it.

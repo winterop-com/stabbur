@@ -86,7 +86,7 @@ def serve(
         str | None,
         typer.Option(
             "--upstream",
-            help="Front a remote OpenAI-compatible /v1 (e.g. a llama-server router: http://msai:1234) "
+            help="Front a remote OpenAI-compatible /v1 (e.g. a llama-server router: http://gpu-box:8080) "
             "instead of spawning local runtimes — the agent loop, tools, and UI run here; the models "
             "run there.",
         ),

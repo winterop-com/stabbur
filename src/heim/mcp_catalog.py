@@ -174,7 +174,7 @@ def _effective(setting: McpSetting, env: dict[str, str]) -> McpSetting:
         return setting.model_copy(update={"effective": "true" if raw.strip().lower() in _TRUTHY else "false"})
     if setting.type is McpSettingKind.path and raw:
         # abspath, not resolve(): normalizes and absolutizes without following symlinks, so the value
-        # shown is the one the user set (/Volumes/T9/…), not its physical target.
+        # shown is the one the user set (/Volumes/Library/…), not its physical target.
         return setting.model_copy(update={"effective": os.path.abspath(Path(raw).expanduser())})
     return setting.model_copy(update={"effective": raw})
 
