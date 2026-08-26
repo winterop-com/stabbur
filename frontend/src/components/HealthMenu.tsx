@@ -230,7 +230,10 @@ export function HealthMenu({ health }: { health: DoctorReport | null }) {
         {/* The verdict is the menu's headline, not a chip beside a title: "is this thing working"
             is the question that opens it, so it gets the one line here that is bold. */}
         <div className="px-3 py-2.5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System health</div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System health</span>
+            {health.version && <span className="text-xs tabular-nums text-muted-foreground">{health.version}</span>}
+          </div>
           <div className="mt-1 flex items-center gap-2 text-sm font-semibold">
             <span className={cn("h-2 w-2 rounded-full", DOT[overall])} />
             {OVERALL_LABEL[overall]}

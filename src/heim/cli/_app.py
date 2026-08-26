@@ -51,8 +51,21 @@ app.add_typer(voice_app, name="voice")
 app.add_typer(config_app, name="config")
 
 
+def _version(show: bool) -> None:
+    """Print the version and exit, the way every CLI is expected to answer --version."""
+    if show:
+        from heim import __version__  # noqa: PLC0415
+
+        typer.echo(f"heim {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def _main(
+    version: Annotated[
+        bool,
+        typer.Option("--version", "-V", callback=_version, is_eager=True, help="Print the version and exit."),
+    ] = False,
     debug: Annotated[
         bool,
         typer.Option("--debug", help="Verbose diagnostics: runtime command + live runtime logs (else discarded)."),

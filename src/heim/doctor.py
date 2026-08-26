@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import BaseModel
 
+from heim import __version__ as heim_version
 from heim import host, mcpservers, runtime, server
 from heim import library as library_ops
 from heim import project as project_ops
@@ -106,6 +107,10 @@ class DoctorReport(BaseModel):
     """The full set of checks plus a rolled-up worst status."""
 
     checks: list[Check]
+    # Which heim produced this report. Not a check - there is no failing version - but it belongs
+    # with the answer to "what is this heim", and it is the only way to tell a stale browser bundle
+    # from a current one without reading package metadata by hand.
+    version: str = heim_version
 
     @property
     def status(self) -> CheckStatus:

@@ -125,6 +125,8 @@ export interface HealthCheck {
 /** The full system-health report. */
 export interface DoctorReport {
   checks: HealthCheck[];
+  /** Which heim answered. Absent on a server older than the field. */
+  version?: string;
 }
 
 /** One MCP tool attached to the server (namespaced <server>__<tool>). */
