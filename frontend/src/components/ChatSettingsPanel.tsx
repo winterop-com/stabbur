@@ -448,7 +448,16 @@ export function ChatSettingsPanel({
             {icon}
             {label}
             {id === "tools" && tools.length > 0 && (
-              <span className="tabular-nums opacity-70">{settings.useTools ? enabledCount : 0}</span>
+              // Show the total whenever this chat is offering fewer tools than are attached: a bare
+              // count reads as "these are all the tools there are", so a model refusing a job its
+              // server could do looks like a bug rather than a switch that is off.
+              <span className="tabular-nums opacity-70">
+                {!settings.useTools
+                  ? 0
+                  : enabledCount < tools.length
+                    ? `${enabledCount}/${tools.length}`
+                    : enabledCount}
+              </span>
             )}
           </button>
         ))}
@@ -875,6 +884,13 @@ export function ChatSettingsPanel({
                               <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400">
                                 <RotateCw className="mt-px h-3 w-3 shrink-0" />
                                 <span>Off, but still running — its tools detach when heim serve restarts.</span>
+                              </p>
+                            ) : server?.enabled === true && list.length > 0 && !allowed ? (
+                              // The confusing case: the row switch is visibly on, so the model
+                              // declining a job this server could do reads as a bug. It is the
+                              // per-chat switch below that is off — say so where the eye already is.
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Running, but off for this chat — switch it on below to let this chat call it.
                               </p>
                             ) : (
                               server?.enabled === true &&
