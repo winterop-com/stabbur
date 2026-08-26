@@ -227,7 +227,7 @@ export function Composer({
   return (
     <div
       className={cn(
-        "rounded-3xl border border-border bg-card shadow-sm transition-colors",
+        "rounded-3xl border border-border bg-card shadow-md transition-colors",
         dragOver && canAttach && "border-primary ring-2 ring-primary/40",
       )}
       onDragOver={(e) => {
@@ -343,7 +343,7 @@ export function Composer({
         </div>
       )}
 
-      <div className="px-4 pt-3">
+      <div className="px-5 pt-4">
         <textarea
           ref={ref}
           value={value}
@@ -370,10 +370,10 @@ export function Composer({
           // Not "Message stabbur": you are not talking to the app, you are talking to whichever
           // model is loaded - and the row below already names it, so repeating it here is noise.
           placeholder={ready ? "Ask anything…" : "Select a model to start"}
-          className="max-h-[200px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
+          className="max-h-[200px] min-h-[52px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>
-      <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+      <div className="flex items-center justify-between gap-2 px-3.5 pb-3 pt-1.5">
         <div className="flex min-w-0 items-center gap-1">
           {canAttach && (
             <>
