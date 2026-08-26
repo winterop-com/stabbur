@@ -269,11 +269,7 @@ def _chat(
         body["max_tokens"] = max_tokens
     # Model-recommended sampling (incl. the anti-loop repeat_penalty default); without a local
     # copy only the mild anti-loop default applies (nothing else is knowable remotely).
-    rec = (
-        sampling.recommended(model)
-        if model is not None
-        else sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
-    )
+    rec = sampling.recommended(model) if model is not None else sampling.defaults()
     body.update(rec.model_dump(exclude_none=True))
     resp = httpx.post(f"{base}/v1/chat/completions", json=body, timeout=600)
     resp.raise_for_status()

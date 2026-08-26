@@ -24,21 +24,21 @@ def test_reads_generation_config(tmp_path: Path) -> None:
     assert s.repeat_penalty == 1.1  # repetition_penalty mapped to repeat_penalty
 
 
-def test_missing_config_gets_only_the_anti_loop_default(tmp_path: Path) -> None:
-    # No generation_config (the common GGUF-quant case): everything left to the
-    # runtime except a mild repeat_penalty, which stops degeneration loops.
+def test_missing_config_gets_heim_defaults(tmp_path: Path) -> None:
+    # No generation_config (the common GGUF-quant case): every field falls back to heim's
+    # own default, so the values are knowable (and showable) instead of depending on which
+    # runtime happens to serve the model.
     s = sampling.recommended(_mlx_model(tmp_path))
-    assert s == sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
+    assert s == sampling.defaults()
+    assert s.temperature is not None and s.top_p is not None and s.top_k is not None and s.min_p is not None
 
 
 def test_ignores_unset_sentinels(tmp_path: Path) -> None:
-    # temperature 0 / top_p 1 / top_k 0 are "no-op" sentinels — don't surface them
-    # (they would otherwise force greedy / disable nucleus sampling). With no repeat_penalty
-    # in the config, the anti-loop default applies. (An *explicit* 1.0 is a separate test.)
+    # temperature 0 / top_p 1 / top_k 0 are "no-op" sentinels — don't surface them (they would
+    # otherwise force greedy / disable nucleus sampling); those fields take heim's default
+    # instead. (An *explicit* repeat_penalty of 1.0 is respected — a separate test.)
     (tmp_path / "generation_config.json").write_text(json.dumps({"temperature": 0, "top_p": 1.0, "top_k": 0}))
-    assert sampling.recommended(_mlx_model(tmp_path)) == sampling.ModelSampling(
-        repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY
-    )
+    assert sampling.recommended(_mlx_model(tmp_path)) == sampling.defaults()
 
 
 def test_gguf_reads_config_from_parent_dir(tmp_path: Path) -> None:
@@ -63,3 +63,11 @@ def test_absent_repeat_penalty_uses_default(tmp_path: Path) -> None:
     model_dir.mkdir()
     (model_dir / "generation_config.json").write_text(json.dumps({"temperature": 0.7}))
     assert sampling.recommended(_mlx_model(model_dir)).repeat_penalty == sampling.DEFAULT_REPEAT_PENALTY
+
+
+def test_model_recommendation_wins_over_heim_defaults(tmp_path: Path) -> None:
+    # A model that ships its own values keeps them; only the fields it omits fall back.
+    (tmp_path / "generation_config.json").write_text(json.dumps({"temperature": 0.2, "top_k": 100}))
+    s = sampling.recommended(_mlx_model(tmp_path))
+    assert s.temperature == 0.2 and s.top_k == 100
+    assert s.top_p == sampling.DEFAULT_TOP_P and s.min_p == sampling.DEFAULT_MIN_P

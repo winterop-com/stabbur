@@ -66,6 +66,7 @@ export interface Status {
   default_chat_voice: string | null; // the project's [project] chat_voice; UI defaults the Listen voice to it
   voice_enabled: boolean; // the project's [voice] enabled; false hides the Voice surface (text-only assistant)
   runtime_load_timeout: number; // seconds a load may take; the UI polls at least this long
+  default_max_tokens?: number; // cap applied when a request omits max_tokens (0 = unbounded)
 }
 
 export interface LibModel {

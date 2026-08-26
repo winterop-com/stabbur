@@ -22,6 +22,10 @@ export interface Settings {
   contextLength: number | null;
   /** Reasoning effort for thinking models; null = the model's default behavior. */
   reasoning: ReasoningLevel | null;
+  /** Listen voice for this chat; null = inherit the default (Settings page / project). */
+  ttsVoice: string | null;
+  /** Listen speed for this chat; null = inherit the default. */
+  ttsSpeed: number | null;
 }
 
 export type ReasoningLevel = "off" | "low" | "medium" | "high" | "max";
@@ -36,6 +40,8 @@ export const DEFAULT_SETTINGS: Settings = {
   disabledTools: [],
   contextLength: null,
   reasoning: null,
+  ttsVoice: null,
+  ttsSpeed: null,
 };
 
 export function uid(): string {
@@ -59,6 +65,9 @@ export function normalizeSettings(parsed: Partial<Settings> | undefined | null):
       typeof parsed.reasoning === "string" && REASONING_LEVELS.includes(parsed.reasoning)
         ? parsed.reasoning
         : null,
+    ttsVoice: typeof parsed.ttsVoice === "string" ? parsed.ttsVoice : null,
+    ttsSpeed:
+      typeof parsed.ttsSpeed === "number" && parsed.ttsSpeed >= 0.25 && parsed.ttsSpeed <= 2 ? parsed.ttsSpeed : null,
   };
 }
 

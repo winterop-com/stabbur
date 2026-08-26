@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, Sun, Moon, X } from "lucide-react";
+import { ArrowDown, Download, PanelRight, Sun, Moon, X } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -46,11 +46,10 @@ import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
 import { TargetSelector } from "@/components/TargetSelector";
 import { LibraryView } from "@/components/LibraryView";
-import { VoiceControl } from "@/components/VoiceControl";
 import { VoiceView } from "@/components/VoiceView";
+import { ChatSettingsPanel } from "@/components/ChatSettingsPanel";
 import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
-import { ToolsControl } from "@/components/ToolsControl";
 import {
   DEFAULT_SETTINGS,
   deriveTitle,
@@ -151,8 +150,11 @@ export function App() {
           : "chat",
   );
 
-  // --- resizable layout: imperative handle to collapse/expand the left rail. ---
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+
+  // --- resizable layout: imperative handles to collapse/expand the rails. ---
   const leftPanel = useRef<ImperativePanelHandle>(null);
+  const rightPanel = useRef<ImperativePanelHandle>(null);
   // Animate programmatic collapse/expand, but never during a manual drag (which
   // must track the cursor 1:1). react-resizable-panels sets flex inline, so a CSS
   // flex transition animates the collapse — suppressed while a handle is dragging.
@@ -173,6 +175,12 @@ export function App() {
     else leftPanel.current?.expand();
   }, [isMobile]);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const toggleChatSettings = useCallback(() => {
+    const p = rightPanel.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    else p.collapse();
+  }, []);
   // Entering mobile collapses the rail to 0 (the drawer replaces it); leaving mobile with the
   // sidebar "open" restores the rail so it doesn't vanish on resize/rotate.
   useEffect(() => {
@@ -496,7 +504,8 @@ export function App() {
   // The project can turn the Voice surface off ([voice] enabled = false) for a text-only
   // assistant; default on until status loads. Speak-replies default to the project's chat_voice.
   const voiceEnabled = status?.voice_enabled !== false;
-  const effectiveTtsVoice = ttsVoice || status?.default_chat_voice || undefined;
+  const effectiveTtsVoice = settings.ttsVoice ?? (ttsVoice || status?.default_chat_voice || undefined);
+  const effectiveTtsSpeed = settings.ttsSpeed ?? ttsSpeed;
   const showChat = useCallback(() => setView("chat"), []);
   const showLibrary = useCallback(() => setView("library"), []);
   const showVoice = useCallback(() => setView("voice"), []);
@@ -871,7 +880,8 @@ export function App() {
     [ready, visionModel, audioModel, loadedModel],
   );
 
-  // Controls docked in the composer: model picker + tools (the natural spot).
+  // Controls docked in the composer are "what am I talking to" (model + routing target).
+  // Everything that shapes *how* it answers lives in the per-chat settings panel.
   const disabledSet = useMemo(() => new Set(settings.disabledTools), [settings.disabledTools]);
   const composerControls = (
     <>
@@ -887,21 +897,6 @@ export function App() {
       {targets.length >= 2 && (
         <TargetSelector targets={targets} selectedId={targetId} onSelect={chooseTarget} />
       )}
-      <ToolsControl
-        tools={tools}
-        useTools={settings.useTools}
-        disabled={disabledSet}
-        onToggleUse={setUseTools}
-        onToggleTool={toggleTool}
-        onToggleServer={toggleServer}
-      />
-      <VoiceControl
-        voices={voices}
-        selected={ttsVoice}
-        onChooseVoice={chooseVoice}
-        speed={ttsSpeed}
-        onChooseSpeed={chooseSpeed}
-      />
     </>
   );
 
@@ -1064,6 +1059,21 @@ export function App() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+              {view === "chat" && !chatSettingsOpen && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={toggleChatSettings}
+                      aria-label="Open chat settings"
+                    >
+                      <PanelRight className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Chat settings</TooltipContent>
+                </Tooltip>
+              )}
               <HealthMenu health={health} />
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1110,14 +1120,11 @@ export function App() {
             <SettingsView
               status={status}
               library={library}
-              activeId={activeId}
-              settings={settings}
-              onChange={updateSettings}
-              onReloadContext={reloadWithContext}
-              busy={loadingName != null}
               voices={voices}
               ttsVoice={ttsVoice}
               onChooseVoice={chooseVoice}
+              ttsSpeed={ttsSpeed}
+              onChooseSpeed={chooseSpeed}
             />
           ) : (
           <>
@@ -1177,7 +1184,7 @@ export function App() {
                       onRegenerate={regenerate}
                       onResolveConfirm={resolveConfirm}
                       ttsVoice={effectiveTtsVoice}
-                      ttsSpeed={ttsSpeed}
+                      ttsSpeed={effectiveTtsSpeed}
                     />
                   ))}
                 </div>
@@ -1218,6 +1225,47 @@ export function App() {
           </>
           )}
         </main>
+        </Panel>
+
+        {/* Always mounted (stable PanelGroup child order); the hairline hides while collapsed. */}
+        <ResizeHandle
+          onDragging={setDragging}
+          className={cn(!chatSettingsOpen && "pointer-events-none bg-transparent")}
+        />
+
+        <Panel
+          ref={rightPanel}
+          id="chat-settings"
+          order={3}
+          collapsible
+          collapsedSize={0}
+          defaultSize={0}
+          minSize={18}
+          maxSize={40}
+          onCollapse={() => setChatSettingsOpen(false)}
+          onExpand={() => setChatSettingsOpen(true)}
+          className={cn("min-w-0", railTransition)}
+        >
+          {chatSettingsOpen && (
+            <ChatSettingsPanel
+              status={status}
+              library={library}
+              activeId={activeId}
+              settings={settings}
+              onChange={updateSettings}
+              onCollapse={toggleChatSettings}
+              onReloadContext={reloadWithContext}
+              busy={loadingName != null}
+              voices={voices}
+              defaultVoice={ttsVoice}
+              defaultSpeed={ttsSpeed}
+              tools={tools}
+              disabled={disabledSet}
+              onToggleUse={setUseTools}
+              onToggleTool={toggleTool}
+              onToggleServer={toggleServer}
+            />
+          )}
         </Panel>
         </PanelGroup>
       </div>

@@ -168,7 +168,7 @@ class ChatApp(App[None]):
             self._model_name = remote.model_name
             self._model_format = "remote"
             self._model_target = remote.model_id
-            self._sampling = sampling_mod.ModelSampling(repeat_penalty=sampling_mod.DEFAULT_REPEAT_PENALTY)
+            self._sampling = sampling_mod.defaults()
             self._ctx_max = remote.n_ctx
 
     def compose(self) -> ComposeResult:

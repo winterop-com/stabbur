@@ -212,7 +212,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                 # is knowable without a local copy).
                 model_field: str | None = current.name
                 model_vision = current.vision
-                rec = sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
+                rec = sampling.defaults()
             else:
                 model_target = current.load_target
                 try:

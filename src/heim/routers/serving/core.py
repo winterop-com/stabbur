@@ -37,6 +37,7 @@ class ServerStatus(BaseModel):
     default_chat_voice: str | None = None  # the project's [project] chat_voice, so the UI defaults the Listen voice
     voice_enabled: bool = True  # the project's [voice] enabled; false hides the Voice surface (text-only assistant)
     runtime_load_timeout: int = 600  # seconds a load may take, so the UI polls as long as the runtime does
+    default_max_tokens: int = 4096  # the cap applied when a request omits max_tokens (0 = unbounded)
 
 
 class LibraryModelInfo(BaseModel):
@@ -73,6 +74,7 @@ async def _status(
         default_chat_voice=chat_voice,
         voice_enabled=voice_enabled,
         runtime_load_timeout=settings.runtime_load_timeout,
+        default_max_tokens=settings.default_max_tokens,
     )
 
 
@@ -193,10 +195,19 @@ class ModelCardInfo(BaseModel):
 
 
 @router.get("/api/model")
-def model_info(name: str) -> ModelCardInfo:
-    """Return the model card (README/model-card.md) + metadata for a library model."""
+def model_info(name: str, manager: ManagerDep) -> ModelCardInfo:
+    """Return the model card (README/model-card.md) + metadata for a library model.
+
+    A model served by an upstream has no library copy (so no card or metadata), but it
+    still runs under heim's sampling defaults — report those rather than 404ing, so a
+    client can show the values that will actually be sent.
+    """
     matches = library_ops.find(name)
     if not matches:
+        if isinstance(manager, UpstreamManager):
+            return ModelCardInfo(
+                name=name, model_format="remote", size_human="—", path="", sampling=sampling.defaults()
+            )
         raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
     m = matches[0]
     card_text: str | None = None

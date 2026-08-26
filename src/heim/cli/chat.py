@@ -535,7 +535,7 @@ def _chat_with_tools(
         rec = sampling.recommended(model)
         model_vision = capabilities.capabilities(model).vision  # feed tool-returned images back only if seen
     else:
-        rec = sampling.ModelSampling(repeat_penalty=sampling.DEFAULT_REPEAT_PENALTY)
+        rec = sampling.defaults()
         model_vision = True
     if model_id is None:
         assert model is not None  # every caller supplies a library model or a remote id

@@ -209,6 +209,9 @@ class UpstreamManager:
     # "disconnected" even though generations are streaming fine.
     _READY_TTL = 10.0
     _READY_GRACE = 30.0
+    # A busy llama-server answers /v1/models slowly (measured 1-3s while generating, and
+    # occasionally worse), so give the listing real room rather than reporting a false outage.
+    _LISTING_TIMEOUT = 15.0
 
     def __init__(self, upstream: str) -> None:
         # Accept with or without a trailing /v1 — routes append their own /v1 paths.
@@ -254,7 +257,7 @@ class UpstreamManager:
         if self._models and now - self._models_at < 5.0:
             return list(self._models)  # fresh enough; don't re-hit the upstream per poll
         try:
-            resp = httpx.get(f"{self._upstream}/v1/models", timeout=5)
+            resp = httpx.get(f"{self._upstream}/v1/models", timeout=self._LISTING_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -308,16 +311,23 @@ class UpstreamManager:
         user has running the moment the first message goes out. No loaded model (or an
         unreachable upstream) just leaves nothing selected — the UI then offers the picker.
         """
-        try:
-            rows = self.models()
-        except RuntimeError as exc:
+        for attempt in range(3):
+            try:
+                rows = self.models()
+            except RuntimeError as exc:
+                with self._lock:
+                    self._last_error = str(exc)
+                if attempt < 2:
+                    time.sleep(1.0)  # a slow upstream at startup is common; give it a moment
+                    self._models_at = 0.0  # don't serve the (empty) cache on the retry
+                    continue
+                return
+            match = next((r for r in rows if r.loaded), None)
             with self._lock:
-                self._last_error = str(exc)
+                self._last_error = None
+                if match is not None:
+                    self._selected = match
             return
-        match = next((r for r in rows if r.loaded), None)
-        if match is not None:
-            with self._lock:
-                self._selected = match
 
     def touch(self) -> None:
         """Mark the upstream as just-seen-alive (e.g. a generation is actively streaming)."""
