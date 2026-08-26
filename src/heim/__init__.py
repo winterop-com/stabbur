@@ -27,4 +27,11 @@ from heim import hfcache as _hfcache  # noqa: E402
 
 _hfcache.configure()
 
-__version__ = "0.1.0"
+# Read the version from package metadata (chapkit's pattern) rather than restating it here:
+# a second copy only drifts — this one still said 0.1.0 at the 0.4.0 release.
+try:
+    from importlib.metadata import version as _get_version
+
+    __version__ = _get_version("heim")
+except Exception:  # noqa: BLE001 - a source tree that was never installed has no metadata
+    __version__ = "unknown"
