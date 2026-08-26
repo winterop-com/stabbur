@@ -126,6 +126,10 @@ build:
 frontend:
 	@echo ">>> Building the browser UI → frontend/dist"
 	@cd frontend && bun install && bun run build
+	@# Drop the staged package copy: Settings.frontend_dir PREFERS src/stabbur/webui, so a
+	@# leftover from a previous `frontend-pack` would make `serve --ui` keep serving a frozen
+	@# UI while you edit the SPA and see nothing change. Packaging re-stages it right after.
+	@rm -rf src/stabbur/webui
 
 # Stage the built SPA INTO the package, so the wheel carries it and `uvx stabbur serve --ui`
 # actually has a UI. Without this the wheel ships no frontend and `/` answers 404 - a checkout

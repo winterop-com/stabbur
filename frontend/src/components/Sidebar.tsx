@@ -39,6 +39,13 @@ import { cn } from "@/lib/utils";
  */
 const ROW = "flex w-full rounded-l-[4px] rounded-r-lg border-l-[3px] text-left transition-colors";
 const ROW_ACTIVE = "border-sidebar-primary bg-sidebar-accent text-sidebar-accent-foreground";
+/** The section you are in, while something nested inside it owns the selection.
+ *
+ *  Chat and the open conversation are NESTED, not siblings: you are in Chat, and within Chat,
+ *  in this conversation. Giving both the full active treatment put two equal "you are here"
+ *  markers on screen, so neither read as one. The strong marker belongs to the deepest active
+ *  thing; the section keeps only the accent border, dropping the fill and the medium weight. */
+const ROW_CURRENT = "border-sidebar-primary text-sidebar-foreground";
 const ROW_IDLE = "border-transparent text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground";
 /** Ghost buttons inside the rail. The shared variant hovers to the PAGE's `--accent`, which over
  *  the rail's own ground is a patch of a different room; the wash is the rail's own hover. */
@@ -50,6 +57,7 @@ function NavItem({
   title,
   subtitle,
   active = false,
+  current = false,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -57,13 +65,19 @@ function NavItem({
   subtitle?: string;
   /** Omitted for rows that are actions rather than destinations (Settings opens a dialog). */
   active?: boolean;
+  /** This section is open, but a row nested under it holds the selection — see ROW_CURRENT. */
+  current?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={cn(ROW, "items-start gap-3 px-3 py-2", active ? `${ROW_ACTIVE} font-medium` : ROW_IDLE)}
+      className={cn(
+        ROW,
+        "items-start gap-3 px-3 py-2",
+        active ? `${ROW_ACTIVE} font-medium` : current ? ROW_CURRENT : ROW_IDLE,
+      )}
     >
       <span className="mt-0.5 shrink-0">{icon}</span>
       <span className="min-w-0">
@@ -188,7 +202,8 @@ export function Sidebar({
           icon={<MessagesSquare className="h-4 w-4" />}
           title="Chat"
           subtitle="Talk to your models"
-          active={view === "chat"}
+          active={view === "chat" && !activeId}
+          current={view === "chat" && !!activeId}
           onClick={onShowChat}
         />
         <NavItem

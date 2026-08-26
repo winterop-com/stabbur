@@ -101,13 +101,6 @@ TUI, and `stabbur serve --upstream` all front it. Open threads:
 
 ## Web UI
 
-- **Two rows read as active at once.** With a conversation open, the "Chat" nav row and the
-  conversation row both carry the full active treatment, so neither reads as "you are here".
-  They are nested states (in Chat, and within Chat this conversation), not siblings. The shared
-  row recipe in `docs/ui-conventions.md` is right about style — the two should not be highlighted
-  in two different ways — but it did not anticipate both being active simultaneously. Wants one
-  strong marker and one quiet one; decide which level owns the strong one.
-
 - **A design pass on the colours.** The plumbing is done — the semantic and syntax variables
   exist, no component holds a hardcoded colour, and `docs/ui-conventions.md` records the rules —
   so retuning a value now actually moves the app, which it did not before. The four ported
