@@ -2,7 +2,7 @@
      relative paths - a repo-relative src renders as a broken image on the project page. -->
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/winterop-com/stabbur/main/docs/assets/logo.png" alt="stabbur" width="200">
+<img src="https://raw.githubusercontent.com/winterop-com/stabbur/main/docs/assets/logo.png" alt="stabbur" width="240">
 
 # stabbur
 

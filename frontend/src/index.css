@@ -73,9 +73,6 @@
      (and the error text shadcn already paints with it), `--critical` is a state
      stabbur OBSERVED and is reporting - a failed doctor check has nothing for the
      reader to press. */
-  /* The brand green of the logo and favicon. Separate from --good, which means a health
-     check PASSED - the mark is not reporting anything, so it must not borrow that meaning. */
-  --brand: oklch(0.6 0.14 155);
   --good: oklch(0.6 0.14 155);
   --critical: oklch(0.55 0.17 25);
   --warning: oklch(0.65 0.13 75);
@@ -129,7 +126,6 @@
   --sidebar-accent-foreground: oklch(0.88 0.08 260);
   --sidebar-border: oklch(0.3 0.006 265);
   --sidebar-ring: oklch(0.62 0.19 260);
-  --brand: oklch(0.72 0.16 155);
   --good: oklch(0.72 0.16 155);
   --critical: oklch(0.7 0.16 25);
   --warning: oklch(0.75 0.13 75);
@@ -186,7 +182,6 @@
      The `--code-*` tokens deliberately get none: they are spent by the `.hljs-*`
      rules alone, and a utility would invite a component to paint prose with a
      syntax colour. */
-  --color-brand: var(--brand);
   --color-good: var(--good);
   --color-critical: var(--critical);
   --color-warning: var(--warning);

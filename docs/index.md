@@ -1,4 +1,4 @@
-<img src="assets/logo.png" alt="stabbur" width="150" align="right">
+<img src="assets/logo.png" alt="stabbur" width="200" align="right">
 
 # stabbur
 

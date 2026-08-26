@@ -299,14 +299,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # API path operations are matched first; fallback="index.html" supports the
     # SPA's client-side routing.
     if settings.serve_ui and settings.frontend_dir.is_dir():
-        # Browsers probe /favicon.ico regardless of the declared <link> icon; serve
-        # the SVG for it so it doesn't 404 (the SPA fallback would hand back HTML).
-        favicon = settings.frontend_dir / "favicon.svg"
-        if favicon.is_file():
+        # Browsers probe /favicon.ico regardless of the declared <link> icons; serve a real
+        # icon for it so it doesn't 404 (the SPA fallback would hand back HTML instead).
+        # The 32px PNG is the one browsers render at tab size; .ico is only the URL here.
+        _icons = (("favicon-32.png", "image/png"), ("favicon.svg", "image/svg+xml"))
+        favicon, favicon_type = next(
+            ((settings.frontend_dir / n, t) for n, t in _icons if (settings.frontend_dir / n).is_file()),
+            (None, ""),
+        )
+        if favicon is not None:
+            icon_path, icon_type = favicon, favicon_type
 
             @app.get("/favicon.ico", include_in_schema=False)
             async def _favicon() -> FileResponse:
-                return FileResponse(favicon, media_type="image/svg+xml")
+                return FileResponse(icon_path, media_type=icon_type)
 
         # Cache policy for the built SPA. FastAPI's frontend() sends only ETag/Last-Modified,
         # and a response with no Cache-Control is *heuristically* cached by browsers — so

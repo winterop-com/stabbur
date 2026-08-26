@@ -19,7 +19,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { StabburMark } from "@/components/StabburMark";
 import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -148,7 +147,7 @@ export function Sidebar({
       <div className="flex items-center justify-between px-3 py-3">
         {/* The narrow rail and small screens get the bare brand; there is no room for both words. */}
         <span className="flex items-center gap-1.5 px-1 text-sm font-semibold tracking-tight">
-          <StabburMark className="h-5 w-5 shrink-0 text-brand" />
+          <img src="/logo.png" alt="" className="h-6 w-6 shrink-0" />
           <span className="md:hidden">Stabbur</span>
           <span className="hidden md:inline">Stabbur Loft</span>
         </span>

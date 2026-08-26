@@ -1742,8 +1742,11 @@ export function App() {
           )}
 
           {messages.length === 0 ? (
-            // Empty state: centered greeting + composer.
+            // Empty state: badge + centered greeting + composer. The badge lives here rather
+            // than in the sidebar because it is an illustration, not a glyph: it needs ~48px
+            // before the pillars and ladder resolve, and the sidebar mark is 20px.
             <div className="flex flex-1 flex-col items-center justify-center px-4">
+              <img src="/logo.png" alt="" width={144} height={144} className="mb-6" />
               <h1 className="mb-8 text-2xl font-semibold tracking-tight">
                 {ready ? greeting : "Select a model to start"}
               </h1>

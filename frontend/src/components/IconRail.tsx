@@ -1,6 +1,5 @@
 import { AudioLines, Boxes, PanelLeft, SquarePen } from "lucide-react";
 
-import { StabburMark } from "@/components/StabburMark";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -67,7 +66,7 @@ export function IconRail({
           status bar's left segment shrinks to this rail's width and carries the gear itself, so
           putting one here too would stack two gears in the same corner. */}
       <div className="mt-auto flex flex-col items-center gap-1">
-        <StabburMark className="mb-1 h-4 w-4 text-sidebar-muted-foreground" />
+        <img src="/logo.png" alt="" className="mb-1 h-6 w-6" />
       </div>
     </aside>
   );
