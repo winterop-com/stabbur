@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, PanelRight, Sun, Moon, X } from "lucide-react";
+import { ArrowDown, PanelRight, Search, X } from "lucide-react";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "@/components/ui/resizable";
@@ -29,12 +29,6 @@ import {
   type Voice,
 } from "@/api";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
@@ -48,6 +42,7 @@ import { TargetSelector } from "@/components/TargetSelector";
 import { LibraryView } from "@/components/LibraryView";
 import { VoiceView } from "@/components/VoiceView";
 import { ChatSettingsPanel } from "@/components/ChatSettingsPanel";
+import { CommandPalette, opensPalette } from "@/components/CommandPalette";
 import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
 import {
@@ -151,6 +146,7 @@ export function App() {
   );
 
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // --- resizable layout: imperative handles to collapse/expand the rails. ---
   const leftPanel = useRef<ImperativePanelHandle>(null);
@@ -175,6 +171,16 @@ export function App() {
     else leftPanel.current?.expand();
   }, [isMobile]);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  // Cmd/Ctrl+K anywhere opens the palette; it also closes it, so the chord toggles.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!opensPalette(e)) return;
+      e.preventDefault();
+      setPaletteOpen((v) => !v);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const toggleChatSettings = useCallback(() => {
     const p = rightPanel.current;
     if (!p) return;
@@ -976,6 +982,33 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        status={status}
+        library={library}
+        conversations={conversations}
+        theme={theme}
+        voiceEnabled={voiceEnabled}
+        hasConversation={!!activeConv && messages.length > 0}
+        actions={{
+          onShowChat: showChat,
+          onShowLibrary: showLibrary,
+          onShowVoice: showVoice,
+          onShowSettings: showSettings,
+          onNewChat: startNewChat,
+          onSelectConversation: selectConversation,
+          onPickModel: pick,
+          onToggleSidebar: toggleSidebar,
+          onToggleChatSettings: toggleChatSettings,
+          onToggleTheme: toggle,
+          onClearChat: () => activeId && deleteConversation(activeId),
+          onExportMarkdown: () => activeConv && exportConversationMarkdown(activeConv, status?.model ?? null),
+          onExportPdf: () => {
+            if (activeConv) void exportConversationPdf(activeConv, status?.model ?? null);
+          },
+        }}
+      />
       {/* Mobile: the sidebar is an overlay drawer (a resizable rail would squeeze the content).
           The persistent IconRail is the closed-state nav; tapping expand opens this. */}
       {isMobile && sidebarOpen && (
@@ -1094,28 +1127,23 @@ export function App() {
                   onShowLibrary={showLibrary}
                 />
               )}
-              {activeConv && messages.length > 0 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Export conversation"
-                      title="Export conversation"
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => exportConversationMarkdown(activeConv, status?.model ?? null)}>
-                      Markdown (.md)
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void exportConversationPdf(activeConv, status?.model ?? null)}>
-                      PDF / Print
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+              {/* Export, theme, and the rest live in the palette (⌘K) rather than as a row
+                  of icons here; this button is the discoverable way in. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPaletteOpen(true)}
+                    aria-label="Open command palette"
+                    className="gap-1.5 px-2 text-muted-foreground"
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    <kbd className="font-sans text-[11px] tracking-wide">⌘K</kbd>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Command palette</TooltipContent>
+              </Tooltip>
               {view === "chat" && !chatSettingsOpen && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1132,14 +1160,6 @@ export function App() {
                 </Tooltip>
               )}
               <HealthMenu health={health} />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
-                    {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{theme === "dark" ? "Light mode" : "Dark mode"}</TooltipContent>
-              </Tooltip>
             </div>
           </header>
 
