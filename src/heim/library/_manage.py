@@ -3,12 +3,13 @@
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from heim import cards, locking
 from heim.library._model import LibraryModel, _classify_dir
-from heim.models import ModelFormat
+from heim.models import ModelFormat, _human_size
 from heim.sources import ollama
 from heim.sources.base import copy_verified, dir_stats
 
@@ -193,13 +194,35 @@ def _weights_issues(model: LibraryModel) -> list[str]:
     return issues
 
 
+def _stats_issues(path: Path, meta: dict[str, Any]) -> list[str]:
+    """Compare the sidecar's recorded size and file count against what is on disk now.
+
+    This is what catches a *truncated* pull: the weights file still exists and is non-empty, so
+    the structural checks pass, but it is short. Both sides are measured with :func:`dir_stats`,
+    which skips the sidecar itself, so they count the same files. A sidecar that never recorded
+    the numbers (older pulls) is skipped rather than reported as damaged.
+    """
+    recorded_size, recorded_files = meta.get("size_bytes"), meta.get("file_count")
+    if not isinstance(recorded_size, int) or recorded_size <= 0:
+        return []
+    size, files = dir_stats(path)
+    issues: list[str] = []
+    if size != recorded_size:
+        issues.append(f"size {_human_size(size)} != recorded {_human_size(recorded_size)}")
+    if isinstance(recorded_files, int) and recorded_files > 0 and files != recorded_files:
+        issues.append(f"{files} files != recorded {recorded_files}")
+    return issues
+
+
 def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
     """Check a model on disk is intact.
 
     Ollama models are content-addressed, so their blobs are checked for existence and — with
     ``deep`` — re-hashed against their sha256 digests (true integrity). Format-bucket models
-    (GGUF/MLX/safetensors) carry no per-file checksums, so they're checked structurally: the
-    declared weights (and projector) exist and are non-empty, and the recorded card is present.
+    (GGUF/MLX/safetensors) carry no per-file checksums, so they're checked structurally — the
+    declared weights (and projector) exist and are non-empty, and the recorded card is present —
+    and against the size and file count their sidecar recorded at pull time, which is what
+    catches a pull that stopped partway.
     """
     if model.is_ollama:
         models_dir = model.library_root / "ollama"
@@ -209,12 +232,20 @@ def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
         )
 
     issues = _weights_issues(model)
+    checked = "weights+card"
     meta_path = model.path / cards.SIDECAR_DIR / "metadata.json"
     if meta_path.is_file():
         try:
-            card = json.loads(meta_path.read_text()).get("card")
-            if isinstance(card, str) and not (model.path / card).is_file():
-                issues.append(f"card {card!r} missing")
+            meta = json.loads(meta_path.read_text())
         except (OSError, ValueError):
             issues.append("unreadable .heim/metadata.json")
-    return VerifyResult(name=model.name, ok=not issues, checked="weights+card", issues=issues)
+        else:
+            card = meta.get("card") if isinstance(meta, dict) else None
+            if isinstance(card, str) and not (model.path / card).is_file():
+                issues.append(f"card {card!r} missing")
+            if isinstance(meta, dict):
+                stats = _stats_issues(model.path, meta)
+                issues += stats
+                if stats or "size_bytes" in meta:
+                    checked = "weights+size+card"
+    return VerifyResult(name=model.name, ok=not issues, checked=checked, issues=issues)

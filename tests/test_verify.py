@@ -8,6 +8,7 @@ import pytest
 
 from heim import library
 from heim.models import ModelFormat
+from heim.sources.base import dir_stats
 
 
 def _gguf_model(tmp_path: Path, *, empty: bool = False, with_card: bool = True) -> library.LibraryModel:
@@ -19,15 +20,45 @@ def _gguf_model(tmp_path: Path, *, empty: bool = False, with_card: bool = True) 
         (repo / "README.md").write_text("# card")
     sidecar = repo / ".heim"
     sidecar.mkdir()
-    (sidecar / "metadata.json").write_text('{"card": "README.md", "size_bytes": 7, "file_count": 2}')
+    # Record the stats a real pull would: measured with dir_stats, after the files are in place.
+    size, files = dir_stats(repo)
+    (sidecar / "metadata.json").write_text(f'{{"card": "README.md", "size_bytes": {size}, "file_count": {files}}}')
     return library.LibraryModel(name="pub/Foo-GGUF", model_format=ModelFormat.gguf, path=repo, load_target=gguf)
 
 
 def test_verify_ok_when_weights_and_card_present(tmp_path: Path) -> None:
     result = library.verify(_gguf_model(tmp_path))
     assert result.ok
-    assert result.checked == "weights+card"
+    assert result.checked == "weights+size+card"
     assert result.issues == []
+
+
+def test_verify_flags_truncated_weights(tmp_path: Path) -> None:
+    # The whole point of the size check: the file still exists and is non-empty, so every
+    # structural check passes — only the recorded size reveals the pull stopped partway.
+    model = _gguf_model(tmp_path)
+    model.load_target.write_bytes(b"w")
+    result = library.verify(model)
+    assert not result.ok
+    assert any("size" in i and "recorded" in i for i in result.issues)
+
+
+def test_verify_flags_an_extra_or_missing_file(tmp_path: Path) -> None:
+    model = _gguf_model(tmp_path)
+    (model.path / "extra.gguf").write_bytes(b"surprise")
+    result = library.verify(model)
+    assert not result.ok
+    assert any("files != recorded" in i for i in result.issues)
+
+
+def test_verify_skips_the_size_check_when_the_sidecar_never_recorded_it(tmp_path: Path) -> None:
+    # Older pulls wrote no size_bytes; they must not all report as damaged.
+    model = _gguf_model(tmp_path)
+    (model.path / ".heim" / "metadata.json").write_text('{"card": "README.md"}')
+    model.load_target.write_bytes(b"much shorter than recorded")
+    result = library.verify(model)
+    assert result.ok
+    assert result.checked == "weights+card"
 
 
 def test_verify_flags_missing_weights(tmp_path: Path) -> None:

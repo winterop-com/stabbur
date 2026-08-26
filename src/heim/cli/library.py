@@ -505,6 +505,14 @@ def sync(
         bool,
         typer.Option("--shared", help="Pull into the shared/default library instead of the project-local one."),
     ] = False,
+    repair: Annotated[
+        bool,
+        typer.Option("--repair", help="Also re-pull models that are present but fail verification."),
+    ] = False,
+    deep: Annotated[
+        bool,
+        typer.Option("--deep", help="With --repair, re-hash content instead of checking size/count (slow)."),
+    ] = False,
 ) -> None:
     """Re-download every model in a want list that's missing from your library.
 
@@ -522,12 +530,34 @@ def sync(
         console.print(f"[red]Invalid want list[/] ({wantfile}): {exc}")
         raise typer.Exit(2) from exc
 
+    if deep and not repair:
+        console.print("[yellow]--deep only applies with --repair[/] — verification is what it deepens.")
     root = library_ops.default_root() if shared else library_ops.roots()[0]
-    sp = wantlist.plan(wants, library_ops.scan())
+
+    # --repair treats a model that fails verification as absent, so the pull below rewrites it.
+    # Re-pulling genuinely repairs: the HF snapshot re-fetches any file whose size/etag no longer
+    # matches, rather than seeing a directory and skipping.
+    damaged: list[str] = []
+
+    def _damaged(model: library_ops.LibraryModel) -> bool:
+        if library_ops.verify(model, deep=deep).ok:
+            return False
+        damaged.append(model.name)
+        return True
+
+    scanned = library_ops.scan()
+    if repair:
+        with console.status("[cyan]Verifying library…", spinner="dots"):
+            sp = wantlist.plan(wants, scanned, unhealthy=_damaged)
+    else:
+        sp = wantlist.plan(wants, scanned)
     for w in sp.present:
         console.print(f"[dim]— have[/] {w.name} [dim]({w.source})[/]")
+    for name in sorted(damaged):
+        console.print(f"[yellow]! damaged[/] {name} [dim](failed verification — will re-pull)[/]")
     if not sp.missing:
-        console.print(f"\n[green]Nothing to sync[/] — all {len(wants)} models present.")
+        suffix = " and verified" if repair else ""
+        console.print(f"\n[green]Nothing to sync[/] — all {len(wants)} models present{suffix}.")
         return
     if dry_run:
         console.print(f"\n[bold]{len(sp.missing)} to pull[/] [dim](dry run)[/]:")

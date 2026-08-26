@@ -16,7 +16,7 @@ file, mirroring the one-parser-one-writer discipline of ``heim.toml`` (:mod:`hei
 
 import json
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -169,13 +169,29 @@ def parse(text: str) -> list[WantModel]:
     return entries
 
 
-def plan(wants: list[WantModel], scanned: Iterable[LibraryModel]) -> SyncPlan:
+def plan(
+    wants: list[WantModel],
+    scanned: Iterable[LibraryModel],
+    *,
+    unhealthy: "Callable[[LibraryModel], bool] | None" = None,
+) -> SyncPlan:
     """Diff want entries against the scanned library: which are already present vs. missing.
 
     A want entry is *present* when a scanned model classifies (via :func:`entry_for`) to the same
     identity — so a manifest exported from a library and synced back to it finds nothing to do.
+
+    ``unhealthy`` powers the repair pass: a model it flags (a failed verification) is treated as
+    **absent**, so its want lands in ``missing`` and sync re-pulls it over the damaged copy. A
+    second, healthy copy of the same identity still counts as present — one good copy is enough.
     """
-    have = {e.ident for e in (entry_for(m) for m in scanned) if isinstance(e, WantModel)}
+    have: set[tuple[str, str, str]] = set()
+    for model in scanned:
+        entry = entry_for(model)
+        if not isinstance(entry, WantModel):
+            continue
+        if unhealthy is not None and unhealthy(model):
+            continue  # damaged: leave the identity out so the want is re-pulled
+        have.add(entry.ident)
     present = [w for w in wants if w.ident in have]
     missing = [w for w in wants if w.ident not in have]
     return SyncPlan(present=present, missing=missing)

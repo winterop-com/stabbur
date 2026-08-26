@@ -190,3 +190,39 @@ def test_ollama_source_bypasses_sidecar(tmp_path: Path) -> None:
     entry = wantlist.entry_for(scanned)
     assert isinstance(entry, wantlist.WantModel)
     assert (entry.source, entry.name) == ("ollama", "qwen3:4b")
+
+
+def test_plan_treats_a_damaged_model_as_missing(tmp_path: Path) -> None:
+    # The repair pass: a model that is on disk but fails verification must land in `missing`,
+    # so sync re-pulls over the damaged copy instead of reporting "have" and moving on.
+    _hf_model(tmp_path, "pub/Broken-GGUF")
+    _hf_model(tmp_path, "pub/Fine-GGUF")
+    scanned = library_ops.scan(root=tmp_path)
+    wants = [
+        wantlist.WantModel(source="huggingface", name="pub/Broken-GGUF", model_format="gguf"),
+        wantlist.WantModel(source="huggingface", name="pub/Fine-GGUF", model_format="gguf"),
+    ]
+
+    sp = wantlist.plan(wants, scanned, unhealthy=lambda m: m.name == "pub/Broken-GGUF")
+    assert [w.name for w in sp.missing] == ["pub/Broken-GGUF"]
+    assert [w.name for w in sp.present] == ["pub/Fine-GGUF"]
+
+    # Without the predicate the damaged copy is indistinguishable from a good one.
+    assert wantlist.plan(wants, scanned).missing == []
+
+
+def test_plan_keeps_an_identity_present_when_one_copy_is_healthy(tmp_path: Path) -> None:
+    # One good copy is enough: a want must not be re-pulled just because some *other* model
+    # sharing its identity failed. (Guards the loop that builds the `have` set.)
+    _hf_model(tmp_path, "pub/Dup-GGUF")
+    scanned = list(library_ops.scan(root=tmp_path))
+    wants = [wantlist.WantModel(source="huggingface", name="pub/Dup-GGUF", model_format="gguf")]
+
+    doubled = [*scanned, *scanned]  # the same identity twice, one flagged damaged
+    seen: list[str] = []
+
+    def unhealthy(model: object) -> bool:
+        seen.append("x")
+        return len(seen) == 1  # only the first copy is damaged
+
+    assert wantlist.plan(wants, doubled, unhealthy=unhealthy).missing == []
