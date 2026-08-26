@@ -27,6 +27,10 @@ export interface Settings {
   ttsVoice: string | null;
   /** Listen speed for this chat; null = inherit the default. */
   ttsSpeed: number | null;
+  /** Attach PDFs as rendered page images rather than extracted text. Per-chat because
+   *  it only makes sense against the model this chat has loaded — it falls back to text
+   *  automatically when that model has no vision. */
+  pdfAsImage: boolean;
 }
 
 export type ReasoningLevel = "off" | "low" | "medium" | "high" | "max";
@@ -43,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reasoning: null,
   ttsVoice: null,
   ttsSpeed: null,
+  pdfAsImage: false, // text is cheaper and works on every model; images are the opt-in
 };
 
 export function uid(): string {
@@ -69,6 +74,7 @@ export function normalizeSettings(parsed: Partial<Settings> | undefined | null):
     ttsVoice: typeof parsed.ttsVoice === "string" ? parsed.ttsVoice : null,
     ttsSpeed:
       typeof parsed.ttsSpeed === "number" && parsed.ttsSpeed >= 0.25 && parsed.ttsSpeed <= 2 ? parsed.ttsSpeed : null,
+    pdfAsImage: typeof parsed.pdfAsImage === "boolean" ? parsed.pdfAsImage : false,
   };
 }
 

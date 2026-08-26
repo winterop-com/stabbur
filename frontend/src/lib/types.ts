@@ -22,13 +22,16 @@ export interface PendingConfirm {
 
 /** A pending composer attachment. Image/audio are data URLs sent as content
  *  parts (need a vision/audio model); text/doc files are inlined into the prompt
- *  (work with any model), so they carry a filename + decoded contents instead. */
+ *  (work with any model), so they carry a filename + decoded contents instead.
+ *  A PDF is not a kind of its own: it resolves to text or to rendered page images
+ *  before it ever gets here (see lib/attachments). */
 export type MediaKind = "image" | "audio" | "text";
 export interface Attachment {
   kind: MediaKind;
   url?: string; // data URL for image/audio (used as <img>/<audio> src)
-  name?: string; // filename (text/doc attachments)
+  name?: string; // source filename, shown on the preview chip (all kinds)
   text?: string; // decoded file contents, inlined into the message on send (text)
+  pages?: number; // page count for text extracted from a PDF (chip detail only)
 }
 
 /** A text/doc file attached to a sent message: filename + contents, inlined into

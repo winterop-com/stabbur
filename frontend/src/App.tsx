@@ -199,7 +199,7 @@ export function App() {
 
   // Chat state.
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<Attachment[]>([]); // pending image/audio attachments
+  const [attachments, setAttachments] = useState<Attachment[]>([]); // pending image/audio/document attachments
   // Which conversation is currently streaming (null = none). Tracked by id rather than a
   // global boolean so streaming UI (cursor, Stop) only shows on the conversation actually
   // streaming — switching away no longer makes another chat look like it's streaming, nor
@@ -1245,6 +1245,7 @@ export function App() {
                   attachments={attachments}
                   accept={accept}
                   canDictate={sttAvailable}
+                  pdfAsImage={settings.pdfAsImage}
                   onAdd={addAttachments}
                   onRemove={removeAttachment}
                 />
@@ -1291,6 +1292,8 @@ export function App() {
                     leftSlot={composerControls}
                     attachments={attachments}
                     accept={accept}
+                    canDictate={sttAvailable}
+                    pdfAsImage={settings.pdfAsImage}
                     onAdd={addAttachments}
                     onRemove={removeAttachment}
                   />

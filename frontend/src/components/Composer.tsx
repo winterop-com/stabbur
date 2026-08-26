@@ -1,94 +1,22 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, FileText, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FileText, FileType, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 
 import { transcribeAudio } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BarVisualizer } from "@/components/ui/bar-visualizer";
+import { acceptAttribute, prepareAttachments, type Accept } from "@/lib/attachments";
 import { startRecording, type Recording } from "@/lib/recorder";
-import type { Attachment, MediaKind } from "@/lib/types";
+import type { Attachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-/** Which attachment kinds the loaded model accepts. `known` is false while the
- *  model's capabilities are still resolving — attachments are then accepted
- *  optimistically rather than dropped as "unsupported". */
-export interface Accept {
-  image: boolean;
-  audio: boolean;
-  known: boolean;
-}
-
-// Text/doc files we inline into the prompt (many carry an empty MIME type, so we
-// also match by extension). These work with any model, not just multimodal ones.
-const TEXT_EXT =
-  /\.(txt|text|md|markdown|rst|json|jsonl|ndjson|csv|tsv|log|ya?ml|toml|ini|cfg|conf|env|xml|html?|css|scss|py|pyi|js|jsx|mjs|cjs|ts|tsx|go|rs|rb|java|kt|kts|scala|c|h|cpp|cc|cxx|hpp|cs|php|swift|sql|sh|bash|zsh|fish|ps1|r|lua|pl|pm|dart|ex|exs|clj|hs|ml|vue|svelte|tex|dockerfile|makefile|gitignore|proto|graphql|gql)$/i;
-// File-picker accept hint: text/* plus the common code extensions above.
-const TEXT_ACCEPT =
-  "text/*,.md,.markdown,.rst,.json,.jsonl,.csv,.tsv,.log,.yaml,.yml,.toml,.ini,.cfg,.env,.xml,.html,.css,.scss,.py,.js,.jsx,.mjs,.cjs,.ts,.tsx,.go,.rs,.rb,.java,.kt,.c,.h,.cpp,.hpp,.cs,.php,.swift,.sql,.sh,.lua,.pl,.dart,.vue,.svelte,.tex";
-
-function isTextFile(file: File): boolean {
-  return (
-    file.type.startsWith("text/") ||
-    file.type === "application/json" ||
-    file.type === "application/xml" ||
-    TEXT_EXT.test(file.name)
-  );
-}
-
-/** Classify a File into an accepted kind, or null. Text is always accepted (it's
- *  inlined into the prompt); image/audio only for capable models. */
-function kindOf(file: File, accept: Accept): MediaKind | null {
-  // While caps are unknown (library/status still loading), accept media
-  // optimistically instead of dropping it — a genuine mismatch surfaces at send.
-  if (file.type.startsWith("image/") && (accept.image || !accept.known)) return "image";
-  if (file.type.startsWith("audio/") && (accept.audio || !accept.known)) return "audio";
-  if (isTextFile(file)) return "text";
-  return null;
-}
-
-/** Split files into accepted (with kind) and media rejected because the loaded
- *  model lacks that modality (so we can tell the user instead of dropping silently). */
-function classifyFiles(
-  files: File[],
-  accept: Accept,
-): { accepted: { f: File; kind: MediaKind }[]; rejected: Set<"image" | "audio"> } {
-  const accepted: { f: File; kind: MediaKind }[] = [];
-  const rejected = new Set<"image" | "audio">();
-  for (const f of files) {
-    const kind = kindOf(f, accept);
-    if (kind) accepted.push({ f, kind });
-    else if (f.type.startsWith("image/")) rejected.add("image");
-    else if (f.type.startsWith("audio/")) rejected.add("audio");
-    // other non-text, non-media files are ignored (nothing sensible to do with them)
-  }
-  return { accepted, rejected };
-}
-
-/** Read pre-classified files into typed attachments (image/audio → data URL, text → contents). */
-async function readAttachments(accepted: { f: File; kind: MediaKind }[]): Promise<Attachment[]> {
-  return Promise.all(
-    accepted.map(
-      ({ f, kind }) =>
-        new Promise<Attachment>((resolve, reject) => {
-          const r = new FileReader();
-          r.onerror = reject;
-          if (kind === "text") {
-            r.onload = () => resolve({ kind: "text", name: f.name, text: r.result as string });
-            r.readAsText(f);
-          } else {
-            r.onload = () => resolve({ kind, url: r.result as string });
-            r.readAsDataURL(f);
-          }
-        }),
-    ),
-  );
-}
 
 /**
  * Rounded, elevated composer pinned at the bottom center. Holds the textarea, a
- * circular send button (swaps to Stop while streaming), and — for vision models
- * — image attachments via drag-drop, paste, or the picker. The model is chosen
- * from the top bar, not here.
+ * circular send button (swaps to Stop while streaming), and attachments via
+ * drag-drop, paste, or the picker — documents and PDFs on any model, images and
+ * audio on models that can read them. The model is chosen from the top bar, not
+ * here. Turning a file into an attachment is `lib/attachments`' job; the composer
+ * only shows the result and surfaces whatever it couldn't do.
  */
 export function Composer({
   value,
@@ -102,6 +30,7 @@ export function Composer({
   attachments,
   accept,
   canDictate,
+  pdfAsImage,
   onAdd,
   onRemove,
 }: {
@@ -114,12 +43,14 @@ export function Composer({
   autoFocus?: boolean;
   /** Controls docked at the bottom-left of the composer (model picker, tools). */
   leftSlot?: React.ReactNode;
-  /** Pending attachments (image/audio). */
+  /** Pending attachments (image/audio/text). */
   attachments: Attachment[];
   /** Which modalities the loaded model accepts (gates the attach affordances). */
   accept: Accept;
   /** A Whisper STT model is in the library, so speech can be dictated into the prompt. */
   canDictate?: boolean;
+  /** Render attached PDFs as page images instead of extracting their text (this chat's setting). */
+  pdfAsImage?: boolean;
   onAdd: (items: Attachment[]) => void;
   onRemove: (index: number) => void;
 }) {
@@ -129,15 +60,21 @@ export function Composer({
   const recRef = useRef<Recording | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
   const [micStream, setMicStream] = useState<MediaStream | null>(null); // live stream, shared with the visualizer
-  // A transient note shown when a dropped/pasted file can't be used (e.g. audio on
-  // a text model), so incompatible files aren't silently discarded.
+  // A transient note shown when a dropped/pasted file can't be used as asked (e.g.
+  // audio on a text model, a PDF with no text layer), so nothing is discarded in
+  // silence. Longer notes get proportionally longer on screen — a three-file drop
+  // can produce three sentences, and four seconds isn't enough to read them.
   const [hint, setHint] = useState<string | null>(null);
   const hintTimer = useRef<number | null>(null);
   const showHint = (msg: string) => {
     setHint(msg);
     if (hintTimer.current) clearTimeout(hintTimer.current);
-    hintTimer.current = window.setTimeout(() => setHint(null), 4000);
+    hintTimer.current = window.setTimeout(() => setHint(null), Math.min(12_000, 4000 + msg.length * 40));
   };
+  // Reading a PDF (or downscaling a big image) is async and can take a beat, so the
+  // composer says so rather than looking like the drop did nothing — the exact
+  // complaint that made attachments feel broken.
+  const [preparing, setPreparing] = useState(0);
 
   // Auto-grow the textarea to fit content (capped by max-height via CSS). When
   // empty we leave the natural rows={1} height (height:auto) rather than trust
@@ -155,20 +92,29 @@ export function Composer({
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
 
-  const canSend = ready && !streaming && (value.trim().length > 0 || attachments.length > 0);
-  // Attaching needs a loaded model (you can't send otherwise). Any ready model
-  // takes text/doc files (inlined into the prompt); image/audio are added to the
-  // accept hint only for capable models.
+  // Blocked while a file is still being read: otherwise Enter sends the turn the
+  // attachment was meant for, and the attachment lands on the *next* one.
+  const canSend = ready && !streaming && preparing === 0 && (value.trim().length > 0 || attachments.length > 0);
+  // Attaching needs a loaded model (you can't send otherwise). Any ready model takes
+  // documents and PDFs (they end up in the prompt as text); image/audio are added to
+  // the accept hint only for capable models.
   const canAttach = ready;
-  const acceptAttr = [accept.image && "image/*", accept.audio && "audio/*", TEXT_ACCEPT].filter(Boolean).join(",");
+  const acceptAttr = acceptAttribute(accept);
 
   const addFiles = async (files: FileList | File[]) => {
-    const { accepted, rejected } = classifyFiles([...files], accept);
-    if (rejected.size) {
-      const need = rejected.has("image") && rejected.has("audio") ? "vision/audio" : rejected.has("image") ? "vision" : "audio";
-      showHint(`The loaded model can't read ${[...rejected].join(" or ")} — switch to a ${need}-capable model.`);
+    const list = [...files];
+    if (!list.length) return;
+    setPreparing((n) => n + list.length);
+    try {
+      const { items, notes } = await prepareAttachments(list, accept, { pdfAsImage });
+      if (items.length) onAdd(items);
+      // Every file that didn't become an attachment (or didn't become the one asked
+      // for) explains itself here — a silently ignored drop is the one outcome we
+      // never want.
+      if (notes.length) showHint(notes.join(" "));
+    } finally {
+      setPreparing((n) => Math.max(0, n - list.length));
     }
-    if (accepted.length) onAdd(await readAttachments(accepted));
   };
 
   // Finalize a recording (from a manual stop or auto silence): encode + attach.
@@ -273,14 +219,18 @@ export function Composer({
         if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
       }}
     >
-      {/* Attachment previews: images as thumbnails, audio as a player, text as a chip */}
-      {attachments.length > 0 && (
+      {/* Attachment previews: images as thumbnails, audio as a player, documents as a chip */}
+      {(attachments.length > 0 || preparing > 0) && (
         <div className="flex flex-wrap gap-2 px-4 pt-3">
           {attachments.map((att, i) => {
             if (att.kind === "image") {
               return (
-                <div key={i} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border">
-                  <img src={att.url} alt={`attachment ${i + 1}`} className="h-full w-full object-cover" />
+                <div
+                  key={i}
+                  title={att.name}
+                  className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border"
+                >
+                  <img src={att.url} alt={att.name ?? `attachment ${i + 1}`} className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => onRemove(i)}
@@ -307,11 +257,24 @@ export function Composer({
                 </div>
               );
             }
+            // Document chip. `pages` is only set for text lifted out of a PDF, so it
+            // doubles as the marker that this chip is a PDF rather than a plain file.
             return (
               <div key={i} className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="max-w-[12rem] truncate text-xs" title={att.name}>
-                  {att.name}
+                {att.pages ? (
+                  <FileType className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0">
+                  <span className="block max-w-[12rem] truncate text-xs" title={att.name}>
+                    {att.name}
+                  </span>
+                  {att.pages != null && (
+                    <span className="block text-[10px] text-muted-foreground">
+                      PDF · {att.pages} {att.pages === 1 ? "page" : "pages"}
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"
@@ -324,6 +287,12 @@ export function Composer({
               </div>
             );
           })}
+          {preparing > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Reading {preparing} {preparing === 1 ? "file" : "files"}…
+            </div>
+          )}
         </div>
       )}
 
@@ -360,10 +329,12 @@ export function Composer({
               .filter((it) => it.kind === "file")
               .map((it) => it.getAsFile())
               .filter((f): f is File => f !== null);
-            if (canAttach && files.some((f) => kindOf(f, accept) !== null)) {
-              e.preventDefault();
-              void addFiles(files);
-            }
+            if (!canAttach || !files.length) return;
+            // Only swallow the paste when the clipboard is *just* files. Copying from a
+            // rich editor puts a rendered image alongside the text, and there the text is
+            // what was meant — attach the file, but still let the text land.
+            if (!e.clipboardData.types.includes("text/plain")) e.preventDefault();
+            void addFiles(files);
           }}
           rows={1}
           placeholder={ready ? "Message heim…" : "Select a model to start"}
@@ -375,13 +346,17 @@ export function Composer({
           {canAttach && (
             <>
               {/* Hidden file input opened by the paperclip button below. Kept in the
-                  layout tree (sr-only, not display:none) so .click() reliably opens
-                  the native picker. */}
+                  layout tree (sr-only, not display:none) so .click() reliably opens the
+                  native picker — but taken out of the tab order and the a11y tree, or a
+                  screen reader / Tab user meets a stray "Choose File" control sitting
+                  next to the real Attach button. */}
               <input
                 ref={fileRef}
                 type="file"
                 accept={acceptAttr}
                 multiple
+                tabIndex={-1}
+                aria-hidden="true"
                 className="sr-only"
                 onChange={(e) => {
                   if (e.target.files) void addFiles(e.target.files);
@@ -393,7 +368,7 @@ export function Composer({
                 size="icon-sm"
                 onClick={() => fileRef.current?.click()}
                 aria-label="Attach file"
-                title={`Attach a file${accept.image ? ", image" : ""}${accept.audio ? ", audio" : ""} — document, drag, or paste`}
+                title={`Attach a document or PDF${accept.image ? ", image" : ""}${accept.audio ? ", audio" : ""} — pick, drag, or paste`}
               >
                 <Paperclip className="h-4 w-4" />
               </Button>

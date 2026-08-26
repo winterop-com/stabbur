@@ -133,6 +133,7 @@ export function ChatSettingsPanel({
   const [tab, setTab] = useState<"parameters" | "tools">("parameters");
   const modelName = status?.model ?? null;
   const libEntry = library.find((m) => m.name === modelName) ?? null;
+  const visionModel = !!libEntry?.vision;
   const [info, setInfo] = useState<ModelInfo | null>(null);
 
   // Local text state for the numeric inputs so partial edits (e.g. "0.") aren't clobbered.
@@ -511,6 +512,23 @@ export function ChatSettingsPanel({
                 );
               })}
             </div>
+          </div>
+        </Section>
+
+        <Section title="Attachments" description="How files you attach reach the model.">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Parse PDF as image</div>
+              <div className="text-[11px] text-muted-foreground">
+                Render pages instead of extracting text — keeps tables, charts, and layout.
+                {!visionModel && " Falls back to text: this model can't see images."}
+              </div>
+            </div>
+            <Switch
+              checked={settings.pdfAsImage}
+              onCheckedChange={(on) => onChange({ ...settings, pdfAsImage: on })}
+              aria-label="Parse PDF as image"
+            />
           </div>
         </Section>
 
