@@ -94,21 +94,10 @@ TUI, and `heim serve --upstream` all front it. Open threads:
   separate collections; `heim library manifest`/`sync` could feed the router box so the drive
   stays the canonical archive.
 
-## Web UI: per-chat settings panel (LM Studio shape)
+## Web UI
 
-Give each conversation a **collapsible right-side panel** holding everything adjustable for
-that chat — system prompt, sampling (temperature / top_p / max tokens), reasoning effort,
-context length, voice + speed, tools — instead of splitting them between a global Settings
-page and composer pills.
-
-- **Show the inherited default per field**, so a blank input visibly means "using the project
-  (`heim.toml`) / machine default", with a one-click revert.
-- **Divide the surfaces:** the panel owns per-conversation overrides; the Settings page keeps
-  machine/global defaults only.
-- **Clean up the composer.** Decide what stays docked (send, attach, model?) and what folds
-  into the panel — the pills (tools, voice) are the obvious candidates.
-- **Attach button needs its own design pass** — what it accepts, how pending attachments are
-  shown/removed, and how it reads on a model without vision/audio. Discuss before building.
+- **Attach button needs a design pass** — what it accepts, how pending attachments are shown
+  and removed, and how it reads on a model without vision/audio. Discuss before building.
 
 ## WebMCP — watch, don't build (assessed 2026-08-26)
 
