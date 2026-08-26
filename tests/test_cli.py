@@ -544,6 +544,70 @@ def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None
     assert captured["base_url"] is None  # falls back to spawning a local runtime
 
 
+def test_chat_no_server_overrides_a_configured_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A configured chat server otherwise applies to every run with no way back to a local load.
+    from heim import capabilities, runtime
+    from heim.runtime import serve_registry
+
+    monkeypatch.setenv("HEIM_CHAT_SERVER", "http://msai:1234")
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--no-server"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] is None  # local runtime, not the configured server
+
+
+def test_chat_no_server_also_skips_auto_attach(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Attaching to a running serve is still not a local load, so --no-server opts out of that too.
+    from heim import capabilities, runtime
+    from heim.runtime import serve_registry
+    from heim.runtime.serve_registry import ServeRecord
+
+    monkeypatch.delenv("HEIM_CHAT_SERVER", raising=False)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(
+        serve_registry, "discover", lambda name: ServeRecord(base_url="http://127.0.0.1:9", model=name, pid=1)
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--no-server"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] is None
+    assert "attaching to running heim serve" not in result.output
+
+
+def test_chat_server_and_no_server_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    result = runner.invoke(
+        cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", "http://x:1", "--no-server"]
+    )
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output
+
+
+def test_chat_empty_server_string_clears_a_configured_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `--server ''` reads as "no server"; it used to fall back to the configured one instead.
+    from heim import capabilities, runtime
+    from heim.runtime import serve_registry
+
+    monkeypatch.setenv("HEIM_CHAT_SERVER", "http://msai:1234")
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", ""])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] is None
+
+
 def _stub_httpx_get(monkeypatch: pytest.MonkeyPatch, responses: dict[str, object]) -> None:
     """Fake ``httpx.get`` by URL suffix: a payload answers with it; a missing suffix refuses."""
     from types import SimpleNamespace

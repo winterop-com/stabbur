@@ -115,6 +115,14 @@ def chat(
             "`heim config set server`.",
         ),
     ] = None,
+    no_server: Annotated[
+        bool,
+        typer.Option(
+            "--no-server",
+            help="Load the model locally for this run: ignores a configured chat server and skips "
+            "auto-attaching to a running `heim serve`.",
+        ),
+    ] = False,
     raw: Annotated[
         bool,
         typer.Option("--raw", help="With -p, never render markdown; print raw text even to a terminal."),
@@ -169,7 +177,14 @@ def chat(
     # spawning a runtime — the interactive TUI and one-shot -p both. For the interactive
     # attach the model may exist only on the server, so local resolution is best-effort
     # there; every other path still requires (and strictly resolves) a library model.
-    base_url = _normalize_server_url(server or get_settings().chat_server)
+    if no_server and server is not None:
+        console.print("[red]--server and --no-server are mutually exclusive.[/]")
+        raise typer.Exit(2)
+    # A configured server otherwise applies to every run, with no way back to a local load, so
+    # --no-server is the per-run opt-out. ``server`` is checked against None rather than for
+    # truthiness so an explicit ``--server ''`` also clears it instead of silently falling back.
+    configured = get_settings().chat_server
+    base_url = None if no_server else _normalize_server_url(server if server is not None else configured)
     interactive_remote = base_url is not None and prompt is None
     model: library_ops.LibraryModel | None
     remote_model_id: str | None = None
@@ -218,7 +233,8 @@ def chat(
     # With nothing configured, auto-attach to a running `heim serve` locked to this model (one-shot
     # only): reuse its resident weights instead of reloading. A stderr note keeps it non-surprising.
     # The interactive TUI does NOT auto-attach — silently disabling /model would surprise.
-    if base_url is None and prompt is not None:
+    # --no-server opts out of this too: it asks for a local load, and attaching here would not be one.
+    if base_url is None and prompt is not None and not no_server:
         from heim.runtime import serve_registry  # noqa: PLC0415
 
         assert model is not None  # every non-interactive-remote path resolved strictly above

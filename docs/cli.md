@@ -203,6 +203,7 @@ heim chat <name> -p "prompt" -n 256   # --max-tokens
 heim chat <name> --system "..."       # session system prompt (overrides heim.toml)
 heim chat <name> --mcp <cmd>          # attach an MCP tool server (repeatable)
 heim chat <name> -p "prompt" --server http://127.0.0.1:2222   # reuse a running `heim serve`
+heim chat <name> -p "prompt" --no-server                      # force a local load, ignore config
 ```
 
 Interactive chat opens a scrolling TUI: markdown replies, collapsible reasoning,
@@ -222,9 +223,19 @@ heim chat -p "what is todays date"           # instant — no reload
 
 A loopback `heim serve --model <name>` is **auto-detected**: with no `--server` (and none in
 config), `heim chat -p` finds a running server locked to that model and attaches to it (a `↳
-attaching…` note goes to stderr). Set an explicit default with `heim config set server <url>`
-(or `HEIM_CHAT_SERVER`); `--server` overrides. `--server`/attach apply to the one-shot (`-p`)
-path; the interactive TUI owns its own runtime.
+attaching…` note goes to stderr). This auto-detection is one-shot (`-p`) only — the interactive
+TUI never attaches implicitly, since that would silently disable `/model`.
+
+Set an explicit default with `heim config set server <url>` (or `HEIM_CHAT_SERVER`); `--server`
+overrides it, and an explicit default *does* apply to the interactive TUI as well. Because that
+default then applies to every run, **`--no-server` is the per-run way back to a local load**: it
+ignores the configured server and skips the auto-attach above, so the model really is loaded
+here. `--server` and `--no-server` are mutually exclusive.
+
+```bash
+heim config set server http://msai:1234      # every chat now attaches to the remote
+heim chat <name> -p "prompt" --no-server     # ...except this one, which loads locally
+```
 
 **Multimodal input** — for vision/audio models, attach files:
 
@@ -283,7 +294,8 @@ heim setup --library-root /path --model <name> --yes   # non-interactive
 Read and write the **machine defaults** (`~/.config/heim/config.toml`) — the lowest-priority
 settings source, below `HEIM_*` env vars and a project `heim.toml`. Writable keys:
 `library-root`, `model` (the default model outside a project), and `server` (a default
-`heim serve` URL for `heim chat -p` to attach to).
+`heim serve` URL for `heim chat` to attach to — it applies to every chat until you override it
+with `--server`, or opt out of it for one run with `--no-server`).
 
 ```bash
 heim config set library-root /path/to/your/library   # where your library lives
