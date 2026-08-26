@@ -74,10 +74,26 @@ function kindOf(file: File, accept: Accept): FileKind {
   return null;
 }
 
-/** The `accept` attribute for the native picker: always documents + PDFs, plus the
- *  media kinds this model can actually read. */
-export function acceptAttribute(accept: Accept): string {
-  return [accept.image && "image/*", accept.audio && "audio/*", PDF_ACCEPT, TEXT_ACCEPT].filter(Boolean).join(",");
+/** A kind the composer's attach menu can open a picker for. Not `FileKind`: this is
+ *  the vocabulary a *reader* picks from, so "text" is text and code together, and
+ *  "pdf" is its own entry because what heim does with one (extract, or rasterize)
+ *  is worth saying before the dialog opens. */
+export type PickKind = "image" | "audio" | "text" | "pdf";
+
+/** The `accept` attribute for one kind's picker. The menu has already said which
+ *  kinds the loaded model takes, so filtering happens per choice rather than on one
+ *  catch-all input — the OS dialog opens already narrowed to what was asked for. */
+export function acceptAttributeFor(kind: PickKind): string {
+  switch (kind) {
+    case "image":
+      return "image/*";
+    case "audio":
+      return "audio/*";
+    case "pdf":
+      return PDF_ACCEPT;
+    case "text":
+      return TEXT_ACCEPT;
+  }
 }
 
 /** Why a file couldn't be attached — always names the file, so a multi-file drop

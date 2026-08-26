@@ -1,11 +1,30 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, FileText, FileType, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  AudioLines,
+  FileText,
+  FileType,
+  Image as ImageIcon,
+  Loader2,
+  Mic,
+  Paperclip,
+  Square,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 
 import { transcribeAudio } from "@/api";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BarVisualizer } from "@/components/ui/bar-visualizer";
-import { acceptAttribute, prepareAttachments, type Accept } from "@/lib/attachments";
+import { acceptAttributeFor, prepareAttachments, type Accept, type PickKind } from "@/lib/attachments";
 import { startRecording, type Recording } from "@/lib/recorder";
 import type { Attachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -13,10 +32,10 @@ import { cn } from "@/lib/utils";
 /**
  * Rounded, elevated composer pinned at the bottom center. Holds the textarea, a
  * circular send button (swaps to Stop while streaming), and attachments via
- * drag-drop, paste, or the picker — documents and PDFs on any model, images and
- * audio on models that can read them. The model is chosen from the top bar, not
- * here. Turning a file into an attachment is `lib/attachments`' job; the composer
- * only shows the result and surfaces whatever it couldn't do.
+ * drag-drop, paste, or the paperclip's menu — documents and PDFs on any model,
+ * images and audio on models that can read them. The model is chosen from the top
+ * bar, not here. Turning a file into an attachment is `lib/attachments`' job; the
+ * composer only shows the result and surfaces whatever it couldn't do.
  */
 export function Composer({
   value,
@@ -55,7 +74,9 @@ export function Composer({
   onRemove: (index: number) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  // One hidden input per attachable kind, so the menu's choice *is* the picker's
+  // filter and nothing has to be mutated between the click and the dialog.
+  const pickers = useRef<Partial<Record<PickKind, HTMLInputElement | null>>>({});
   const [dragOver, setDragOver] = useState(false);
   const recRef = useRef<Recording | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "encoding">("idle");
@@ -96,10 +117,55 @@ export function Composer({
   // attachment was meant for, and the attachment lands on the *next* one.
   const canSend = ready && !streaming && preparing === 0 && (value.trim().length > 0 || attachments.length > 0);
   // Attaching needs a loaded model (you can't send otherwise). Any ready model takes
-  // documents and PDFs (they end up in the prompt as text); image/audio are added to
-  // the accept hint only for capable models.
+  // documents and PDFs (they end up in the prompt as text); image/audio depend on the
+  // model, which is what the attach menu below exists to say out loud.
   const canAttach = ready;
-  const acceptAttr = acceptAttribute(accept);
+  // While capabilities are still resolving nothing definite may be claimed — saying
+  // "needs a vision model" about a model that turns out to have vision is worse than
+  // saying nothing — so the entry stays live and non-committal, matching the
+  // optimistic path `kindOf` takes for a drop during the same window.
+  const resolving = "Checking what this model can read…";
+  const pdfNote = !pdfAsImage
+    ? "Its text is extracted, so every model reads it."
+    : accept.image || !accept.known
+      ? 'Pages come in as images — "Parse PDF as image" is on.'
+      : '"Parse PDF as image" is on, but this one can\'t see — text is attached instead.';
+  // The attach menu. A media kind the model can't take stays *visible* and says why:
+  // an absent control teaches nothing, and the whole point is that a vision model and
+  // a text-only one differ. Text and PDF are never gated — heim turns them into prompt
+  // text itself, so they ask nothing of the model.
+  const attachKinds: { kind: PickKind; icon: LucideIcon; label: string; note: string; enabled: boolean }[] = [
+    {
+      kind: "image",
+      icon: ImageIcon,
+      label: "Images",
+      note: !accept.known
+        ? resolving
+        : accept.image
+          ? "PNG, JPEG, WebP, GIF."
+          : "Needs a vision model — this one can't see.",
+      enabled: accept.image || !accept.known,
+    },
+    {
+      kind: "audio",
+      icon: AudioLines,
+      label: "Audio",
+      note: !accept.known
+        ? resolving
+        : accept.audio
+          ? "WAV, MP3, M4A, OGG."
+          : "Needs an audio model — this one can't hear.",
+      enabled: accept.audio || !accept.known,
+    },
+    {
+      kind: "text",
+      icon: FileText,
+      label: "Text & code",
+      note: "Markdown, CSV, JSON, source files — inlined into the prompt.",
+      enabled: true,
+    },
+    { kind: "pdf", icon: FileType, label: "PDF", note: pdfNote, enabled: true },
+  ];
 
   const addFiles = async (files: FileList | File[]) => {
     const list = [...files];
@@ -345,33 +411,64 @@ export function Composer({
         <div className="flex min-w-0 items-center gap-1">
           {canAttach && (
             <>
-              {/* Hidden file input opened by the paperclip button below. Kept in the
+              {/* Hidden file inputs, one per kind, opened by the menu below. Kept in the
                   layout tree (sr-only, not display:none) so .click() reliably opens the
                   native picker — but taken out of the tab order and the a11y tree, or a
                   screen reader / Tab user meets a stray "Choose File" control sitting
                   next to the real Attach button. */}
-              <input
-                ref={fileRef}
-                type="file"
-                accept={acceptAttr}
-                multiple
-                tabIndex={-1}
-                aria-hidden="true"
-                className="sr-only"
-                onChange={(e) => {
-                  if (e.target.files) void addFiles(e.target.files);
-                  e.target.value = ""; // allow re-picking the same file
-                }}
-              />
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => fileRef.current?.click()}
-                aria-label="Attach file"
-                title={`Attach a document or PDF${accept.image ? ", image" : ""}${accept.audio ? ", audio" : ""} — pick, drag, or paste`}
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
+              {attachKinds.map(({ kind }) => (
+                <input
+                  key={kind}
+                  ref={(el) => {
+                    pickers.current[kind] = el;
+                  }}
+                  type="file"
+                  accept={acceptAttributeFor(kind)}
+                  multiple
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  className="sr-only"
+                  onChange={(e) => {
+                    if (e.target.files) void addFiles(e.target.files);
+                    e.target.value = ""; // allow re-picking the same file
+                  }}
+                />
+              ))}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="Attach a file">
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                {/* Narrow enough to sit inside a 390px composer, and above the button:
+                    the composer is pinned to the bottom, so a menu below it opens off-screen. */}
+                <DropdownMenuContent align="start" side="top" collisionPadding={12} className="w-72">
+                  <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    What you can attach
+                  </div>
+                  {attachKinds.map(({ kind, icon: Icon, label, note, enabled }) => (
+                    <DropdownMenuItem
+                      key={kind}
+                      disabled={!enabled}
+                      onSelect={() => pickers.current[kind]?.click()}
+                      // shadcn fades a disabled row to 50%, which on a two-line row makes the
+                      // reason it is unavailable the least readable text in the menu — exactly
+                      // the sentence the reader opened it for. Grey it instead of fading it.
+                      className="items-start data-[disabled]:text-muted-foreground data-[disabled]:opacity-100"
+                    >
+                      <Icon className="mt-0.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{label}</span>
+                        <span className="block text-sm text-muted-foreground">{note}</span>
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Files can also be dropped on the composer or pasted into it.
+                  </p>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           {accept.audio && (
