@@ -79,7 +79,7 @@ export function MessageItem({
           </div>
         )}
         {message.content && (
-          <div className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="mt-1">
             <CopyButton text={message.content} />
           </div>
         )}
@@ -135,8 +135,10 @@ export function MessageItem({
         )}
       </div>
 
+      {/* Always visible, not hover-gated: Listen is a control you reach for while reading (and
+          can run for many seconds), so it must not vanish when the pointer moves away. */}
       {!streaming && (message.content || hasTools) && (
-        <div className="mt-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="mt-1 flex items-center">
           {message.content && !message.error && <CopyButton text={message.content} />}
           {message.content && !message.error && (
             <SpeakButton text={message.content} voice={ttsVoice} speed={ttsSpeed} />
