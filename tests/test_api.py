@@ -1109,3 +1109,31 @@ async def test_api_chat_forwards_reasoning(app: FastAPI, client: AsyncClient, mo
         assert r.status_code == 422  # not a valid level
     finally:
         app.dependency_overrides.clear()
+
+
+async def test_spa_index_is_revalidated_but_hashed_assets_are_immutable(tmp_path: Path) -> None:
+    """A built SPA must not be served without a cache policy.
+
+    FastAPI's frontend() sends only ETag/Last-Modified, and a response with no Cache-Control
+    is heuristically cached — so index.html would be held without revalidation and keep
+    loading the previous build's content-hashed bundle after an upgrade.
+    """
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>heim</title>")
+    (dist / "assets" / "index-abc123.js").write_text("console.log(1)")
+
+    app = create_app(Settings(serve_model=None, serve_ui=True, frontend_dir=dist))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        index = await client.get("/")
+        assert index.status_code == 200
+        assert index.headers["cache-control"] == "no-cache"
+
+        asset = await client.get("/assets/index-abc123.js")
+        assert asset.status_code == 200
+        assert "immutable" in asset.headers["cache-control"]
+
+        # API responses keep their own semantics — the SPA policy must not leak onto them.
+        api = await client.get("/api/status")
+        assert "cache-control" not in api.headers

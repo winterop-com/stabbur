@@ -299,6 +299,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async def _favicon() -> FileResponse:
                 return FileResponse(favicon, media_type="image/svg+xml")
 
+        # Cache policy for the built SPA. FastAPI's frontend() sends only ETag/Last-Modified,
+        # and a response with no Cache-Control is *heuristically* cached by browsers — so
+        # index.html gets held without revalidation and keeps loading the previous build's
+        # content-hashed bundle after an upgrade (a stale UI until a hard refresh). Vite hashes
+        # everything under /assets/, so those really are immutable; index.html never is.
+        @app.middleware("http")
+        async def _spa_cache_headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
+            response = await call_next(request)
+            path = request.url.path
+            if path.startswith("/api") or "cache-control" in response.headers:
+                return response
+            if path.startswith("/assets/"):
+                response.headers["cache-control"] = "public, max-age=31536000, immutable"
+            elif response.headers.get("content-type", "").startswith("text/html"):
+                response.headers["cache-control"] = "no-cache"  # revalidate; the ETag makes it a 304
+            return response
+
         app.frontend("/", directory=str(settings.frontend_dir), fallback="index.html")
 
     return app
