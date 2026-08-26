@@ -44,7 +44,7 @@ import { LibraryView } from "@/components/LibraryView";
 import { VoiceView } from "@/components/VoiceView";
 import { ChatSettingsPanel } from "@/components/ChatSettingsPanel";
 import { CommandPalette, opensPalette } from "@/components/CommandPalette";
-import { SettingsView } from "@/components/SettingsView";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import {
   DEFAULT_SETTINGS,
@@ -71,8 +71,9 @@ function conversationIdFromHash(): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-/** Which primary surface to show: the chat, the model library grid, the voice studio, or settings. */
-type View = "chat" | "library" | "voice" | "settings";
+/** Which primary surface to show: the chat, the model library grid, or the voice studio.
+ *  Settings is deliberately absent — it is a dialog over whichever surface you are on. */
+type View = "chat" | "library" | "voice";
 
 /** The resizable panels, in group order. Matches each `<Panel id>` (and so `data-panel-id`). */
 type PanelId = "sidebar" | "main" | "chat-settings";
@@ -182,14 +183,12 @@ export function App() {
   const [draftSettings, setDraftSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [view, setView] = useState<View>(() =>
-    window.location.hash === "#/library"
-      ? "library"
-      : window.location.hash === "#/voice"
-        ? "voice"
-        : window.location.hash === "#/settings"
-          ? "settings"
-          : "chat",
+    window.location.hash === "#/library" ? "library" : window.location.hash === "#/voice" ? "voice" : "chat",
   );
+  // Settings used to be a route (#/settings). It is a dialog now, but an old bookmark or a
+  // back-button into a pre-dialog history entry still means "show me settings", so honour it —
+  // the hash effect below then rewrites the URL to the surface actually on screen.
+  const [settingsOpen, setSettingsOpen] = useState(() => window.location.hash === "#/settings");
 
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   // Owned here, not in the panel: the panel unmounts while collapsed, and an affordance that
@@ -387,26 +386,21 @@ export function App() {
 
   // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
   // so a reload / bookmark / back-button lands on the same chat. ---
+  // The one place app state maps to a hash. Derived rather than computed inside the effect so the
+  // mount-only handler below can read the current answer from a ref (see #/settings there).
+  const hashTarget =
+    view === "library" ? "#/library" : view === "voice" ? "#/voice" : activeId ? `#/c/${activeId}` : "";
   useEffect(() => {
-    const target =
-      view === "library"
-        ? "#/library"
-        : view === "voice"
-          ? "#/voice"
-          : view === "settings"
-            ? "#/settings"
-            : activeId
-              ? `#/c/${activeId}`
-              : "";
-    if (window.location.hash !== target) {
-      if (target) window.location.hash = target;
-      else history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-  }, [view, activeId]);
-  // The hashchange handler is mount-only, so read the latest conversations via a ref
-  // rather than a stale closure.
+    if (window.location.hash === hashTarget) return;
+    if (hashTarget) window.location.hash = hashTarget;
+    else history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, [hashTarget]);
+  // The hashchange handler is mount-only, so read the latest conversations (and the hash the app
+  // state currently maps to) via refs rather than a stale closure.
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
+  const hashTargetRef = useRef(hashTarget);
+  hashTargetRef.current = hashTarget;
   useEffect(() => {
     const onHash = () => {
       if (window.location.hash === "#/library") {
@@ -418,7 +412,13 @@ export function App() {
         return;
       }
       if (window.location.hash === "#/settings") {
-        setView("settings");
+        // A dead route kept honest: open the dialog and put the hash back to whatever surface is
+        // actually showing. replaceState (not assignment) so this doesn't re-enter as a second
+        // hashchange, and because the effect above only fires when `hashTarget` itself changes —
+        // which this doesn't, so nothing else would ever clean the stale hash up.
+        setSettingsOpen(true);
+        const target = hashTargetRef.current;
+        history.replaceState(null, "", target || window.location.pathname + window.location.search);
         return;
       }
       const id = conversationIdFromHash();
@@ -692,7 +692,8 @@ export function App() {
   const showChat = useCallback(() => setView("chat"), []);
   const showLibrary = useCallback(() => setView("library"), []);
   const showVoice = useCallback(() => setView("voice"), []);
-  const showSettings = useCallback(() => setView("settings"), []);
+  // Not navigation: Settings opens over whatever surface you are on, and leaves it there.
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
   // If Voice is disabled while we're on it, fall back to chat.
   useEffect(() => {
     if (!voiceEnabled && view === "voice") setView("chat");
@@ -1209,7 +1210,7 @@ export function App() {
           onShowChat: showChat,
           onShowLibrary: showLibrary,
           onShowVoice: showVoice,
-          onShowSettings: showSettings,
+          onOpenSettings: openSettings,
           onNewChat: startNewChat,
           onSelectConversation: selectConversation,
           onPickModel: pick,
@@ -1223,6 +1224,24 @@ export function App() {
             if (activeConv) void exportConversationPdf(activeConv, status?.model ?? null);
           },
         }}
+      />
+      {/* A modal over whichever surface is showing, rather than a surface of its own: it is a
+          handful of thin sections, and it has no business displacing the chat. Mounted here
+          (not per-surface) so the sidebar, the icon rail and ⌘K all reach the same instance. */}
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        status={status}
+        library={library}
+        voices={voices}
+        ttsVoice={ttsVoice}
+        onChooseVoice={chooseVoice}
+        ttsSpeed={ttsSpeed}
+        onChooseSpeed={chooseSpeed}
+        theme={theme}
+        onToggleTheme={toggle}
+        palette={palette}
+        onChoosePalette={setPalette}
       />
       {/* Mobile: the sidebar is an overlay drawer (a resizable rail would squeeze the content).
           The persistent IconRail is the closed-state nav; tapping expand opens this. */}
@@ -1254,8 +1273,8 @@ export function App() {
                 showVoice();
                 closeSidebar();
               }}
-              onShowSettings={() => {
-                showSettings();
+              onOpenSettings={() => {
+                openSettings();
                 closeSidebar();
               }}
               voiceEnabled={voiceEnabled}
@@ -1292,7 +1311,7 @@ export function App() {
             onNew={startNewChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
-            onShowSettings={showSettings}
+            onOpenSettings={openSettings}
             voiceEnabled={voiceEnabled}
           />
         )}
@@ -1328,7 +1347,7 @@ export function App() {
             onShowChat={showChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
-            onShowSettings={showSettings}
+            onOpenSettings={openSettings}
             voiceEnabled={voiceEnabled}
             onRename={renameConversation}
             onDelete={deleteConversation}
@@ -1431,20 +1450,6 @@ export function App() {
             />
           ) : view === "voice" ? (
             <VoiceView />
-          ) : view === "settings" ? (
-            <SettingsView
-              status={status}
-              library={library}
-              voices={voices}
-              ttsVoice={ttsVoice}
-              onChooseVoice={chooseVoice}
-              ttsSpeed={ttsSpeed}
-              onChooseSpeed={chooseSpeed}
-              theme={theme}
-              onToggleTheme={toggle}
-              palette={palette}
-              onChoosePalette={setPalette}
-            />
           ) : (
           <>
           {(error || status?.error) && (

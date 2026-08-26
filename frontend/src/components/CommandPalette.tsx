@@ -40,7 +40,7 @@ export interface PaletteActions {
   onShowChat: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
-  onShowSettings: () => void;
+  onOpenSettings: () => void;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onPickModel: (name: string) => void;
@@ -134,10 +134,6 @@ export function CommandPalette({
               Voice
             </CommandItem>
           )}
-          <CommandItem onSelect={run(actions.onShowSettings)}>
-            <Settings className="h-4 w-4 text-muted-foreground" />
-            Settings
-          </CommandItem>
         </CommandGroup>
 
         <CommandGroup heading="Chat">
@@ -206,6 +202,12 @@ export function CommandPalette({
               <Moon className="h-4 w-4 text-muted-foreground" />
             )}
             {theme === "dark" ? "Light mode" : "Dark mode"}
+          </CommandItem>
+          {/* Not under "Go to": settings is a dialog over the current surface, not a destination
+              — running this leaves you exactly where you were. */}
+          <CommandItem onSelect={run(actions.onOpenSettings)}>
+            <Settings className="h-4 w-4 text-muted-foreground" />
+            Open settings
           </CommandItem>
         </CommandGroup>
 

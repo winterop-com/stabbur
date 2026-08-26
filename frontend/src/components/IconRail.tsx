@@ -15,15 +15,15 @@ export function IconRail({
   onNew,
   onShowLibrary,
   onShowVoice,
-  onShowSettings,
+  onOpenSettings,
   voiceEnabled = true,
 }: {
-  view: "chat" | "library" | "voice" | "settings";
+  view: "chat" | "library" | "voice";
   onExpand: () => void;
   onNew: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
-  onShowSettings: () => void;
+  onOpenSettings: () => void;
   voiceEnabled?: boolean;
 }) {
   const item = (
@@ -59,9 +59,10 @@ export function IconRail({
       {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
       {/* Settings pinned at the bottom (mirrors the expanded sidebar), then a tiny horizontal
           wordmark — fits the narrow rail (unlike the full "Heim Studio") and keeps the brand
-          present while collapsed. */}
+          present while collapsed. Settings takes no active state: it opens a dialog over the
+          current surface rather than replacing it. */}
       <div className="mt-auto flex flex-col items-center gap-1">
-        {item("Settings", <Settings className="h-4 w-4" />, onShowSettings, view === "settings")}
+        {item("Settings", <Settings className="h-4 w-4" />, onOpenSettings)}
         <span className="pb-0.5 text-[10px] font-semibold tracking-tight text-muted-foreground">heim</span>
       </div>
     </aside>

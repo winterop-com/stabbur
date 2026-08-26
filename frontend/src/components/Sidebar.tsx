@@ -28,13 +28,14 @@ function NavItem({
   icon,
   title,
   subtitle,
-  active,
+  active = false,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
   subtitle?: string;
-  active: boolean;
+  /** Omitted for rows that are actions rather than destinations (Settings opens a dialog). */
+  active?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -63,6 +64,9 @@ function NavItem({
  * rows (Chat, Library, Voice), the "Recents" conversation list (hover reveals
  * rename/delete), and Settings pinned at the bottom. The current model lives in
  * the top bar, not here.
+ *
+ * Settings is the odd one out: it opens a dialog over the current surface, so it
+ * never takes the active styling the three destinations share.
  */
 export function Sidebar({
   conversations,
@@ -73,7 +77,7 @@ export function Sidebar({
   onShowChat,
   onShowLibrary,
   onShowVoice,
-  onShowSettings,
+  onOpenSettings,
   voiceEnabled = true,
   onRename,
   onDelete,
@@ -81,13 +85,13 @@ export function Sidebar({
 }: {
   conversations: Conversation[];
   activeId: string | null;
-  view: "chat" | "library" | "voice" | "settings";
+  view: "chat" | "library" | "voice";
   onNew: () => void;
   onSelect: (id: string) => void;
   onShowChat: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
-  onShowSettings: () => void;
+  onOpenSettings: () => void;
   voiceEnabled?: boolean;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -257,14 +261,10 @@ export function Sidebar({
         })}
       </div>
 
-      {/* Settings pinned at the bottom, a primary destination like the reference UIs. */}
+      {/* Settings pinned at the bottom, where the reference UIs put it — but it opens a dialog
+          rather than navigating, so the surface behind it stays where you left it. */}
       <div className="border-t border-border px-2 py-2">
-        <NavItem
-          icon={<Settings className="h-4 w-4" />}
-          title="Settings"
-          active={view === "settings"}
-          onClick={onShowSettings}
-        />
+        <NavItem icon={<Settings className="h-4 w-4" />} title="Settings" onClick={onOpenSettings} />
       </div>
     </aside>
   );
