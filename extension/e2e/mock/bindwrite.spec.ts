@@ -5,10 +5,10 @@
 
 import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 import { TAB_MATCHED } from "../../lib/bannerText";
-import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
+import { StabburMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const stabbur = new HeimMock();
+const stabbur = new StabburMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {

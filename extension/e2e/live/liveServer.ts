@@ -221,7 +221,7 @@ timeout = 60.0
 // The multi-target stabbur.toml: one [project] head + an [[assistants]] array (one block per target).
 // Mirrors the shipped dhis2-multi template (render_manifest with a registry); stabbur loads it as an
 // N-target AssistantRegistry, so /api/assistants lists every target and each chat turn routes by id.
-function buildMultiHeimToml(opts: LiveServerOptions): string {
+function buildMultiStabburToml(opts: LiveServerOptions): string {
   const blocks = (opts.targets ?? []).map(buildAssistantBlock).join("");
   return String.raw`# stabbur project — a multi-target assistant (model + system prompt + N targets).
 # Portable + committable: no machine-specific paths. Tools live in .mcp.json.
@@ -237,8 +237,8 @@ system_prompt = ${JSON.stringify(opts.systemPrompt)}
 ${blocks}`;
 }
 
-function buildHeimToml(opts: LiveServerOptions): string {
-  if (opts.targets && opts.targets.length > 0) return buildMultiHeimToml(opts);
+function buildStabburToml(opts: LiveServerOptions): string {
+  if (opts.targets && opts.targets.length > 0) return buildMultiStabburToml(opts);
   // JSON.stringify emits a valid TOML basic string (escapes ", \\, control chars) for the model +
   // system_prompt, so we never hand-escape the long prompt.
   return String.raw`# stabbur project — a purpose-built assistant (model + system prompt).
@@ -353,7 +353,7 @@ export function startLiveServer(extensionId: string, options: Partial<LiveServer
   const opts: LiveServerOptions = { ...DEFAULT_LIVE_OPTIONS, ...options };
   const root = existsSync(SCRATCH) ? SCRATCH : tmpdir();
   const dir = mkdtempSync(path.join(root, "stabbur-live-fixture-"));
-  writeFileSync(path.join(dir, "stabbur.toml"), buildHeimToml(opts));
+  writeFileSync(path.join(dir, "stabbur.toml"), buildStabburToml(opts));
   writeFileSync(path.join(dir, ".mcp.json"), buildMcpJson(opts));
   mkdirSync(path.join(dir, ".dhis2"), { recursive: true });
   writeFileSync(path.join(dir, ".dhis2", "profiles.toml"), buildProfilesToml(opts));

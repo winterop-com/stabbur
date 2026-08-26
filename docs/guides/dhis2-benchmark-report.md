@@ -21,7 +21,7 @@ complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 
 !!! note "Re-measured 2026-07-14 (full sweep under compact-JSON tool output)"
 
-    heim hands tool results to the model as **compact JSON** rather than the older Python `repr`
+    stabbur hands tool results to the model as **compact JSON** rather than the older Python `repr`
     text, and the FULL library sweep below was re-run under that shape (11 GGUF models, overnight,
     against live play42). Two findings worth keeping:
 
@@ -40,7 +40,7 @@ complete a create -> rename/link -> delete lifecycle?). Bottom line up front:
 
 ## What was measured
 
-The `tools-dhis2` suite (`heim benchmark run tools-dhis2`) attaches the
+The `tools-dhis2` suite (`stabbur benchmark run tools-dhis2`) attaches the
 [`dhis2w-mcp-bridge`](https://winterop-com.github.io/dhis2w-utils/) against the **play42** profile
 (the public DHIS2 "Sierra Leone" demo, v2.42) in **read-only** mode
 (`DHIS2_MCP_READONLY=1`), then asks 12 questions of increasing difficulty. A problem passes only
@@ -136,7 +136,7 @@ count (77, 27, 171). The cause was in the benchmark, not the models: the answer 
 substring match, so a model answering "**1,332**" failed an expected "1332" — the thousands
 separator broke the match. Sub-1000 counts have no separator, so they always matched.
 
-Fixed in `heim_benchmark.core`: the matcher now retries with digit-group separators (comma or
+Fixed in `stabbur_benchmark.core`: the matcher now retries with digit-group separators (comma or
 whitespace between digits) stripped from both sides. Re-running under the corrected scoring moved
 the four affected models from 10/12 to 12/12 and lifted the rest accordingly. The numbers above
 are post-fix.
@@ -164,8 +164,8 @@ DHIS2_PASSWORD=district d2w profile add play42 \
   --url https://play.im.dhis2.org/dev-2-42 --auth basic --username admin --verify
 
 # run the suite against every tool-capable model in your library
-heim benchmark run tools-dhis2 --all --save
-heim benchmark leaderboard        # regenerates docs/benchmarks.md
+stabbur benchmark run tools-dhis2 --all --save
+stabbur benchmark leaderboard        # regenerates docs/benchmarks.md
 ```
 
 See [DHIS2 tools & profiles](dhis2.md) for the bridge tiers and prompts, and the
@@ -174,19 +174,19 @@ See [DHIS2 tools & profiles](dhis2.md) for the bridge tiers and prompts, and the
 ## Writes: create, update, delete
 
 The read-only suite above measures *reading* DHIS2. The **write** suite
-(`tools-dhis2-write`, `heim benchmark run tools-dhis2-write`) measures whether a model can *safely
+(`tools-dhis2-write`, `stabbur benchmark run tools-dhis2-write`) measures whether a model can *safely
 mutate* it — the harder, higher-stakes half. Bottom line: it can't, not yet, not unattended.
 
 ### What was measured
 
 Each of the 7 problems is a **self-cleaning lifecycle**: the model creates one or more metadata
 objects, optionally renames or links them, then **deletes everything it made**, so a correct run
-leaves the instance exactly as it found it. Every test object is prefixed `HEIM_`.
+leaves the instance exactly as it found it. Every test object is prefixed `STABBUR_`.
 
 A problem passes only when the suite **verifies real DHIS2 state**: after the run it reads the live
 instance back and requires that the object was actually created (a real, non-errored create) **and
 is absent at the end** (the delete really happened) — not merely that the model called the tool and
-printed a `LIFECYCLE_OK` token. Between models the runner **sweeps** any `HEIM_`-prefixed residue
+printed a `LIFECYCLE_OK` token. Between models the runner **sweeps** any `STABBUR_`-prefixed residue
 directly against the instance, so a model that abandons a lifecycle can't leave orphans that skew
 the next model.
 
@@ -221,7 +221,7 @@ state-verifying scorer:
 
 | Model | Score (state-verified) | What happened |
 |---|---|---|
-| `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **0/7** | creates an object on every problem but never completes the deletes; the sweep removed 7 residual `HEIM_` objects afterward |
+| `lmstudio-community/gemma-4-12B-it-QAT-GGUF` | **0/7** | creates an object on every problem but never completes the deletes; the sweep removed 7 residual `STABBUR_` objects afterward |
 
 The earlier proxy leaderboard ranked six models from 4/7 down to 1/7; those figures counted the
 `LIFECYCLE_OK` token rather than real state and are superseded. Re-running the rest under state
@@ -278,15 +278,15 @@ DHIS2_PASSWORD=district d2w profile add local_basic \
   --url http://localhost:8080 --auth basic --username admin --verify
 
 # run the write suite across your tool-capable models
-heim benchmark run tools-dhis2-write --all --save
-heim benchmark leaderboard        # regenerates docs/benchmarks.md
+stabbur benchmark run tools-dhis2-write --all --save
+stabbur benchmark leaderboard        # regenerates docs/benchmarks.md
 ```
 
 The benchmark drives the bridge directly (auto-approving mutations) to measure raw model
-capability. In the interactive surfaces — `heim serve --ui`, the Chrome side panel, and the
+capability. In the interactive surfaces — `stabbur serve --ui`, the Chrome side panel, and the
 Textual TUI — the same writes are instead **gated per action**: the assistant prompts the user to
 approve or deny each mutation before it runs (a declined call returns `error: user declined this
-action` and the model continues). The scripted one-shot `heim chat -p` has no confirm channel, so
+action` and the model continues). The scripted one-shot `stabbur chat -p` has no confirm channel, so
 it **fail-safe denies** gated writes unless `--allow-writes` is passed. See `CHROME.md` for the
 gate's design and the `ROADMAP.md` "DHIS2 write reliability" thread for what improves it next
 (stronger write models; the typed `dhis2w-mcp-router` so reads skip the prompt; verification that

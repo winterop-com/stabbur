@@ -6,10 +6,10 @@
 
 import { test, expect, openPanel, seedSettings, PANEL_PATH } from "../fixtures";
 import { TAB_MATCHED } from "../../lib/bannerText";
-import { HeimMock, TargetSiteMock, bindAssistant, bindAssistantTarget } from "../mockServer";
+import { StabburMock, TargetSiteMock, bindAssistant, bindAssistantTarget } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const stabbur = new HeimMock();
+const stabbur = new StabburMock();
 const siteA = new TargetSiteMock();
 const siteB = new TargetSiteMock();
 

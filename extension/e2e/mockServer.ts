@@ -154,7 +154,7 @@ export async function reservePort(): Promise<number> {
   });
 }
 
-export class HeimMock {
+export class StabburMock {
   state: MockState = defaultState();
   private server: Server | null = null;
   private loadTimer: ReturnType<typeof setTimeout> | null = null;

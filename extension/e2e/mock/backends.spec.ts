@@ -5,11 +5,11 @@
 // shape into a single v2 backend, so the panel connects and chats normally.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { HeimMock } from "../mockServer";
+import { StabburMock } from "../mockServer";
 import type { BrowserContext } from "@playwright/test";
 
-const mockA = new HeimMock();
-const mockB = new HeimMock();
+const mockA = new StabburMock();
+const mockB = new StabburMock();
 
 test.beforeAll(async () => {
   await mockA.start();

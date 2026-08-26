@@ -1,4 +1,4 @@
-# heim roadmap
+# stabbur roadmap
 
 Forward-looking plans and ideas. Kept out of `CLAUDE.md` so it doesn't load into
 every session's context. `CLAUDE.md` holds the durable project rules, architecture,
@@ -11,7 +11,7 @@ Design + status: **[`CHROME.md`](CHROME.md)**. Decided direction: **the assistan
 whoever is logged into the tab** — the "Use my login" bind becomes the default path (consent
 once per instance, mint a PAT in the tab's own session, reuse until expiry/revoke); the
 shared/pre-provisioned profile survives only as the no-browser-context fallback (CLI, TUI,
-bench, remote heim). Work items, in build order:
+bench, remote stabbur). Work items, in build order:
 
 - **Bind UX: a clear "sign in first" state** (first build item — its no-session detection is
   also the building block for the auto-offer below). With no live session, the in-tab PAT mint
@@ -40,7 +40,7 @@ bench, remote heim). Work items, in build order:
   typed `dhis2w-mcp` (>= 1.3.0) annotates `readOnlyHint` and fixes this, but its ~315-tool
   surface is heavy for small models; on the bridge/router, reads-prompt remains inherent.
 - **MCP resource for the target.** Add a `dhis2://target` resource to `dhis2w-mcp-bridge` +
-  a generic MCP-resource proxy in heim, replacing the `[assistant.verify]` tool-call path
+  a generic MCP-resource proxy in stabbur, replacing the `[assistant.verify]` tool-call path
   without changing the `/api/assistant` contract.
 - **Packaging** — Web Store (unlisted first), pinned manifest key, Firefox `sidebar_action`
   target via the WXT multi-target build.
@@ -57,14 +57,14 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
 
 - **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes fine, but
   Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the audio.
-  heim's path looks correct (capabilities from `clip.has_audio_encoder`, `--mmproj` passed,
+  stabbur's path looks correct (capabilities from `clip.has_audio_encoder`, `--mmproj` passed,
   OpenAI `input_audio` parts sent), so the fault is likely downstream (llama.cpp/mtmd support
   for those architectures) or a projector-selection edge case (`pick_gguf` matches mmproj by
   filename — a repo naming it otherwise gets no `--mmproj`). Verification needs a small
   audio-specialist GGUF in the library: confirm `capabilities()` reports audio, then curl an
-  `input_audio` request against llama-server alone to isolate heim vs llama.cpp; if heim is
+  `input_audio` request against llama-server alone to isolate stabbur vs llama.cpp; if stabbur is
   at fault, match the projector by `clip.has_audio_encoder`, not filename.
-- **`heim-mcp-web` browser path can't pin DNS.** [deferred — matters only if exposing heim
+- **`stabbur-mcp-web` browser path can't pin DNS.** [deferred — matters only if exposing stabbur
   beyond a trusted LAN] The static fetch path pins the resolved IP, but Chromium resolves its
   own connections, so a rebinding window remains on the Playwright path. A full fix would
   fulfill intercepted routes through the pinned httpx client (heavy; breaks streaming) —
@@ -86,12 +86,12 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
 ## Remote model host (llama-server router on another box)
 
 Day-to-day models are served by a LAN box (`msai:1234`, llama-server in router mode); the CLI,
-TUI, and `heim serve --upstream` all front it. Open threads:
+TUI, and `stabbur serve --upstream` all front it. Open threads:
 
 - **Remote model metadata.** Cards/tags/`n_ctx` are library concepts — a remote model shows
   none, and the SPA size column is a dash. Decide what a remote row should surface.
-- **Two stores.** The T9 library (`heim library`) and the router box's `/data/lab/models` are
-  separate collections; `heim library manifest`/`sync` could feed the router box so the drive
+- **Two stores.** The T9 library (`stabbur library`) and the router box's `/data/lab/models` are
+  separate collections; `stabbur library manifest`/`sync` could feed the router box so the drive
   stays the canonical archive.
 
 ## Web UI
@@ -116,7 +116,7 @@ TUI, and `heim serve --upstream` all front it. Open threads:
 ## Page actions (and WebMCP)
 
 Design + assessment: **[`WEBMCP.md`](WEBMCP.md)**. Short version: WebMCP is **watch, don't
-build** — it inverts UI control rather than providing it, and heim (already an MCP client)
+build** — it inverts UI control rather than providing it, and stabbur (already an MCP client)
 isn't the side that's missing anything; DHIS2 exposing tools is. Page actions themselves are
 not blocked on it — the extension already executes script in the tab. Open work, in order:
 
@@ -141,11 +141,11 @@ not blocked on it — the extension already executes script in the tab. Open wor
   is a single read/write seam with whole-record boundaries and no plaintext index, so the
   encrypt/decrypt pair has one place to go. Never by default.
 - **Structured output.** No `response_format` or grammar support, so anything wanting a parseable
-  answer — classification, extraction — gets prose and a regex. The gap shows up the moment heim
+  answer — classification, extraction — gets prose and a regex. The gap shows up the moment stabbur
   is used as a service rather than a chat window (see `docs/guides/api.md`).
 - **Chat export.** Still open: PDF export in the TUI (the web UI has it, via the browser's
   own print pipeline — the TUI has no equivalent, so this needs a real renderer decision).
-- **Rich tags — the last mile.** Assigning a tag a color/icon ships as `heim library tag-style`;
+- **Rich tags — the last mile.** Assigning a tag a color/icon ships as `stabbur library tag-style`;
   what is left is a color-picker in the web UI and a curated default tag set seeded from
   `docs/guides/models.md`.
 - **Paste-long-text-as-file.** llama.cpp's webui turns a long pasted block into an attachment.
@@ -158,7 +158,7 @@ Chrome side panel:
 
 ```
 Chrome extension (side panel, shadcn chat)
-  → heim (serve --ui --model X): runs the model + MCP client + agent loop
+  → stabbur (serve --ui --model X): runs the model + MCP client + agent loop
       → MCP server from ../dhis2w-utils  → DHIS2 instance
 ```
 

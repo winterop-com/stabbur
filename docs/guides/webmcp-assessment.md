@@ -1,4 +1,4 @@
-# WebMCP — research and maturity assessment for heim
+# WebMCP — research and maturity assessment for stabbur
 
 ## Correction (2026-08-26): "WebMCP" names at least two different things
 
@@ -17,9 +17,9 @@ makes claims like "vendor X supports WebMCP today" sound bigger than they are:
    (2026-08-06) injects a bridge script at the CDN so the *origin* needs no code change. Still
    opt-in per domain by its owner, still a preview.
 
-**Why this matters for heim:** an MCP client does not need to "support WebMCP" for flavor 2 —
-it is just an MCP server, so heim could consume one **today with no code change** (an entry in
-`.mcp.json`). So vendor announcements of support are largely a non-event for us; heim is
+**Why this matters for stabbur:** an MCP client does not need to "support WebMCP" for flavor 2 —
+it is just an MCP server, so stabbur could consume one **today with no code change** (an entry in
+`.mcp.json`). So vendor announcements of support are largely a non-event for us; stabbur is
 already an MCP client. The binding constraint is unchanged and is on the *other* side: some
 site has to expose tools, and for our purposes that site is DHIS2, which exposes none. The
 browser API only becomes interesting if it is what drives sites to do that.
@@ -123,7 +123,7 @@ This matters more than the star count. Commit history on `index.bs`:
 | 2026-08-19 | `AbortSignal` integration specced (#247); in-flight-execution semantics (#248) |
 | 2026-08-20 | open issue #251: change `executeTool()` input type from `object` to `any` |
 
-**The entire agent-consumption half of the API — the half heim would use — was formally specified in
+**The entire agent-consumption half of the API — the half stabbur would use — was formally specified in
 the last six weeks and had a breaking signature change nine days ago.** The namespace itself moved
 three months ago.
 
@@ -167,7 +167,7 @@ new solution before the actual problem has been established."*
 [Mozilla standards-positions #1412](https://github.com/mozilla/standards-positions/issues/1412) —
 Ben VanderSloot, 2026-06-01: valuable abstraction, but sites can "tar pit automated browsers, provide
 prompt injection that is invisible to typical users, collect user data from the inputs of the tools";
-the name is misleading because *"There is no MCP here"*; and — directly relevant to heim — *"As of
+the name is misleading because *"There is no MCP here"*; and — directly relevant to stabbur — *"As of
 now, use of this mechanism is restricted to browser developer's own products and in-page agents. An
 important step to ensuring an open ecosystem of web browsing agents is opening up tool invocation to
 other consumers, by adding WebExtension and WebDriver BiDi integrations."* Marked neutral,
@@ -249,7 +249,7 @@ ChatGPT/Chrome and Edge configurations produced no confirmed native invocation."
 |---|---|---|
 | [`@mcp-b/*` npm packages](https://github.com/WebMCP-org/npm-packages) | The descendant of MCP-B, the Jan-2025 prototype WebMCP grew out of. Packages: `global` (runtime), `webmcp-polyfill`, `webmcp-extension`, **`webmcp-local-relay`**, `transports`, `react-webmcp`, `webmcp-ts-sdk`, `webmcp-types` | last push **2026-08-25** |
 | [`GoogleChromeLabs/webmcp-tools`](https://github.com/GoogleChromeLabs/webmcp-tools) | Google's demos + dev utilities, incl. the "Model Context Tool Inspector" extension and a polyfill | 495★, last push 2026-08-19 |
-| [`igrigorik/AgentBoard`](https://github.com/igrigorik/AgentBoard) | Ilya Grigorik's MV3 side-panel agent that **consumes** WebMCP tools from any tab. Closest existing analogue to heim's extension | 128★, last push 2026-08-18, on the Chrome Web Store |
+| [`igrigorik/AgentBoard`](https://github.com/igrigorik/AgentBoard) | Ilya Grigorik's MV3 side-panel agent that **consumes** WebMCP tools from any tab. Closest existing analogue to stabbur's extension | 128★, last push 2026-08-18, on the Chrome Web Store |
 | [`webmcp-types`](https://www.npmjs.com/package/webmcp-types) | Official TS types, blessed by the CG | — |
 | Official polyfill | CG **resolved on 2026-08-20** to host one under `webmachinelearning/`; the repo does not exist yet (404 as of 2026-08-26). [#252](https://github.com/webmachinelearning/webmcp/issues/252) | pending |
 | Chrome DevTools | Experimental WebMCP panel: list registered tools, invoke manually, validate schemas | ships with the OT |
@@ -264,13 +264,13 @@ ChatGPT/Chrome and Edge configurations produced no confirmed native invocation."
 Nothing. GitHub code search for `modelContext` across `org:dhis2` returns **0**. There is a small
 cluster of *ordinary* DHIS2 MCP servers (`Dradebo/dhis2-mcp` 7★, `brianmituka/dhis2-mcp`,
 `EPFLiGHT/talk2yourdata`, and your own `winterop-com/dhis2w-utils`) — i.e. the ecosystem around DHIS2
-is going the REST-MCP route heim already took. No sign of anyone in the DHIS2 world tracking WebMCP.
+is going the REST-MCP route stabbur already took. No sign of anyone in the DHIS2 world tracking WebMCP.
 
 ---
 
-## 5. Applicability to heim
+## 5. Applicability to stabbur
 
-### Could heim's extension consume page-exposed WebMCP tools? Yes — with caveats.
+### Could stabbur's extension consume page-exposed WebMCP tools? Yes — with caveats.
 
 The explainer explicitly names extensions as a consumer class: tools "can be invoked by AI agents,
 including those built into the browser, hosted in iframes, or **running in extensions**".
@@ -295,16 +295,16 @@ extension paths:
    No content script needed, but it attaches a debugger to the tab — the yellow "extension is
    debugging this browser" infobar, incompatible with a quiet always-on side panel.
 
-### What the plumbing would look like in heim
+### What the plumbing would look like in stabbur
 
-heim's constraint: the **backend owns the MCP client and the agent loop**, and today the
+stabbur's constraint: the **backend owns the MCP client and the agent loop**, and today the
 extension→backend channel is HTTP + server→client SSE. Page-hosted tools invert that: the tool
 *executes in the browser*, so a tool call must travel backend → extension → tab and a result must
-come back. That needs a bidirectional channel heim does not currently have.
+come back. That needs a bidirectional channel stabbur does not currently have.
 
 Two shapes:
 
-**(a) The relay shape — no heim backend changes at all.**
+**(a) The relay shape — no stabbur backend changes at all.**
 [`@mcp-b/webmcp-local-relay`](https://github.com/WebMCP-org/npm-packages/tree/main/packages/webmcp-local-relay)
 is an **stdio MCP server** that also listens on a localhost WebSocket. Browser side connects over WS;
 MCP client side is plain stdio JSON-RPC. It exposes `webmcp_list_sources`, `webmcp_list_tools`, and
@@ -312,35 +312,35 @@ the page's tools by name, and tools appear/disappear as tabs open and close.
 
 ```
 DHIS2 tab (tools on document.modelContext)
-   │  MAIN-world script  (either the site's own, or injected by heim's extension)
+   │  MAIN-world script  (either the site's own, or injected by stabbur's extension)
    ▼
 localhost WebSocket
    ▼
-webmcp-local-relay  ── stdio JSON-RPC ──►  heim backend (existing MCP client)
+webmcp-local-relay  ── stdio JSON-RPC ──►  stabbur backend (existing MCP client)
 ```
 
-heim would add it to `.mcp.json` verbatim, like any other server. The agent loop, tool dispatch,
-the vision/image handling, the extension — all unchanged. This fits heim's "backend is the MCP
+stabbur would add it to `.mcp.json` verbatim, like any other server. The agent loop, tool dispatch,
+the vision/image handling, the extension — all unchanged. This fits stabbur's "backend is the MCP
 client, extension is thin" architecture almost suspiciously well.
 
-Its documented default path asks the *site owner* to add an embed script tag; heim's extension would
+Its documented default path asks the *site owner* to add an embed script tag; stabbur's extension would
 instead inject the equivalent as a MAIN-world content script, which is what AgentBoard does.
 
-**(b) The native shape — heim's own bridge.** heim's extension gains MAIN + ISOLATED content scripts,
-publishes the tab's tool list to the backend, and heim registers those as an in-process MCP-ish tool
+**(b) The native shape — stabbur's own bridge.** stabbur's extension gains MAIN + ISOLATED content scripts,
+publishes the tab's tool list to the backend, and stabbur registers those as an in-process MCP-ish tool
 namespace whose `execute` round-trips over a WebSocket to the extension. More code, more control,
 one fewer moving part at runtime, and it is where you would end up if this ever mattered.
 
 ### The hard prerequisite
-**heim is the consumer, not the site author.** None of this yields a single tool until DHIS2 core
+**stabbur is the consumer, not the site author.** None of this yields a single tool until DHIS2 core
 apps call `document.modelContext.registerTool()`. Today: zero DHIS2 code does. The realistic near
-paths are (i) a DHIS2 app-platform library so apps opt in — nobody is building one; (ii) heim's own
+paths are (i) a DHIS2 app-platform library so apps opt in — nobody is building one; (ii) stabbur's own
 extension injecting a *shim* that registers tools it synthesizes from DHIS2 page state — at which
-point WebMCP is just an internal calling convention inside heim's own extension and buys you a schema
+point WebMCP is just an internal calling convention inside stabbur's own extension and buys you a schema
 format, not an ecosystem.
 
-That last observation is the one that should drive the decision: **for heim's actual roadmap item
-("page actions"), WebMCP contributes essentially nothing that heim would not have to build anyway.**
+That last observation is the one that should drive the decision: **for stabbur's actual roadmap item
+("page actions"), WebMCP contributes essentially nothing that stabbur would not have to build anyway.**
 The thing that makes page actions hard is not the tool-call plumbing; it is deciding what an AI
 clicking as a logged-in DHIS2 admin is allowed to do. WebMCP has no answer for that — its spec says
 so (`readOnlyHint` is advisory, the consent hook is TODO).
@@ -358,7 +358,7 @@ shared eval datasets, and untrusted-annotation of responses — the first two ar
 the third is unspecified. See [#239](https://github.com/webmachinelearning/webmcp/issues/239)
 (grammar-level structural mitigation, open, 2026-08-11).
 
-**For heim specifically this inverts the current trust posture.** heim's DHIS2 tools today come from
+**For stabbur specifically this inverts the current trust posture.** stabbur's DHIS2 tools today come from
 an MCP server *you wrote*, with a schema you control. A page-declared tool is a tool description
 authored by whatever is running in that tab, fed straight into a model that holds the user's DHIS2
 session. On a self-hosted DHIS2 instance the page is nominally trusted — but DHIS2 renders
@@ -368,7 +368,7 @@ with tool-calling authority. That is a strictly worse blast radius than the REST
 
 **No consent model.** `readOnlyHint` is a hint the agent may use to *skip* a confirmation.
 `toolautosubmit` submits forms without review. Nothing in the spec prevents a page from declaring a
-destructive tool as read-only. Consent is delegated entirely to the agent implementer — i.e. to heim.
+destructive tool as read-only. Consent is delegated entirely to the agent implementer — i.e. to stabbur.
 
 **Same-origin questions are explicitly open.** The security questionnaire's answer to "what should
 this questionnaire have asked" is: agents browsing multiple origins may carry state across them; the
@@ -378,7 +378,7 @@ is unexamined.
 
 **Spec churn is high and recent.** `navigator.` → `document.` (May 2026); `getTools()` specced July;
 `executeTool()` specced 2026-08-14 and its signature changed 2026-08-17 (JSON string → object) with
-another change proposed 2026-08-20 (object → any). Anything heim writes against the consumer API this
+another change proposed 2026-08-20 (object → any). Anything stabbur writes against the consumer API this
 quarter should be assumed to break.
 
 **Venue and vendor risk.** A CG report with one implementer, one clone of that implementer, one
@@ -403,8 +403,8 @@ locking yourself out of anything by not moving.
 | Consumers? | Gemini in Chrome "soon". Field reports show unreliable-to-absent native invocation. |
 | Sites? | ~0 measured (111k domains, May 2026). Cloudflare opt-in dev preview (Aug 2026) is the one real lever. |
 | DHIS2? | Zero. No signal, no tracking, no library. |
-| Can heim consume it? | Yes, via a MAIN-world content script or `webmcp-local-relay`. Proven patterns exist. |
-| Should heim now? | **Watch.** Nothing to consume; consumption is cheap to add later. |
+| Can stabbur consume it? | Yes, via a MAIN-world content script or `webmcp-local-relay`. Proven patterns exist. |
+| Should stabbur now? | **Watch.** Nothing to consume; consumption is cheap to add later. |
 
 **Trigger conditions to revisit** — any one of these changes the answer:
 1. Chrome files an Intent to Ship, or the OT extends past M156 with shipping intent.

@@ -3,10 +3,10 @@
 // extension's id.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { HeimMock, MOCK_MODEL } from "../mockServer";
+import { StabburMock, MOCK_MODEL } from "../mockServer";
 
 test("403 on the model-load POST renders the cors_origins hint", async ({ context, extensionId }) => {
-  const mock = new HeimMock();
+  const mock = new StabburMock();
   await mock.start();
   try {
     mock.state.phase = "stopped"; // needs-model, so the panel offers a Load button

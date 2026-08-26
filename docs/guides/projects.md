@@ -1,8 +1,8 @@
 # Projects
 
-A **project** is a purpose-built assistant captured in a `heim.toml` file: which
+A **project** is a purpose-built assistant captured in a `stabbur.toml` file: which
 model to load, its system prompt, its MCP tools, and which libraries it reads. In a
-project directory both `heim chat` and `heim serve --ui` bind to that definition —
+project directory both `stabbur chat` and `stabbur serve --ui` bind to that definition —
 so the app boots straight into the right model with its tools, no manual picking.
 
 A project is **portable and committable**: it references models by name (never by
@@ -14,8 +14,8 @@ another machine and still runs.
 Two entry points, same wizard:
 
 ```bash
-heim project init              # scaffold heim.toml in the current directory
-heim project new my-assistant  # create a fresh directory and scaffold in it (like `cargo new`)
+stabbur project init              # scaffold stabbur.toml in the current directory
+stabbur project new my-assistant  # create a fresh directory and scaffold in it (like `cargo new`)
 ```
 
 The wizard asks for a kind (chat/voice), a default model (a library model or a
@@ -27,28 +27,28 @@ spoken-reply voice. Flags skip or change parts of it:
 | `--model <name>` | Bind this model, skipping the model picker. |
 | `--copy` (`--local`) | Copy the model into a **project-local `library/`** (a fast local-disk copy if it's already in your shared library) — makes the project self-contained. |
 | `--git` | `git init` the project and write a `.gitignore` that excludes `library/` (the weights) and `.env`. |
-| `--no-uv` | Skip the uv project (write only `heim.toml`, no `pyproject.toml`). |
-| `--force` | Overwrite an existing `heim.toml`. |
+| `--no-uv` | Skip the uv project (write only `stabbur.toml`, no `pyproject.toml`). |
+| `--force` | Overwrite an existing `stabbur.toml`. |
 
 ## A project is a uv project
 
 By default the scaffolder also writes a **`pyproject.toml`**, making the project a
-self-contained [uv](https://docs.astral.sh/uv/) project. It pins `heim` and the project's
+self-contained [uv](https://docs.astral.sh/uv/) project. It pins `stabbur` and the project's
 pip-installable MCP servers, so the project carries its own environment:
 
 ```bash
 cd my-assistant
-uv sync                     # build the project's .venv (heim + its MCP servers)
-uv run heim serve --ui      # runs this project's heim, not a global one
-uv run heim chat
+uv sync                     # build the project's .venv (stabbur + its MCP servers)
+uv run stabbur serve --ui      # runs this project's stabbur, not a global one
+uv run stabbur chat
 ```
 
-This is what makes a project *truly* portable: `uv run heim` uses the pinned heim and the
+This is what makes a project *truly* portable: `uv run stabbur` uses the pinned stabbur and the
 MCP servers installed into the project's `.venv`, instead of relying on a globally-installed
-heim and runtime `uvx` fetches. Because the servers are real dependencies, their `.mcp.json`
+stabbur and runtime `uvx` fetches. Because the servers are real dependencies, their `.mcp.json`
 commands drop the `uvx` runner. `.venv/` is gitignored; `uv.lock` is committed for
-reproducibility. (`heim` isn't on PyPI yet, so its pin is a local path source — replace it
-with a version once heim publishes. Pass `--no-uv` for the plain `heim.toml`-only shape.)
+reproducibility. (`stabbur` isn't on PyPI yet, so its pin is a local path source — replace it
+with a version once stabbur publishes. Pass `--no-uv` for the plain `stabbur.toml`-only shape.)
 
 For a complete worked example — a DHIS2 assistant with its model copied in, a project-local
 DHIS2 profile, and example prompts — see the
@@ -60,7 +60,7 @@ DHIS2 profile, and example prompts — see the
 one command — a model, a system prompt, tools, and example files:
 
 ```bash
-heim project new mydhis2 --template dhis2 --copy --git
+stabbur project new mydhis2 --template dhis2 --copy --git
 ```
 
 | Template | Model | Tools |
@@ -70,17 +70,17 @@ heim project new mydhis2 --template dhis2 --copy --git
 | `research` | `gemma-4-12B` | `search` + `fetch` |
 
 In a uv project the template's pip-installable tools are pinned in `pyproject.toml`
-automatically; bundled heim servers and node (`bunx`) servers are left as-is. Override the
-model with `--model`, and add more tools later with `heim mcp add` (also uv-aware).
+automatically; bundled stabbur servers and node (`bunx`) servers are left as-is. Override the
+model with `--model`, and add more tools later with `stabbur mcp add` (also uv-aware).
 
 ```bash
-heim project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
+stabbur project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
 ```
 
 ## What it writes
 
 ```toml
-# heim.toml
+# stabbur.toml
 libraries = ["library", "@shared"]   # only when --copy is used; else just @shared
 
 [project]
@@ -89,30 +89,30 @@ system_prompt = "You are a concise, helpful assistant."
 chat_voice = "kokoro:af_heart"       # spoken-reply voice (Kokoro)
 ```
 
-Tools are **not** in `heim.toml` — they live in a sibling `.mcp.json` (see below).
+Tools are **not** in `stabbur.toml` — they live in a sibling `.mcp.json` (see below).
 
 - **`libraries`** — the libraries this project reads, in priority order (first match
   wins). With `--copy` it lists the project-local `library/` first, then `@shared`
-  (the machine default, `HEIM_LIBRARY_ROOT`). See [The library](library.md).
+  (the machine default, `STABBUR_LIBRARY_ROOT`). See [The library](library.md).
 - **`[project]`** — the bound model, system prompt, and spoken-reply voice.
 - **`.mcp.json`** — the project's MCP tool servers (standard `mcpServers` JSON).
 
 ## A locked assistant
 
-Binding `[project].model` makes the project a **locked assistant**: `heim serve --ui`
+Binding `[project].model` makes the project a **locked assistant**: `stabbur serve --ui`
 in that directory hides the model picker and serves only that model (the UI shows a
-locked state); `heim chat` defaults to it. Outside a project, heim is free-play (pick
+locked state); `stabbur chat` defaults to it. Outside a project, stabbur is free-play (pick
 any model). Pass `--model` to override the binding.
 
 ## Tools
 
 Tools are the standard `mcpServers` JSON in `./.mcp.json` (plus the machine-global
-`~/.config/heim/mcp.json`, which merges in). Browse a curated catalog and add one with
-`heim mcp`:
+`~/.config/stabbur/mcp.json`, which merges in). Browse a curated catalog and add one with
+`stabbur mcp`:
 
 ```bash
-heim mcp list        # curated servers + installed plugins (✓ = already in .mcp.json)
-heim mcp add fetch   # add to ./.mcp.json  (--global for ~/.config/heim/mcp.json)
+stabbur mcp list        # curated servers + installed plugins (✓ = already in .mcp.json)
+stabbur mcp add fetch   # add to ./.mcp.json  (--global for ~/.config/stabbur/mcp.json)
 ```
 
 …or write the JSON by hand:
@@ -120,12 +120,12 @@ heim mcp add fetch   # add to ./.mcp.json  (--global for ~/.config/heim/mcp.json
 ```json
 {
   "mcpServers": {
-    "datetime": { "command": "heim-mcp-datetime" }
+    "datetime": { "command": "stabbur-mcp-datetime" }
   }
 }
 ```
 
-`heim.toml`'s `command` is split like a shell line, so arguments work inline; there
+`stabbur.toml`'s `command` is split like a shell line, so arguments work inline; there
 is **no `env` field**, so pass environment variables with an `env` prefix when a
 server needs them. See [Tools (MCP)](tools.md) for the full picture, and the
 [DHIS2 assistant worked example](dhis2-project.md) for an end-to-end build (scaffold,
@@ -134,11 +134,11 @@ the tool).
 
 ## Inspect
 
-`heim project show` prints the resolved project: the bound model's detail card, the
+`stabbur project show` prints the resolved project: the bound model's detail card, the
 system prompt, and the **actual tools** (it connects to the MCP servers and lists
 what they expose, not just the server names).
 
 ```bash
-heim project show
-heim project show --card    # also render the model card (README)
+stabbur project show
+stabbur project show --card    # also render the model card (README)
 ```

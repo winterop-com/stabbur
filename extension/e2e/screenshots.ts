@@ -41,7 +41,7 @@ import {
   userDataDir,
 } from "./fixtures";
 import { TAB_MATCHED } from "../lib/bannerText";
-import { HeimMock, TargetSiteMock, bindAssistant, reservePort, type ChatFrame } from "./mockServer";
+import { StabburMock, TargetSiteMock, bindAssistant, reservePort, type ChatFrame } from "./mockServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -228,7 +228,7 @@ async function tryRealHero2Panel(
   panelPng: string,
 ): Promise<boolean> {
   await resetStorage(context, extensionId);
-  const stabbur = new HeimMock();
+  const stabbur = new StabburMock();
   await stabbur.start();
   try {
     stabbur.state.phase = "ready";
@@ -270,7 +270,7 @@ async function mockHero2Panel(
   panelPng: string,
 ): Promise<void> {
   await resetStorage(context, extensionId);
-  const stabbur = new HeimMock();
+  const stabbur = new StabburMock();
   await stabbur.start();
   try {
     stabbur.state.phase = "ready";
@@ -341,7 +341,7 @@ async function main(): Promise<void> {
     // 02 / 03 — chat with a streamed answer + a JSON tool chip (collapsed, then expanded).
     {
       await resetStorage(context, extensionId);
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       await stabbur.start();
       try {
         stabbur.state.phase = "ready";
@@ -381,7 +381,7 @@ async function main(): Promise<void> {
 
     // 04 / 05 / 06 — assistant target banner + the "Use my login" bind flow.
     {
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       const target = new TargetSiteMock();
       await stabbur.start();
       await target.start();
@@ -427,8 +427,8 @@ async function main(): Promise<void> {
     // 07 — backend switcher with two backends.
     {
       await resetStorage(context, extensionId);
-      const a = new HeimMock();
-      const b = new HeimMock();
+      const a = new StabburMock();
+      const b = new StabburMock();
       await a.start();
       await b.start();
       try {
@@ -477,7 +477,7 @@ async function main(): Promise<void> {
 
     // 09 — bind consent for a WRITE-enabled assistant: the "Allow writes" toggle, checked.
     {
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       const target = new TargetSiteMock();
       await stabbur.start();
       await target.start();
@@ -516,7 +516,7 @@ async function main(): Promise<void> {
     // 10 — mid-chat write confirmation: the inline Approve/Deny card, pending a decision.
     {
       await resetStorage(context, extensionId);
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       await stabbur.start();
       try {
         stabbur.state.phase = "ready";
@@ -552,7 +552,7 @@ async function main(): Promise<void> {
     //      model then continues and reports it left the instance unchanged.
     {
       await resetStorage(context, extensionId);
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       await stabbur.start();
       try {
         stabbur.state.phase = "ready";
@@ -656,7 +656,7 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
     // hero-1 — dashboard + panel chatting about the page (page context on).
     try {
       await resetStorage(context, extensionId);
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       await stabbur.start();
       try {
         stabbur.state.phase = "ready";
@@ -715,7 +715,7 @@ async function heroShots(context: BrowserContext, extensionId: string, scratchDi
     // the consent close-up needs a tab match, which the mock target provides deterministically).
     try {
       await resetStorage(context, extensionId);
-      const stabbur = new HeimMock();
+      const stabbur = new StabburMock();
       await stabbur.start();
       try {
         stabbur.state.phase = "ready";
@@ -799,7 +799,7 @@ async function genericShots(scratchDir: string): Promise<void> {
 
     // Panel half: a generic backend (assistant "missing" -> no banner / verify / bind), page context
     // on, chatting about the front page.
-    const stabbur = new HeimMock();
+    const stabbur = new StabburMock();
     await stabbur.start();
     try {
       stabbur.state.phase = "ready";

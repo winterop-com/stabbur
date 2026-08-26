@@ -1,13 +1,13 @@
 // Per-action write confirmation: a `confirm` SSE frame renders an inline Approve/Deny card;
 // approving POSTs {approve:true} and the tool result streams in; denying POSTs {approve:false}
 // and the declined result streams in; a `confirm_resolved` clears the card. A timed-out
-// confirmation is shown as auto-denied. Drives the panel against a HeimMock that pauses the
+// confirmation is shown as auto-denied. Drives the panel against a StabburMock that pauses the
 // stream on the confirm frame until the client resolves it.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { HeimMock, type ChatFrame } from "../mockServer";
+import { StabburMock, type ChatFrame } from "../mockServer";
 
-const mock = new HeimMock();
+const mock = new StabburMock();
 
 test.beforeAll(async () => {
   await mock.start();

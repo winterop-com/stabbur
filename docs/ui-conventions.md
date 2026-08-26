@@ -1,14 +1,14 @@
 # UI conventions
 
-The rules heim's browser UI is built to, written down so the next change doesn't
+The rules stabbur's browser UI is built to, written down so the next change doesn't
 have to re-derive them. They are deliberately about **form, not subject** — a type
 scale and a colour vocabulary say nothing about models or chat, so this page ports
-to a sibling app unchanged. heim's visual family is
+to a sibling app unchanged. stabbur's visual family is
 [`dhis2w-fhir-serve`](https://github.com/winterop-com/dhis2w-utils); where the two
-disagree, this page is heim's answer and the reasoning is stated, because the
+disagree, this page is stabbur's answer and the reasoning is stated, because the
 sibling is a codebase, not a specification.
 
-Scope: `frontend/` (the SPA served by `heim serve --ui`). See
+Scope: `frontend/` (the SPA served by `stabbur serve --ui`). See
 [Not yet swept](#not-yet-swept) for what this does not cover.
 
 ---
@@ -38,7 +38,7 @@ Two things follow from the table and are worth saying outright:
 `text-xs font-semibold uppercase tracking-wide`; a panel title is `text-sm
 font-semibold tracking-tight`. Both are small — what makes them headings is that
 everything around them is neither bold nor uppercase. Reaching for a bigger size is
-almost always reaching for the wrong axis: heim's surfaces are dense, and a 20px
+almost always reaching for the wrong axis: stabbur's surfaces are dense, and a 20px
 heading inside a rail buys emphasis by spending room.
 
 ### No hand-written pixel sizes
@@ -79,13 +79,13 @@ theme's green.
 `--good` · `--critical` · `--warning` · `--info`. Four words, chosen before any
 component picks a colour. Every theme moves their lightness and chroma to suit its
 ground but never their hue family: green means healthy and amber means
-look-at-this on every screen heim has.
+look-at-this on every screen stabbur has.
 
 `--critical` is **not** `--destructive`, and the split is by *who acts*:
 
 - `--destructive` is an affordance the reader can press to destroy something (and
   the error text shadcn already paints with it).
-- `--critical` is a state heim **observed** and is reporting. A failed doctor check
+- `--critical` is a state stabbur **observed** and is reporting. A failed doctor check
   has nothing for the reader to press.
 
 ### `-ink`: the fill/text split
@@ -158,7 +158,7 @@ intent, the percentage is only how it is expressed to the library
 This is not tidiness. An 18% sidebar is 230px at 1280 and 461px at 2560, so on a
 large monitor every frame grows while the type does not, and the app reads as
 though it had been zoomed out — which is exactly the complaint that started this
-document. The type was a red herring; the chrome was the cause. heim's sidebar
+document. The type was a red herring; the chrome was the cause. stabbur's sidebar
 was 345px against the sibling's fixed 239px on the same display.
 
 The trap, if you add another one: a percentage-sized panel re-lays-out on a
@@ -185,7 +185,7 @@ Four separate reports of the same fault, all fixed the same way:
   — and the model governs the next message, so it belongs beside the box that
   message is typed into. The pill is gone.
 - The **status sentence** (backend, model count, tool count) was a line across the
-  status bar, and every fact in it was already a row in `heim doctor`, which the
+  status bar, and every fact in it was already a row in `stabbur doctor`, which the
   health menu renders. A hand-written copy of a list that maintains itself can only
   drift. The bar states none of them now.
 
@@ -214,7 +214,7 @@ the divider inset 48px from it rather than hugging it.
 nothing at all, and that is the finished state rather than a gap to fill: the
 frame closes the window, the Settings segment continues the rail's column past its
 foot, and the facts live where they are maintained. The single exception is the
-one thing no other surface can report — "Not connected to a heim server", which is
+one thing no other surface can report — "Not connected to a stabbur server", which is
 an alarm, not a readout, and which the health menu cannot show because a server
 that is down does not answer `/api/doctor` either.
 

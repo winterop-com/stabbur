@@ -1,13 +1,13 @@
 # Chrome extension architecture notes
 
 These notes capture the current thinking for adding a Chrome/browser extension that
-drives heim with DHIS2 tools.
+drives stabbur with DHIS2 tools.
 
 Review status: this file has had two design-review passes, the second checked
-against the actual heim code (endpoints, cross-site guard, frontend api client).
+against the actual stabbur code (endpoints, cross-site guard, frontend api client).
 The key conclusion did not change: the first extension should be a side-panel
-client for local heim, and heim should reach DHIS2 through `d2w`/MCP rather than
-through browser-cookie relay. The second pass added the "Net-new heim work"
+client for local stabbur, and stabbur should reach DHIS2 through `d2w`/MCP rather than
+through browser-cookie relay. The second pass added the "Net-new stabbur work"
 section, the `/api/chat` request contract + 409 handling, and split the CORS vs
 cross-site-guard mechanics. A follow-up added "Driving the active DHIS2 login:
 feasibility and verdict" — the honest assessment of using the live browser session
@@ -20,11 +20,11 @@ works from a same-origin DHIS2-tab content script. A "Screenshots, visual contex
 and Playwright" section was also added: native Chrome capture + DHIS2 PNG endpoints
 for runtime visuals, Playwright reserved for E2E tests and doc screenshots. An
 "Extension <-> backend auth" section clarifies that OIDC belongs to remote backends
-and the d2w<->DHIS2 hop, never the local extension<->heim hop. Later notes: tab
+and the d2w<->DHIS2 hop, never the local extension<->stabbur hop. Later notes: tab
 grouping for the bound instance (`chrome.tabGroups`), and a "Publishing" section on
 shipping a Web Store extension that requires a user-run local service. The
 target-metadata endpoint was also de-DHIS2-ified: kept generic (`GET /api/assistant`
-from opaque project metadata + an MCP resource) so heim keeps zero DHIS2 logic,
+from opaque project metadata + an MCP resource) so stabbur keeps zero DHIS2 logic,
 rather than a DHIS2-named `GET /api/dhis2/target`. A "Cross-browser" section notes
 WebExtensions/MV3 as the de facto standard (Chromium family free, Firefox modest via
 `sidebar_action` + polyfill, Safari a separate Xcode-wrapped effort). A third pass
@@ -47,14 +47,14 @@ The extension described here now exists at `extension/` (WXT, MV3 side panel; se
   Phase-3-lite: fixed-endpoint same-origin session reads (`/api/me`, `/api/system/info`)
   from the DHIS2 tab, and an opt-in truncated page-text capture.
 - The target-metadata endpoint landed as designed — generic `GET /api/assistant` echoing
-  an opaque `[assistant]` block from `heim.toml` — but the live `verified` block is
+  an opaque `[assistant]` block from `stabbur.toml` — but the live `verified` block is
   produced by a **generic MCP tool call** named in the block (`[assistant.verify]`,
   e.g. the bridge's `dhis2_cli profile verify`), not by an MCP resource: none of the
   dhis2w servers publish resources yet. The MCP-resource + generic-resource-proxy shape
   remains the intended long-term design; adding a `dhis2://target` resource to the bridge
-  and a resource proxy to heim is a follow-up that can replace the tool-call path without
+  and a resource proxy to stabbur is a follow-up that can replace the tool-call path without
   changing the endpoint contract.
-- Remote/cloud heim works via the existing bearer auth (`auth_token`) + `cors_origins`;
+- Remote/cloud stabbur works via the existing bearer auth (`auth_token`) + `cors_origins`;
   the panel requires https for non-loopback hosts.
 - Playwright E2E lives in `extension/e2e/` (mock tier + a live tier that runs the full
   loop against a real model and play42, read-only). Verified prompts live in
@@ -71,11 +71,11 @@ session; writes last) is now **implemented read-only**. What shipped on top of t
 - **"Use my login" bind flow** (`extension/components/BindFlow.tsx` + `TargetBanner.tsx`,
   `lib/bindRecipe.ts`, `lib/binding.ts`, `lib/bindApi.ts`). When the active tab matches the
   assistant target, the panel offers **Use my login**. A consent card states the scope in plain
-  words — **read-only (GET)**, **expires in 30 days**, **stored in the heim project's DHIS2
+  words — **read-only (GET)**, **expires in 30 days**, **stored in the stabbur project's DHIS2
   profile** — with no "allow writes" toggle for a read-only assistant. On confirm, a PAT is minted
   **entirely in the target tab's own security context** (`chrome.scripting.executeScript`, MAIN
   world, `POST /api/apiToken` with the live session cookie): the token never touches the service
-  worker or the page's JS — only the extracted `response.key` / `response.uid` come back. heim then
+  worker or the page's JS — only the extracted `response.key` / `response.uid` come back. stabbur then
   installs it via `POST /api/assistant/bind` (below). The banner shows **Acting as \<user\> (your
   login)**, with **Unbind** (revoke in the tab + remove the profile) and **Rebind**.
 - **PAT-first, session fallback.** A `404/405/501` mint (PAT unavailable) offers a **session-cookie
@@ -84,24 +84,24 @@ session; writes last) is now **implemented read-only**. What shipped on top of t
   **"Sign in to \<name\> in this tab first"**. The fallback rides a **new `session` auth kind in
   `dhis2w-client`/`d2w`** (see `../dhis2w-utils/REVIEW-SESSION-AUTH.md`); `d2w profile add … --auth
   session` reads `DHIS2_SESSION_COOKIE` from the env, mirroring the PAT `DHIS2_PAT` path.
-- **Backend `bind`/`unbind` in heim, still domain-generic** (`routers/serving/assistant.py`).
+- **Backend `bind`/`unbind` in stabbur, still domain-generic** (`routers/serving/assistant.py`).
   `GET /api/assistant` now also echoes a **sanitized `[assistant.bind]` recipe** — the browser-side
   mint paths/payload/extraction fields plus only the mode *names*; a mode's argv + `secret_env` stay
   server-side. `POST /api/assistant/bind` / `/unbind` run the named mode's argv with the secret in
   `secret_env` (never argv), redacted from captured output, serialized on a lock, verify-cache
-  invalidated after. heim still learns no DHIS2 — the recipe is opaque project config the DHIS2
+  invalidated after. stabbur still learns no DHIS2 — the recipe is opaque project config the DHIS2
   template fills (`[assistant.bind]` / `[assistant.bind.modes.*]`).
 - **Declared probe recipes replace the round-1 hardcoded endpoints.** The "Who am I here?" session
   read (`lib/sessionReads.ts`) now runs the project-declared `[assistant.probe]` (paths + dotted
   field map + label) echoed by `GET /api/assistant`, instead of fixed `/api/me` + `/api/system/info`
-  literals — so heim core carries no DHIS2 paths.
+  literals — so stabbur core carries no DHIS2 paths.
 - **Identity labels.** Page context now distinguishes the **Browser session user** (who is viewing
   the tab) from the **Tool account** (which credential the tools use), and the system prompt teaches
   the model to answer "who am I" from the browser user while reporting the tool account only when
   asked. After a bind the two converge (the PAT acts as the logged-in user).
 - **Tool results are compact.** Tool-call/result markers render as collapsed chips with compact JSON,
   expandable on click, instead of dumping raw payloads inline.
-- **Backend switcher.** Settings can hold multiple heim backends (Add/Remove backend); the binding
+- **Backend switcher.** Settings can hold multiple stabbur backends (Add/Remove backend); the binding
   record is scoped per-backend id.
 - **E2E:** a live-tier `binds to the browser login` spec (`extension/e2e/live/live.spec.ts`) drives
   the whole flow against real play42: log in as admin, mint a read-only PAT in the tab, install it
@@ -120,21 +120,21 @@ from "Driving the active DHIS2 login" is now **implemented**. What shipped:
 
 - **Per-action confirmation gate, every interactive chat surface.** A write-enabled assistant now
   prompts the user to **Approve/Deny each gated tool call** before it executes — in the Chrome side
-  panel, the web UI (`heim serve --ui`), and the Textual TUI, from one backend mechanism. A declined
+  panel, the web UI (`stabbur serve --ui`), and the Textual TUI, from one backend mechanism. A declined
   call returns `error: user declined this action` and the model continues (it can retry or explain,
   it does not crash). This is the guardrail the "writes as the logged-in user" analysis called for:
-  the human, not the model, authorizes each mutation. The non-interactive `heim chat -p` one-shot has
+  the human, not the model, authorizes each mutation. The non-interactive `stabbur chat -p` one-shot has
   no one to answer the prompt, so it **fail-safe denies** gated writes unless `--allow-writes` is
   passed (a blanket auto-approve). The one deliberately ungated path is the programmatic eval harness
-  (`heim-benchmark`), whose self-cleaning write suites must run unattended.
-- **Generic, fail-safe policy — no DHIS2 logic in heim.** heim reads each MCP tool's `readOnlyHint`
+  (`stabbur-benchmark`), whose self-cleaning write suites must run unattended.
+- **Generic, fail-safe policy — no DHIS2 logic in stabbur.** stabbur reads each MCP tool's `readOnlyHint`
   and requires confirmation for any tool **not** marked read-only; an **unannotated** tool defaults
   to needs-confirmation (fail-safe). The policy is a tri-state `all|writes|none` (request field
   `confirm_tools`), defaulting from the assistant: readonly / free-play -> `none`, write-enabled ->
   `writes`. Consequence to know: the default single-tool `dhis2w-mcp-bridge` (`dhis2_cli`) is
   **unannotated**, so under a write-enabled assistant **every** dhis2 call prompts — reads included.
   The typed **`dhis2w-mcp` (>= 1.3.0) now stamps `readOnlyHint`** per op (True on its ~104 reads,
-  False on writes), which heim's gate honors — so a write assistant on that server confirms only
+  False on writes), which stabbur's gate honors — so a write assistant on that server confirms only
   writes. The default single-tool bridge can't be annotated per-op, and the router's generic
   `call_tool` can't either, so on those the reads-also-prompt friction is inherent (tracked in
   `ROADMAP.md`).
@@ -173,17 +173,17 @@ POST /api/chat/confirm    resolves the pending call for the in-flight generation
 ```
 
 The backend holds a **per-generation future** for each gated call; `POST /api/chat/confirm`
-resolves it. If nothing resolves within 300s (`HEIM_CONFIRM_TIMEOUT`) the call **auto-denies**
-(fail-safe). The scripted one-shot `heim chat -p` has no confirm channel, so it fail-safe denies
+resolves it. If nothing resolves within 300s (`STABBUR_CONFIRM_TIMEOUT`) the call **auto-denies**
+(fail-safe). The scripted one-shot `stabbur chat -p` has no confirm channel, so it fail-safe denies
 gated writes unless `--allow-writes` is passed (which auto-approves). The panel renders a `confirm`
 frame as an Approve/Deny card and POSTs the user's choice to `/api/chat/confirm`.
 
 ## Status (2026-07-13): multi-target registry — server side landed
 
 The single `[assistant]` is now a **registry of targets** server-side, ahead of the extension
-wiring. What exists in heim today (extension still consumes the single-target `GET /api/assistant`):
+wiring. What exists in stabbur today (extension still consumes the single-target `GET /api/assistant`):
 
-- **N targets in `heim.toml`** — `[[assistants]]`, each an `[assistant]`-shaped block plus
+- **N targets in `stabbur.toml`** — `[[assistants]]`, each an `[assistant]`-shaped block plus
   `mcp_servers` (the `.mcp.json` bridges whose namespaced tools route to it). A single `[assistant]`
   still loads as a one-target registry (compat), and `mcp_servers = []` keeps the owns-all rule.
 - **URL-aware endpoints** — `GET /api/assistants` (the sanitized registry) and
@@ -200,33 +200,33 @@ wiring. What exists in heim today (extension still consumes the single-target `G
 
 **Next chunk: the extension.** Auto-select the target on tab switch, a small picker for ties, and
 per-target binding (composite `${backendId}:${targetId}` storage keys) — consuming `GET /api/assistants`
-with a fallback to the single-target endpoint for older heim.
+with a fallback to the single-target endpoint for older stabbur.
 
 ## Short version
 
-Use the extension as a browser UI/client. Keep heim as the local backend, model
+Use the extension as a browser UI/client. Keep stabbur as the local backend, model
 runtime manager, MCP client, and tool executor.
 
 ```text
 Chrome side panel
   -> http://127.0.0.1:<pinned-port>/api/chat
-      -> heim agent loop
+      -> stabbur agent loop
           -> dhis2w-mcp-bridge/router over stdio
               -> d2w profile
                   -> DHIS2 Web API
 ```
 
 Do not make the extension itself an MCP host for the first version. Do not pass
-browser session cookies down to heim as the primary DHIS2 credential path. Use
+browser session cookies down to stabbur as the primary DHIS2 credential path. Use
 `d2w` profiles and the DHIS2 Web API through the bridge/router.
 
-## What already exists in heim
+## What already exists in stabbur
 
-heim already has most of the backend shape needed for an extension:
+stabbur already has most of the backend shape needed for an extension:
 
-- `heim serve --ui --port <port>` gives a stable localhost origin.
+- `stabbur serve --ui --port <port>` gives a stable localhost origin.
 - A project with `[project].model` locks the server to that model automatically.
-- `heim serve --model <name>` can also lock the server explicitly.
+- `stabbur serve --model <name>` can also lock the server explicitly.
 - `/api/chat` runs the server-side agent loop and MCP tool calls.
 - `/api/tools` exposes the attached tool list.
 - `/api/status` exposes locked/model/runtime state.
@@ -241,11 +241,11 @@ That means the first extension does not need a new protocol. It can call the sam
 API the web UI already uses, with a configurable base URL instead of same-origin
 `fetch("/api/...")`.
 
-## Net-new heim work (everything else is reuse)
+## Net-new stabbur work (everything else is reuse)
 
 The chat path reuses existing endpoints, so it is tempting to read this as "no
-heim changes." That is true for chat, but two pieces must actually be *built* in
-heim before the target-instance UX (below) works. They are called out here so they
+stabbur changes." That is true for chat, but two pieces must actually be *built* in
+stabbur before the target-instance UX (below) works. They are called out here so they
 are not discovered late:
 
 - **A target-metadata endpoint** — does not exist yet. Resolves the active DHIS2
@@ -253,49 +253,49 @@ are not discovered late:
   side panel does not have to reverse-engineer the MCP command or make the model
   discover it. See "Target instance visibility" for the shape.
 
-  **Keep it generic — do not name it `GET /api/dhis2/target`.** Today heim has
+  **Keep it generic — do not name it `GET /api/dhis2/target`.** Today stabbur has
   *zero* DHIS2 logic (only a suggested `dhis2` MCP preset string in the `cli`
   setup wizard); a DHIS2-named route that imports `dhis2w_core` and parses DHIS2
-  profiles would be the first DHIS2 *behavior* in heim core, breaking heim's own
+  profiles would be the first DHIS2 *behavior* in stabbur core, breaking stabbur's own
   boundary ("generic local-LLM host; DHIS2 knowledge lives in `d2w`") and inviting
   `/api/jira/target`, `/api/github/target`, … next. Prefer a generic
   `GET /api/assistant` (or `/api/context`) that merges two domain-free sources:
   - **opaque project metadata** — a generic `[assistant]`/`[ui]` block in
-    `heim.toml` that heim echoes verbatim without understanding it (covers
+    `stabbur.toml` that stabbur echoes verbatim without understanding it (covers
     `base_url`, `auth`, `readonly`, `source`); the DHIS2 project template fills it.
   - **MCP-provided resources** — the DHIS2 bridge publishes target + live
-    `verified` (system/info + me) as an **MCP resource**, and heim exposes a
-    generic MCP-resource proxy. DHIS2 logic stays in `d2w`; heim just forwards.
+    `verified` (system/info + me) as an **MCP resource**, and stabbur exposes a
+    generic MCP-resource proxy. DHIS2 logic stays in `d2w`; stabbur just forwards.
 
   This is the best fit with the stated architecture. Only fall back to a
   DHIS2-named endpoint if the generic path proves impractical — a deliberate
   boundary exception, not the default.
 
 - **A generic project metadata block** (not a DHIS2-named `[dhis2]` setting) — the
-  static source for the endpoint above, so heim reads UI metadata from config
+  static source for the endpoint above, so stabbur reads UI metadata from config
   instead of parsing `.mcp.json` server commands. Needs `config.py` / project-loading
-  changes, but kept domain-agnostic so heim never learns the word "dhis2".
+  changes, but kept domain-agnostic so stabbur never learns the word "dhis2".
 
 Per project rule 4, both the endpoint response and the `[dhis2]` config block must
 be **Pydantic models**, not dicts or `@dataclass`.
 
 Everything in Phase 1 (status/tools/chat/speak) is genuinely reuse; these two are
-the only real heim-side additions, and they are Phase 2 (page/target context), not
+the only real stabbur-side additions, and they are Phase 2 (page/target context), not
 Phase 1 blockers.
 
 ## Localhost serving
 
-Serving heim on localhost should work well, and is the recommended first target.
+Serving stabbur on localhost should work well, and is the recommended first target.
 Use a pinned port so the extension can remember it:
 
 ```bash
-heim serve --ui --port 8000
+stabbur serve --ui --port 8000
 ```
 
-or run inside a DHIS2 heim project where `[project].model` is set:
+or run inside a DHIS2 stabbur project where `[project].model` is set:
 
 ```bash
-heim serve --port 8000
+stabbur serve --port 8000
 ```
 
 Once the Chrome extension ID is known, allow-list its origin:
@@ -317,7 +317,7 @@ Two separate mechanisms are in play here; do not conflate them:
   `cors_origins` entry. `cors_origins` is about making responses readable to
   ordinary web pages, which the extension does not need.
 - **Mutating cross-site guard.** `POST /api/chat` (and other mutating `/api`,
-  `/v1`, `/models` calls) go through heim's cross-site guard. The guard
+  `/v1`, `/models` calls) go through stabbur's cross-site guard. The guard
   short-circuits and allows the request as soon as the request `Origin` matches an
   allow-listed entry — so allow-listing the exact `chrome-extension://<id>` origin
   is the reliable way to let the extension's POSTs through.
@@ -337,7 +337,7 @@ the mutating guard.
 
 Profiles are good for backend auth, but they are not enough for a browser
 extension UX. The extension must know, display, and navigate to the DHIS2 instance
-that heim is actually using. Otherwise the side panel is just a prettier terminal.
+that stabbur is actually using. Otherwise the side panel is just a prettier terminal.
 
 The product should have an explicit "target instance" concept:
 
@@ -356,25 +356,25 @@ The side panel should show this target near the composer and provide at least:
   type, deep-link to the relevant DHIS2 app/page where possible.
 - **Use this tab**: when the active browser tab is a DHIS2 instance, compare it
   with the backend profile target and warn on mismatch.
-- **Verify**: ask heim to verify the target by calling the DHIS2 `/api/system/info`
-  and `/api/me` endpoints through `d2w` (distinct from heim's own `/api/*` routes
+- **Verify**: ask stabbur to verify the target by calling the DHIS2 `/api/system/info`
+  and `/api/me` endpoints through `d2w` (distinct from stabbur's own `/api/*` routes
   like `/api/status`; these are DHIS2 Web API paths reached via the bridge).
 - **Group the bound tab** (optional polish): put the DHIS2 tab(s) the assistant is
-  attached to into a named tab group so it is visible at a glance which tab heim is
+  attached to into a named tab group so it is visible at a glance which tab stabbur is
   operating on — the same UX as Claude-in-Chrome's working-tab group. Use
   `chrome.tabs.group({ tabIds })` then `chrome.tabGroups.update(groupId, { title:
-  "heim · play42", color })`; needs the `tabGroups` permission. This reinforces the
+  "stabbur · play42", color })`; needs the `tabGroups` permission. This reinforces the
   mismatch signal (a tab on a *different* instance is visibly outside the group). It
   is pure presentation — it changes nothing about auth or the tool loop — so keep it
   opt-in and unobtrusive (do not reorganize the user's tabs aggressively), and treat
   it as Phase 2+ alongside the page-context content script.
 
-This implies heim should expose target metadata to the extension instead of
-making the model discover it through a tool call. A small heim endpoint would be
+This implies stabbur should expose target metadata to the extension instead of
+making the model discover it through a tool call. A small stabbur endpoint would be
 enough. **Name it generically** (`GET /api/assistant`), not `GET /api/dhis2/target`
-— see the boundary discussion under "Net-new heim work"; the payload below is the
+— see the boundary discussion under "Net-new stabbur work"; the payload below is the
 DHIS2 *shape* such a generic endpoint returns for a DHIS2 project, assembled from
-opaque project metadata plus an MCP resource, with no DHIS2 code in heim itself:
+opaque project metadata plus an MCP resource, with no DHIS2 code in stabbur itself:
 
 ```text
 GET /api/assistant   (generic route; DHIS2-shaped payload for a DHIS2 project)
@@ -392,20 +392,20 @@ GET /api/assistant   (generic route; DHIS2-shaped payload for a DHIS2 project)
      }
 ```
 
-Where the fields come from (all keeping DHIS2 logic out of heim):
+Where the fields come from (all keeping DHIS2 logic out of stabbur):
 
 - **Static fields** (`base_url`, `auth`, `readonly`, `source`) — from a generic,
-  opaque `[assistant]`/`[ui]` block in `heim.toml` that heim echoes without
-  interpreting. The DHIS2 project template writes it. Cleaner than heim parsing
+  opaque `[assistant]`/`[ui]` block in `stabbur.toml` that stabbur echoes without
+  interpreting. The DHIS2 project template writes it. Cleaner than stabbur parsing
   `.mcp.json` server commands or `MCP_ROUTER_CONFIG` for `DHIS2_PROFILE=...`, and it
   keeps the MCP command as pure execution detail.
 - **Dynamic `verified` block** (live version + username) — from an **MCP resource**
-  the DHIS2 bridge publishes (backed by `system/info` + `me`), which heim exposes
-  through a generic MCP-resource proxy. heim forwards; `d2w` owns the DHIS2 call.
+  the DHIS2 bridge publishes (backed by `system/info` + `me`), which stabbur exposes
+  through a generic MCP-resource proxy. stabbur forwards; `d2w` owns the DHIS2 call.
 
 A DHIS2-named endpoint that imports `dhis2w_core.profile.resolve` directly is the
 fallback only if the generic path proves impractical — an explicit boundary
-exception, per "Net-new heim work".
+exception, per "Net-new stabbur work".
 
 The extension should not silently assume that "current browser tab" and "backend
 profile" are the same instance. It should compare origins/base paths:
@@ -419,7 +419,7 @@ status:     matched
 If they differ, show a clear mismatch state:
 
 ```text
-You are viewing play.im.dhis2.org/dev-2-41, but heim is connected to
+You are viewing play.im.dhis2.org/dev-2-41, but stabbur is connected to
 play.im.dhis2.org/dev-2-42.
 ```
 
@@ -432,10 +432,10 @@ The ideal user flow is:
 
 ```text
 1. User logs into a DHIS2 server in Chrome.
-2. User clicks the heim extension.
+2. User clicks the stabbur extension.
 3. The side panel opens attached to that DHIS2 tab.
 4. The panel says "Connected to <this instance>" and shows who the browser user is.
-5. heim either uses an existing matching backend profile or helps create/link one.
+5. stabbur either uses an existing matching backend profile or helps create/link one.
 ```
 
 This is better than starting from a backend profile picker because the user can
@@ -449,7 +449,7 @@ active tab is DHIS2
   -> extension derives base URL from the tab
   -> a narrow content script in the DHIS2 tab fetches <base>/api/system/info and <base>/api/me (same-origin, cookie rides along)
   -> side panel shows instance name/version/user
-  -> side panel asks heim whether a backend target matches this base URL
+  -> side panel asks stabbur whether a backend target matches this base URL
 ```
 
 The credentialed fetch (`fetch(url, { credentials: "include" })`) must run in the
@@ -466,14 +466,14 @@ Use it.
 
 ```text
 Browser tab: https://play.im.dhis2.org/dev-2-42
-heim target: profile play42 -> https://play.im.dhis2.org/dev-2-42
+stabbur target: profile play42 -> https://play.im.dhis2.org/dev-2-42
 status: matched
 ```
 
 The extension can now provide both:
 
 - Visual/browser context from the active tab.
-- Real tool use through heim's `d2w` profile and MCP bridge/router.
+- Real tool use through stabbur's `d2w` profile and MCP bridge/router.
 
 This is the best state.
 
@@ -482,7 +482,7 @@ This is the best state.
 Do not silently fall back to an unrelated profile. Show a setup state:
 
 ```text
-You are viewing https://dhis2.example.org, but heim has no matching DHIS2
+You are viewing https://dhis2.example.org, but stabbur has no matching DHIS2
 profile. Choose how to connect tools:
 
 [Use browser context only]
@@ -494,7 +494,7 @@ profile. Choose how to connect tools:
 fetch a few allowlisted browser-authenticated reads and add them as prompt
 context. It should not pretend full MCP tool use is available.
 
-`Link existing profile` lets the user choose one of heim/d2w's known profiles if
+`Link existing profile` lets the user choose one of stabbur/d2w's known profiles if
 there is a base URL mismatch or naming mismatch.
 
 `Create local profile for this instance` is the smoother long-term path. There
@@ -504,11 +504,11 @@ are two possible implementations:
   locally.
 - If DHIS2 supports creating a PAT for the current user through the logged-in
   browser session, the extension can request explicit confirmation, create the
-  token via a browser-authenticated API call, pass the token once to local heim,
-  and heim stores it as a `d2w` profile.
+  token via a browser-authenticated API call, pass the token once to local stabbur,
+  and stabbur stores it as a `d2w` profile.
 
 The second option gives the desired "login, click extension, connect" flow
-without passing raw session cookies to heim. It is still sensitive because it
+without passing raw session cookies to stabbur. It is still sensitive because it
 mints a durable credential, so it needs an explicit confirmation screen and clear
 storage semantics.
 
@@ -517,7 +517,7 @@ storage semantics.
 Warn hard, because this is the confusing/dangerous case:
 
 ```text
-You are viewing https://play.im.dhis2.org/dev-2-42, but heim tools are connected
+You are viewing https://play.im.dhis2.org/dev-2-42, but stabbur tools are connected
 to https://staging.example.org.
 
 [Open staging]
@@ -543,7 +543,7 @@ choosing among them.
 The loop "logged into DHIS2 -> click -> AI acts on this instance as this user" is
 architecturally real. A Manifest V3 extension reads the active tab's URL, calls the
 DHIS2 Web API *as the logged-in browser user* (no separately-entered credential),
-and hands the results to an AI (local heim or a cloud model) that decides the next
+and hands the results to an AI (local stabbur or a cloud model) that decides the next
 call. The AI does not run in the browser; the extension holds the session and the
 model drives it.
 
@@ -617,8 +617,8 @@ If the cookie will not ride along cross-site (the default case, per the measured
 result above), there is a better path that preserves the same "I just logged in,
 now it works" UX **without** fragile cookie relay: use the live session *once* to
 mint a DHIS2 **Personal Access Token** (DHIS2 has had PATs since ~2.41/2.42), hand
-that token to local heim, and heim stores it as a `d2w` profile. After that, every
-tool call goes through heim's normal MCP path — reproducible from CLI/TUI/bench,
+that token to local stabbur, and stabbur stores it as a `d2w` profile. After that, every
+tool call goes through stabbur's normal MCP path — reproducible from CLI/TUI/bench,
 independent of browser login state, and never touching an ambient cookie.
 
 Note the same layering constraint applies to the mint call: creating the PAT is
@@ -626,7 +626,7 @@ itself an authenticated DHIS2 request, so on a `Lax` deployment it must be issue
 from the **DHIS2-tab context** (content script / `executeScript`), not the
 service worker — the tab request carries the cookie, the cross-site one does not.
 The content script makes exactly one narrow call (create token), passes the token
-value once to local heim, and does nothing else.
+value once to local stabbur, and does nothing else.
 
 This is the same flow sketched as "Create local profile for this instance" and is
 the section's verdict: it gives the zero-friction feel while dodging both the
@@ -652,10 +652,10 @@ per-request ambient authority.
 ### Where the AI runs matters too
 
 Driving the live instance says nothing about where the model runs. With **local
-heim** the story is "drive DHIS2 with a *local* model against your live session" —
+stabbur** the story is "drive DHIS2 with a *local* model against your live session" —
 private, on-device. With a **cloud model**, DHIS2 data leaves the machine to a
 third party. For a health-data product that data-residency choice is not a detail;
-default to local heim and treat any cloud model as an explicit, separate decision.
+default to local stabbur and treat any cloud model as an explicit, separate decision.
 
 ### Bottom line
 
@@ -684,7 +684,7 @@ Browser channel:
   good for: page context, /api/me, /api/system/info, selected object/page hints
 
 Tool channel:
-  heim + d2w profile + MCP bridge/router
+  stabbur + d2w profile + MCP bridge/router
   good for: model-driven DHIS2 queries, multi-step metadata/analytics, repeatable CLI/TUI/tests
 ```
 
@@ -700,7 +700,7 @@ The local `d2w` and MCP bridge/router workspace is:
 /path/to/dhis2w-utils
 ```
 
-For local development, point heim directly at that workspace rather than relying
+For local development, point stabbur directly at that workspace rather than relying
 on a published `uvx` package:
 
 ```json
@@ -741,7 +741,7 @@ Example `mcp-router.json`:
 }
 ```
 
-Then point heim at the router:
+Then point stabbur at the router:
 
 ```json
 {
@@ -771,11 +771,11 @@ Bridge-specific useful env vars from the actual implementation:
 
 `dhis2w-utils` is a sibling project under the same ownership, so extending it is a
 first-class option rather than a fork-and-vendor last resort. The boundary to keep
-is: **DHIS2 domain knowledge lives in `d2w`, heim stays a generic local-LLM host,
+is: **DHIS2 domain knowledge lives in `d2w`, stabbur stays a generic local-LLM host,
 and the extension stays a thin client.** When the extension needs a DHIS2-specific
 capability that does not exist yet, add it in `dhis2w-utils` and expose it through
-the bridge/router (or a small `dhis2w-core` function heim calls), rather than
-reimplementing DHIS2 logic inside heim.
+the bridge/router (or a small `dhis2w-core` function stabbur calls), rather than
+reimplementing DHIS2 logic inside stabbur.
 
 Relevant packages (workspace at `/path/to/dhis2w-utils`):
 
@@ -783,29 +783,29 @@ Relevant packages (workspace at `/path/to/dhis2w-utils`):
   first-party plugin registry. This is where target-metadata and credential work
   belongs.
 - `dhis2w-mcp` / `dhis2w-mcp-bridge` / `dhis2w-mcp-router` — the tool surfaces
-  heim attaches to.
+  stabbur attaches to.
 - `dhis2w-client` — the async DHIS2 API client (Basic/PAT/OAuth2).
 - `dhis2w-bench` — the model-vs-tools benchmark harness.
 
 Likely additions, in the order the extension is likely to force them:
 
 1. **Target metadata — mostly already covered, confirm before adding.** The
-   generic `GET /api/assistant` endpoint (see "Net-new heim work"; not a
-   DHIS2-named route) gets its DHIS2 fields without heim owning DHIS2 logic: the
+   generic `GET /api/assistant` endpoint (see "Net-new stabbur work"; not a
+   DHIS2-named route) gets its DHIS2 fields without stabbur owning DHIS2 logic: the
    static part from an opaque project `[assistant]` block, and the `verified` block
    (version + username) from a DHIS2 `system/info` + `me` read the bridge already
-   exposes via `dhis2_cli` — ideally surfaced as an **MCP resource** heim proxies
+   exposes via `dhis2_cli` — ideally surfaced as an **MCP resource** stabbur proxies
    generically. The cleanest split is for the bridge/`dhis2w-core` to publish that
-   target resource, so heim forwards it rather than importing
+   target resource, so stabbur forwards it rather than importing
    `dhis2w_core.profile.resolve` itself. Add a small `dhis2w-core` helper here only
-   if that resource does not exist yet; avoid making heim parse DHIS2 profile files.
+   if that resource does not exist yet; avoid making stabbur parse DHIS2 profile files.
 
 2. **Programmatic profile creation for "create local profile for this instance".**
-   The ideal browser-first flow (login, click extension, connect) wants heim to
+   The ideal browser-first flow (login, click extension, connect) wants stabbur to
    persist a credential without an interactive `d2w profile` prompt. If `d2w` has
    no non-interactive "store this PAT/basic/OAuth credential as profile `<name>`"
-   entry point that heim can call, add one to `dhis2w-core` (writing through the
-   existing token store / profiles file), so heim never re-implements credential
+   entry point that stabbur can call, add one to `dhis2w-core` (writing through the
+   existing token store / profiles file), so stabbur never re-implements credential
    storage. This is the most probable real d2w change the extension will need.
 
 3. **Read allowlist tuning.** Narrow browser-context reads (Option B) and the
@@ -819,20 +819,20 @@ Likely additions, in the order the extension is likely to force them:
 
 Guideline: if a change is "how DHIS2 auth/profiles/API work," it belongs in
 `dhis2w-utils`; if it is "how the local model server or extension client behaves,"
-it belongs in heim or the extension. Keep the MCP command as the execution detail
+it belongs in stabbur or the extension. Keep the MCP command as the execution detail
 and let `dhis2w-core` own the reusable primitives.
 
 ## Recommended extension phases
 
 ### Phase 1: side-panel client
 
-Build a Manifest V3 side panel that talks to local heim.
+Build a Manifest V3 side panel that talks to local stabbur.
 
 Responsibilities:
 
-- Store the heim base URL, for example `http://127.0.0.1:8000`.
+- Store the stabbur base URL, for example `http://127.0.0.1:8000`.
 - Test connectivity with `GET /api/status`; on failure/refused, show a graceful
-  "not connected — start heim" state rather than a blank panel (this is also the
+  "not connected — start stabbur" state rather than a blank panel (this is also the
   #1 Web Store review-pass requirement — see "Publishing").
 - Load a model if `/api/status` reports none (`POST /api/load/{name}`), so the
   first chat turn does not 409 (see "Handle 409" below).
@@ -906,7 +906,7 @@ loop); reuse that reader rather than reaching for `EventSource`.
 
 Add content-script support on DHIS2 pages.
 
-Useful context to send to heim:
+Useful context to send to stabbur:
 
 - Current URL.
 - Selected text.
@@ -914,14 +914,14 @@ Useful context to send to heim:
 - Visible UID or metadata object identifiers when parseable.
 - Non-secret page metadata.
 
-The extension should send this as ordinary prompt context. heim should still use
+The extension should send this as ordinary prompt context. stabbur should still use
 the configured `d2w` profile and MCP bridge/router for authoritative DHIS2 API
 lookups.
 
 ### Phase 3: constrained browser-authenticated reads, if needed
 
 If there is a real need to act as the currently logged-in browser user, prefer a
-small allowlisted read path over passing raw cookies to heim.
+small allowlisted read path over passing raw cookies to stabbur.
 
 The read must run in the **DHIS2-tab context** (a narrow content script or
 `chrome.scripting.executeScript`), not the service worker — only the tab's
@@ -935,7 +935,7 @@ Example shape:
 side panel asks a narrow content script in the DHIS2 tab for a specific read
   -> content script fetches "/<base>/api/me.json" same-origin (cookie rides along)
       -> content script returns only the sanitized fields
-          -> side panel adds them as prompt context for heim
+          -> side panel adds them as prompt context for stabbur
 ```
 
 This keeps browser credentials inside Chrome. It still needs strict operation
@@ -945,7 +945,7 @@ arbitrary-URL fetch the page (or an injected script) could abuse.
 A reverse direction is also possible:
 
 ```text
-heim asks extension for a narrow operation
+stabbur asks extension for a narrow operation
   -> native messaging, local websocket, or polling bridge
       -> extension performs the browser-authenticated read
 ```
@@ -954,13 +954,13 @@ That is a separate security design, not part of the first extension.
 
 ## Cookie relay
 
-Passing a DHIS2 browser cookie down to heim is technically possible in a Chrome
+Passing a DHIS2 browser cookie down to stabbur is technically possible in a Chrome
 extension with the right permissions, but it is not the recommended primary
 design.
 
 Problems:
 
-- A session cookie is ambient browser auth. Sending it to localhost turns heim
+- A session cookie is ambient browser auth. Sending it to localhost turns stabbur
   into a bearer of the user's browser session.
 - It couples the assistant to browser login state, SameSite behavior, expiry,
   DHIS2 frontend behavior, and domain rules.
@@ -985,12 +985,12 @@ see "Driving the active DHIS2 login: feasibility and verdict" above.
 There are several meanings of "use the DHIS2 API route". They have different
 tradeoffs.
 
-### Option A: heim -> d2w -> DHIS2 Web API
+### Option A: stabbur -> d2w -> DHIS2 Web API
 
 This is the preferred first route:
 
 ```text
-heim -> dhis2w-mcp-bridge/router -> d2w -> DHIS2 Web API
+stabbur -> dhis2w-mcp-bridge/router -> d2w -> DHIS2 Web API
 ```
 
 This is better than cookie relay for the first product because it is:
@@ -999,10 +999,10 @@ This is better than cookie relay for the first product because it is:
 - Compatible with read-only enforcement via `DHIS2_MCP_READONLY=1`.
 - Independent of browser login state.
 - Easier to test and debug.
-- Aligned with the existing heim MCP architecture.
+- Aligned with the existing stabbur MCP architecture.
 
 This route does not care whether the user has a DHIS2 tab open. The extension is
-just a client for local heim.
+just a client for local stabbur.
 
 ### Option B: extension -> DHIS2 Web API -> prompt context
 
@@ -1023,7 +1023,7 @@ Potential use:
 ```text
 side panel/background -> https://play.im.dhis2.org/.../api/me
   -> sanitized JSON added to the user's prompt
-      -> heim answers with that context
+      -> stabbur answers with that context
 ```
 
 This helps when the assistant needs quick page/user context from the active
@@ -1033,7 +1033,7 @@ to secure and test.
 
 Pros:
 
-- Can use the current browser login without copying cookies into heim.
+- Can use the current browser login without copying cookies into stabbur.
 - Useful for "what page/user/object am I looking at?" context.
 - Keeps some browser-session concerns inside the extension.
 
@@ -1079,7 +1079,7 @@ Cons:
 - Much heavier deployment story.
 - Not useful for the local-first CLI/TUI/benchmark workflow.
 - Requires DHIS2-side install/configuration.
-- If the target is the user's local heim, DHIS2 would need to reach that local
+- If the target is the user's local stabbur, DHIS2 would need to reach that local
   machine, which usually fails across NAT/firewalls and is the wrong direction
   for a local-first extension.
 - If the target is a shared remote assistant backend, model/runtime isolation,
@@ -1099,14 +1099,14 @@ This helps if administrators want to centrally control which DHIS2 data the
 assistant may see. It does not replace the local MCP bridge unless it grows into
 a full tool API.
 
-### Option D: pass browser cookies to heim
+### Option D: pass browser cookies to stabbur
 
 This is the route to avoid as the default:
 
 ```text
 extension extracts DHIS2 session cookie
-  -> passes cookie to localhost heim
-      -> heim calls DHIS2 as browser user
+  -> passes cookie to localhost stabbur
+      -> stabbur calls DHIS2 as browser user
 ```
 
 It can work technically, but it is the weakest design boundary. It transfers
@@ -1133,7 +1133,7 @@ POST /v1/audio/transcriptions optional
 ```
 
 Avoid using raw `/v1/chat/completions` for the main assistant flow because that is
-only the runtime proxy. It does not execute heim's MCP tool loop.
+only the runtime proxy. It does not execute stabbur's MCP tool loop.
 
 ## Manifest permissions sketch
 
@@ -1175,7 +1175,7 @@ hosts, request host access dynamically after a user gesture instead (see the
 
 The host permission path component is shown as `/*` for readability, but Chrome
 grants host access by scheme/host. Keep endpoint allowlists in extension code and
-heim, not in the manifest pattern.
+stabbur, not in the manifest pattern.
 
 If the DHIS2 origins are known ahead of time, declare a content script directly:
 
@@ -1228,7 +1228,7 @@ connection setup/test screen.
 (originated by Chrome, adopted by Firefox/Edge/Opera/Brave/Vivaldi/Arc/Safari;
 aligned by the W3C WebExtensions Community Group, not a ratified spec). **Manifest
 V3** is the common baseline. So targeting more than one browser is realistic, and
-heim's thin-client architecture makes it cheap: the logic is in local heim, the UI
+stabbur's thin-client architecture makes it cheap: the logic is in local stabbur, the UI
 is the shared SPA, and only a small manifest + panel-mount + a few `chrome.*` calls
 are browser-specific.
 
@@ -1265,7 +1265,7 @@ submission and review.
 
 A common question: extensions that talk to a backend usually log in somehow — is
 this OpenID Connect? The answer depends entirely on **local vs remote backend**,
-and heim is local, which changes it.
+and stabbur is local, which changes it.
 
 **Remote / cloud backend (SaaS extension with real user accounts) — yes, OIDC.**
 The standard MV3 pattern is OAuth2/OIDC via `chrome.identity.launchWebAuthFlow`:
@@ -1278,21 +1278,21 @@ client secret), stores the token in `chrome.storage`, and sends
 `launchWebAuthFlow` is the generic one.) Cookie-session sharing and pasted
 API keys/PATs are the other two common variants.
 
-**Local backend (heim, `127.0.0.1`) — not OIDC; do not add it.** There is no
+**Local backend (stabbur, `127.0.0.1`) — not OIDC; do not add it.** There is no
 identity provider and no multi-user accounts; the trust boundary is "processes on
 this machine," and the single local user is already authenticated by being on the
 box. So the only mechanisms are:
 
 - localhost binding + the cross-site origin guard (today's design), and
 - if writes are ever added, a **shared bearer token** the user configures once in
-  both the extension and heim (the accepted-risk note in "Security defaults").
+  both the extension and stabbur (the accepted-risk note in "Security defaults").
 
-Bolting an OIDC login onto the extension<->heim hop would be pure over-engineering.
+Bolting an OIDC login onto the extension<->stabbur hop would be pure over-engineering.
 
 **Where OIDC actually lives in this stack: the d2w <-> DHIS2 hop, not
-extension <-> heim.** DHIS2 supports OAuth2/OIDC user login and PATs, and
+extension <-> stabbur.** DHIS2 supports OAuth2/OIDC user login and PATs, and
 `dhis2w-client` already handles Basic/PAT/**OAuth2**. So identity complexity stays
-in DHIS2/d2w, and heim stays a dumb local host. Two consequences worth noting:
+in DHIS2/d2w, and stabbur stays a dumb local host. Two consequences worth noting:
 
 - If a DHIS2 deployment uses **OIDC for user login**, the "mint a PAT from the live
   session" flow (see "Driving the active DHIS2 login") still works unchanged — the
@@ -1315,7 +1315,7 @@ Runtime capture, in preference order (all native, no Playwright):
 - **What the user is looking at (for a vision model):** `chrome.tabs.captureVisibleTab()`
   returns the visible tab as a PNG in the user's real session. Full-page beyond the
   viewport needs the debugger API (`Page.captureScreenshot`), still native. This is
-  the intended path for "look at this dashboard" grounding — heim already routes
+  the intended path for "look at this dashboard" grounding — stabbur already routes
   vision-capable models, so the extension would attach the PNG as an OpenAI
   `image_url` content part on the `/api/chat` message. **Caveat:** `/api/chat`
   accepts content-part arrays structurally (`messages` is `list[dict]`), but that
@@ -1333,7 +1333,7 @@ Runtime capture, in preference order (all native, no Playwright):
 
 Where Playwright *is* worth adding (dev-only, off the runtime path):
 
-- **E2E tests** of the extension + heim web UI. Playwright can load an unpacked
+- **E2E tests** of the extension + stabbur web UI. Playwright can load an unpacked
   extension into a persistent Chromium context (`--load-extension`) and drive the
   side panel — asserting SSE token/tool rendering, the 409 "no model" flow, target
   mismatch states, etc. Good CI value.
@@ -1344,7 +1344,7 @@ So: `captureVisibleTab` + DHIS2 PNG endpoints for runtime visuals; Playwright in
 
 ## Security defaults
 
-- Keep heim bound to `127.0.0.1` by default.
+- Keep stabbur bound to `127.0.0.1` by default.
 - Pin a port for extension use.
 - Allow-list the exact extension origin in `cors_origins`.
 - Keep `DHIS2_MCP_READONLY=1` on by default.
@@ -1358,12 +1358,12 @@ Accepted-risk note: the cross-site guard intentionally lets non-browser local
 clients through (they send no `Sec-Fetch-Site`), so any process on the machine
 can `POST /api/chat` and drive the tool loop. With `DHIS2_MCP_READONLY=1` the
 blast radius is reads, which is acceptable for v1. If the tool surface ever gains
-writes, add an optional shared bearer token between the extension and heim rather
+writes, add an optional shared bearer token between the extension and stabbur rather
 than relying on the cross-site guard alone.
 
 ## Publishing: a Web Store extension that requires a local service
 
-Requiring a user-run local backend (heim) is **allowed and common** — password
+Requiring a user-run local backend (stabbur) is **allowed and common** — password
 managers, hardware-wallet bridges, and local-LLM companions all do it. It is not
 against Chrome Web Store policy. The things that actually gate approval:
 
@@ -1373,8 +1373,8 @@ against Chrome Web Store policy. The things that actually gate approval:
   non-localhost `http://` target would be blocked as mixed content).
 - **Reviewers must be able to test it — the #1 rejection risk.** An extension that
   looks broken without an external service can be rejected. Mitigate with (a)
-  reviewer notes in the submission explaining how to run heim, and (b) a graceful
-  "not connected — start heim" state in the UI so the panel is never blank/broken.
+  reviewer notes in the submission explaining how to run stabbur, and (b) a graceful
+  "not connected — start stabbur" state in the UI so the panel is never blank/broken.
   A read-only or offline demo state helps a reviewer see value without full setup.
 - **Justify every permission** in the submission: `host_permissions` for
   `127.0.0.1`/`localhost`, `activeTab`, `scripting`, optional `tabGroups`, and later
@@ -1392,15 +1392,15 @@ against Chrome Web Store policy. The things that actually gate approval:
 Native-messaging alternative: instead of localhost HTTP, an extension can talk to a
 locally-installed native host over stdio (how password managers do it). But the
 native host installs *outside* the store with a registered manifest — more moving
-parts. For heim, localhost HTTP is simpler and avoids that. Keep native messaging in
-reserve only if a future feature needs heim to call back into the browser (see the
+parts. For stabbur, localhost HTTP is simpler and avoids that. Keep native messaging in
+reserve only if a future feature needs stabbur to call back into the browser (see the
 "reverse direction" note in Phase 3).
 
 ## Practical first milestone
 
-1. Create a DHIS2 heim project with a locked model.
+1. Create a DHIS2 stabbur project with a locked model.
 2. Configure the local bridge from `/path/to/dhis2w-utils`.
-3. Run `heim serve --port 8000`.
+3. Run `stabbur serve --port 8000`.
 4. Build a minimal MV3 side panel with a base URL setting.
 5. Connect to `/api/status`; if it reports no model, `POST /api/load/{name}` and
    poll status until loaded (so the first `/api/chat` does not 409), then

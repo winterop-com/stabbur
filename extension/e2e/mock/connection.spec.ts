@@ -2,7 +2,7 @@
 // needs-model -> Load -> loading -> ready.
 
 import { test, expect, openPanel, seedSettings } from "../fixtures";
-import { HeimMock, MOCK_MODEL, reservePort } from "../mockServer";
+import { StabburMock, MOCK_MODEL, reservePort } from "../mockServer";
 
 test.describe("connection lifecycle", () => {
   test("disconnected, then auto-connects once the server comes up", async ({ context, extensionId }) => {
@@ -17,7 +17,7 @@ test.describe("connection lifecycle", () => {
 
     // Bring the server up on that exact port; the 3s auto-retry should connect
     // within a couple of windows.
-    const mock = new HeimMock();
+    const mock = new StabburMock();
     mock.state.phase = "ready";
     await mock.start(port);
     try {
@@ -28,7 +28,7 @@ test.describe("connection lifecycle", () => {
   });
 
   test("needs-token, then connects after the token is entered", async ({ context, extensionId }) => {
-    const mock = new HeimMock();
+    const mock = new StabburMock();
     await mock.start();
     try {
       mock.state.token = "s3cret";
@@ -49,7 +49,7 @@ test.describe("connection lifecycle", () => {
   });
 
   test("needs-model -> Load -> loading -> ready", async ({ context, extensionId }) => {
-    const mock = new HeimMock();
+    const mock = new StabburMock();
     await mock.start();
     try {
       mock.state.phase = "stopped";

@@ -222,14 +222,14 @@ def model_info(name: str, manager: ManagerDep) -> ModelCardInfo:
         raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
     m = matches[0]
     card_text: str | None = None
-    card_path = cards.find_card(m.path) or (m.path / cards.SIDECAR_DIR / "model-card.md")
+    card_path = cards.find_card(m.path) or (cards.sidecar_dir(m.path) / "model-card.md")
     if card_path.is_file():
         try:
             card_text = card_path.read_text(errors="replace")[:100_000]  # cap huge READMEs
         except OSError:
             card_text = None
     metadata: dict[str, Any] | None = None
-    meta_path = m.path / cards.SIDECAR_DIR / "metadata.json"
+    meta_path = cards.sidecar_dir(m.path) / "metadata.json"
     if meta_path.is_file():
         try:
             metadata = json.loads(meta_path.read_text())

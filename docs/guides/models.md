@@ -1,6 +1,6 @@
 # Models & compatibility
 
-heim runs two model families as **external runtime processes** (see
+stabbur runs two model families as **external runtime processes** (see
 [Running & chatting](running.md)):
 
 - **GGUF → `llama-server`** (llama.cpp) — cross-platform (macOS + Linux). Vision
@@ -8,7 +8,7 @@ heim runs two model families as **external runtime processes** (see
 - **MLX → `mlx_lm.server`** (text) / **`mlx_vlm.server`** (vision) — Apple Silicon
   only, faster on the Mac.
 
-heim detects each model's capabilities (tools · vision · audio · context) from its
+stabbur detects each model's capabilities (tools · vision · audio · context) from its
 metadata and picks the runtime automatically. Detection is a best-effort read of
 the files, so it isn't perfect — the matrix below records what's actually been
 exercised, and the [known limitations](#known-limitations) call out where reality
@@ -16,7 +16,7 @@ diverges from the icons.
 
 ## Compatibility matrix
 
-Observed on Apple Silicon, 2026-07-02. **Detected** = the capability icons heim
+Observed on Apple Silicon, 2026-07-02. **Detected** = the capability icons stabbur
 shows; **verified** = confirmed working end-to-end in this run. Load times are
 first-load and depend heavily on where the model lives (see
 [load speed](#load-speed-local-vs-drive)).
@@ -35,7 +35,7 @@ first-load and depend heavily on where the model lives (see
 | gemma-4-E4B-it-MLX-4bit | mlx | 6.4 GB | tools, vision, audio | **fails to load** | error ~9 s | Weight mismatch under mlx-vlm. |
 | Ornith-1.0-9B-4bit | mlx | 4.1 GB | vision | **fails to load** | error ~2 s | `vision_tower` weight mismatch under mlx-vlm. |
 
-`gemma4:31b` lives in the Ollama store and is **not** runnable by heim directly
+`gemma4:31b` lives in the Ollama store and is **not** runnable by stabbur directly
 (only via Ollama), so it isn't listed as a runnable model.
 
 ## Known limitations
@@ -57,7 +57,7 @@ fix — tracked as a follow-up.
 
 `gemma-4-E4B-it-MLX-4bit` and `Ornith-1.0-9B-4bit` fail under `mlx_vlm` with a
 tensor-key/`vision_tower` mismatch (an upstream mlx-vlm gap for these exports).
-heim **fails fast and surfaces the error** rather than hanging — but the message
+stabbur **fails fast and surfaces the error** rather than hanging — but the message
 is a raw tensor-key dump, which is cryptic. Prefer the **GGUF** builds of these
 models. (Ornith GGUF runs; it's Qwen3.5-VL under the hood.)
 
@@ -80,7 +80,7 @@ Where a model lives dominates load time:
 
 - **A fast library** (internal SSD, or a fast external like a Samsung T9): ~2 s for a 6–7 GB GGUF.
 - **`library_root`** (an external USB drive): tens of seconds to minutes — a 5 GB
-  model took ~57 s, a 16 GB model minutes. This is drive I/O, not heim.
+  model took ~57 s, a 16 GB model minutes. This is drive I/O, not stabbur.
 
 **Keep the models you use often in a fast library** (e.g. a project-local `models/`) for fast
 loads and offline use; the big drive is the backup/archive tier. MLX models also

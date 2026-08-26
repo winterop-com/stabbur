@@ -233,7 +233,7 @@ def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
 
     issues = _weights_issues(model)
     checked = "weights+card"
-    meta_path = model.path / cards.SIDECAR_DIR / "metadata.json"
+    meta_path = cards.sidecar_dir(model.path) / "metadata.json"
     if meta_path.is_file():
         try:
             meta = json.loads(meta_path.read_text())

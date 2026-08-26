@@ -1,16 +1,16 @@
 # The library
 
 A **library** is a self-contained, portable store for your models — the model
-files **plus their own metadata** (tags, cards) under `<root>/.heim/`. Because the
+files **plus their own metadata** (tags, cards) under `<root>/.stabbur/`. Because the
 metadata lives *inside* the library, the whole thing travels: move the drive to
 another machine and your tags come with it.
 
-The **default library** is `HEIM_LIBRARY_ROOT` (set per machine, e.g. an external
+The **default library** is `STABBUR_LIBRARY_ROOT` (set per machine, e.g. an external
 drive). A [project](../guides/projects.md) can compose more libraries in front of
 it. List what's in scope with:
 
 ```bash
-heim library ls
+stabbur library ls
 ```
 
 ## Layout
@@ -32,7 +32,7 @@ Both Hugging Face and LM Studio pulls land in the **format** bucket (`gguf/`, `m
 
 !!! tip "Migrating an older library"
     Libraries built before this used `huggingface/<repo>`. Reorganize them into the format
-    buckets with `heim library migrate` — a dry-run prints the plan; `--apply` performs it (a
+    buckets with `stabbur library migrate` — a dry-run prints the plan; `--apply` performs it (a
     same-drive rename per model, and it removes any copy already duplicated in a bucket).
 
 The scanner finds runnable models **anywhere** under the root (any directory with
@@ -51,8 +51,8 @@ Each model's card (its README) is what the UI/CLI info panel shows. Hugging Face
 some LM Studio downloads (and older pulls) don't. Backfill the missing ones:
 
 ```bash
-heim library cards            # fetch a missing README from HF into each model's .heim/ sidecar
-heim library cards --refresh  # re-fetch even models that already have a card
+stabbur library cards            # fetch a missing README from HF into each model's .stabbur/ sidecar
+stabbur library cards --refresh  # re-fetch even models that already have a card
 ```
 
 It infers the HF repo from the model's `<publisher>/<repo>` name, is idempotent (skips models that
@@ -63,13 +63,13 @@ generated card (built from the manifest).
 
 The library keeps **one canonical copy** per `(model, format)`. Some runtimes read
 a loose GGUF/MLX in place (LM Studio, llama.cpp), but **Ollama** keeps a
-content-addressed blob store and needs the GGUF *imported* first. `heim library
+content-addressed blob store and needs the GGUF *imported* first. `stabbur library
 install` feeds it from the canonical copy, so the drive stays the single source of
 truth and the Ollama copy is regenerable:
 
 ```bash
-heim library install Qwen3.5-4B-GGUF            # → ollama create qwen3.5-4b
-heim library install Qwen3.5-4B-GGUF --name qwen-fast --system "Be terse."
+stabbur library install Qwen3.5-4B-GGUF            # → ollama create qwen3.5-4b
+stabbur library install Qwen3.5-4B-GGUF --name qwen-fast --system "Be terse."
 ollama run qwen3.5-4b
 ```
 
@@ -83,20 +83,20 @@ and `mlx/<publisher>/<repo>/` buckets already match LM Studio's layout — so it
 just a pointer:
 
 ```bash
-heim library install Qwen3.5-4B-GGUF --to lmstudio      # symlink into LM Studio's models dir
-heim library install gemma-4-26B-A4B-MLX --to lmstudio  # MLX works too (--format to disambiguate)
+stabbur library install Qwen3.5-4B-GGUF --to lmstudio      # symlink into LM Studio's models dir
+stabbur library install gemma-4-26B-A4B-MLX --to lmstudio  # MLX works too (--format to disambiguate)
 ```
 
 This symlinks `<lmstudio_models_dir>/<publisher>/<repo>` to the library copy (the link lives on
 the machine disk, so exFAT's no-symlink limit doesn't apply — **zero bytes copied**). It's
 idempotent and won't clobber a model LM Studio downloaded itself; rescan/restart LM Studio to
-see it. `HEIM_LMSTUDIO_MODELS_DIR` overrides the target. To surface **every** model at once
+see it. `STABBUR_LMSTUDIO_MODELS_DIR` overrides the target. To surface **every** model at once
 instead, point LM Studio at the whole `gguf/` (and `mlx/`) bucket as a models directory.
 
 **mlx_lm** needs no install step at all: `mlx_lm.server` / `mlx_lm.generate` run a loose MLX
 model in place, and the library's `mlx/<publisher>/<repo>/` is exactly that. Point it at the
-model directory — e.g. `mlx_lm.server --model "$HEIM_LIBRARY_ROOT/mlx/mlx-community/Qwen3.6-27B-4bit"`
-(heim itself serves MLX this way). So there's no `--to mlx_lm`: it already reads the canonical copy.
+model directory — e.g. `mlx_lm.server --model "$STABBUR_LIBRARY_ROOT/mlx/mlx-community/Qwen3.6-27B-4bit"`
+(stabbur itself serves MLX this way). So there's no `--to mlx_lm`: it already reads the canonical copy.
 
 ### Seeing and undoing installs
 
@@ -104,14 +104,14 @@ The install is reversible, and you can see what's fed where — the library alwa
 canonical copy:
 
 ```bash
-heim library installed                            # which runtimes each model is installed into
-heim library uninstall Qwen3.5-4B-GGUF --from lmstudio   # remove heim's LM Studio symlink
-heim library uninstall Qwen3.5-4B-GGUF --from ollama     # ollama rm the imported copy
+stabbur library installed                            # which runtimes each model is installed into
+stabbur library uninstall Qwen3.5-4B-GGUF --from lmstudio   # remove stabbur's LM Studio symlink
+stabbur library uninstall Qwen3.5-4B-GGUF --from ollama     # ollama rm the imported copy
 ```
 
-`installed` cross-references the drive against LM Studio (a heim symlink pointing into the
+`installed` cross-references the drive against LM Studio (a stabbur symlink pointing into the
 library) and Ollama (a model whose deterministic install name is present). `uninstall` removes
-only what heim put there — it never deletes a real LM Studio download, and never touches the
+only what stabbur put there — it never deletes a real LM Studio download, and never touches the
 library copy.
 
 ## Which formats to keep
@@ -126,23 +126,23 @@ Format is a **per-model choice**, not "keep every format of everything":
   models you'll re-quantize or fine-tune — not blanket. Pull on demand, drop when done.
 
 Default policy: keep **GGUF + MLX** ready for a model you actually use; fetch safetensors only
-when you need to convert or train. `heim library rm <model> --format safetensors` reclaims space
+when you need to convert or train. `stabbur library rm <model> --format safetensors` reclaims space
 once a conversion is done.
 
-`heim library formats` makes this actionable: one row per model with a column per format present
+`stabbur library formats` makes this actionable: one row per model with a column per format present
 and their sizes, flagging any **redundant** safetensors copy (a GGUF/MLX build already exists) and
 any model that's **only** safetensors (no ready-to-run quant), with the total space reclaimable by
 dropping the redundant copies.
 
 ## Checking integrity
 
-`heim library verify` checks each model on disk is intact — the declared weights (and vision
+`stabbur library verify` checks each model on disk is intact — the declared weights (and vision
 projector) exist and are non-empty, and the recorded model card is present:
 
 ```bash
-heim library verify            # all models
-heim library verify Ornith     # one
-heim library verify --deep     # also re-hash Ollama blobs against their sha256
+stabbur library verify            # all models
+stabbur library verify Ornith     # one
+stabbur library verify --deep     # also re-hash Ollama blobs against their sha256
 ```
 
 Ollama's store is content-addressed, so `--deep` gives true content integrity there. HF/LM Studio
@@ -151,25 +151,25 @@ pulls carry no per-file checksums, so their check is structural (present + non-e
 ## Rebuild a drive
 
 Because every model already records where it came from, the library **is** its own manifest.
-`heim library manifest --save models.toml` writes a portable want list — a `[[model]]` entry per
+`stabbur library manifest --save models.toml` writes a portable want list — a `[[model]]` entry per
 model (source + name + format). Keep that file anywhere (commit it to a repo, drop it on another
 machine); nothing is stored back in the library. On a fresh or replacement drive, point
-`HEIM_LIBRARY_ROOT` at it and run `heim library sync models.toml`: it diffs the list against what's
+`STABBUR_LIBRARY_ROOT` at it and run `stabbur library sync models.toml`: it diffs the list against what's
 present and re-pulls only what's missing, via the normal per-source paths (`--dry-run` first to
 preview). One model failing doesn't stop the rest, and it exits non-zero if any did. LM Studio
 backups re-pull from their Hugging Face equivalent; Ollama entries need the model in your local
-Ollama store first (`ollama pull <name>`). See [`heim library manifest` / `sync`](../cli.md).
+Ollama store first (`ollama pull <name>`). See [`stabbur library manifest` / `sync`](../cli.md).
 
 ## Model cards & metadata
 
-Each pulled model gets a `.heim/` sidecar with `metadata.json` and a
+Each pulled model gets a `.stabbur/` sidecar with `metadata.json` and a
 `model-card.md` (the upstream README for HF/LM Studio; a generated Modelfile-style
 card from the manifest layers for Ollama) — so every model carries its run
-instructions. **Tags** live in one `<root>/.heim/tags.json` per library.
+instructions. **Tags** live in one `<root>/.stabbur/tags.json` per library.
 
 ## Composing libraries in a project
 
-A project (`heim.toml`) can use more than one library, in priority order — its own
+A project (`stabbur.toml`) can use more than one library, in priority order — its own
 **project-local** library plus the shared/default one — so you can keep a few hot
 models next to a project while still using the big archive:
 
@@ -177,28 +177,28 @@ models next to a project while still using the big archive:
 libraries = ["models", "@shared"]   # project-local first, then the machine default
 ```
 
-`@shared` is the token for the machine's default library (`HEIM_LIBRARY_ROOT`), so
-the file stays portable. `heim project init` scaffolds a `models/` directory and
-this list; reads span all listed libraries (first match wins), while `heim library
+`@shared` is the token for the machine's default library (`STABBUR_LIBRARY_ROOT`), so
+the file stays portable. `stabbur project init` scaffolds a `models/` directory and
+this list; reads span all listed libraries (first match wins), while `stabbur library
 pull` targets the first (project-local) one by default (`--shared` for the shared
 one). See [Projects](projects.md).
 
 ## Storage on an external drive
 
-A library is portable — point `HEIM_LIBRARY_ROOT` at wherever it lives on each
+A library is portable — point `STABBUR_LIBRARY_ROOT` at wherever it lives on each
 machine; the models and their tags come along.
 
 - **exFAT** is a good choice for a drive shared between macOS and Linux (the only
   filesystem both read/write natively). No journaling — **eject cleanly**; no
   symlinks — dedup is store-once-and-copy, not by link.
 - Mount paths differ per machine (e.g. `/Volumes/<drive>` on macOS vs
-  `/media/<user>/<drive>` on Linux) — set `library_root` in `heim.toml`, or override
-  it per machine with `HEIM_LIBRARY_ROOT`.
+  `/media/<user>/<drive>` on Linux) — set `library_root` in `stabbur.toml`, or override
+  it per machine with `STABBUR_LIBRARY_ROOT`.
 - Re-downloadable weights make the lack of journaling low-stakes.
 
 !!! tip "Runtime assets travel too"
     Some runtimes fetch assets by Hugging Face repo id rather than from the library — e.g.
     mlx-audio's Dia loads its DAC codec that way. So they don't get left behind in
-    `~/.cache/huggingface`, heim points `HF_HOME` at `<library_root>/.cache/huggingface` (unless
-    you've set `HF_HOME`/`HF_HUB_CACHE` yourself). Run `heim voice setup` once to seed Dia's codec
+    `~/.cache/huggingface`, stabbur points `HF_HOME` at `<library_root>/.cache/huggingface` (unless
+    you've set `HF_HOME`/`HF_HUB_CACHE` yourself). Run `stabbur voice setup` once to seed Dia's codec
     onto the drive; Dia then works offline and travels with it.

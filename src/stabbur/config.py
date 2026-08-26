@@ -29,7 +29,7 @@ from pydantic_settings import (
 )
 
 
-class _HeimTomlSource(PydanticBaseSettingsSource):
+class _StabburTomlSource(PydanticBaseSettingsSource):
     """Feed machine settings from the shared ``stabbur.toml`` parse (:func:`stabbur.project.read_raw`).
 
     ``stabbur.toml`` holds both machine settings (these) and the portable project manifest
@@ -61,7 +61,7 @@ class _MachineConfigSource(PydanticBaseSettingsSource):
         return None, field_name, False  # unused: __call__ returns the whole dict below
 
     def __call__(self) -> dict[str, Any]:
-        from stabbur import userconfig  # noqa: PLC0415 - lazy, symmetry with _HeimTomlSource
+        from stabbur import userconfig  # noqa: PLC0415 - lazy, symmetry with _StabburTomlSource
 
         return userconfig.read()
 
@@ -133,7 +133,7 @@ class Settings(BaseSettings):
         return (
             init_settings,
             env_settings,
-            _HeimTomlSource(settings_cls),
+            _StabburTomlSource(settings_cls),
             dotenv_settings,
             _MachineConfigSource(settings_cls),
             file_secret_settings,

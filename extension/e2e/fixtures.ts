@@ -190,7 +190,7 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
   if (await panel.evaluate((p) => chrome.permissions.contains({ origins: [p] }), pattern)) return true;
   await panel.evaluate((p) => {
     const b = document.createElement("button");
-    b.id = "__heim_grant_host";
+    b.id = "__stabbur_grant_host";
     b.textContent = "grant host"; // needs text + size or Playwright's click never finds it actionable
     b.style.cssText = "position:fixed;bottom:0;left:0;z-index:9999;width:120px;height:32px";
     b.addEventListener("click", () => {
@@ -201,7 +201,7 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
     document.body.appendChild(b);
   }, pattern);
   await panel
-    .locator("#__heim_grant_host")
+    .locator("#__stabbur_grant_host")
     .click({ timeout: 10_000 })
     .catch(() => {});
   // Race the (possibly wedged) request against a hard external deadline so the caller can't hang.
@@ -216,7 +216,7 @@ export async function grantHostPermission(panel: Page, origin: string): Promise<
   ]);
   console.log(`[grant-host] host permission for ${origin} granted=${granted}`);
   if (granted)
-    await panel.evaluate(() => document.getElementById("__heim_grant_host")?.remove()).catch(() => {});
+    await panel.evaluate(() => document.getElementById("__stabbur_grant_host")?.remove()).catch(() => {});
   return granted;
 }
 

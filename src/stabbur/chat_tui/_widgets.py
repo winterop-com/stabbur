@@ -15,7 +15,7 @@ from textual.widgets import Button, Label, OptionList, Static, TextArea
 from textual.widgets.option_list import Option
 
 
-class _HeimCommands(Provider):
+class _StabburCommands(Provider):
     """Commands for the Ctrl+P palette, alongside Textual's built-ins."""
 
     def _commands(self) -> list[tuple[str, str, Any]]:
@@ -251,4 +251,4 @@ class ChatInput(TextArea):
         await super()._on_key(event)
 
 
-__all__ = ["ChatInput", "ConfirmModal", "ModelPickerModal", "_HeimCommands"]
+__all__ = ["ChatInput", "ConfirmModal", "ModelPickerModal", "_StabburCommands"]

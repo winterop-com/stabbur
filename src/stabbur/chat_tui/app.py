@@ -22,7 +22,7 @@ from stabbur import library as library_ops
 from stabbur import runtime as runtime_mod
 from stabbur import tools as mcp_tools
 from stabbur.chat_tui._util import _GERUNDS, _SAMPLING_FIELDS, _SLASH_COMMANDS, _SPINNER, _fmt_tokens
-from stabbur.chat_tui._widgets import ChatInput, ConfirmModal, ModelPickerModal, _HeimCommands
+from stabbur.chat_tui._widgets import ChatInput, ConfirmModal, ModelPickerModal, _StabburCommands
 from stabbur.runtime import sampling as sampling_mod
 
 
@@ -74,7 +74,7 @@ class ChatApp(App[None]):
     #input:focus { border: round #fb7185; }
     """
 
-    COMMANDS = App.COMMANDS | {_HeimCommands}
+    COMMANDS = App.COMMANDS | {_StabburCommands}
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", priority=True),

@@ -64,7 +64,7 @@ class SyncPlan(BaseModel):
 
 def _sidecar_meta(model: LibraryModel) -> dict[str, Any]:
     """Read a directory model's ``.stabbur/metadata.json`` (records its source), or ``{}`` if absent."""
-    path = model.path / cards.SIDECAR_DIR / "metadata.json"
+    path = cards.sidecar_dir(model.path) / "metadata.json"
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):

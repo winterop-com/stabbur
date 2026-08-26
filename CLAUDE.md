@@ -15,10 +15,10 @@ backing up from **Hugging Face**, **Ollama**, and **LM Studio**. Browse the
 library via a Typer CLI and a small FastAPI service; chat with any model, with
 tool/MCP support. North star: a local, self-hosted DHIS2 assistant (see `ROADMAP.md`).
 
-The library location is set via `HEIM_LIBRARY_ROOT` (required — heim refuses to
+The library location is set via `STABBUR_LIBRARY_ROOT` (required — stabbur refuses to
 run without one rather than silently using a local folder). An external drive is
 the intended home; moving to a different machine or drive is just a change to
-`HEIM_LIBRARY_ROOT`, no code changes required. Model weights must never be committed.
+`STABBUR_LIBRARY_ROOT`, no code changes required. Model weights must never be committed.
 
 ## Stack & conventions
 
@@ -26,13 +26,14 @@ the intended home; moving to a different machine or drive is just a change to
   and README uses `uv` — `uv tool install`, `uv run`, `uv sync`, `uvx`. NEVER use bare
   `pip` (or `python -m pip`); at absolute worst use `uv pip`, but prefer `uv sync` /
   `uv add`. This applies to install instructions shown to users too.
-- **Proprietary, all rights reserved** (see `LICENSE`) — copyright Morten Hansen. The repo
-  is source-available, NOT open-source: no one may use/run/redistribute it without written
-  permission. Do NOT publish heim (or the bundled `heim-mcp-*`) to public PyPI; the
-  `Private :: Do Not Upload` classifier enforces this. Install is from source via
-  `uv tool install` from the repo/git, never `pip install heim`.
+- **Proprietary, all rights reserved** (see `LICENSE`) — copyright Morten Hansen. The repo is
+  public and source-available, NOT open-source. **stabbur is published to PyPI** so it can be run
+  with `uvx stabbur` / `uv tool install stabbur`; the `Private :: Do Not Upload` classifier that
+  previously blocked that is gone. Note the tension this creates and keep it in view: a package
+  anyone can `uvx` is a package anyone will run, while `LICENSE` says running it needs written
+  permission. Whether to relax the licence is an open decision, not something to assume either way.
 - Python 3.13, `uv` (with the `uv_build` backend), **src layout**.
-- **Typer** CLI; entry point `heim = "heim.cli:app"` (guarded via `heim.cli:main`).
+- **Typer** CLI; entry point `stabbur = "stabbur.cli:app"` (guarded via `stabbur.cli:main`).
 - **FastAPI + Pydantic + pydantic-settings** for the browse/serve layer.
 - **huggingface_hub** is the canonical HF client (resumable, checksummed).
 - Lint/type/test config mirrors `../../chap-sdk/chapkit`: ruff (120 cols,
@@ -46,7 +47,7 @@ else has a home — put detail there, not here:
 
 - **`docs/architecture.md`** — the module map and internals: sources-vs-library,
   `ModelRef` identity + per-item scan fault isolation, serving/`ServerManager`/proxy,
-  the one-parser-one-writer `heim.toml`, the import-time HF-cache side effect, the
+  the one-parser-one-writer `stabbur.toml`, the import-time HF-cache side effect, the
   process supervisor (group kill, pidfile, orphan sweep) and per-library `flock`.
 - **`docs/ui-conventions.md`** — the browser UI's rules: the three-size type scale by role
   (no hand-written pixel sizes), what each colour variable means (including the `-ink` fill/text
@@ -63,17 +64,17 @@ else has a home — put detail there, not here:
 
 ## Libraries & projects (the mental model)
 
-Two distinct, composable concepts (see `heim.library.roots`):
+Two distinct, composable concepts (see `stabbur.library.roots`):
 
 - **A Library is a self-contained, portable store**: model files **plus their own
-  metadata** (tags in `<root>/.heim/tags.json`) — move the drive to another machine
+  metadata** (tags in `<root>/.stabbur/tags.json`) — move the drive to another machine
   and the tags come along. Nothing about a library is "local" or "external"; it's just
-  a *location*. The **default library** is `HEIM_LIBRARY_ROOT` (per-machine config).
-- **A Project (`./heim.toml`) composes libraries + defines an assistant.** It lists
+  a *location*. The **default library** is `STABBUR_LIBRARY_ROOT` (per-machine config).
+- **A Project (`./stabbur.toml`) composes libraries + defines an assistant.** It lists
   `libraries = [...]` in priority order — project-relative paths plus the `@shared`
   token for the machine default — so it can keep hot models next to it *and* use the big
   archive. `[project]` (model + system prompt) and `[voice]` define the assistant; **tools
-  live in `.mcp.json`** (standard `mcpServers` JSON, see below), not in `heim.toml`. A project
+  live in `.mcp.json`** (standard `mcpServers` JSON, see below), not in `stabbur.toml`. A project
   references models **by name**, never by path — so it's portable/committable. Outside a
   project, just the default library is used.
 
@@ -82,12 +83,12 @@ records its `library_root` so tags read/write against the right library. All **p
 data** — models, tags, runtime assets like the Kokoro TTS model (`<root>/tts/kokoro`) —
 lives in a library so it travels with the drive. Two things live outside a library, and
 they're different: **ephemeral machine-local runtime state** (pidfiles + logs under
-`$XDG_RUNTIME_DIR/heim/runtimes`, else `~/.cache/heim/runtimes`; used by `heim.runtime.supervisor` to
-reap runtimes orphaned by a crashed heim — a pid means nothing on another machine, so it must
-not travel), and **durable machine config** (`~/.config/heim/config.toml` via `heim.userconfig`,
-written by `heim config` / `heim setup`: the per-machine `library_root` + `default_model`
+`$XDG_RUNTIME_DIR/stabbur/runtimes`, else `~/.cache/stabbur/runtimes`; used by `stabbur.runtime.supervisor` to
+reap runtimes orphaned by a crashed stabbur — a pid means nothing on another machine, so it must
+not travel), and **durable machine config** (`~/.config/stabbur/config.toml` via `stabbur.userconfig`,
+written by `stabbur config` / `stabbur setup`: the per-machine `library_root` + `default_model`
 defaults, the lowest-priority `Settings` source). Keep the three-way split: portable → library;
-transient machine state → XDG runtime/cache; machine defaults → `~/.config/heim` (XDG config).
+transient machine state → XDG runtime/cache; machine defaults → `~/.config/stabbur` (XDG config).
 
 ## Library organization
 
@@ -102,12 +103,12 @@ Format-centric for LM Studio / HF; Ollama keeps its native (restorable) layout:
   restorable; shared blobs are preserved on `--move`.
 
 `pull --move` deletes the local source after a verified (byte-for-byte) copy. Every pull
-writes a `.heim/` sidecar (`metadata.json` + `model-card.md`); for Ollama the card is
+writes a `.stabbur/` sidecar (`metadata.json` + `model-card.md`); for Ollama the card is
 **generated** from the manifest's text layers (system prompt, template, params, license).
 
 **exFAT** is the recommended filesystem (macOS + Linux read/write; eject cleanly, no
 journaling). No symlinks/hardlinks on exFAT, so dedup is "store once, copy to each
-runtime", never by link. Mount path differs on Linux — set `HEIM_LIBRARY_ROOT` per machine.
+runtime", never by link. Mount path differs on Linux — set `STABBUR_LIBRARY_ROOT` per machine.
 
 ## Formats & the shared-library direction
 
@@ -120,20 +121,20 @@ convert/fine-tune source, 2-4x the quant). Format is a per-model choice, not "ke
 - Sharing reality: LM Studio reads loose GGUF/MLX directly; Ollama imports a GGUF into its
   own blob store and won't run a loose file in place. So the win is one canonical library
   copy we *install into* whichever runtime, not one file used live by all. All three consumers
-  are fed from the canonical copy: `heim library install/uninstall <model> --to/--from
+  are fed from the canonical copy: `stabbur library install/uninstall <model> --to/--from
   {ollama,lmstudio}` (Ollama imports via a Modelfile, LM Studio gets a zero-copy symlink) and
-  mlx_lm runs a loose MLX copy in place; `heim library formats` reports the per-model policy.
+  mlx_lm runs a loose MLX copy in place; `stabbur library formats` reports the per-model policy.
 
 ## UI — web-first, plus a Textual terminal chat
 
 The browser is the primary, full-featured surface (library browse + chat), via
-`heim serve --ui`. The interactive terminal chat (`heim chat`) is a **Textual TUI**
-(`chat_tui/`) reusing the same runtime + agent loop; `heim chat -p` is a plain scripted
+`stabbur serve --ui`. The interactive terminal chat (`stabbur chat`) is a **Textual TUI**
+(`chat_tui/`) reusing the same runtime + agent loop; `stabbur chat -p` is a plain scripted
 one-shot (no TUI).
 
-- **`heim serve --ui`** — full app: browse the library (grouped by format) + chat with any
+- **`stabbur serve --ui`** — full app: browse the library (grouped by format) + chat with any
   model (pick + switch).
-- **`heim serve --ui --model <name>`** — *locked* single-model mode: no picker, stable
+- **`stabbur serve --ui --model <name>`** — *locked* single-model mode: no picker, stable
   OpenAI `/v1`, configurable CORS. The intended backend for the Chrome extension.
 
 Stack: **Vite + React + Tailwind v4 + shadcn/ui**, built with **Bun** (`bun` is the frontend
@@ -141,19 +142,19 @@ package manager + runner — `make frontend` runs `bun install && bun run build`
 lockfile) to `frontend/dist` and served by `serve --ui` (API routes take precedence, SPA is the
 catch-all). **One SPA, four surfaces**
 (build the chat UI once, wrap it): web (`serve --ui`), Chrome extension (MV3 side panel,
-locked `/v1`), and Tauri + Electron desktop wrappers (maneki's pattern; heim's should also
-launch/embed `heim serve`). Chat UI uses shadcn's official chat components paired with a
+locked `/v1`), and Tauri + Electron desktop wrappers (maneki's pattern; stabbur's should also
+launch/embed `stabbur serve`). Chat UI uses shadcn's official chat components paired with a
 **hand-rolled OpenAI SSE fetch loop** — our backends emit raw OpenAI SSE, which the Vercel
 AI SDK / AI Elements / assistant-ui don't expect (impedance mismatch), so we avoid them.
 
 ## Running models — llama.cpp first, mlx_lm for MLX
 
 Serving is OpenAI-compatible so any client (and our SPA) can attach. Runtimes are
-**external processes heim spawns**, not imported libs. Alternatively **`heim serve
+**external processes stabbur spawns**, not imported libs. Alternatively **`stabbur serve
 --upstream <url>` fronts a remote OpenAI `/v1`** (e.g. a llama-server in router mode on
-another box): heim's agent loop, tools, confirm gate, and UI run locally while the models
-run there — `UpstreamManager` (in `heim.server`) mirrors `ServerManager`'s read surface,
-and "loading" just selects a remote id. `heim chat --server <url>` is the CLI/TUI
+another box): stabbur's agent loop, tools, confirm gate, and UI run locally while the models
+run there — `UpstreamManager` (in `stabbur.server`) mirrors `ServerManager`'s read surface,
+and "loading" just selects a remote id. `stabbur chat --server <url>` is the CLI/TUI
 counterpart; both prefer the remote's currently-loaded model so attaching never evicts it.
 
 - **GGUF → llama.cpp `llama-server`** — primary, cross-platform, OpenAI `/v1`, tool calling
@@ -161,30 +162,30 @@ counterpart; both prefer the remote's currently-loaded model so attaching never 
   binary (`brew install llama.cpp`).
 - **MLX → `mlx_lm.server` (text) / `mlx_vlm.server` (multimodal)** — Apple Silicon only.
   Vision-capable MLX checkpoints can't be loaded by text-only `mlx_lm` (it errors on the
-  extra params and silently returns empty), so heim routes them to `mlx-vlm` by the detected
-  `vision` capability (`heim.capabilities`). The MLX runtimes are an optional, platform-gated
+  extra params and silently returns empty), so stabbur routes them to `mlx-vlm` by the detected
+  `vision` capability (`stabbur.capabilities`). The MLX runtimes are an optional, platform-gated
   extra (`uv sync --extra mlx`) — no Linux wheels, so never hard deps; a missing one yields an
   install hint, not a hang.
 - Ollama per-tensor models (e.g. `gemma4:12b-mlx`) need Ollama itself; single-GGUF Ollama
   models run via llama.cpp.
 
-## Tools / MCP (required, even for heim itself)
+## Tools / MCP (required, even for stabbur itself)
 
-heim supports **tool/function calling and acts as an MCP client**, generically (any MCP
-server), not just DHIS2. llama-server does OpenAI-style tool calling (`--jinja`); heim runs
-the **agent loop** (model emits `tool_call` → heim executes via the MCP client → feeds the
-result back → continues), streamed to the chat UI. heim owns the client + loop so every
+stabbur supports **tool/function calling and acts as an MCP client**, generically (any MCP
+server), not just DHIS2. llama-server does OpenAI-style tool calling (`--jinja`); stabbur runs
+the **agent loop** (model emits `tool_call` → stabbur executes via the MCP client → feeds the
+result back → continues), streamed to the chat UI. stabbur owns the client + loop so every
 surface (web, extension, CLI) stays thin and tools work uniformly. A tool result's text goes
 back as the `tool` message; any **image** it returns (e.g. a Playwright screenshot) is fed to a
 **vision** model as a follow-up user image message so it actually sees it (text-only models get a
 note instead — never the raw image), gated on the detected `vision` capability.
 
-**Config is the ecosystem-standard `mcpServers` JSON** (`heim.mcpservers`), the same shape
+**Config is the ecosystem-standard `mcpServers` JSON** (`stabbur.mcpservers`), the same shape
 Claude Desktop / Claude Code / Cursor use — so a server's README snippet pastes straight in.
-Two levels **merge**: machine-global `~/.config/heim/mcp.json` (what free-play chat gets;
-`heim mcp add --global`) and per-project `./.mcp.json` (`heim mcp add`); a project name
-overrides a global one, and CLI `--mcp` layers on top. `heim.toml` no longer carries tools.
-Bundled first-party servers (`heim-mcp-*`, base deps) are entered by package name; `heim setup`
+Two levels **merge**: machine-global `~/.config/stabbur/mcp.json` (what free-play chat gets;
+`stabbur mcp add --global`) and per-project `./.mcp.json` (`stabbur mcp add`); a project name
+overrides a global one, and CLI `--mcp` layers on top. `stabbur.toml` no longer carries tools.
+Bundled first-party servers (`stabbur-mcp-*`, base deps) are entered by package name; `stabbur setup`
 seeds a minimal global default (`datetime`).
 
 ## Gotchas worth knowing

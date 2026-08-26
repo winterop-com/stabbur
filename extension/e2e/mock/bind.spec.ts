@@ -1,5 +1,5 @@
 // "Use my login" bind flow: the panel mints a scoped credential in the target site's own context
-// (its cookies) and hands stabbur only the secret. Drives the flow against a HeimMock (the bind
+// (its cookies) and hands stabbur only the secret. Drives the flow against a StabburMock (the bind
 // endpoint) plus a TargetSiteMock (a stand-in DHIS2 the content tab opens).
 //
 // The DEFAULT path is now proactive: on panel open against a matched tab with a live session and no
@@ -12,10 +12,10 @@
 
 import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 import { TAB_MATCHED } from "../../lib/bannerText";
-import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
+import { StabburMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const stabbur = new HeimMock();
+const stabbur = new StabburMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {

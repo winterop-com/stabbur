@@ -6,10 +6,10 @@
 
 import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 import { TAB_MATCHED } from "../../lib/bannerText";
-import { HeimMock } from "../mockServer";
+import { StabburMock } from "../mockServer";
 
-const mock = new HeimMock();
-const other = new HeimMock();
+const mock = new StabburMock();
+const other = new StabburMock();
 
 test.beforeAll(async () => {
   await mock.start();

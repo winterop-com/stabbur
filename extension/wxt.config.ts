@@ -53,7 +53,7 @@ export default defineConfig({
   vite: () => ({
     plugins: [tailwindcss()],
     // Bake the flavor into the bundle so app code (lib/flavor.ts) can branch copy on it.
-    define: { __HEIM_FLAVOR__: JSON.stringify(FLAVOR) },
+    define: { __STABBUR_FLAVOR__: JSON.stringify(FLAVOR) },
     resolve: {
       dedupe: ["react", "react-dom"],
     },

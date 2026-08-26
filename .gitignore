@@ -34,8 +34,9 @@ coverage.xml
 !.env.example
 
 # Personal per-machine config (holds absolute library paths). The committed
-# template is heim.toml.example; each checkout keeps its own heim.toml.
-/heim.toml
+# template is stabbur.toml.example; each checkout keeps its own stabbur.toml.
+/stabbur.toml
+/heim.toml  # a checkout that predates the rename
 
 # Editors / OS
 .idea/
@@ -54,7 +55,7 @@ frontend/dist/
 /site/
 
 # Downloaded models — the library lives here and must never be committed.
-# Override the location with HEIM_LIBRARY_ROOT when moving to the 5TB drive.
+# Override the location with STABBUR_LIBRARY_ROOT when moving to the 5TB drive.
 /data/
 
 # extension build + test artifacts

@@ -688,7 +688,7 @@ async def test_palette_lists_the_remotes_models_on_an_attach(monkeypatch: pytest
     # A remote attach can only move between the ids the server serves, so the Ctrl+P palette must
     # offer those — not local library models it would refuse ("does not serve") — and it must not
     # scan the library at all: that blocks the UI on a drive this session never touches.
-    from stabbur.chat_tui._widgets import _HeimCommands
+    from stabbur.chat_tui._widgets import _StabburCommands
 
     def _boom() -> list[LibraryModel]:
         raise AssertionError("a remote attach must not scan the local library")
@@ -703,7 +703,7 @@ async def test_palette_lists_the_remotes_models_on_an_attach(monkeypatch: pytest
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        provider = _HeimCommands(app.screen)
+        provider = _StabburCommands(app.screen)
         titles = [title for title, _help, _callback in provider._commands()]
 
     assert "Switch model: served-b" in titles  # the other model the server holds

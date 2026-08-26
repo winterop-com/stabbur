@@ -1,25 +1,25 @@
-# Using heim's API
+# Using stabbur's API
 
-`heim serve` is an HTTP service, not only a UI host. Anything the browser app does,
+`stabbur serve` is an HTTP service, not only a UI host. Anything the browser app does,
 your own code can do — and for work that runs per request (moderation, captioning,
-extraction), calling the API is the right shape. `heim chat -p` spawns a process and
+extraction), calling the API is the right shape. `stabbur chat -p` spawns a process and
 resolves the library on every invocation, which is fine for sweeping a directory by
 hand and wrong for a path a user waits on.
 
 ```bash
-heim serve --port 2222                              # local runtimes
-heim serve --port 2222 --upstream http://box:1234   # models run on another machine
+stabbur serve --port 2222                              # local runtimes
+stabbur serve --port 2222 --upstream http://box:1234   # models run on another machine
 ```
 
-Both expose the same surface. In upstream mode heim's agent loop, tools and confirm
+Both expose the same surface. In upstream mode stabbur's agent loop, tools and confirm
 gate still run locally; only the weights are elsewhere.
 
 ## Two endpoints, and which to use
 
 | | `/v1/*` | `/api/chat` |
 |---|---|---|
-| Shape | OpenAI-compatible, byte-for-byte proxied | heim's own SSE event stream |
-| Tools | no | yes — heim runs the MCP agent loop |
+| Shape | OpenAI-compatible, byte-for-byte proxied | stabbur's own SSE event stream |
+| Tools | no | yes — stabbur runs the MCP agent loop |
 | Clients | any OpenAI SDK | hand-rolled |
 | Use it for | classification, extraction, anything stateless | an assistant that must call tools |
 
@@ -29,7 +29,7 @@ at `http://127.0.0.1:2222/v1` and give it any API key, which is ignored on a loo
 server.
 
 Neither endpoint stores anything. A conversation is whatever messages you send, every
-time; heim keeps no session state, so you own the history and there is nothing to clean
+time; stabbur keeps no session state, so you own the history and there is nothing to clean
 up server-side.
 
 ## A request with an image
@@ -77,7 +77,7 @@ An empty string is not "no". Reading it as one is a fail-open bug wearing a 200.
 ## Classification, done defensively
 
 The whole point of a filter is what it does when something goes wrong, so decide that
-first: heim down, the model swapped out from under you, a timeout, a blank answer.
+first: stabbur down, the model swapped out from under you, a timeout, a blank answer.
 Failing open means unmoderated content ships the first time the box hiccups — which is
 exactly when nobody is watching.
 
@@ -128,13 +128,13 @@ the model only for the ambiguous middle.
 
 ## Tools, when you need them
 
-`POST /api/chat` runs heim's agent loop: the model may call the MCP servers this heim
-has attached, heim executes them, feeds the results back, and streams the whole thing
+`POST /api/chat` runs stabbur's agent loop: the model may call the MCP servers this stabbur
+has attached, stabbur executes them, feeds the results back, and streams the whole thing
 as SSE. Fields worth knowing: `use_tools`, `enabled_tools` (an allow-list of namespaced
 names — `[]` means none, omitting it means all), `system_prompt`, `reasoning`, and the
 sampling parameters. `GET /api/tools` lists what is attached.
 
-This is heim's own event format, not OpenAI's — you parse `token`, `tool_call`,
+This is stabbur's own event format, not OpenAI's — you parse `token`, `tool_call`,
 `confirm`, `usage` and `done` events yourself. Use it when the tools are the point;
 use `/v1` otherwise.
 
@@ -145,9 +145,9 @@ so an existing client works. See [Voice](voice.md).
 
 ## Access
 
-A loopback server is reachable by anything on the machine. `heim config set host` and
+A loopback server is reachable by anything on the machine. `stabbur config set host` and
 `--host` control the bind address; a non-loopback bind should carry a token, and the
 browser guard that protects `/api` against drive-by cross-site calls is described in
-[the architecture notes](../architecture.md). Do not expose an unauthenticated heim to a
+[the architecture notes](../architecture.md). Do not expose an unauthenticated stabbur to a
 network you do not control — it can load models, run MCP tools, and read whatever those
 tools reach.

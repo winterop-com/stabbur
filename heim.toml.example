@@ -2,7 +2,7 @@
 # paths). Copy to heim.toml, or run `heim project init`.
 
 # Libraries to read, priority order. "@shared" = the machine default
-# (HEIM_LIBRARY_ROOT). Omit to use just the default.
+# (STABBUR_LIBRARY_ROOT). Omit to use just the default.
 libraries = ["models", "@shared"]
 
 [project]

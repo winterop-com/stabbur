@@ -2,7 +2,7 @@
 
 A technical tour of what the files in your library actually are, why the same
 model comes in several formats, and how a "vision" or "audio" model differs from a
-plain text one. This is the mental model behind heim's runtime choices and
+plain text one. This is the mental model behind stabbur's runtime choices and
 capability icons.
 
 ## The two-layer picture
@@ -11,7 +11,7 @@ Every model is really two things:
 
 1. **Weights** — a big pile of numbers (the learned parameters). How they're
    *stored on disk* is the **format** (safetensors / GGUF / MLX).
-2. **A runtime** — a program that loads those weights and runs the math. heim
+2. **A runtime** — a program that loads those weights and runs the math. stabbur
    spawns the right one per format (`llama-server`, `mlx_lm.server`, …).
 
 The format and the runtime are paired: GGUF is made for llama.cpp, MLX for Apple's
@@ -27,7 +27,7 @@ usually at **full precision** (fp16/bf16 — 2 bytes per parameter). This is the
 
 - **Used for:** fine-tuning, converting to other formats, and running under
   PyTorch / `transformers` / MLX.
-- **In heim:** kept only when you'll re-quantize or fine-tune — it's the heaviest
+- **In stabbur:** kept only when you'll re-quantize or fine-tune — it's the heaviest
   tier and not what you run day-to-day. An MLX repo is technically safetensors too
   (see below).
 
@@ -39,11 +39,11 @@ tokenizer, metadata, and chat template. It's almost always **quantized** (see
 
 - **Runtime:** `llama-server` (a C++ binary — `brew install llama.cpp`). Runs on
   **CPU and GPU, macOS and Linux** — the most portable tier.
-- **Self-contained:** because the chat template ships inside the file, heim doesn't
+- **Self-contained:** because the chat template ships inside the file, stabbur doesn't
   need a separate config to format prompts.
 - **Multimodal:** vision/audio come from a **separate `mmproj` file** loaded
   alongside (`--mmproj`), see [modalities](#modalities-in-and-out).
-- **In heim:** the default. The `gguf/` (or `huggingface/`) tree; picked by
+- **In stabbur:** the default. The `gguf/` (or `huggingface/`) tree; picked by
   `runtime.build_command` → `llama-server`.
 
 ### MLX — Apple Silicon native
@@ -104,9 +104,9 @@ and a small **projector** maps those into the LLM's token space — so the model
 "reads" the image alongside your text. It's **input only**: these models describe or
 reason about images, they don't *generate* them.
 
-- **GGUF:** the encoder + projector live in the **`mmproj` file**; heim loads it with
+- **GGUF:** the encoder + projector live in the **`mmproj` file**; stabbur loads it with
   `--mmproj`. Detected via the projector's `clip.has_vision_encoder` flag.
-- **MLX:** a `vision_config` in `config.json`; heim routes it to `mlx_vlm.server`.
+- **MLX:** a `vision_config` in `config.json`; stabbur routes it to `mlx_vlm.server`.
 
 ### Audio in (speech understanding / STT)
 
@@ -122,18 +122,18 @@ single projector can hold *both* a vision and an audio encoder (gemma-4's does).
 
 Making sound is a **different kind of model** entirely, not an LLM: a **TTS** system
 turns text into a waveform (an acoustic model + a **vocoder** that renders samples).
-heim runs these as their own engines, separate from the chat model:
+stabbur runs these as their own engines, separate from the chat model:
 
 - **Kokoro** (ONNX, built in) — 54 built-in voices; the multi-voice engine.
 - **OuteTTS** (a GGUF + a WavTokenizer vocoder, via `llama-tts`) — the fallback.
 
 So the flow is asymmetric: **multimodal LLMs are image/audio *in* → text *out*; TTS
-is text *in* → audio *out*.** There's no local **text→image** generation in heim —
+is text *in* → audio *out*.** There's no local **text→image** generation in stabbur —
 that's yet another model class (diffusion), out of scope.
 
 ### Putting it together
 
-| Direction | Handled by | In heim |
+| Direction | Handled by | In stabbur |
 | --- | --- | --- |
 | text → text | the LLM | any model |
 | **image → text** | vision encoder + projector (mmproj / vision_config) | vision models |
@@ -141,9 +141,9 @@ that's yet another model class (diffusion), out of scope.
 | **text → audio** | a separate TTS model (acoustic + vocoder) | Kokoro / OuteTTS |
 | text → image | a diffusion model | not supported |
 
-## How heim decides
+## How stabbur decides
 
-`heim.capabilities` reads each model's files to detect **tools · vision · audio ·
+`stabbur.capabilities` reads each model's files to detect **tools · vision · audio ·
 context length**:
 
 - **GGUF:** parse the GGUF metadata header, and read the `mmproj` projector's
@@ -165,6 +165,6 @@ Detection is heuristic, so it isn't perfect — see
 - **Only if you'll fine-tune / convert:** **safetensors** — otherwise it's dead
   weight.
 
-heim's intended library policy is **GGUF + MLX ready-to-run, safetensors on demand**
+stabbur's intended library policy is **GGUF + MLX ready-to-run, safetensors on demand**
 (per model, not "keep everything"). Keep the models you use often in a fast library
 (internal SSD) for fast loads; the big external drive is the archive tier.

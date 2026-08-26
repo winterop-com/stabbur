@@ -228,13 +228,13 @@ def _cache_path(model: LibraryModel) -> Path:
     fails and every scan re-parses the GGUF blob); route it instead to the browsable
     ``ollama/.library/<safe_name>/`` sidecar that ``pull`` already writes the card + metadata into.
     """
-    from stabbur.cards import SIDECAR_DIR  # noqa: PLC0415 - avoid an import cycle at module load
+    from stabbur.cards import sidecar_dir  # noqa: PLC0415 - avoid an import cycle at module load
 
     if model.is_ollama:
         # Mirror stabbur.sources.ollama._safe_name locally to avoid importing the source here.
         safe_name = model.name.replace(":", "_").replace("/", "_")
         return model.library_root / "ollama" / ".library" / safe_name / _CAPS_CACHE
-    return model.path / SIDECAR_DIR / _CAPS_CACHE
+    return sidecar_dir(model.path) / _CAPS_CACHE
 
 
 def _read_cached(model: LibraryModel) -> ModelCapabilities | None:

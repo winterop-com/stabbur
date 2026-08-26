@@ -1,6 +1,6 @@
 # Page actions and the agentic web (WebMCP)
 
-The long-term thread behind one concrete gap: **heim's Chrome side panel can act on a DHIS2
+The long-term thread behind one concrete gap: **stabbur's Chrome side panel can act on a DHIS2
 instance only through the backend** (`d2w` / the MCP bridge, i.e. REST), while the assistant
 sits next to a UI it cannot touch. Extensions like Claude's can drive the page; ours cannot.
 This document collects what WebMCP is, whether it answers that, and what we would build
@@ -20,7 +20,7 @@ Conflating them makes vendor announcements sound bigger than they are.
 | **Site-embedded library** | A `<script>` that exposes the page over an MCP server ([webmcp.dev](https://webmcp.dev/) / `@jason.today/webmcp`, `@mcp-b/webmcp-local-relay`) | **No** — any MCP client connects |
 | **Edge injection** | [Cloudflare](https://blog.cloudflare.com/webmcp/) injects the bridge at the CDN, no origin change | No (opt-in per domain) |
 
-**heim is already an MCP client.** Flavor 2 is therefore consumable *today with no code
+**stabbur is already an MCP client.** Flavor 2 is therefore consumable *today with no code
 change* — an entry in `.mcp.json`, like any other server. So "vendor X supports WebMCP" is
 mostly a non-event for us: we are not missing client support. The binding constraint is on
 the other side, and always has been — **someone has to expose tools, and for us that is
@@ -38,7 +38,7 @@ DHIS2, which exposes none.**
 - **The consumer half is weeks old** — `getTools()` / `executeTool()` specced and re-specced
   through July–August 2026, signature changed mid-August.
 - **Adoption ~zero**: a 111k-domain scan found none; Cloudflare's is an opt-in developer
-  preview. **DHIS2 has nothing** and is going the REST-MCP route heim already took.
+  preview. **DHIS2 has nothing** and is going the REST-MCP route stabbur already took.
 - Field reports of agents actually invoking page tools are poor (single-digit successes
   across ~100 trials).
 

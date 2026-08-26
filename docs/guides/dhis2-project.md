@@ -16,7 +16,7 @@ smaller local model.
     Everything below is scaffolded by a single template:
 
     ```bash
-    heim project new mydhis2 --template dhis2 --copy --git
+    stabbur project new mydhis2 --template dhis2 --copy --git
     ```
 
     That presets the model (`Ornith-1.0-9B`, the [benchmark](model-catalog.md) winner), a
@@ -26,7 +26,7 @@ smaller local model.
 
 ## Prerequisites
 
-- **`HEIM_LIBRARY_ROOT`** set to your library (so the model can be copied from it).
+- **`STABBUR_LIBRARY_ROOT`** set to your library (so the model can be copied from it).
 - **`llama-server`** on `PATH` (`brew install llama.cpp`) — the GGUF runtime.
 - **`uv` / `uvx`** — used to run the DHIS2 bridge (`uvx dhis2w-mcp-bridge`).
 - A **DHIS2 profile** in `~/.config/dhis2/profiles.toml`. The bridge selects the
@@ -38,7 +38,7 @@ smaller local model.
     base_url = "https://play.im.dhis2.org/dev-2-42"
     ```
 
-    Confirm the profile reaches the server before wiring heim:
+    Confirm the profile reaches the server before wiring stabbur:
 
     ```bash
     env DHIS2_PROFILE=play42 uvx dhis2w-mcp-bridge   # starts the MCP server (Ctrl-C to stop)
@@ -46,13 +46,13 @@ smaller local model.
 
 ## 1. Scaffold the project with a local model copy
 
-`heim project new <dir>` runs an interactive wizard. `--model` skips the model
+`stabbur project new <dir>` runs an interactive wizard. `--model` skips the model
 picker; `--copy` (alias `--local`) copies the chosen model **into the project's own
 `library/`** instead of relying on the shared library — that is what makes the
 project portable.
 
 ```bash
-heim project new dhis2 \
+stabbur project new dhis2 \
   --model lmstudio-community/gemma-4-12B-it-QAT-GGUF \
   --copy \
   --git
@@ -65,17 +65,17 @@ Drop it if you don't want version control.
 The wizard asks three things:
 
 1. **Kind** — `1` (Chat).
-2. **Tools** — leave blank. The DHIS2 bridge is *not* a heim plugin, so it does not
+2. **Tools** — leave blank. The DHIS2 bridge is *not* a stabbur plugin, so it does not
    appear in the plugin picker; we add it by hand in the next step.
 3. **System prompt** — e.g. *"You are a DHIS2 assistant. Use the dhis2 tools to
    query the connected DHIS2 instance instead of guessing…"*.
 
-heim copies the model (a fast local-disk copy if it is already in your shared
-library) and writes `dhis2/heim.toml`:
+stabbur copies the model (a fast local-disk copy if it is already in your shared
+library) and writes `dhis2/stabbur.toml`:
 
 ```toml
 # This project ships its own "library/" store (the model was copied there);
-# @shared is the machine default library (HEIM_LIBRARY_ROOT) if you set one.
+# @shared is the machine default library (STABBUR_LIBRARY_ROOT) if you set one.
 libraries = ["library", "@shared"]
 
 [project]
@@ -114,13 +114,13 @@ retarget later, swap `play42` for another profile name (e.g. `play43`) — no ot
 
 ## 3. Verify the tool wiring
 
-`heim project show` (run inside `dhis2/`) prints the resolved model and **spawns the
+`stabbur project show` (run inside `dhis2/`) prints the resolved model and **spawns the
 MCP servers to list their real tools** — so it confirms the bridge connects before
 you ever load the model:
 
 ```bash
 cd dhis2
-heim project show
+stabbur project show
 ```
 
 ```
@@ -134,18 +134,18 @@ You can also list installed plugin servers (the bridge is a project MCP, not a
 plugin, so it won't appear here) with either spelling:
 
 ```bash
-heim mcp list      # or the alias:
-heim mcp ls
+stabbur mcp list      # or the alias:
+stabbur mcp ls
 ```
 
 ## 4. Try it — the model calls the tool
 
-Run a one-shot chat (`-p`) that forces a lookup. heim loads gemma via `llama-server`,
+Run a one-shot chat (`-p`) that forces a lookup. stabbur loads gemma via `llama-server`,
 connects the bridge, and runs the agent loop: the model emits a `dhis2_cli` tool
-call, heim executes it against `play42`, and feeds the result back:
+call, stabbur executes it against `play42`, and feeds the result back:
 
 ```bash
-heim chat -p "What DHIS2 version is the server running, and what is the system name? Use your dhis2 tool to check, don't guess."
+stabbur chat -p "What DHIS2 version is the server running, and what is the system name? Use your dhis2 tool to check, don't guess."
 ```
 
 ```
@@ -156,11 +156,11 @@ The DHIS2 server is running version 2.42.6-SNAPSHOT, and the system name is
 DHIS 2 Demo - Sierra Leone.
 ```
 
-For the interactive TUI (or the browser), run `heim chat` or `heim serve --ui` in the
+For the interactive TUI (or the browser), run `stabbur chat` or `stabbur serve --ui` in the
 same directory — both bind to the project's model with the DHIS2 tool available.
 
 !!! tip "Next to a live DHIS2 tab"
-    Scaffold from the **`dhis2` template** (`heim project new mydhis2 --template dhis2`) to also
+    Scaffold from the **`dhis2` template** (`stabbur project new mydhis2 --template dhis2`) to also
     get an `[assistant]` block, then serve it on a pinned port and drive it from the
     [Chrome side panel](extension.md): a target banner that confirms your active tab matches the
     instance, **Verify**, **Who am I here?**, and **Use my login** to let the tools act as you
@@ -170,8 +170,8 @@ same directory — both bind to the project's model with the DHIS2 tool availabl
 
 | Step | Command |
 | --- | --- |
-| Scaffold + copy model | `heim project new dhis2 --model …gemma-4-12B-it-QAT-GGUF --copy` |
+| Scaffold + copy model | `stabbur project new dhis2 --model …gemma-4-12B-it-QAT-GGUF --copy` |
 | Attach bridge | add a `.mcp.json` entry: `uvx dhis2w-mcp-bridge` with `env.DHIS2_PROFILE=play42` |
-| Verify tools | `heim project show` |
-| Try it | `heim chat -p "…"` (or `heim serve --ui`) |
+| Verify tools | `stabbur project show` |
+| Try it | `stabbur chat -p "…"` (or `stabbur serve --ui`) |
 | Retarget server | change the profile name in the `env` prefix |

@@ -33,6 +33,21 @@ from pydantic import (
 )
 
 _DEFAULT_PATH = Path("stabbur.toml")
+_LEGACY_PATHS = (Path("heim.toml"),)
+"""Manifest names earlier releases wrote. A project file is committed to somebody's repo, so a
+rename that stopped reading it would silently drop their model, prompt and tools."""
+
+
+def _manifest_path(base: Path = Path()) -> Path:
+    """The manifest to read under ``base``: the current name, else a legacy one it can still parse."""
+    current = base / _DEFAULT_PATH
+    if current.is_file():
+        return current
+    for legacy in _LEGACY_PATHS:
+        if (base / legacy).is_file():
+            return base / legacy
+    return current
+
 
 _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+\Z")
 """A TOML *bare* key (no quoting needed): letters, digits, ``_`` and ``-`` only.
@@ -355,13 +370,14 @@ class ProjectError(RuntimeError):
 # --- reading ---------------------------------------------------------------------------------
 
 
-def read_raw(path: Path = _DEFAULT_PATH) -> dict[str, Any]:
+def read_raw(path: Path | None = None) -> dict[str, Any]:
     """Parse ``stabbur.toml`` into a raw dict — the one TOML parser for the whole app.
 
     Returns ``{}`` if the file doesn't exist. Both :func:`load` (the manifest) and
     :mod:`stabbur.config` (the machine settings) call this, so malformed TOML raises a single
     :class:`ProjectError` from one place instead of crashing differently in each reader.
     """
+    path = _manifest_path() if path is None else path
     if not path.is_file():
         return {}
     try:
@@ -370,12 +386,13 @@ def read_raw(path: Path = _DEFAULT_PATH) -> dict[str, Any]:
         raise ProjectError(f"{path} is not valid TOML: {exc}") from exc
 
 
-def load(path: Path = _DEFAULT_PATH) -> Project | None:
+def load(path: Path | None = None) -> Project | None:
     """Load the project manifest from ``path``, or ``None`` if the file doesn't exist.
 
     Raises :class:`ProjectError` (with a readable message) on malformed TOML or a bad manifest —
     users hand-edit this file, so a typo must not crash every command.
     """
+    path = _manifest_path() if path is None else path
     if not path.is_file():
         return None
     data = read_raw(path)

@@ -3,9 +3,9 @@
 
 import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 
-import { HeimMock, TargetSiteMock } from "../mockServer";
+import { StabburMock, TargetSiteMock } from "../mockServer";
 
-const mock = new HeimMock();
+const mock = new StabburMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {
