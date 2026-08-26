@@ -89,7 +89,11 @@ export function MessageItem({
 
   const hasTools = message.tools && message.tools.length > 0;
   const hasConfirms = message.confirms && message.confirms.length > 0;
-  const showCursor = streaming && !message.content;
+  const hasReasoning = !!message.reasoning;
+  // While only thinking is streaming, the pulsing "Thinking…" box (and the live stats row)
+  // already carry liveness — a cursor below them just draws an empty line under the box.
+  const showCursor = streaming && !message.content && !hasReasoning;
+  const showEllipsis = !message.content && !showCursor && !hasTools && !hasConfirms && !hasReasoning;
 
   return (
     <div className="group flex flex-col items-start">
@@ -123,17 +127,21 @@ export function MessageItem({
         </div>
       )}
 
-      <div className={cn("w-full", message.error && "text-destructive")}>
-        {message.error ? (
-          <p className="text-sm">{message.content}</p>
-        ) : message.content ? (
-          <Markdown content={message.content} streaming={streaming} />
-        ) : showCursor ? (
-          <span className="inline-block h-4 w-2 animate-pulse rounded-sm bg-muted-foreground align-middle" />
-        ) : (
-          !hasTools && !hasConfirms && <span className="text-sm text-muted-foreground">…</span>
-        )}
-      </div>
+      {/* Mounted only when it has something to draw, so a turn that is still thinking
+          doesn't reserve a blank line for content that hasn't started. */}
+      {(message.content || message.error || showCursor || showEllipsis) && (
+        <div className={cn("w-full", message.error && "text-destructive")}>
+          {message.error ? (
+            <p className="text-sm">{message.content}</p>
+          ) : message.content ? (
+            <Markdown content={message.content} streaming={streaming} />
+          ) : showCursor ? (
+            <span className="inline-block h-4 w-2 animate-pulse rounded-sm bg-muted-foreground align-middle" />
+          ) : (
+            <span className="text-sm text-muted-foreground">…</span>
+          )}
+        </div>
+      )}
 
       {message.stats && (
         /* What the turn costs, LM Studio / llama.cpp style: tokens, wall time, and the rate.
