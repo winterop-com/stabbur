@@ -115,6 +115,21 @@ Full docs: **[`docs/`](docs/)** (run `make docs` to serve the site locally) —
 getting started, the library, pulling, running & chatting, the web UI, the Chrome side panel,
 the DHIS2 assistant, and the architecture.
 
+## Models on another box
+
+You don't need the weights on the machine you're sitting at. Point stabbur at any
+OpenAI-compatible `/v1` — a `llama-server` in router mode on a workstation, an LM Studio
+server, anything that speaks the protocol:
+
+```bash
+stabbur serve --ui --upstream http://msai:1234/v1   # web UI here, models there
+stabbur chat --server http://msai:1234/v1           # same, from the terminal
+```
+
+The agent loop, tools, confirm gate, chat history, and UI all run locally; only generation
+is remote. Both prefer whatever model the remote already has loaded, so attaching never
+evicts it — useful when the far end holds one model at a time.
+
 ## API
 
 `stabbur serve` exposes an OpenAI-compatible surface plus browse/voice endpoints:
