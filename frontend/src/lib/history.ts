@@ -23,7 +23,7 @@
 // a filter over the loaded list in the sidebar, which needs no index at all.
 
 import { normalizeSettings, type Settings } from "@/lib/store";
-import type { ChatMessage, Conversation } from "@/lib/types";
+import type { ChatMessage, Conversation, TitleSource } from "@/lib/types";
 
 const DB_NAME = "heim";
 const DB_VERSION = 1;
@@ -38,9 +38,20 @@ const LEGACY_KEY = "heim.conversations";
 interface StoredConversation {
   id: string;
   title: string;
+  /** OPTIONAL at rest, and it has to be: every conversation written before the model started
+   *  naming them has no such field, and `undefined` there means "derived", not "corrupt". */
+  titledBy?: TitleSource;
   settings: Settings;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Read a stored `titledBy` defensively. An older record, or anything that isn't one of the three
+ *  words, is `derived`. That is safe rather than lossy because titling is only ever attempted on a
+ *  conversation whose first exchange happened in this session — a chat read back from the store is
+ *  never re-titled, whatever this says — while guessing `user` would make a placeholder permanent. */
+function titleSource(value: unknown): TitleSource {
+  return value === "user" || value === "model" ? value : "derived";
 }
 
 /** An attachment at rest. A Blob normally — the string form is the escape hatch for a `url` that
@@ -226,7 +237,14 @@ function committed(tx: IDBTransaction): Promise<void> {
 // wrap: encode the object to bytes here, decode there, and nothing above this file changes.
 
 function encodeConversation(c: Conversation): StoredConversation {
-  return { id: c.id, title: c.title, settings: c.settings, createdAt: c.createdAt, updatedAt: c.updatedAt };
+  return {
+    id: c.id,
+    title: c.title,
+    titledBy: c.titledBy,
+    settings: c.settings,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
 }
 
 function encodeMessage(m: ChatMessage, convId: string, seq: number): StoredMessage {
@@ -267,6 +285,9 @@ function metaChanged(was: StoredConversation | undefined, now: StoredConversatio
   return (
     !was ||
     was.title !== now.title ||
+    // Compared in its own right, not folded into the title: renaming a chat to the string it
+    // already had changes nothing visible and everything about whether the model may replace it.
+    was.titledBy !== now.titledBy ||
     was.createdAt !== now.createdAt ||
     was.updatedAt !== now.updatedAt ||
     was.settings !== now.settings
@@ -376,6 +397,7 @@ export async function loadConversations(): Promise<LoadResult> {
     conversations.push({
       id: stored.id,
       title: stored.title,
+      titledBy: titleSource(stored.titledBy),
       settings: normalizeSettings(stored.settings),
       createdAt: stored.createdAt,
       updatedAt: stored.updatedAt,
@@ -405,6 +427,7 @@ function normalizeConversation(value: unknown): Conversation | null {
   return {
     id: c.id,
     title: typeof c.title === "string" ? c.title : "New chat",
+    titledBy: titleSource(c.titledBy),
     settings: normalizeSettings(c.settings),
     createdAt: typeof c.createdAt === "number" ? c.createdAt : Date.now(),
     updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : Date.now(),

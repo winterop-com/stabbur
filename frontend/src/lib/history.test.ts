@@ -55,7 +55,15 @@ function message(id: string, content: string, extra: Partial<ChatMessage> = {}):
 }
 
 function conversation(id: string, messages: ChatMessage[], at = 1000): Conversation {
-  return { id, title: `chat ${id}`, settings: { ...DEFAULT_SETTINGS }, createdAt: at, updatedAt: at, messages };
+  return {
+    id,
+    title: `chat ${id}`,
+    titledBy: "derived",
+    settings: { ...DEFAULT_SETTINGS },
+    createdAt: at,
+    updatedAt: at,
+    messages,
+  };
 }
 
 /** Read a message row exactly as it sits in the database, bypassing the module's decode. */
@@ -208,6 +216,32 @@ describe("save and load", () => {
     expect(reloaded.conversations).toHaveLength(1); // conversation "a" is gone, not orphaned
     expect(reloaded.conversations[0].title).toBe("renamed");
     expect(reloaded.conversations[0].messages.map((m) => m.content)).toEqual(["two, edited", "appended"]);
+  });
+
+  it("remembers that a title was the user's own, so a reload cannot make it replaceable", async () => {
+    const first = await freshModule();
+    await first.loadConversations();
+    const named: Conversation = { ...conversation("a", [message("m1", "one")]), title: "Q3 numbers", titledBy: "user" };
+    expect(await first.saveConversations([named])).toBe("ok");
+
+    // The whole point of persisting the field: after a reload the title is a string like any other,
+    // and only `titledBy` still says it may not be overwritten.
+    const reloaded = await (await freshModule()).loadConversations();
+    expect(reloaded.conversations[0].title).toBe("Q3 numbers");
+    expect(reloaded.conversations[0].titledBy).toBe("user");
+  });
+
+  it("reads a record written before titles were tracked as replaceable, not as corrupt", async () => {
+    // Exactly what is in the store for every conversation that existed before this feature: the
+    // record, minus the field. It must come back usable, on the replaceable side — as must one
+    // carrying something that isn't a title source at all.
+    const old = { ...conversation("a", [message("m1", "one")]) } as Record<string, unknown>;
+    delete old.titledBy;
+    const bogus = { ...conversation("b", [message("m2", "two")], 2000), titledBy: 7 };
+    localStorage.setItem(LEGACY_KEY, JSON.stringify([old, bogus]));
+
+    const result = await (await freshModule()).loadConversations();
+    expect(result.conversations.map((c) => c.titledBy)).toEqual(["derived", "derived"]);
   });
 
   it("drops a confirmation still awaiting a decision, since the stream it belonged to is over", async () => {

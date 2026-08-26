@@ -73,11 +73,29 @@ export interface ChatMessage {
   model?: string; // the model that produced this turn (assistant turns), for export fidelity
 }
 
+/**
+ * How a conversation's title came to say what it says. Recorded rather than inferred, because the
+ * only question anyone asks of it — may this title be replaced? — cannot be answered by looking at
+ * the string: a name the user typed is indistinguishable from one the model produced, and a
+ * comparison against `deriveTitle`'s output would make a hand-typed name that happens to match
+ * fair game for overwriting.
+ *
+ * - `derived` — the first 40 characters of the first message (lib/store's `deriveTitle`), and the
+ *   placeholder every conversation starts on. Replaceable.
+ * - `model` — named by the model that answered the first exchange (lib/title). Replaceable, so a
+ *   later attempt can improve on it; nothing currently makes one.
+ * - `user` — typed into the sidebar's rename. NEVER replaced by anything automatic.
+ */
+export type TitleSource = "derived" | "model" | "user";
+
 /** A persisted conversation. Settings are per-conversation, not global, so each
  *  chat starts fresh and its system prompt / sampling never leak into the next. */
 export interface Conversation {
   id: string;
   title: string;
+  /** Where `title` came from, and therefore whether it may be replaced — see {@link TitleSource}.
+   *  A record written before this field existed reads back as `derived`. */
+  titledBy: TitleSource;
   messages: ChatMessage[];
   settings: Settings;
   createdAt: number;

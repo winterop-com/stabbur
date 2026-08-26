@@ -49,6 +49,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
 import { DEFAULT_SETTINGS, baselineServers, deriveTitle, serverScopes, uid, type Settings } from "@/lib/store";
 import { loadConversations, saveConversations } from "@/lib/history";
+import { applyModelTitle, requestConversationTitle } from "@/lib/title";
 import { useMcpServers } from "@/lib/useMcpServers";
 import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
@@ -827,6 +828,7 @@ export function App() {
     const conv: Conversation = {
       id: uid(),
       title: "New chat",
+      titledBy: "derived", // a placeholder, and replaceable by everything that follows
       messages: [],
       settings: initial,
       createdAt: now,
@@ -852,8 +854,11 @@ export function App() {
     [activeId],
   );
 
+  // A name someone typed. `titledBy` is what stops the model's background title from landing on top
+  // of it two seconds later, and what stops the first send from replacing it with a slice of the
+  // message — a chat can be renamed before it has been sent to.
   const renameConversation = useCallback(
-    (id: string, title: string) => upsertConv(id, (c) => ({ ...c, title })),
+    (id: string, title: string) => upsertConv(id, (c) => ({ ...c, title, titledBy: "user" })),
     [upsertConv],
   );
 
@@ -903,8 +908,12 @@ export function App() {
   }, []);
 
   // --- core: run a chat completion into an assistant turn ---
+  // Returns what the assistant actually said — the streamed content, and nothing else: not the
+  // reasoning, not an error banner this function wrote into the turn itself. `send` names the
+  // conversation from it (lib/title), and a title drawn from heim's own error text would be a
+  // conversation called "Error: runtime unreachable".
   const runCompletion = useCallback(
-    async (convId: string, priorMessages: ChatMessage[], assistantId: string) => {
+    async (convId: string, priorMessages: ChatMessage[], assistantId: string): Promise<string> => {
       setStreamingConvId(convId);
       const ctrl = new AbortController();
       abortRef.current = ctrl;
@@ -921,6 +930,7 @@ export function App() {
       // end of each round, so tick a live estimate from streamed deltas (llama.cpp emits one
       // token per delta) and correct it with the real numbers when they land.
       const startedAt = Date.now();
+      let assistantText = ""; // the reply as it arrives, for the caller (see the note above)
       let firstTokenAt: number | null = null; // set on the first streamed delta
       let promptTokens = 0;
       let usageCompletion = 0; // authoritative, summed across rounds
@@ -985,6 +995,7 @@ export function App() {
         })) {
           if (evt.type === "token") {
             markFirstToken();
+            assistantText += evt.text;
             deltas += 1;
             const live = statsFor(usageCompletion + deltas);
             upsertConv(convId, (c) => ({
@@ -1099,8 +1110,31 @@ export function App() {
         setStreamingConvId(null);
         abortRef.current = null;
       }
+      return assistantText;
     },
     [settings, tools, allowedServers, upsertConv, targets, targetId, reconcileTargetsFromServer],
+  );
+
+  /**
+   * Name a conversation with the model that just answered it, in the background.
+   *
+   * Fired once, after the first exchange has finished streaming — the user's reply is already on
+   * screen and nothing here delays it. THE MODEL IS THE LOADED ONE, never a choice: see lib/title
+   * for why asking for a different one would ping-pong tens of gigabytes of weights to produce five
+   * words. Every failure is silent, including no model at all, so the conversation simply keeps the
+   * title `deriveTitle` gave it.
+   */
+  const nameConversation = useCallback(
+    async (convId: string, prompt: string, image: string | null, reply: string) => {
+      const model = status?.model;
+      if (!model) return;
+      const title = await requestConversationTitle({ model, prompt, reply, image });
+      if (!title) return;
+      // `applyModelTitle` is where the never-overwrite-a-rename rule lives, and it is checked HERE
+      // rather than before the request: the user can rename the chat while this call is in flight.
+      upsertConv(convId, (c) => applyModelTitle(c, title));
+    },
+    [status?.model, upsertConv],
   );
 
   // --- send a new user turn ---
@@ -1132,19 +1166,44 @@ export function App() {
     };
 
     // Snapshot prior messages (before this turn) for the wire payload.
-    const prior = (conversations.find((c) => c.id === convId)?.messages ?? []).concat(userMsg);
+    const existing = conversations.find((c) => c.id === convId);
+    const prior = (existing?.messages ?? []).concat(userMsg);
+    // A chat renamed before it was ever sent to keeps that name whatever comes back, so there is
+    // nothing to ask for. `applyModelTitle` is still the authority — this only avoids spending a
+    // model call on an answer that could not be used.
+    const nameable = prior.length === 1 && existing?.titledBy !== "user";
 
     upsertConv(convId, (c) => ({
       ...c,
-      title: c.messages.length === 0 ? deriveTitle(text || "Attachment") : c.title,
+      // The derived title is the placeholder the model replaces once it has answered. It is skipped
+      // entirely for a chat that was renamed before its first message — that name is the user's.
+      title: c.messages.length === 0 && c.titledBy !== "user" ? deriveTitle(text || "Attachment") : c.title,
       updatedAt: Date.now(),
       messages: [...c.messages, userMsg, assistantMsg],
     }));
     setInput("");
     setAttachments([]);
 
-    await runCompletion(convId, prior, assistantMsg.id);
-  }, [input, attachments, isStreaming, ready, status?.model, activeId, conversations, newConversation, upsertConv, runCompletion]);
+    const reply = await runCompletion(convId, prior, assistantMsg.id);
+    // Now, not before: the answer has streamed, so this costs the user nothing, and the reply is
+    // the only description an image-only first message has. Only ONE image is sent, and only to a
+    // model with vision — a text-only model handed a picture answers confidently about nothing.
+    // Deliberately not awaited: the title lands whenever it lands.
+    if (nameable) void nameConversation(convId, text, visionModel ? (images[0] ?? null) : null, reply);
+  }, [
+    input,
+    attachments,
+    isStreaming,
+    ready,
+    status?.model,
+    visionModel,
+    activeId,
+    conversations,
+    newConversation,
+    upsertConv,
+    runCompletion,
+    nameConversation,
+  ]);
 
   // --- regenerate: drop last assistant turn, re-run the last user turn ---
   const regenerate = useCallback(async () => {
