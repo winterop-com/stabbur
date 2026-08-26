@@ -15,7 +15,7 @@ pytest.importorskip("trafilatura")
 
 from fastmcp import Client  # noqa: E402 - after importorskip so a base env skips cleanly
 
-from heim.mcp_servers.web import app, mcp  # noqa: E402
+from stabbur.mcp_servers.web import app, mcp  # noqa: E402
 
 
 async def test_server_exposes_read_url() -> None:

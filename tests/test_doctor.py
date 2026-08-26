@@ -1,4 +1,4 @@
-"""Tests for the `heim doctor` health checks."""
+"""Tests for the `stabbur doctor` health checks."""
 
 import socket
 from pathlib import Path
@@ -7,9 +7,9 @@ from typing import Any
 import httpx
 import pytest
 
-from heim import doctor, library
-from heim.config import Settings
-from heim.models import ModelFormat
+from stabbur import doctor, library
+from stabbur.config import Settings
+from stabbur.models import ModelFormat
 
 
 def _settings(tmp_path: Path, *, drive: bool = True) -> Settings:
@@ -20,11 +20,11 @@ def _settings(tmp_path: Path, *, drive: bool = True) -> Settings:
 
 
 def _shared_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """chdir into a project that lists @shared, with HEIM_LIBRARY_ROOT removed from the env."""
-    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
+    """chdir into a project that lists @shared, with STABBUR_LIBRARY_ROOT removed from the env."""
+    monkeypatch.delenv("STABBUR_LIBRARY_ROOT", raising=False)
     proj = tmp_path / "proj"
     proj.mkdir()
-    (proj / "heim.toml").write_text('libraries = ["library", "@shared"]\n[project]\nmodel = "x"\n')
+    (proj / "stabbur.toml").write_text('libraries = ["library", "@shared"]\n[project]\nmodel = "x"\n')
     monkeypatch.chdir(proj)
 
 
@@ -34,7 +34,7 @@ def test_project_warns_when_shared_unreachable(tmp_path: Path, monkeypatch: pyte
     assert "library_root" not in settings.model_fields_set
     shared = [c for c in doctor.check_project(settings) if c.name == "Shared library (@shared)"]
     assert shared and shared[0].status is doctor.CheckStatus.warn
-    assert shared[0].hint and "HEIM_LIBRARY_ROOT" in shared[0].hint
+    assert shared[0].hint and "STABBUR_LIBRARY_ROOT" in shared[0].hint
 
 
 def test_project_no_shared_warning_when_library_root_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -122,7 +122,7 @@ def test_check_model_missing_from_library_warns(tmp_path: Path, monkeypatch: pyt
 
 
 def test_check_model_prefers_what_is_actually_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A serving heim knows the resident model; the configured default is then not the answer, and
+    # A serving stabbur knows the resident model; the configured default is then not the answer, and
     # must not also appear — one fact, one row.
     monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Default"))
     rows = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel(name="pub/Running", n_ctx=32768))
@@ -145,7 +145,7 @@ def test_check_model_idle_server_is_not_a_warning(tmp_path: Path, monkeypatch: p
 
 
 def test_check_model_falls_back_to_the_upstreams_resident(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Under an upstream heim may have selected nothing, while the remote still has a model resident —
+    # Under an upstream stabbur may have selected nothing, while the remote still has a model resident —
     # that is what a message sent right now would run on, so it is the honest answer.
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
     row = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel(), resident="qwen3-coder")[0]
@@ -155,7 +155,7 @@ def test_check_model_falls_back_to_the_upstreams_resident(tmp_path: Path, monkey
 
 def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # No project and no machine default is plain free-play — surface no checks at all.
-    from heim import config
+    from stabbur import config
 
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-xdg"))  # no machine config
@@ -327,8 +327,8 @@ def test_mcp_children_nest_under_the_tools_summary() -> None:
     # a "MCP: " prefix back into a tree (which breaks the moment a check is renamed).
     from contextlib import AsyncExitStack
 
-    from heim import tools
-    from heim.routers.serving import core
+    from stabbur import tools
+    from stabbur.routers.serving import core
 
     toolset = tools.MCPToolset()
     toolset.schemas.append({"type": "function", "function": {"name": "datetime__now", "parameters": {}}})
@@ -345,12 +345,12 @@ def test_backend_row_leads_the_report(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_check_model_shows_machine_default_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Outside a project, the machine default model (heim config set model) is surfaced.
-    from heim import config, library
+    # Outside a project, the machine default model (stabbur config set model) is surfaced.
+    from stabbur import config, library
 
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
     monkeypatch.setattr(library, "find", lambda *_a, **_k: [object()])  # resolves in the library
-    cfg = tmp_path / "heim" / "config.toml"
+    cfg = tmp_path / "stabbur" / "config.toml"
     cfg.parent.mkdir(parents=True)
     cfg.write_text('default_model = "pub/Def"\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

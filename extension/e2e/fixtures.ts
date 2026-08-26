@@ -26,8 +26,8 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const SCRATCH =
-  process.env.HEIM_E2E_SCRATCH ??
-  "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
+  process.env.STABBUR_E2E_SCRATCH ??
+  "/private/tmp/claude-502/-Users-morteoh-dev-local-stabbur/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 /**
  * Absolute paths to the two built, unpacked extension flavors. The live tier needs the TEST-ONLY
@@ -39,14 +39,14 @@ const E2E_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3-e2e")
 const GENERIC_EXTENSION_PATH = path.resolve(HERE, "..", ".output", "chrome-mv3");
 
 /**
- * Which built flavor to load — chosen EXPLICITLY by `HEIM_E2E_BUILD`, never by an mtime heuristic
+ * Which built flavor to load — chosen EXPLICITLY by `STABBUR_E2E_BUILD`, never by an mtime heuristic
  * (a newer generic build must not hijack a live run, and two byte-identical builds must not resolve
  * a tie to a stale dir). The `e2e:live` script (and any live-related invocation) sets
- * `HEIM_E2E_BUILD=1` to route to the e2e build; everything else gets the generic build. Exported so
+ * `STABBUR_E2E_BUILD=1` to route to the e2e build; everything else gets the generic build. Exported so
  * a caller can assert the selection in a test.
  */
 export function selectExtensionPath(): string {
-  return process.env.HEIM_E2E_BUILD === "1" ? E2E_EXTENSION_PATH : GENERIC_EXTENSION_PATH;
+  return process.env.STABBUR_E2E_BUILD === "1" ? E2E_EXTENSION_PATH : GENERIC_EXTENSION_PATH;
 }
 
 export const EXTENSION_PATH = selectExtensionPath();
@@ -59,7 +59,7 @@ export function scratchRoot(): string {
 }
 
 /** A fresh, uniquely-named user-data dir under the scratch root (caller cleans it up). */
-export function userDataDir(prefix = "heim-ext-e2e-"): string {
+export function userDataDir(prefix = "stabbur-ext-e2e-"): string {
   return mkdtempSync(path.join(scratchRoot(), prefix));
 }
 
@@ -78,7 +78,7 @@ export async function resolveExtensionId(context: BrowserContext): Promise<strin
 
 async function launch(): Promise<{ context: BrowserContext; dir: string }> {
   if (!existsSync(EXTENSION_PATH)) {
-    const cmd = process.env.HEIM_E2E_BUILD === "1" ? "bun run build:e2e" : "bun run build";
+    const cmd = process.env.STABBUR_E2E_BUILD === "1" ? "bun run build:e2e" : "bun run build";
     throw new Error(
       `Built extension not found at ${EXTENSION_PATH}. Run \`${cmd}\` first (the e2e scripts do this).`,
     );
@@ -166,7 +166,7 @@ export async function openPanel(context: BrowserContext, extensionId: string): P
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/${PANEL_PATH}`);
   await page.waitForLoadState("domcontentloaded");
-  await page.getByRole("heading", { name: "heim" }).first().waitFor({ timeout: 15_000 });
+  await page.getByRole("heading", { name: "stabbur" }).first().waitFor({ timeout: 15_000 });
   return page;
 }
 

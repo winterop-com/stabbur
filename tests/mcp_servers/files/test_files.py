@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from heim.mcp_servers.files.core import FilesSettings, list_dir, read_text, safe_join, search, write_text
+from stabbur.mcp_servers.files.core import FilesSettings, list_dir, read_text, safe_join, search, write_text
 
 
 def _root(tmp_path: Path) -> FilesSettings:
@@ -57,7 +57,7 @@ def test_search_finds_lines_and_skips_vcs(tmp_path: Path) -> None:
 
 def test_writes_gated_by_flag(tmp_path: Path) -> None:
     ro = FilesSettings(root=tmp_path)
-    with pytest.raises(PermissionError, match="HEIM_FILES_WRITABLE"):
+    with pytest.raises(PermissionError, match="STABBUR_FILES_WRITABLE"):
         write_text(ro, "new.txt", "hi")
     rw = FilesSettings(root=tmp_path, writable=True)
     write_text(rw, "nested/new.txt", "hi")

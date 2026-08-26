@@ -15,13 +15,13 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from heim import chat_tui, runtime
-from heim.chat_tui._widgets import ConfirmModal
-from heim.chat_tui.app import _confirm_policy
-from heim.library import LibraryModel
-from heim.models import ModelFormat
-from heim.project import AssistantInfo, Project
-from heim.runtime.sampling import ModelSampling
+from stabbur import chat_tui, runtime
+from stabbur.chat_tui._widgets import ConfirmModal
+from stabbur.chat_tui.app import _confirm_policy
+from stabbur.library import LibraryModel
+from stabbur.models import ModelFormat
+from stabbur.project import AssistantInfo, Project
+from stabbur.runtime.sampling import ModelSampling
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +43,7 @@ def _fake_runtime(model: LibraryModel) -> runtime.RuntimeProc:
         base="http://127.0.0.1:9",
         port=9,
         cmd=["llama-server"],
-        state_dir=Path("/tmp/heim-fake-runtime"),
+        state_dir=Path("/tmp/stabbur-fake-runtime"),
         log_fh=None,
     )
     rt.model = model
@@ -158,7 +158,7 @@ class _StubToolset:
         return self
 
     async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> Any:
-        from heim import tools  # noqa: PLC0415
+        from stabbur import tools  # noqa: PLC0415
 
         self.calls.append(name)
         return tools.ToolResult(text="wrote")

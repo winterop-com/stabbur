@@ -1,5 +1,5 @@
-// A tiny in-process heim API mock for the mock E2E tier. It speaks just enough of
-// the heim contract (GET /api/status, POST /api/load/{name}, GET /api/tools,
+// A tiny in-process stabbur API mock for the mock E2E tier. It speaks just enough of
+// the stabbur contract (GET /api/status, POST /api/load/{name}, GET /api/tools,
 // POST /api/chat SSE, GET /api/assistant) for the extension panel to drive, and
 // exposes a mutable `state` so each test scripts its own scenario.
 //
@@ -49,7 +49,7 @@ export interface MockState {
   statusError: string | null;
   /** runtime_load_timeout advertised in status. */
   loadTimeout: number;
-  /** When true, every mutating POST answers 403 (heim cross-site guard). */
+  /** When true, every mutating POST answers 403 (stabbur cross-site guard). */
   block403Post: boolean;
   /** POST /api/load: ms after which phase auto-advances to ready (loading -> ready). */
   loadReadyAfterMs: number;
@@ -57,7 +57,7 @@ export interface MockState {
   loadCode: number | null;
   /** GET /api/assistant body, or "missing" for a 404 (single-assistant compat mode). */
   assistant: Record<string, unknown> | "missing";
-  /** GET /api/assistants registry (multi-target). null = the endpoint 404s (old heim / compat mode);
+  /** GET /api/assistants registry (multi-target). null = the endpoint 404s (old stabbur / compat mode);
    *  each target must carry `id` + `mcp_servers`. Selection is client-side, so `?url=` is ignored. */
   assistants: Record<string, unknown>[] | null;
   /** Extra `verified` block attached when GET /api/assistant(s)?verify=1. */
@@ -263,7 +263,7 @@ export class HeimMock {
     }
 
     // Multi-target registry list. Selection is client-side (the panel runs `selectTarget`), so the
-    // list is served verbatim and `?url=` is ignored. null -> 404 (old heim / single-assistant compat).
+    // list is served verbatim and `?url=` is ignored. null -> 404 (old stabbur / single-assistant compat).
     if (path === "/api/assistants" && method === "GET") {
       if (this.state.assistants === null) {
         this.json(res, 404, { detail: "No assistant registry" });
@@ -356,7 +356,7 @@ export class HeimMock {
     // Non-API GET: serve a tiny stub HTML page (used for tab-match tests).
     if (method === "GET") {
       res.writeHead(200, { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" });
-      res.end(`<!doctype html><title>heim mock ${path}</title><body>stub page</body>`);
+      res.end(`<!doctype html><title>stabbur mock ${path}</title><body>stub page</body>`);
       return;
     }
 

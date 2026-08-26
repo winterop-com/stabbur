@@ -66,12 +66,12 @@
      dot is that theme's green rather than a green imported into it. THE FOUR
      HUE FAMILIES ARE THE SAME IN EVERY THEME - a theme moves their lightness
      and chroma to suit its ground, never their family, because green means
-     healthy and amber means look-at-this on every screen heim has.
+     healthy and amber means look-at-this on every screen stabbur has.
 
      `--critical` is not `--destructive`, and the split is by who acts:
      `--destructive` is an affordance the reader can press to destroy something
      (and the error text shadcn already paints with it), `--critical` is a state
-     heim OBSERVED and is reporting - a failed doctor check has nothing for the
+     stabbur OBSERVED and is reporting - a failed doctor check has nothing for the
      reader to press. */
   --good: oklch(0.6 0.14 155);
   --critical: oklch(0.55 0.17 25);
@@ -85,7 +85,7 @@
      one actionable hue on the page stop meaning "act here". Each role is its own
      hue family, so a keyword can never be mistaken for a string, and none of
      them spends the identity blue. Comment and punctuation carry the theme's
-     own cast - here none, because heim's default theme is achromatic. */
+     own cast - here none, because stabbur's default theme is achromatic. */
   --code-keyword: oklch(0.46 0.15 300);
   --code-operator: oklch(0.48 0.08 25);
   --code-string: oklch(0.45 0.12 150);

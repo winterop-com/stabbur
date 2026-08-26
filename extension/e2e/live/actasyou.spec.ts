@@ -1,4 +1,4 @@
-// Live E2E: the act-as-you journey against real heim + the public play demo.
+// Live E2E: the act-as-you journey against real stabbur + the public play demo.
 // Complements live.spec.ts (which covers connect/chat/verify and the MANUAL bind):
 // this file drives the round-4 default path — sign-in-first, the AUTO-OFFER on a
 // matched logged-in tab, decline memory, bind, silent reuse, unbind — plus the
@@ -6,7 +6,7 @@
 // activeTab is not in effect; regression for the "injection failed" bug).
 //
 // Serial; both tests share ONE warm server (started in test 1, stopped in afterAll).
-// Set HEIM_DRIVE_SHOTS=<dir> to save a screenshot at each step.
+// Set STABBUR_DRIVE_SHOTS=<dir> to save a screenshot at each step.
 
 import { readFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -29,7 +29,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL = `http://127.0.0.1:${LIVE_PORT}`;
 const GENERIC_EXTENSION = path.resolve(HERE, "..", "..", ".output", "chrome-mv3");
 const MATCH_TEXT = TAB_MATCHED;
-const SHOTS = process.env.HEIM_DRIVE_SHOTS ?? "";
+const SHOTS = process.env.STABBUR_DRIVE_SHOTS ?? "";
 const HEADED = process.env.HEADED === "1" || process.env.HEADED === "true";
 
 let shotIndex = 0;
@@ -71,7 +71,7 @@ function profilesText(srv: LiveServer): string {
 let skipReason: string | null = null;
 let server: LiveServer | null = null;
 
-test.describe.serial("act-as-you against real heim + play42", () => {
+test.describe.serial("act-as-you against real stabbur + play42", () => {
   test.beforeAll(async () => {
     skipReason = await preflight(PLAY_BASE_URL);
     if (skipReason) return;
@@ -99,7 +99,7 @@ test.describe.serial("act-as-you against real heim + play42", () => {
 
       // The e2e build pre-grants the play origin statically; requestHostAccess resolves silently.
       const granted = await grantHostPermission(panel, new URL(PLAY_BASE_URL).origin);
-      expect(granted, "run with the e2e build: `bun run build:e2e` + HEIM_E2E_BUILD=1").toBe(true);
+      expect(granted, "run with the e2e build: `bun run build:e2e` + STABBUR_E2E_BUILD=1").toBe(true);
 
       // (1) Sign-in-first: matched tab, NOT logged in -> no auto-offer; the manual path routes to
       // the sign-in stage instead of a raw status error.
@@ -180,7 +180,7 @@ test.describe.serial("act-as-you against real heim + play42", () => {
       await tab.close();
       await panel.close();
     } catch (err) {
-      if (server) console.log(`[actasyou] heim serve log tail:\n${server.tailLog(60)}`);
+      if (server) console.log(`[actasyou] stabbur serve log tail:\n${server.tailLog(60)}`);
       throw err;
     }
   });
@@ -193,7 +193,7 @@ test.describe.serial("act-as-you against real heim + play42", () => {
     // A second browser context loading the GENERIC build (no static play grant, and no toolbar-icon
     // activeTab in automation) — exactly the state the manual bug report hit. The auto-probe must
     // surface the no-access hint, not a raw "injection failed" mint error.
-    const dir = userDataDir("heim-ext-noaccess-");
+    const dir = userDataDir("stabbur-ext-noaccess-");
     const ctx: BrowserContext = await chromium.launchPersistentContext(dir, {
       channel: "chromium",
       headless: !HEADED,
@@ -221,7 +221,7 @@ test.describe.serial("act-as-you against real heim + play42", () => {
       await tab.bringToFront();
       await expect(panel.getByText(MATCH_TEXT)).toBeVisible({ timeout: 60_000 });
       // The gesture-less auto-probe cannot inject -> the distinct no-access state, silently.
-      await expect(panel.getByText(/heim cannot read this page yet/)).toBeVisible({ timeout: 60_000 });
+      await expect(panel.getByText(/stabbur cannot read this page yet/)).toBeVisible({ timeout: 60_000 });
       await expect(panel.getByTestId("bind-consent")).toHaveCount(0);
       await expect(panel.getByText(/injection failed/)).toHaveCount(0);
       await shot(panel, "generic-noaccess-hint");

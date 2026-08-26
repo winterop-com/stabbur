@@ -1,27 +1,27 @@
 // Write-scoped "Use my login" binds. A writable assistant surfaces an "allow writes" toggle;
 // enabling it records a write-scoped binding (PAT minted with the full method set) that
 // TargetBanner reflects as "writes enabled". A session-mode write bind additionally captures the
-// XSRF token and ships it to heim as `extra_secret`.
+// XSRF token and ships it to stabbur as `extra_secret`.
 
 import { test, expect, openPanel, seedSettings, expandTarget } from "../fixtures";
 import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const heim = new HeimMock();
+const stabbur = new HeimMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {
-  await heim.start();
+  await stabbur.start();
   await target.start();
 });
 test.afterAll(async () => {
-  await heim.stop();
+  await stabbur.stop();
   await target.stop();
 });
 test.beforeEach(() => {
-  heim.reset();
-  heim.state.phase = "ready";
+  stabbur.reset();
+  stabbur.state.phase = "ready";
   target.reset();
 });
 
@@ -43,7 +43,7 @@ function sessionOnlyAssistant(baseUrl: string): Record<string, unknown> {
 }
 
 async function openWithTargetTab(context: BrowserContext, extensionId: string): Promise<{ panel: Page; tab: Page }> {
-  await seedSettings(context, extensionId, { baseUrl: heim.baseUrl(), token: "" });
+  await seedSettings(context, extensionId, { baseUrl: stabbur.baseUrl(), token: "" });
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
   const tab = await context.newPage();
@@ -94,7 +94,7 @@ test("a PAT write bind records write scope and TargetBanner shows 'writes enable
   context,
   extensionId,
 }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   // The consent card auto-offers; a writable assistant offers the write toggle — enable it.
@@ -113,7 +113,7 @@ test("a PAT write bind records write scope and TargetBanner shows 'writes enable
 });
 
 test("a read-only PAT bind shows read-only scope, no writes", async ({ context, extensionId }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   // The consent card auto-offers; leave "allow writes" unchecked -> read-only mint.
@@ -128,7 +128,7 @@ test("a read-only PAT bind shows read-only scope, no writes", async ({ context, 
 });
 
 test("a session write bind captures the XSRF token and sends it as extra_secret", async ({ context, extensionId }) => {
-  heim.state.assistant = sessionOnlyAssistant(target.baseUrl());
+  stabbur.state.assistant = sessionOnlyAssistant(target.baseUrl());
   // Seed the live session + CSRF cookies on the target origin so the in-panel capture reads them.
   await context.addCookies([
     { url: target.baseUrl(), name: "JSESSIONID", value: "sess-abc" },
@@ -153,7 +153,7 @@ test("a session write bind captures the XSRF token and sends it as extra_secret"
   await expandTarget(panel);
   await expect(panel.getByTestId("bind-scope")).toContainText("writes enabled");
 
-  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "session", extra_secret: "xsrf-xyz" });
   expect(String(bindCall?.body.secret)).toContain("JSESSIONID=sess-abc");
   await tab.close();
@@ -166,7 +166,7 @@ test("write-scope re-mint: a read-only PAT binding on a write assistant upgrades
   context,
   extensionId,
 }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   // Auto-offered consent, confirmed read-only (writes left unchecked) -> a read-only PAT binding.
@@ -200,7 +200,7 @@ test("write-scope re-mint: switching an open Rebind card to Enable writes re-min
   context,
   extensionId,
 }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   // Land a read-only PAT binding first (auto-offered consent, writes left unchecked).
@@ -230,7 +230,7 @@ test("write-scope re-mint: switching an open Rebind card to Enable writes re-min
 });
 
 test("write-scope re-mint: a writes-scoped binding shows no upgrade affordance", async ({ context, extensionId }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
@@ -245,7 +245,7 @@ test("write-scope re-mint: a writes-scoped binding shows no upgrade affordance",
 });
 
 test("write-scope re-mint: a read-only assistant never offers the upgrade", async ({ context, extensionId }) => {
-  heim.state.assistant = bindAssistant(target.baseUrl()); // readonly: true
+  stabbur.state.assistant = bindAssistant(target.baseUrl()); // readonly: true
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
@@ -258,7 +258,7 @@ test("write-scope re-mint: a read-only assistant never offers the upgrade", asyn
 });
 
 test("write-scope re-mint: a failed re-mint leaves the read-only binding intact", async ({ context, extensionId }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
   const { panel, tab } = await openWithTargetTab(context, extensionId);
 
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
@@ -282,8 +282,8 @@ test("write-scope re-mint: a failed re-mint leaves the read-only binding intact"
 });
 
 test("write-scope re-mint: a session-mode binding shows no upgrade affordance", async ({ context, extensionId }) => {
-  heim.state.assistant = writableAssistant(target.baseUrl());
-  await seedSettings(context, extensionId, { baseUrl: heim.baseUrl(), token: "" });
+  stabbur.state.assistant = writableAssistant(target.baseUrl());
+  await seedSettings(context, extensionId, { baseUrl: stabbur.baseUrl(), token: "" });
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
 
@@ -295,7 +295,7 @@ test("write-scope re-mint: a session-mode binding shows no upgrade affordance", 
   await panel.evaluate(
     (baseUrl) =>
       chrome.storage.local.set({
-        "heim-ext-binding:default:play42": {
+        "stabbur-ext-binding:default:play42": {
           backendId: "default",
           targetId: "play42",
           targetBaseUrl: baseUrl,

@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from heim import voice
-from heim.voice import Backend, VoiceKind, VoiceMode
+from stabbur import voice
+from stabbur.voice import Backend, VoiceKind, VoiceMode
 
 
 def test_registry_is_well_formed() -> None:
@@ -69,7 +69,7 @@ def test_import_copies_from_cache_and_prunes(tmp_path: Path, monkeypatch: object
     (repo_cache / "refs" / "main").write_text("abc123")
     lib = tmp_path / "lib"
 
-    from heim.voice import importer
+    from stabbur.voice import importer
 
     presence = next(p for p in voice.discover(lib) if p.spec.id == "kokoro")
     assert presence.in_cache and not presence.in_library
@@ -88,7 +88,7 @@ def test_pull_copies_from_another_library_without_downloading(tmp_path: Path, mo
 
     assert isinstance(monkeypatch, pytest.MonkeyPatch)
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))  # empty HF cache -> a download would be the only fallback
-    from heim.voice import importer
+    from stabbur.voice import importer
 
     shared = tmp_path / "shared"
     src = voice.voice_dir(shared) / "mlx-community/Kokoro-82M-bf16"
@@ -97,7 +97,7 @@ def test_pull_copies_from_another_library_without_downloading(tmp_path: Path, mo
     target = tmp_path / "proj"  # project-local library, initially empty
 
     # roots() in scope: project-local target first, then the shared archive.
-    monkeypatch.setattr("heim.library.roots", lambda settings=None: [target, shared])
+    monkeypatch.setattr("stabbur.library.roots", lambda settings=None: [target, shared])
 
     result = importer.pull_to_library("kokoro", target)
     assert result.copied_from == src  # copied library->library

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from heim import catalog, library, runtime
-from heim.config import Settings
-from heim.models import ModelFormat, ModelSource
-from heim.sources import base, huggingface, lmstudio, ollama
+from stabbur import catalog, library, runtime
+from stabbur.config import Settings
+from stabbur.models import ModelFormat, ModelSource
+from stabbur.sources import base, huggingface, lmstudio, ollama
 
 
 def _add_blob(store: Path, content: bytes) -> str:
@@ -584,7 +584,7 @@ def test_scan_spans_multiple_libraries(tmp_path: Path, monkeypatch: pytest.Monke
 def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A project's `libraries` list resolves relative paths against the cwd and the
     # `@shared` token to the machine default (library_root); no project → just the default.
-    from heim import project
+    from stabbur import project
 
     shared = tmp_path / "shared"
     monkeypatch.chdir(tmp_path)
@@ -594,20 +594,20 @@ def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(project, "load", lambda *a, **k: None)  # no project
     assert library.roots(settings) == [shared.resolve()]
 
-    proj = project.Project(libraries=[".heim/library", "@shared"])
+    proj = project.Project(libraries=[".stabbur/library", "@shared"])
     monkeypatch.setattr(project, "load", lambda *a, **k: proj)
-    assert library.roots(settings) == [(tmp_path / ".heim/library").resolve(), shared.resolve()]
+    assert library.roots(settings) == [(tmp_path / ".stabbur/library").resolve(), shared.resolve()]
 
 
 def test_roots_shared_token_strictness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # @shared resolves to the machine default (HEIM_LIBRARY_ROOT). When that isn't set
+    # @shared resolves to the machine default (STABBUR_LIBRARY_ROOT). When that isn't set
     # explicitly, @shared must hard-fail if it's the only source — but drop out silently
     # if the project also ships its own local library (so a `--local` project is self-contained).
-    from heim import project
+    from stabbur import project
 
-    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("STABBUR_LIBRARY_ROOT", raising=False)
     monkeypatch.chdir(tmp_path)
-    # cwd is the empty tmp_path (no .env / heim.toml) and the env var is unset, so
+    # cwd is the empty tmp_path (no .env / stabbur.toml) and the env var is unset, so
     # library_root is left at its default → "not set explicitly".
     settings = Settings()
     assert "library_root" not in settings.model_fields_set

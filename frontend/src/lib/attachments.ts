@@ -76,7 +76,7 @@ function kindOf(file: File, accept: Accept): FileKind {
 
 /** A kind the composer's attach menu can open a picker for. Not `FileKind`: this is
  *  the vocabulary a *reader* picks from, so "text" is text and code together, and
- *  "pdf" is its own entry because what heim does with one (extract, or rasterize)
+ *  "pdf" is its own entry because what stabbur does with one (extract, or rasterize)
  *  is worth saying before the dialog opens. */
 export type PickKind = "image" | "audio" | "text" | "pdf";
 
@@ -102,7 +102,7 @@ function rejectionNote(file: File): string {
   const name = file.name || "That file";
   if (file.type.startsWith("image/")) return `${name} needs a vision model — the loaded one can't see images.`;
   if (file.type.startsWith("audio/")) return `${name} needs an audio model — the loaded one can't hear audio.`;
-  if (file.type.startsWith("video/")) return `${name} is a video — heim can't attach video.`;
+  if (file.type.startsWith("video/")) return `${name} is a video — stabbur can't attach video.`;
   return `${name} isn't a supported attachment — text, code, PDF, image, and audio files work.`;
 }
 
@@ -152,7 +152,7 @@ async function readImageUrl(file: File): Promise<string> {
 }
 
 /** Load pdf.js on first use. The worker is bundled through Vite and served from our
- *  own origin — heim is self-hosted and must work with no network at all, so the
+ *  own origin — stabbur is self-hosted and must work with no network at all, so the
  *  CDN workerSrc every pdf.js snippet shows is not an option. */
 let pdfjs: Promise<typeof import("pdfjs-dist")> | null = null;
 function loadPdfjs(): Promise<typeof import("pdfjs-dist")> {

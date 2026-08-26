@@ -1,5 +1,5 @@
-// Live-tier harness: writes a throwaway heim project (bound to a real GGUF model +
-// the DHIS2 CLI bridge, pointed at the public play demo) and runs `heim serve`
+// Live-tier harness: writes a throwaway stabbur project (bound to a real GGUF model +
+// the DHIS2 CLI bridge, pointed at the public play demo) and runs `stabbur serve`
 // against it, so the extension panel can be driven end-to-end.
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 // moment the repo moved (it pointed at a directory that no longer existed) and could never work
 // for anyone else. This file sits at <repo>/extension/e2e/<dir>/, so the root is three up.
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-export const LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/heim/library");
+export const LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/stabbur/library");
 export const LIVE_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
 export const LIVE_PORT = 4599;
 
@@ -38,12 +38,12 @@ export const PLAY41_PROFILE = "play41";
 
 // The multi-target tier runs the shipped `dhis2-multi` model (Ornith-1.0-9B; won the tools-dhis2
 // benchmark and is the template's default), not the single-tier gemma — so the target-scoped chat
-// exercises the same model a real `heim project new --template dhis2-multi` ships.
+// exercises the same model a real `stabbur project new --template dhis2-multi` ships.
 export const LIVE_MULTI_MODEL = "deepreinforce-ai/Ornith-1.0-9B-GGUF";
 
 // System prompts. READ_SYSTEM_PROMPT mirrors the `dhis2` template (read-only play demo);
 // WRITE_SYSTEM_PROMPT mirrors the `dhis2-write` template (read+write local instance). Kept in
-// sync with src/heim/project/templates.py so the live tiers exercise the shipped prompts.
+// sync with src/stabbur/project/templates.py so the live tiers exercise the shipped prompts.
 export const READ_SYSTEM_PROMPT =
   "You are a DHIS2 assistant for a connected DHIS2 instance. For questions about DHIS2 data or metadata - counts, UIDs, names, analytics, system details - use the dhis2 tools (the dhis2_cli tool) to look up real values; never invent counts, UIDs, or metadata. To use a name in analytics or a filter, resolve it to a UID first with a metadata search or a filtered list. Messages may begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Treat that context as information the user gave you: answer questions about the current page, its visible content, or the signed-in user directly from it, without calling tools, and answer general questions normally instead of refusing. Two accounts can differ: the 'Browser session user' is the person viewing the page in their browser; your tools authenticate separately as the 'Tool account'. When asked 'who am I', answer with the browser session user from the context when present; report the tool account only when asked which credentials the tools use. Keep answers concise and state the values you retrieved.";
 
@@ -52,7 +52,7 @@ export const WRITE_SYSTEM_PROMPT =
 
 // MULTI_SYSTEM_PROMPT mirrors the shipped `dhis2-multi` template (two read-only targets, tools
 // namespaced per instance, e.g. play42__dhis2_cli / play41__dhis2_cli). Kept in sync with
-// src/heim/project/templates.py so the live multi tier exercises the shipped prompt.
+// src/stabbur/project/templates.py so the live multi tier exercises the shipped prompt.
 export const MULTI_SYSTEM_PROMPT =
   "You are a DHIS2 assistant that can talk to more than one connected DHIS2 instance. Each instance has its own set of dhis2 tools (a dhis2_cli tool namespaced per instance, e.g. play42__dhis2_cli and play41__dhis2_cli); use the tools for the instance the question is about. For questions about DHIS2 data or metadata - counts, UIDs, names, analytics, system details - use those tools to look up real values; never invent counts, UIDs, or metadata. To use a name in analytics or a filter, resolve it to a UID first with a metadata search or a filtered list. When a question compares two instances, query each with its own tools and report both. Messages may begin with page context supplied by the user's browser: lines labeled 'Page URL:', 'Page title:', 'Selected text:', 'Page text (truncated):', 'Browser session user:', and 'Tool account:'. Treat that context as information the user gave you: answer questions about the current page, its visible content, or the signed-in user directly from it, without calling tools, and answer general questions normally instead of refusing. The 'Browser session user' is the person viewing the page in their browser; your tools authenticate separately as the 'Tool account'. When asked 'who am I', answer with the browser session user from the context when present; report the tool account only when asked which credentials the tools use. Keep answers concise and state the values you retrieved and which instance they came from.";
 
@@ -107,8 +107,8 @@ export const MULTI_TARGETS: TargetSpec[] = [
 ];
 
 const SCRATCH =
-  process.env.HEIM_E2E_SCRATCH ??
-  "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
+  process.env.STABBUR_E2E_SCRATCH ??
+  "/private/tmp/claude-502/-Users-morteoh-dev-local-stabbur/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 /** Reachability preflight: any HTTP response counts as reachable; only a network
  *  failure means the instance is down. Returns null when reachable, else a reason. */
@@ -159,14 +159,14 @@ export function warmBridge(): void {
 }
 
 // The fixture manifest mirrors the dhis2 / dhis2-write template's render_manifest — so the live
-// tiers exercise the same [assistant.probe] + [assistant.bind] blocks a real `heim project new
+// tiers exercise the same [assistant.probe] + [assistant.bind] blocks a real `stabbur project new
 // --template {dhis2,dhis2-write}` produces. Only the profile name, base_url, readonly flag, model,
 // and system_prompt vary between the read (play42) and write (local_basic) configs; the probe +
 // mint recipe are identical (matching _dhis2_assistant in templates.py). String.raw keeps the
 // JSON-escaped backslashes in the mint_payload literal. A `project.load` of this text is implicitly
-// asserted by heim serve booting against it.
+// asserted by stabbur serve booting against it.
 // One `[[assistants]]` array element for the multi-target fixture. Mirrors _dhis2_assistant(...,
-// owns_server=True) in src/heim/project/templates.py: the verify tool + `mcp_servers` are namespaced
+// owns_server=True) in src/stabbur/project/templates.py: the verify tool + `mcp_servers` are namespaced
 // to this target's own bridge (server name == profile), so per-turn routing sends only its tools.
 function buildAssistantBlock(t: TargetSpec): string {
   return String.raw`
@@ -218,22 +218,22 @@ timeout = 60.0
 `;
 }
 
-// The multi-target heim.toml: one [project] head + an [[assistants]] array (one block per target).
-// Mirrors the shipped dhis2-multi template (render_manifest with a registry); heim loads it as an
+// The multi-target stabbur.toml: one [project] head + an [[assistants]] array (one block per target).
+// Mirrors the shipped dhis2-multi template (render_manifest with a registry); stabbur loads it as an
 // N-target AssistantRegistry, so /api/assistants lists every target and each chat turn routes by id.
 function buildMultiHeimToml(opts: LiveServerOptions): string {
   const blocks = (opts.targets ?? []).map(buildAssistantBlock).join("");
-  return String.raw`# heim project — a multi-target assistant (model + system prompt + N targets).
+  return String.raw`# stabbur project — a multi-target assistant (model + system prompt + N targets).
 # Portable + committable: no machine-specific paths. Tools live in .mcp.json.
 
-# Uses your machine library (HEIM_LIBRARY_ROOT). To also read a project-local
+# Uses your machine library (STABBUR_LIBRARY_ROOT). To also read a project-local
 # store, add:  libraries = ["models", "@shared"]  (relative to this file).
 
 [project]
 model = ${JSON.stringify(opts.model)}
 system_prompt = ${JSON.stringify(opts.systemPrompt)}
 
-# [[assistants]] - target metadata for UI clients; heim echoes it, never interprets it.
+# [[assistants]] - target metadata for UI clients; stabbur echoes it, never interprets it.
 ${blocks}`;
 }
 
@@ -241,17 +241,17 @@ function buildHeimToml(opts: LiveServerOptions): string {
   if (opts.targets && opts.targets.length > 0) return buildMultiHeimToml(opts);
   // JSON.stringify emits a valid TOML basic string (escapes ", \\, control chars) for the model +
   // system_prompt, so we never hand-escape the long prompt.
-  return String.raw`# heim project — a purpose-built assistant (model + system prompt).
+  return String.raw`# stabbur project — a purpose-built assistant (model + system prompt).
 # Portable + committable: no machine-specific paths. Tools live in .mcp.json.
 
-# Uses your machine library (HEIM_LIBRARY_ROOT). To also read a project-local
+# Uses your machine library (STABBUR_LIBRARY_ROOT). To also read a project-local
 # store, add:  libraries = ["models", "@shared"]  (relative to this file).
 
 [project]
 model = ${JSON.stringify(opts.model)}
 system_prompt = ${JSON.stringify(opts.systemPrompt)}
 
-# [assistant] - target metadata for UI clients; heim echoes it, never interprets it.
+# [assistant] - target metadata for UI clients; stabbur echoes it, never interprets it.
 [assistant]
 name = "${opts.profile}"
 base_url = ${JSON.stringify(opts.baseUrl)}
@@ -345,31 +345,31 @@ export interface LiveServer {
   tailLog: (lines?: number) => string;
 }
 
-/** Create the fixture project and spawn `heim serve` with CORS allowing the
+/** Create the fixture project and spawn `stabbur serve` with CORS allowing the
  *  extension origin. Does NOT wait for readiness — the panel drives that. The optional `options`
  *  select the config emitted; omitted fields fall back to the read-only play42 defaults, so the
  *  read tier's `startLiveServer(extensionId)` call is unchanged. */
 export function startLiveServer(extensionId: string, options: Partial<LiveServerOptions> = {}): LiveServer {
   const opts: LiveServerOptions = { ...DEFAULT_LIVE_OPTIONS, ...options };
   const root = existsSync(SCRATCH) ? SCRATCH : tmpdir();
-  const dir = mkdtempSync(path.join(root, "heim-live-fixture-"));
-  writeFileSync(path.join(dir, "heim.toml"), buildHeimToml(opts));
+  const dir = mkdtempSync(path.join(root, "stabbur-live-fixture-"));
+  writeFileSync(path.join(dir, "stabbur.toml"), buildHeimToml(opts));
   writeFileSync(path.join(dir, ".mcp.json"), buildMcpJson(opts));
   mkdirSync(path.join(dir, ".dhis2"), { recursive: true });
   writeFileSync(path.join(dir, ".dhis2", "profiles.toml"), buildProfilesToml(opts));
 
-  const logPath = path.join(dir, "heim-serve.log");
+  const logPath = path.join(dir, "stabbur-serve.log");
   const logFd = openSync(logPath, "a");
 
   const child = spawn(
     "uv",
-    ["run", "--project", REPO_ROOT, "heim", "serve", "--port", String(LIVE_PORT)],
+    ["run", "--project", REPO_ROOT, "stabbur", "serve", "--port", String(LIVE_PORT)],
     {
       cwd: dir,
       env: {
         ...process.env,
-        HEIM_LIBRARY_ROOT: LIBRARY_ROOT,
-        HEIM_CORS_ORIGINS: `chrome-extension://${extensionId}`,
+        STABBUR_LIBRARY_ROOT: LIBRARY_ROOT,
+        STABBUR_CORS_ORIGINS: `chrome-extension://${extensionId}`,
       },
       detached: true, // own process group, so we can group-kill spawned runtimes
       stdio: ["ignore", logFd, logFd],
@@ -391,7 +391,7 @@ export function startLiveServer(extensionId: string, options: Partial<LiveServer
     } catch {
       /* already gone */
     }
-    // Give heim's supervisor time to reap the runtime, then hard-kill if needed.
+    // Give stabbur's supervisor time to reap the runtime, then hard-kill if needed.
     await new Promise((r) => setTimeout(r, 4000));
     try {
       if (child.pid) process.kill(-child.pid, "SIGKILL");

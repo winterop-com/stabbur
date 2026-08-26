@@ -9,23 +9,23 @@ import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant, bindAssistantTarget } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const heim = new HeimMock();
+const stabbur = new HeimMock();
 const siteA = new TargetSiteMock();
 const siteB = new TargetSiteMock();
 
 test.beforeAll(async () => {
-  await heim.start();
+  await stabbur.start();
   await siteA.start();
   await siteB.start();
 });
 test.afterAll(async () => {
-  await heim.stop();
+  await stabbur.stop();
   await siteA.stop();
   await siteB.stop();
 });
 test.beforeEach(() => {
-  heim.reset();
-  heim.state.phase = "ready";
+  stabbur.reset();
+  stabbur.state.phase = "ready";
   siteA.reset();
   siteB.reset();
 });
@@ -40,9 +40,9 @@ function simpleTarget(id: string, name: string, baseUrl: string): Record<string,
 // Pre-multi-target storage keys (keyed by backend alone, no target segment) — what an install from
 // before the multi-target registry left behind. Seeded before the panel loads so its one-time
 // migration (migrateLegacyRecords, run right after the registry resolves) adopts them.
-const LEGACY_BINDING_KEY = "heim-ext-binding:default";
-const LEGACY_STALE_KEY = "heim-ext-binding-stale:default";
-const LEGACY_DISMISS_KEY = "heim-ext-binding-dismissed:default";
+const LEGACY_BINDING_KEY = "stabbur-ext-binding:default";
+const LEGACY_STALE_KEY = "stabbur-ext-binding-stale:default";
+const LEGACY_DISMISS_KEY = "stabbur-ext-binding-dismissed:default";
 
 /** Seed a pre-multi-target binding (+ its stale flag + auto-offer dismissal) under the un-scoped legacy
  *  keys, BEFORE the panel opens. A session-mode (cookie) binding is used so the record is exactly the
@@ -52,7 +52,7 @@ async function seedLegacyRecords(context: BrowserContext, extensionId: string, b
   await page.goto(`chrome-extension://${extensionId}/${PANEL_PATH}`);
   await page.evaluate((url) => {
     return chrome.storage.local.set({
-      "heim-ext-binding:default": {
+      "stabbur-ext-binding:default": {
         backendId: "default",
         targetBaseUrl: url,
         mode: "session",
@@ -61,8 +61,8 @@ async function seedLegacyRecords(context: BrowserContext, extensionId: string, b
         cookieName: "JSESSIONID",
         writes: true,
       },
-      "heim-ext-binding-stale:default": true,
-      "heim-ext-binding-dismissed:default": { backendId: "default", targetBaseUrl: url, username: "admin" },
+      "stabbur-ext-binding-stale:default": true,
+      "stabbur-ext-binding-dismissed:default": { backendId: "default", targetBaseUrl: url, username: "admin" },
     });
   }, baseUrl);
   await page.close();
@@ -74,7 +74,7 @@ function readStorage(panel: Page): Promise<Record<string, unknown>> {
 }
 
 async function openReady(context: BrowserContext, extensionId: string): Promise<Page> {
-  await seedSettings(context, extensionId, { baseUrl: heim.baseUrl(), token: "" });
+  await seedSettings(context, extensionId, { baseUrl: stabbur.baseUrl(), token: "" });
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
   return panel;
@@ -87,7 +87,7 @@ async function sendChat(panel: Page, text: string): Promise<void> {
 
 /** The `target` field of the most recent POST /api/chat body the mock recorded. */
 function lastChatTarget(): unknown {
-  const raw = heim.state.chatRequests.at(-1);
+  const raw = stabbur.state.chatRequests.at(-1);
   return raw ? (JSON.parse(raw) as { target?: unknown }).target : undefined;
 }
 
@@ -95,7 +95,7 @@ test("distinct targets: tab selects one, navigation auto-switches, chat carries 
   context,
   extensionId,
 }) => {
-  heim.state.assistants = [
+  stabbur.state.assistants = [
     simpleTarget("alpha", "Alpha", siteA.baseUrl()),
     simpleTarget("beta", "Beta", siteB.baseUrl()),
   ];
@@ -111,7 +111,7 @@ test("distinct targets: tab selects one, navigation auto-switches, chat carries 
   await expect(panel.getByTestId("target-picker")).toHaveCount(0);
 
   await sendChat(panel, "hello A");
-  await expect.poll(() => heim.state.chatRequests.length).toBeGreaterThan(0);
+  await expect.poll(() => stabbur.state.chatRequests.length).toBeGreaterThan(0);
   expect(lastChatTarget()).toBe("alpha");
 
   // Navigate the same tab under B's origin -> the panel auto-switches to B.
@@ -120,13 +120,13 @@ test("distinct targets: tab selects one, navigation auto-switches, chat carries 
   await expect(panel.getByText("Beta", { exact: true })).toBeVisible({ timeout: 15_000 });
 
   await sendChat(panel, "hello B");
-  await expect.poll(() => heim.state.chatRequests.length).toBeGreaterThan(1);
+  await expect.poll(() => stabbur.state.chatRequests.length).toBeGreaterThan(1);
   expect(lastChatTarget()).toBe("beta");
   await tab.close();
 });
 
 test("same-base tie: a picker appears and choosing one drives banner + chat", async ({ context, extensionId }) => {
-  heim.state.assistants = [
+  stabbur.state.assistants = [
     simpleTarget("alpha", "Alpha", siteA.baseUrl()),
     simpleTarget("beta", "Beta", siteA.baseUrl()), // identical base_url -> ambiguous
   ];
@@ -146,7 +146,7 @@ test("same-base tie: a picker appears and choosing one drives banner + chat", as
   await expect(panel.getByTestId("target-picker")).toHaveValue("beta");
 
   await sendChat(panel, "pick beta");
-  await expect.poll(() => heim.state.chatRequests.length).toBeGreaterThan(0);
+  await expect.poll(() => stabbur.state.chatRequests.length).toBeGreaterThan(0);
   expect(lastChatTarget()).toBe("beta");
   await tab.close();
 });
@@ -155,7 +155,7 @@ test("per-target binding isolation: bind A, switch to B (unbound), switch back t
   context,
   extensionId,
 }) => {
-  heim.state.assistants = [
+  stabbur.state.assistants = [
     bindAssistantTarget("alpha", siteA.baseUrl(), { name: "Alpha" }),
     bindAssistantTarget("beta", siteB.baseUrl(), { name: "Beta" }),
   ];
@@ -169,7 +169,7 @@ test("per-target binding isolation: bind A, switch to B (unbound), switch back t
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
-  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.targetId).toBe("alpha");
 
   // Switch the tab to B's origin -> auto-switch to B. B has no binding of its own: no acting-as chip,
@@ -193,8 +193,8 @@ test("single-assistant 404-compat: registry endpoint 404 falls back to /api/assi
 }) => {
   // No registry, but the old single-assistant route answers -> the panel wraps it as a one-target
   // registry and binds/verifies via the compat /api/assistant* routes.
-  heim.state.assistants = null;
-  heim.state.assistant = bindAssistant(siteA.baseUrl());
+  stabbur.state.assistants = null;
+  stabbur.state.assistant = bindAssistant(siteA.baseUrl());
   const panel = await openReady(context, extensionId);
 
   const tab = await context.newPage();
@@ -206,12 +206,12 @@ test("single-assistant 404-compat: registry endpoint 404 falls back to /api/assi
   await panel.getByTestId("bind-confirm").click();
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
   // Compat mode uses the un-scoped route: the bind call carries no target id.
-  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall).toBeTruthy();
   expect(bindCall?.targetId).toBeUndefined();
 
   await sendChat(panel, "compat hi");
-  await expect.poll(() => heim.state.chatRequests.length).toBeGreaterThan(0);
+  await expect.poll(() => stabbur.state.chatRequests.length).toBeGreaterThan(0);
   // A single compat target still narrows the chat to its derived id (slugified "play42").
   expect(lastChatTarget()).toBe("play42");
   await tab.close();
@@ -223,7 +223,7 @@ test("legacy migration: a pre-multi-target record is adopted onto the PRIMARY co
 }) => {
   // A real >1-target registry: alpha is the primary, so the legacy record (no target segment) must land
   // on alpha's composite keys, NOT whichever target a tab happened to select.
-  heim.state.assistants = [
+  stabbur.state.assistants = [
     simpleTarget("alpha", "Alpha", siteA.baseUrl()),
     simpleTarget("beta", "Beta", siteB.baseUrl()),
   ];
@@ -233,14 +233,14 @@ test("legacy migration: a pre-multi-target record is adopted onto the PRIMARY co
   // Once the registry resolves, the panel migrates the legacy record onto alpha's composite key. Poll
   // until adoption lands (the migration is async, kicked off from the registry-load effect).
   await expect
-    .poll(() => panel.evaluate(() => chrome.storage.local.get("heim-ext-binding:default:alpha").then((r) => r["heim-ext-binding:default:alpha"] ?? null)))
+    .poll(() => panel.evaluate(() => chrome.storage.local.get("stabbur-ext-binding:default:alpha").then((r) => r["stabbur-ext-binding:default:alpha"] ?? null)))
     .not.toBeNull();
 
   const all = await readStorage(panel);
   // The binding is now composite-keyed, stamped with the PRIMARY targetId + compat, fields preserved.
   // A targetId-stamped composite record is exactly what the background worker's index requires (it
   // skips any record without one), so this is the background-visible shape.
-  expect(all["heim-ext-binding:default:alpha"]).toMatchObject({
+  expect(all["stabbur-ext-binding:default:alpha"]).toMatchObject({
     backendId: "default",
     targetId: "alpha",
     compat: false,
@@ -248,12 +248,12 @@ test("legacy migration: a pre-multi-target record is adopted onto the PRIMARY co
     cookieName: "JSESSIONID",
     writes: true,
   });
-  expect(all["heim-ext-binding-stale:default:alpha"]).toBe(true);
-  expect(all["heim-ext-binding-dismissed:default:alpha"]).toMatchObject({ targetId: "alpha", username: "admin" });
+  expect(all["stabbur-ext-binding-stale:default:alpha"]).toBe(true);
+  expect(all["stabbur-ext-binding-dismissed:default:alpha"]).toMatchObject({ targetId: "alpha", username: "admin" });
   // Every legacy key is gone (migrated exactly once, then removed).
-  expect("heim-ext-binding:default" in all).toBe(false);
-  expect("heim-ext-binding-stale:default" in all).toBe(false);
-  expect("heim-ext-binding-dismissed:default" in all).toBe(false);
+  expect("stabbur-ext-binding:default" in all).toBe(false);
+  expect("stabbur-ext-binding-stale:default" in all).toBe(false);
+  expect("stabbur-ext-binding-dismissed:default" in all).toBe(false);
 });
 
 test("legacy migration: compat single-assistant stamps compat=true on the derived primary id", async ({
@@ -262,16 +262,16 @@ test("legacy migration: compat single-assistant stamps compat=true on the derive
 }) => {
   // 404-compat single assistant: the derived primary id is the slugified name ("play42") and the
   // migrated record must carry compat=true so unbind / re-sync use the un-scoped /api/assistant* routes.
-  heim.state.assistants = null;
-  heim.state.assistant = bindAssistant(siteA.baseUrl());
+  stabbur.state.assistants = null;
+  stabbur.state.assistant = bindAssistant(siteA.baseUrl());
   await seedLegacyRecords(context, extensionId, siteA.baseUrl());
   const panel = await openReady(context, extensionId);
 
   await expect
-    .poll(() => panel.evaluate(() => chrome.storage.local.get("heim-ext-binding:default:play42").then((r) => r["heim-ext-binding:default:play42"] ?? null)))
+    .poll(() => panel.evaluate(() => chrome.storage.local.get("stabbur-ext-binding:default:play42").then((r) => r["stabbur-ext-binding:default:play42"] ?? null)))
     .not.toBeNull();
 
   const all = await readStorage(panel);
-  expect(all["heim-ext-binding:default:play42"]).toMatchObject({ targetId: "play42", compat: true });
-  expect("heim-ext-binding:default" in all).toBe(false);
+  expect(all["stabbur-ext-binding:default:play42"]).toMatchObject({ targetId: "play42", compat: true });
+  expect("stabbur-ext-binding:default" in all).toBe(false);
 });

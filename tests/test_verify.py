@@ -1,4 +1,4 @@
-"""Tests for `heim library verify` — on-disk integrity checks."""
+"""Tests for `stabbur library verify` — on-disk integrity checks."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from heim import library
-from heim.models import ModelFormat
-from heim.sources.base import dir_stats
+from stabbur import library
+from stabbur.models import ModelFormat
+from stabbur.sources.base import dir_stats
 
 
 def _gguf_model(tmp_path: Path, *, empty: bool = False, with_card: bool = True) -> library.LibraryModel:
@@ -18,7 +18,7 @@ def _gguf_model(tmp_path: Path, *, empty: bool = False, with_card: bool = True) 
     gguf.write_bytes(b"" if empty else b"weights")
     if with_card:
         (repo / "README.md").write_text("# card")
-    sidecar = repo / ".heim"
+    sidecar = repo / ".stabbur"
     sidecar.mkdir()
     # Record the stats a real pull would: measured with dir_stats, after the files are in place.
     size, files = dir_stats(repo)
@@ -54,7 +54,7 @@ def test_verify_flags_an_extra_or_missing_file(tmp_path: Path) -> None:
 def test_verify_skips_the_size_check_when_the_sidecar_never_recorded_it(tmp_path: Path) -> None:
     # Older pulls wrote no size_bytes; they must not all report as damaged.
     model = _gguf_model(tmp_path)
-    (model.path / ".heim" / "metadata.json").write_text('{"card": "README.md"}')
+    (model.path / ".stabbur" / "metadata.json").write_text('{"card": "README.md"}')
     model.load_target.write_bytes(b"much shorter than recorded")
     result = library.verify(model)
     assert result.ok

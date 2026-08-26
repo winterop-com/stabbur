@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
  * backdrop click, Escape, focus trap and scroll lock all come for free). Ported from the sibling
  * dhis2w-fhir-serve so the two codebases share one component family, minus its drag-to-resize left
  * edge — that answers "how wide do I want to read this", which only means something on a window
- * with width to spare, and heim's sheet is the *narrow*-window branch.
+ * with width to spare, and stabbur's sheet is the *narrow*-window branch.
  */
 const Sheet = SheetPrimitive.Root;
 const SheetTrigger = SheetPrimitive.Trigger;

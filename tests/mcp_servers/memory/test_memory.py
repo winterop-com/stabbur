@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from heim.mcp_servers.memory.core import MemorySettings, MemoryStore
+from stabbur.mcp_servers.memory.core import MemorySettings, MemoryStore
 
 
 def test_set_get_roundtrip(tmp_path: Path) -> None:
@@ -51,18 +51,18 @@ def test_corrupt_file_is_tolerated(tmp_path: Path) -> None:
 
 
 def test_settings_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # explicit HEIM_MEMORY_DIR wins
+    # explicit STABBUR_MEMORY_DIR wins
     assert MemorySettings(memory_dir=tmp_path / "mem").notes_path() == tmp_path / "mem" / "notes.json"
     # else derived under the library root
     assert (
         MemorySettings(library_root=tmp_path / "lib").notes_path()
-        == tmp_path / "lib" / ".heim" / "memory" / "notes.json"
+        == tmp_path / "lib" / ".stabbur" / "memory" / "notes.json"
     )
     # else a project-local fallback — only when nothing in the environment supplies a
     # library root, so make the unconfigured state explicit rather than ambient.
-    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
-    monkeypatch.delenv("HEIM_MEMORY_DIR", raising=False)
-    assert MemorySettings().notes_path() == Path(".heim/memory") / "notes.json"
+    monkeypatch.delenv("STABBUR_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("STABBUR_MEMORY_DIR", raising=False)
+    assert MemorySettings().notes_path() == Path(".stabbur/memory") / "notes.json"
 
 
 def test_load_tolerates_non_object_entries(tmp_path: Path) -> None:

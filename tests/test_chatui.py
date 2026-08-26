@@ -4,14 +4,14 @@ import io
 
 from rich.console import Console
 
-from heim import chatui
+from stabbur import chatui
 
 
 def test_assistant_prefix_prints_label() -> None:
     buf = io.StringIO()
     console = Console(file=buf, force_terminal=False, width=80)
     chatui.assistant_prefix(console, inline=False)
-    assert "heim" in buf.getvalue()  # reply label
+    assert "stabbur" in buf.getvalue()  # reply label
 
 
 def test_thinking_returns_progress() -> None:

@@ -8,18 +8,18 @@
 // stays under localStorage is what belongs there: small, per-machine, per-browser preferences.
 
 // The two appearance axes, named the way the screen names them: the THEME is the named
-// colour set, the MODE is light/dark. `heim.theme` held light/dark before that alignment,
-// so a browser that used heim then still has "dark" under this key — which is why
+// colour set, the MODE is light/dark. `stabbur.theme` held light/dark before that alignment,
+// so a browser that used stabbur then still has "dark" under this key — which is why
 // `loadTheme` validates against THEMES rather than trusting what it reads.
-const THEME_KEY = "heim.theme";
-const MODE_KEY = "heim.mode";
+const THEME_KEY = "stabbur.theme";
+const MODE_KEY = "stabbur.mode";
 
 export interface Settings {
-  // null = use the project default (heim.toml); "" = explicitly no system prompt;
+  // null = use the project default (stabbur.toml); "" = explicitly no system prompt;
   // a string = override. Kept distinct so a project's prompt applies by default.
   systemPrompt: string | null;
   maxTokens: number | null;
-  /** Sampling overrides for this chat; null = the value the model (or heim) recommends, which the
+  /** Sampling overrides for this chat; null = the value the model (or stabbur) recommends, which the
    *  server resolves — the panel only ever *shows* that number, it never sends one it made up. */
   temperature: number | null;
   topP: number | null;
@@ -74,7 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
  *  A machine-wide switch says which servers *run*; this says which a new conversation may
  *  *call*. Everything the user switched on for one question would otherwise stay live in every
- *  later chat. `datetime` is the safe baseline (heim seeds it, and it reaches nothing), and a
+ *  later chat. `datetime` is the safe baseline (stabbur seeds it, and it reaches nothing), and a
  *  project's own servers are included because a project assistant exists to use them — starting
  *  its chats with its tools off would break the thing the project is for.
  */
@@ -85,8 +85,8 @@ export function baselineServers(servers: { name: string; scope: string | null }[
 /** Every server the UI knows of, each with the scope `baselineServers` judges it by.
  *
  *  Two sources, because neither is the whole picture: the catalogue (/api/mcp/servers) is exactly
- *  the set heim ships — the only set the machine-wide switch can start, and the only one carrying a
- *  resolved scope — while the attached tools (/api/tools) also cover servers heim doesn't ship and
+ *  the set stabbur ships — the only set the machine-wide switch can start, and the only one carrying a
+ *  resolved scope — while the attached tools (/api/tools) also cover servers stabbur doesn't ship and
  *  therefore can't list. An attached server missing from the catalogue was written into a config
  *  file by hand, which the panel already labels as this project's `.mcp.json`, so it is treated as
  *  project scope here for the same reason: a project's own tools are what its chats are for. (The
@@ -180,7 +180,7 @@ export function deriveTitle(text: string): string {
  */
 export const THEMES = [
   {
-    // Not a style, and it must not be sold as one: Default is what heim looks like when nobody has
+    // Not a style, and it must not be sold as one: Default is what stabbur looks like when nobody has
     // chosen. The line says the ground state first and then what that ground actually is — grey is
     // the honest word for `:root`, where every surface token has zero chroma.
     name: "default",
@@ -204,8 +204,8 @@ export type Theme = (typeof THEMES)[number]["name"];
 export const DEFAULT_THEME: Theme = "default";
 
 export function loadTheme(): Theme {
-  // Validated, never trusted: `heim.theme` meant light/dark before the names were aligned with
-  // the screen, so a browser that used heim then has "dark" under it — and stamping that onto
+  // Validated, never trusted: `stabbur.theme` meant light/dark before the names were aligned with
+  // the screen, so a browser that used stabbur then has "dark" under it — and stamping that onto
   // <html> as data-theme would paint the app in a theme that does not exist. Same rule as
   // `normalizeSettings`: an unknown value is the default, not an error state worth a screen.
   try {

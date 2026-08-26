@@ -56,9 +56,9 @@ import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker 
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
 import { useTheme } from "@/lib/useTheme";
 
-// The selected assistant target persists per backend (a heim project is served on one origin), so
+// The selected assistant target persists per backend (a stabbur project is served on one origin), so
 // two projects served on different ports keep independent picks; a same-origin restart restores it.
-const TARGET_KEY = `heim.target:${window.location.host}`;
+const TARGET_KEY = `stabbur.target:${window.location.host}`;
 
 /** Parse the active conversation id from the URL hash (#/c/<id>), or null. */
 function conversationIdFromHash(): string | null {
@@ -179,15 +179,15 @@ export function App() {
   const assistantsUnavailableRef = useRef(false);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [sttAvailable, setSttAvailable] = useState(false); // a Whisper STT model is in the library (enables dictation)
-  const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("heim.tts_voice") || "");
+  const [ttsVoice, setTtsVoice] = useState<string>(() => localStorage.getItem("stabbur.tts_voice") || "");
   const [ttsSpeed, setTtsSpeed] = useState<number>(() => {
-    const raw = Number(localStorage.getItem("heim.tts_speed"));
+    const raw = Number(localStorage.getItem("stabbur.tts_speed"));
     return Number.isFinite(raw) && raw >= 0.25 && raw <= 2 ? raw : 1;
   });
   const chooseSpeed = useCallback((v: number) => {
     setTtsSpeed(v);
     try {
-      localStorage.setItem("heim.tts_speed", String(v));
+      localStorage.setItem("stabbur.tts_speed", String(v));
     } catch {
       /* storage full/blocked: the pick still applies this session */
     }
@@ -483,7 +483,7 @@ export function App() {
         // one that is sitting there unreadable.
         setHistoryState("unavailable");
         setStorageWarning(
-          "This browser won't let heim open its chat storage, so nothing from this session will be saved.",
+          "This browser won't let stabbur open its chat storage, so nothing from this session will be saved.",
         );
         return;
       }
@@ -801,7 +801,7 @@ export function App() {
     [status?.model, pick],
   );
 
-  // Project auto-load: in a project dir (heim.toml [project].model), boot straight
+  // Project auto-load: in a project dir (stabbur.toml [project].model), boot straight
   // into the bound model on first open — the manifest is a reproducible assistant
   // (model + system prompt + tools). Fires once, only if nothing's loaded and the
   // model is actually in the library; the user can still switch afterwards.
@@ -911,7 +911,7 @@ export function App() {
   // --- core: run a chat completion into an assistant turn ---
   // Returns what the assistant actually said — the streamed content, and nothing else: not the
   // reasoning, not an error banner this function wrote into the turn itself. `send` names the
-  // conversation from it (lib/title), and a title drawn from heim's own error text would be a
+  // conversation from it (lib/title), and a title drawn from stabbur's own error text would be a
   // conversation called "Error: runtime unreachable".
   const runCompletion = useCallback(
     async (convId: string, priorMessages: ChatMessage[], assistantId: string): Promise<string> => {
@@ -1350,8 +1350,8 @@ export function App() {
   // TTS voice (a global preference for the Listen button): "" = the default voice.
   const chooseVoice = useCallback((name: string) => {
     setTtsVoice(name);
-    if (name) localStorage.setItem("heim.tts_voice", name);
-    else localStorage.removeItem("heim.tts_voice");
+    if (name) localStorage.setItem("stabbur.tts_voice", name);
+    else localStorage.removeItem("stabbur.tts_voice");
   }, []);
 
   // --- attachments (image / audio) ---
@@ -1544,7 +1544,7 @@ export function App() {
         </SheetContent>
       </Sheet>
       {/* The status bar is a sibling of the whole panel group, not of any surface inside it: it
-          reports on this heim, which is the same fact whichever view is showing, and a strip that
+          reports on this stabbur, which is the same fact whichever view is showing, and a strip that
           only existed on some of them would read as part of that view instead. */}
       <div className="flex h-full flex-col overflow-hidden">
       <div ref={layoutRef} onTransitionEnd={onRailTransitionEnd} className="flex min-h-0 flex-1 overflow-hidden">
@@ -1562,7 +1562,7 @@ export function App() {
         )}
         <PanelGroup
           direction="horizontal"
-          autoSaveId="heim-layout"
+          autoSaveId="stabbur-layout"
           className="h-full min-w-0 flex-1 overflow-hidden"
         >
         {/* Left rail: collapsible + resizable. Kept in sync with sidebarOpen so
@@ -1814,7 +1814,7 @@ export function App() {
                     onRemove={removeAttachment}
                   />
                   <p className="mt-2 text-center text-sm text-muted-foreground">
-                    heim runs your model locally. Responses may be inaccurate.
+                    stabbur runs your model locally. Responses may be inaccurate.
                   </p>
                 </div>
               </div>

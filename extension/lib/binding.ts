@@ -12,9 +12,9 @@
 // deletes every legacy key (see `migrateLegacyRecords`). The read paths below are purely composite-
 // keyed: no per-read legacy fallback, so no reader can adopt a legacy record to the wrong target.
 
-const PREFIX = "heim-ext-binding:";
-const STALE_PREFIX = "heim-ext-binding-stale:";
-const DISMISS_PREFIX = "heim-ext-binding-dismissed:";
+const PREFIX = "stabbur-ext-binding:";
+const STALE_PREFIX = "stabbur-ext-binding-stale:";
+const DISMISS_PREFIX = "stabbur-ext-binding-dismissed:";
 
 export interface Binding {
   backendId: string;
@@ -36,7 +36,7 @@ export interface Binding {
   /** Whether the binding was granted write authority (PAT minted with the full method set, or a
    *  session bind with writes allowed). Optional/absent on older stored bindings -> read-only. */
   writes?: boolean;
-  /** The registry came from the 404-compat path (old heim): unbind / re-sync use the un-scoped
+  /** The registry came from the 404-compat path (old stabbur): unbind / re-sync use the un-scoped
    *  /api/assistant* routes. Absent -> per-target /api/assistants/{id} routes. */
   compat?: boolean;
 }

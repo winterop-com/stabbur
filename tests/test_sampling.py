@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from heim.library import LibraryModel
-from heim.models import ModelFormat
-from heim.runtime import sampling
+from stabbur.library import LibraryModel
+from stabbur.models import ModelFormat
+from stabbur.runtime import sampling
 
 
 def _mlx_model(model_dir: Path) -> LibraryModel:
@@ -25,7 +25,7 @@ def test_reads_generation_config(tmp_path: Path) -> None:
 
 
 def test_missing_config_gets_heim_defaults(tmp_path: Path) -> None:
-    # No generation_config (the common GGUF-quant case): every field falls back to heim's
+    # No generation_config (the common GGUF-quant case): every field falls back to stabbur's
     # own default, so the values are knowable (and showable) instead of depending on which
     # runtime happens to serve the model.
     s = sampling.recommended(_mlx_model(tmp_path))
@@ -35,7 +35,7 @@ def test_missing_config_gets_heim_defaults(tmp_path: Path) -> None:
 
 def test_ignores_unset_sentinels(tmp_path: Path) -> None:
     # temperature 0 / top_p 1 / top_k 0 are "no-op" sentinels — don't surface them (they would
-    # otherwise force greedy / disable nucleus sampling); those fields take heim's default
+    # otherwise force greedy / disable nucleus sampling); those fields take stabbur's default
     # instead. (An *explicit* repeat_penalty of 1.0 is respected — a separate test.)
     (tmp_path / "generation_config.json").write_text(json.dumps({"temperature": 0, "top_p": 1.0, "top_k": 0}))
     assert sampling.recommended(_mlx_model(tmp_path)) == sampling.defaults()

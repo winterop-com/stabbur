@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import type { ChatMessage, Conversation } from "@/lib/types";
 
-const LEGACY_KEY = "heim.conversations";
+const LEGACY_KEY = "stabbur.conversations";
 
 /** A localStorage that behaves like the browser's, including throwing on a missing key never. */
 class MemoryStorage implements Storage {
@@ -69,7 +69,7 @@ function conversation(id: string, messages: ChatMessage[], at = 1000): Conversat
 /** Read a message row exactly as it sits in the database, bypassing the module's decode. */
 function rawMessage(id: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open("heim");
+    const open = indexedDB.open("stabbur");
     open.onsuccess = () => {
       const request = open.result.transaction("messages", "readonly").objectStore("messages").get(id);
       request.onsuccess = () => resolve(request.result as Record<string, unknown>);

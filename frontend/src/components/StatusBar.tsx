@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
  * on the right.
  *
  * THE BAR IS CHROME, NOT A READOUT, and the empty right side is the point rather than a gap. It
- * briefly carried a sentence about this heim (backend, model count, tool count), which was a
- * mistake twice over: every one of those facts is already a row in `heim doctor`, which the top
+ * briefly carried a sentence about this stabbur (backend, model count, tool count), which was a
+ * mistake twice over: every one of those facts is already a row in `stabbur doctor`, which the top
  * bar's health menu renders, so the line was a second copy of a list that maintains itself — and a
  * frame that closes the window earns its place by being a frame. One fact, one place; see
  * docs/ui-conventions.md, "Say it once".
@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
  * App, which measures where the main panel actually starts — that follows a drag-resize too, which
  * a breakpoint could not.
  *
- * THE ONE THING IT STILL SAYS is that it cannot reach the heim that served it. That is not a
+ * THE ONE THING IT STILL SAYS is that it cannot reach the stabbur that served it. That is not a
  * readout, it is an alarm, and it is the one state the health menu cannot report: a server that is
  * down does not answer `/api/doctor` either, so the menu renders nothing at all and this line is
  * the only thing on screen that says why.
@@ -66,11 +66,11 @@ export function StatusBar({
           {!iconOnly && <span className="truncate">Settings</span>}
         </button>
       </div>
-      {/* Empty unless heim is unreachable. The 48px inset is the content column's, not a hug
+      {/* Empty unless stabbur is unreachable. The 48px inset is the content column's, not a hug
           against the divider, so the one line that ever appears here starts where every other line
           on the surface above it starts. */}
       <div className="flex min-w-0 flex-1 items-center pl-12 pr-4 text-sm leading-5">
-        {status === null && <span className="truncate text-critical">Not connected to a heim server</span>}
+        {status === null && <span className="truncate text-critical">Not connected to a stabbur server</span>}
       </div>
     </footer>
   );

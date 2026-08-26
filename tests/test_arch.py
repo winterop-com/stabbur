@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from heim import arch
-from heim.models import ModelFormat
+from stabbur import arch
+from stabbur.models import ModelFormat
 
 
 def test_architectures_are_generative() -> None:

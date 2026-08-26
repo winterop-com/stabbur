@@ -18,10 +18,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from heim import agent
-from heim.app import create_app
-from heim.config import Settings
-from heim.routers import serving
+from stabbur import agent
+from stabbur.app import create_app
+from stabbur.config import Settings
+from stabbur.routers import serving
 
 
 @pytest.fixture

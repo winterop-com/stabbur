@@ -2,7 +2,7 @@
  * What the command palette offers, as data — and how a typed query is scored against it.
  *
  * WHY THIS IS NOT INSIDE THE COMPONENT. cmdk's default filter is a fuzzy *subsequence* match over
- * one string per row, and heim hands it rows carrying prose and rows carrying machine spellings.
+ * one string per row, and stabbur hands it rows carrying prose and rows carrying machine spellings.
  * Scattering four letters through a sentence finds almost anything: typing `swit` matched inside
  * "the wide**s**t separa**t**ion this app has between text and the surface under it" and put three
  * theme rows above "Switch to dark mode", which did not appear at all. Model ids are the same
@@ -15,7 +15,7 @@
  * Ported from the dhis2w-fhir-serve palette, which hit this first and left the reasoning behind.
  *
  * The whole surface is pure data with no React, no router and no theme store in scope, which is what
- * makes the ranking assertable without a browser. (heim's frontend has no test runner yet — see
+ * makes the ranking assertable without a browser. (stabbur's frontend has no test runner yet — see
  * docs/ui-conventions.md; this module is shaped so that adding one is all it would take.)
  */
 
@@ -31,7 +31,7 @@ export interface PaletteRow {
   hint: string | null;
   /** The right-aligned marker: "loaded", a size, "current". Never matched — it is a state, not a name. */
   trailing: string | null;
-  /** Extra words the filter matches and nothing renders — how a reader's word reaches heim's word. */
+  /** Extra words the filter matches and nothing renders — how a reader's word reaches stabbur's word. */
   keywords: string[];
   /**
    * The machine spelling this row is served under, or null.
@@ -49,7 +49,7 @@ export interface PaletteRow {
  * typing what you would say out loud, and what a person types when they want this is "switch".
  * A label that never contains the word cannot be reached by any prefix of it.
  *
- * "Mode" and not "theme": heim has five themes and every one of them has both grounds, so a row
+ * "Mode" and not "theme": stabbur has five themes and every one of them has both grounds, so a row
  * offering to "switch to the dark theme" would be naming the wrong axis.
  */
 export const SWITCH_TO_DARK_LABEL = "Switch to dark mode";
@@ -67,7 +67,7 @@ export const THEME_GROUP = "Theme";
 export interface PaletteInput {
   /** Library models, in the order the palette should offer them. */
   models: { name: string; size_human: string }[];
-  /** The model heim currently has loaded, so its row says so instead of repeating its size. */
+  /** The model stabbur currently has loaded, so its row says so instead of repeating its size. */
   loaded: string | null;
   /** The recent conversations to offer, newest first and already capped. */
   recents: { id: string; title: string }[];

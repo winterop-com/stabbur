@@ -2,7 +2,7 @@ import { listBindings, setBindingStale, type Binding } from "../lib/binding";
 import { getSettings, normalizeBaseUrl } from "../lib/settings";
 import { postBindTo, type BindTarget } from "../lib/bindApi";
 
-// A cookie binding (b.cookieName present) shares the user's live login cookie with heim. Chrome
+// A cookie binding (b.cookieName present) shares the user's live login cookie with stabbur. Chrome
 // expires/rotates that cookie out from under us, so the background worker watches it: on a change
 // to a watched name it re-reads the AUTHORITATIVE cookie the target would send (never the change
 // event's value, which may be a same-name cookie on a parent domain) and re-POSTs it (debounced +
@@ -13,7 +13,7 @@ import { postBindTo, type BindTarget } from "../lib/bindApi";
 // early-return synchronously on any non-watched cookie name with ZERO storage reads, and the
 // listener itself is only attached while at least one cookie binding exists.
 
-const BINDING_PREFIX = "heim-ext-binding:";
+const BINDING_PREFIX = "stabbur-ext-binding:";
 const DEBOUNCE_MS = 2000; // coalesce a burst of changes into one POST
 const REBIND_CEILING_MS = 30_000; // minimum gap between actual rebind POSTs per backend (anti-treadmill)
 

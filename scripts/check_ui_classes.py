@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the browser UI's Tailwind classes against heim's UI conventions.
+"""Check the browser UI's Tailwind classes against stabbur's UI conventions.
 
 WHY THIS EXISTS AND WHY IT IS NOT A LINTER RULE. `oxlint` (frontend/.oxlintrc.json) lints the
 JS/TS: hooks, unused code, correctness. It cannot help here — to a JS linter a `className` is an

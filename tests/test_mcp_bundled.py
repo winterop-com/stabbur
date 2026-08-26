@@ -1,9 +1,9 @@
 """Tests for bundled-MCP discovery, toggling, and the fresh-machine seed.
 
-heim ships a dozen ``heim-mcp-*`` servers that were invisible until someone hand-wrote an
-``mcp.json``. These cover the three pieces that fix that: :func:`heim.mcp_catalog.bundled`
-(the shipped set + its resolved on/off state), :func:`~heim.mcp_catalog.set_enabled` (the
-toggle, persisted to the machine-global file), :func:`~heim.mcp_catalog.seed_global_defaults`
+stabbur ships a dozen ``stabbur-mcp-*`` servers that were invisible until someone hand-wrote an
+``mcp.json``. These cover the three pieces that fix that: :func:`stabbur.mcp_catalog.bundled`
+(the shipped set + its resolved on/off state), :func:`~stabbur.mcp_catalog.set_enabled` (the
+toggle, persisted to the machine-global file), :func:`~stabbur.mcp_catalog.seed_global_defaults`
 (the default-on seed), and the ``/api/mcp/servers`` routes that put them in front of the UI —
 including the honest restart semantics for a disable that can't take effect in-process.
 """
@@ -17,10 +17,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from heim import mcp_catalog, mcpservers, tools
-from heim.app import create_app
-from heim.config import Settings
-from heim.mcpservers import McpServer
+from stabbur import mcp_catalog, mcpservers, tools
+from stabbur.app import create_app
+from stabbur.config import Settings
+from stabbur.mcpservers import McpServer
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def test_bundled_lists_shipped_servers_disabled_by_default(isolated: Path) -> No
     by_name = {e.name: e for e in entries}
     # The set comes from the installed plugins' own advertisements — datetime is always among them.
     assert "datetime" in by_name
-    assert by_name["datetime"].command == "heim-mcp-datetime"
+    assert by_name["datetime"].command == "stabbur-mcp-datetime"
     assert by_name["datetime"].description  # the plugin's own description rides along for the UI
     # Nothing configured yet: everything is visible but off — the point of the whole feature.
     assert all(e.enabled is False and e.scope is None for e in entries)
@@ -49,20 +49,20 @@ def test_bundled_lists_shipped_servers_disabled_by_default(isolated: Path) -> No
 
 
 def test_bundled_marks_a_globally_enabled_server(isolated: Path) -> None:
-    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     entry = next(e for e in mcp_catalog.bundled() if e.name == "datetime")
     assert entry.enabled is True and entry.scope == "global"
 
 
 def test_bundled_marks_a_project_enabled_server(isolated: Path) -> None:
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=isolated)
     entry = next(e for e in mcp_catalog.bundled() if e.name == "files")
     assert entry.enabled is True and entry.scope == "project"
 
 
 def test_bundled_honors_a_project_disable_marker(isolated: Path) -> None:
     # A global server the project disables is NOT enabled — bundled() reports the resolved truth.
-    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     (isolated / ".mcp.json").write_text(json.dumps({"mcpServers": {"datetime": {"disabled": True}}}))
     entry = next(e for e in mcp_catalog.bundled() if e.name == "datetime")
     assert entry.enabled is False and entry.scope is None
@@ -71,7 +71,7 @@ def test_bundled_honors_a_project_disable_marker(isolated: Path) -> None:
 def test_bundled_includes_uninstalled_optional_with_hint(isolated: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # An optional first-party server whose extra isn't installed stays listed (not hidden) so the UI
     # can explain why it would report zero tools.
-    from heim import plugins
+    from stabbur import plugins
 
     monkeypatch.setattr(mcp_catalog, "uninstalled_optional", lambda _advertised: mcp_catalog.OPTIONAL_FIRST_PARTY)
     monkeypatch.setattr(plugins, "advertised_servers", lambda _pm: [])
@@ -85,9 +85,9 @@ def test_bundled_includes_uninstalled_optional_with_hint(isolated: Path, monkeyp
 def test_set_enabled_writes_and_removes_the_global_entry(isolated: Path) -> None:
     entry = mcp_catalog.set_enabled("datetime", True)
     assert entry.enabled is True and entry.scope == "global"
-    # Persisted in the same file `heim mcp add --global` writes, in the standard mcpServers shape.
+    # Persisted in the same file `stabbur mcp add --global` writes, in the standard mcpServers shape.
     data = json.loads(mcpservers.global_path().read_text())
-    assert data == {"mcpServers": {"datetime": {"command": "heim-mcp-datetime"}}}
+    assert data == {"mcpServers": {"datetime": {"command": "stabbur-mcp-datetime"}}}
     assert mcp_catalog.set_enabled("datetime", True).enabled is True  # idempotent
     off = mcp_catalog.set_enabled("datetime", False)
     assert off.enabled is False and off.scope is None
@@ -101,8 +101,8 @@ def test_set_enabled_rejects_an_unbundled_name(isolated: Path) -> None:
 
 
 def test_disable_of_a_project_scoped_server_refuses(isolated: Path) -> None:
-    # heim never rewrites the committed, portable project .mcp.json from a toggle; it says so instead.
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
+    # stabbur never rewrites the committed, portable project .mcp.json from a toggle; it says so instead.
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=isolated)
     with pytest.raises(mcp_catalog.ProjectScoped, match=".mcp.json"):
         mcp_catalog.set_enabled("files", False)
 
@@ -111,49 +111,51 @@ def test_disable_of_a_project_scoped_server_refuses(isolated: Path) -> None:
 
 
 def test_bundled_reports_the_effective_root_of_an_unconfigured_server(isolated: Path) -> None:
-    # The bug this exists for: nothing configured, so `files` is rooted at wherever heim serve runs —
+    # The bug this exists for: nothing configured, so `files` is rooted at wherever stabbur serve runs —
     # true, invisible, and the reason "what are my directories in ~/dev" answered about the checkout.
-    root = next(s for s in _settings(isolated, "files") if s.env == "HEIM_FILES_ROOT")
+    root = next(s for s in _settings(isolated, "files") if s.env == "STABBUR_FILES_ROOT")
     assert root.type == "path" and root.default == "."
     assert root.effective == str(isolated.resolve())  # absolute: the answer a user can act on
     assert Path(root.effective).is_absolute()
 
 
 def test_bundled_reports_a_configured_value_over_the_default(isolated: Path, tmp_path: Path) -> None:
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files", env={"HEIM_FILES_ROOT": str(tmp_path)}), glob=True)
+    mcpservers.add(
+        McpServer(name="files", command="stabbur-mcp-files", env={"STABBUR_FILES_ROOT": str(tmp_path)}), glob=True
+    )
     entry = next(e for e in mcp_catalog.bundled() if e.name == "files")
-    assert entry.env == {"HEIM_FILES_ROOT": str(tmp_path)}  # what is written down
-    root = next(s for s in entry.settings if s.env == "HEIM_FILES_ROOT")
+    assert entry.env == {"STABBUR_FILES_ROOT": str(tmp_path)}  # what is written down
+    root = next(s for s in entry.settings if s.env == "STABBUR_FILES_ROOT")
     assert root.effective == str(tmp_path)  # ...and what is in force
 
 
 def test_booleans_are_always_canonical(isolated: Path) -> None:
     # "" is a startup error for a bool field, so a boolean is never blank in either direction.
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files", env={"HEIM_FILES_WRITABLE": "1"}), glob=True)
-    assert next(s for s in _settings(isolated, "files") if s.env == "HEIM_FILES_WRITABLE").effective == "true"
-    entry = mcp_catalog.set_env("files", {"HEIM_FILES_WRITABLE": ""})
-    assert entry.env["HEIM_FILES_WRITABLE"] == "false"
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files", env={"STABBUR_FILES_WRITABLE": "1"}), glob=True)
+    assert next(s for s in _settings(isolated, "files") if s.env == "STABBUR_FILES_WRITABLE").effective == "true"
+    entry = mcp_catalog.set_env("files", {"STABBUR_FILES_WRITABLE": ""})
+    assert entry.env["STABBUR_FILES_WRITABLE"] == "false"
 
 
 def test_set_env_persists_expanding_a_tilde(isolated: Path) -> None:
     mcp_catalog.set_enabled("files", True)
-    entry = mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": "~/dev"})
+    entry = mcp_catalog.set_env("files", {"STABBUR_FILES_ROOT": "~/dev"})
     # Nothing between mcp.json and the spawned process expands ~, so a literal "~/dev" would sandbox
     # the assistant to a directory named "~" — the one thing that must not survive the write.
-    assert entry.env["HEIM_FILES_ROOT"] == str(Path.home() / "dev")
+    assert entry.env["STABBUR_FILES_ROOT"] == str(Path.home() / "dev")
     data = json.loads(mcpservers.global_path().read_text())
     assert data["mcpServers"]["files"] == {
-        "command": "heim-mcp-files",
-        "env": {"HEIM_FILES_ROOT": str(Path.home() / "dev")},
+        "command": "stabbur-mcp-files",
+        "env": {"STABBUR_FILES_ROOT": str(Path.home() / "dev")},
     }
 
 
 def test_set_env_clears_a_value_back_to_the_default(isolated: Path, tmp_path: Path) -> None:
     mcp_catalog.set_enabled("files", True)
-    mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": str(tmp_path)})
-    entry = mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": ""})
+    mcp_catalog.set_env("files", {"STABBUR_FILES_ROOT": str(tmp_path)})
+    entry = mcp_catalog.set_env("files", {"STABBUR_FILES_ROOT": ""})
     assert entry.env == {}  # cleared, not written as an empty string
-    assert next(s for s in entry.settings if s.env == "HEIM_FILES_ROOT").effective == str(isolated.resolve())
+    assert next(s for s in entry.settings if s.env == "STABBUR_FILES_ROOT").effective == str(isolated.resolve())
 
 
 def test_set_env_rejects_an_undeclared_variable(isolated: Path) -> None:
@@ -167,22 +169,22 @@ def test_set_env_rejects_an_undeclared_variable(isolated: Path) -> None:
 def test_set_env_refuses_a_switched_off_server(isolated: Path) -> None:
     # Its settings live in the mcp.json entry, so writing them would create it — i.e. switch it on.
     with pytest.raises(mcp_catalog.NotConfigured):
-        mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": "/tmp"})
+        mcp_catalog.set_env("files", {"STABBUR_FILES_ROOT": "/tmp"})
     assert mcpservers.read_global() == []
 
 
 def test_set_env_refuses_a_project_scoped_server(isolated: Path) -> None:
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=isolated)
     with pytest.raises(mcp_catalog.ProjectScoped, match=".mcp.json"):
-        mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": "/tmp"})
+        mcp_catalog.set_env("files", {"STABBUR_FILES_ROOT": "/tmp"})
 
 
 def test_re_enabling_keeps_configured_settings(isolated: Path, tmp_path: Path) -> None:
     # set_enabled re-writes the entry; it must carry the env through or a stray toggle silently
     # resets the root the user configured.
     mcp_catalog.set_enabled("files", True)
-    mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": str(tmp_path)})
-    assert mcp_catalog.set_enabled("files", True).env == {"HEIM_FILES_ROOT": str(tmp_path)}
+    mcp_catalog.set_env("files", {"STABBUR_FILES_ROOT": str(tmp_path)})
+    assert mcp_catalog.set_enabled("files", True).env == {"STABBUR_FILES_ROOT": str(tmp_path)}
 
 
 def test_a_server_with_no_env_declares_nothing(isolated: Path) -> None:
@@ -208,7 +210,7 @@ def test_seed_is_a_noop_once_the_file_exists(isolated: Path) -> None:
     mcpservers.global_path().write_text(json.dumps({"mcpServers": {}}))
     assert mcp_catalog.seed_global_defaults() == []
     assert mcpservers.read_global() == []
-    # `heim setup` asks first, so it fills an existing-but-empty file.
+    # `stabbur setup` asks first, so it fills an existing-but-empty file.
     assert mcp_catalog.seed_global_defaults(only_if_absent=False) == ["datetime"]
 
 
@@ -255,7 +257,7 @@ def _bridge(*, fail: bool = False) -> tuple[tools.MCPBridge, list[str]]:
 
 async def test_add_server_attaches_live() -> None:
     bridge, spawned = _bridge()
-    server = McpServer(name="datetime", command="heim-mcp-datetime")
+    server = McpServer(name="datetime", command="stabbur-mcp-datetime")
     assert bridge.is_live(server) is False
     attached, reason = await bridge.add_server(server)
     assert attached is True and reason == ""
@@ -268,7 +270,7 @@ async def test_add_server_attaches_live() -> None:
 
 async def test_add_server_reports_a_spawn_failure() -> None:
     bridge, _ = _bridge(fail=True)
-    attached, reason = await bridge.add_server(McpServer(name="web", command="heim-mcp-web"))
+    attached, reason = await bridge.add_server(McpServer(name="web", command="stabbur-mcp-web"))
     assert attached is False and "Errno 2" in reason  # a real failure, never a fake success
     assert bridge.pending_prefixes == {"web"}  # stays pending -> the existing retry contract holds
 
@@ -299,8 +301,8 @@ async def test_get_reports_the_scope_that_switched_each_server_on(isolated: Path
     # `scope` is not decoration: a new chat's tool allow-list starts from the baseline of the
     # servers a *project* switched on (its assistant exists to use them) plus datetime, so a
     # project-scoped server has to be distinguishable over the wire from a machine-global one.
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
-    mcpservers.add(McpServer(name="git", command="heim-mcp-git"), glob=True)
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=isolated)
+    mcpservers.add(McpServer(name="git", command="stabbur-mcp-git"), glob=True)
     rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
     assert rows["files"]["scope"] == "project"
     assert rows["git"]["scope"] == "global"
@@ -348,7 +350,7 @@ async def test_disable_of_a_running_server_requires_a_restart(app: FastAPI, clie
 async def test_disable_of_a_never_spawned_server_applies_at_once(app: FastAPI, client: AsyncClient) -> None:
     bridge, _ = _bridge()
     app.state.mcp_bridge = bridge
-    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)  # enabled, not spawned
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)  # enabled, not spawned
     body = (await client.post("/api/mcp/servers/datetime", json={"enabled": False})).json()
     assert body["applied"] is True and body["restart_required"] is False
 
@@ -358,7 +360,7 @@ async def test_unknown_server_is_404(client: AsyncClient) -> None:
 
 
 async def test_disable_of_a_project_scoped_server_is_409(isolated: Path, client: AsyncClient) -> None:
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=isolated)
     r = await client.post("/api/mcp/servers/files", json={"enabled": False})
     assert r.status_code == 409
     assert ".mcp.json" in r.json()["detail"]
@@ -380,7 +382,7 @@ async def test_get_carries_declared_settings_with_effective_values(isolated: Pat
     body = (await client.get("/api/mcp/servers")).json()
     files = next(e for e in body if e["name"] == "files")
     assert files["env"] == {}  # nothing persisted...
-    root = next(s for s in files["settings"] if s["env"] == "HEIM_FILES_ROOT")
+    root = next(s for s in files["settings"] if s["env"] == "STABBUR_FILES_ROOT")
     # ...yet the card can still say exactly which directory the assistant can browse.
     assert root["label"] and root["type"] == "path" and root["effective"] == str(isolated.resolve())
 
@@ -388,13 +390,13 @@ async def test_get_carries_declared_settings_with_effective_values(isolated: Pat
 async def test_env_change_on_a_pending_server_applies_without_a_restart(app: FastAPI, client: AsyncClient) -> None:
     bridge, _ = _bridge()
     app.state.mcp_bridge = bridge
-    server = McpServer(name="files", command="heim-mcp-files")
+    server = McpServer(name="files", command="stabbur-mcp-files")
     mcpservers.add(server, glob=True)
     bridge._pending["files"] = server  # configured at startup, queued for a lazy first-use spawn
-    r = await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_ROOT": "/tmp"}})
+    r = await client.post("/api/mcp/servers/files", json={"env": {"STABBUR_FILES_ROOT": "/tmp"}})
     body = r.json()
     assert body["applied"] is True and body["restart_required"] is False
-    assert bridge._pending["files"].env == {"HEIM_FILES_ROOT": "/tmp"}  # the queued spawn got the new env
+    assert bridge._pending["files"].env == {"STABBUR_FILES_ROOT": "/tmp"}  # the queued spawn got the new env
     assert body["server"]["settings"][0]["effective"] == "/tmp"
 
 
@@ -402,17 +404,17 @@ async def test_env_change_on_a_running_server_requires_a_restart(app: FastAPI, c
     bridge, _ = _bridge()
     app.state.mcp_bridge = bridge
     await client.post("/api/mcp/servers/files", json={"enabled": True})  # attaches live
-    body = (await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_ROOT": "/tmp"}})).json()
+    body = (await client.post("/api/mcp/servers/files", json={"env": {"STABBUR_FILES_ROOT": "/tmp"}})).json()
     # A running process cannot be handed a new environment; say so rather than report a success.
     assert body["applied"] is False and body["restart_required"] is True
     assert "restart" in body["detail"]
-    assert body["server"]["env"] == {"HEIM_FILES_ROOT": "/tmp"}  # the write itself did land
+    assert body["server"]["env"] == {"STABBUR_FILES_ROOT": "/tmp"}  # the write itself did land
 
 
 async def test_env_change_without_a_bridge_applies(client: AsyncClient) -> None:
     # No bridge = no MCP subprocess in this process at all, so the persisted value is the whole truth.
     await client.post("/api/mcp/servers/files", json={"enabled": True})
-    body = (await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_WRITABLE": "true"}})).json()
+    body = (await client.post("/api/mcp/servers/files", json={"env": {"STABBUR_FILES_WRITABLE": "true"}})).json()
     assert body["applied"] is True and body["restart_required"] is False
 
 
@@ -423,7 +425,7 @@ async def test_undeclared_env_is_400(client: AsyncClient) -> None:
 
 
 async def test_env_on_a_switched_off_server_is_409(client: AsyncClient) -> None:
-    r = await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_ROOT": "/tmp"}})
+    r = await client.post("/api/mcp/servers/files", json={"env": {"STABBUR_FILES_ROOT": "/tmp"}})
     assert r.status_code == 409 and "switch" in r.json()["detail"]
 
 

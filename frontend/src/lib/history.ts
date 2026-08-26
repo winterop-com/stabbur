@@ -5,7 +5,7 @@
 // later encrypt-at-rest layer is a wrapper around whole records here rather than a change smeared
 // across every caller. (Appearance and per-machine preferences stay in localStorage; see store.ts.)
 //
-// WHY NOT localStorage. History used to be one JSON blob under `heim.conversations`, and a
+// WHY NOT localStorage. History used to be one JSON blob under `stabbur.conversations`, and a
 // conversation carries its attachments inline as base64 data URLs. localStorage is ~5 MB per
 // origin, base64 inflates binary by a third, and a single pasted screenshot is often a megabyte:
 // two or three images and the quota was gone. What the old code did about it — re-save the
@@ -25,14 +25,14 @@
 import { normalizeSettings, type Settings } from "@/lib/store";
 import type { ChatMessage, Conversation, TitleSource } from "@/lib/types";
 
-const DB_NAME = "heim";
+const DB_NAME = "stabbur";
 const DB_VERSION = 1;
 const CONVERSATIONS = "conversations";
 const MESSAGES = "messages";
 /** The one index: a message's conversation. See the header for why nothing else is indexed. */
 const BY_CONVERSATION = "convId";
 /** Where history lived before this store. Read once on first load, then cleared — see `migrate`. */
-const LEGACY_KEY = "heim.conversations";
+const LEGACY_KEY = "stabbur.conversations";
 
 /** A conversation at rest: everything but its transcript, which lives in `messages`. */
 interface StoredConversation {
@@ -436,7 +436,7 @@ function normalizeConversation(value: unknown): Conversation | null {
 }
 
 /**
- * Move `heim.conversations` into IndexedDB, once, and only clear it once that is proven.
+ * Move `stabbur.conversations` into IndexedDB, once, and only clear it once that is proven.
  *
  * This is real user history, so the order is migrate, verify, then delete — never delete on the
  * assumption that the write worked. The write is ONE transaction, which is what makes "fails

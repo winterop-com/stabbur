@@ -7,7 +7,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from heim.mcp_servers.network import app, mcp
+from stabbur.mcp_servers.network import app, mcp
 
 
 async def _call(name: str, **kw: Any) -> Any:

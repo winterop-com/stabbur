@@ -1,9 +1,9 @@
-"""Tests for the shared atomic-write helper (heim.fsatomic)."""
+"""Tests for the shared atomic-write helper (stabbur.fsatomic)."""
 
 import json
 from pathlib import Path
 
-from heim import fsatomic
+from stabbur import fsatomic
 
 
 def test_write_text_roundtrip_creates_parents(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 """Tests for the shared Markdown transcript renderer."""
 
-from heim import transcript
+from stabbur import transcript
 
 
 def _turn(role: str, text: str, reasoning: str = "") -> transcript.TranscriptTurn:

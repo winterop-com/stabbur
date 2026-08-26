@@ -1,6 +1,6 @@
 """Tests for the Kokoro TTS engine helpers (pure metadata; no model download)."""
 
-from heim.voice import kokoro
+from stabbur.voice import kokoro
 
 
 def test_voices_are_the_full_v1_set() -> None:

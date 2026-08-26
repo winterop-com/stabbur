@@ -12,7 +12,7 @@ test.describe("connection lifecycle", () => {
     await seedSettings(context, extensionId, { baseUrl, token: "" });
     const panel = await openPanel(context, extensionId);
 
-    await expect(panel.getByText(/heim is not reachable/)).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByText(/stabbur is not reachable/)).toBeVisible({ timeout: 15_000 });
     await expect(panel.getByText(/Retrying automatically every 3s/)).toBeVisible();
 
     // Bring the server up on that exact port; the 3s auto-retry should connect
@@ -36,7 +36,7 @@ test.describe("connection lifecycle", () => {
       await seedSettings(context, extensionId, { baseUrl: mock.baseUrl(), token: "" });
       const panel = await openPanel(context, extensionId);
 
-      await expect(panel.getByText("This heim server requires an access token.")).toBeVisible({
+      await expect(panel.getByText("This stabbur server requires an access token.")).toBeVisible({
         timeout: 15_000,
       });
       await panel.getByPlaceholder("Bearer token").fill("s3cret");

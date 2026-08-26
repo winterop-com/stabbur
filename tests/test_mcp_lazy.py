@@ -1,4 +1,4 @@
-"""Tests for lazy per-target MCP bridge spawning (heim.tools.MCPBridge + connect_bridge).
+"""Tests for lazy per-target MCP bridge spawning (stabbur.tools.MCPBridge + connect_bridge).
 
 A multi-target registry spawns only the eager set at startup — shared/unowned servers plus the primary
 target's own servers — and defers a non-primary scoped target's servers to their first use. These tests
@@ -11,8 +11,8 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from typing import Any
 
-from heim import tools
-from heim.mcpservers import McpServer
+from stabbur import tools
+from stabbur.mcpservers import McpServer
 
 
 class _FakeTool:
@@ -98,7 +98,7 @@ def test_eager_split_owns_all_primary_with_scoped_sibling_is_full_eager() -> Non
 
 
 def test_eager_split_eager_all_flag_forces_full() -> None:
-    # HEIM_EAGER_MCP=1 (eager_all) restores full eager spawning even for a multi-target registry.
+    # STABBUR_EAGER_MCP=1 (eager_all) restores full eager spawning even for a multi-target registry.
     routing = tools.TargetRouting(explicit={"play42": {"play42"}, "staging": {"staging"}})
     eager = tools._eager_prefixes(routing, "play42", {"play42", "staging"}, eager_all=True)
     assert eager == {"play42", "staging"}
@@ -173,8 +173,8 @@ async def test_connect_bridge_defers_nonprimary_target(monkeypatch: Any) -> None
 
     monkeypatch.setattr(tools, "_spawn_into", fake_spawn_into)
 
-    from heim.project import AssistantInfo
-    from heim.targets import AssistantRegistry
+    from stabbur.project import AssistantInfo
+    from stabbur.targets import AssistantRegistry
 
     resolved = [
         McpServer(name="play42", command="x"),
@@ -317,8 +317,8 @@ async def test_connect_bridge_eager_all_spawns_everything(monkeypatch: Any) -> N
 
     monkeypatch.setattr(tools, "_spawn_into", fake_spawn_into)
 
-    from heim.project import AssistantInfo
-    from heim.targets import AssistantRegistry
+    from stabbur.project import AssistantInfo
+    from stabbur.targets import AssistantRegistry
 
     resolved = [McpServer(name="play42", command="x"), McpServer(name="play41", command="x")]
     registry = AssistantRegistry(
@@ -329,5 +329,5 @@ async def test_connect_bridge_eager_all_spawns_everything(monkeypatch: Any) -> N
     )
     routing = tools.build_target_routing(resolved, registry)
     async with tools.connect_bridge(resolved, routing, registry.ids[0], eager_all=True) as bridge:
-        assert sorted(spawned) == ["play41", "play42"]  # HEIM_EAGER_MCP -> nothing deferred
+        assert sorted(spawned) == ["play41", "play42"]  # STABBUR_EAGER_MCP -> nothing deferred
         assert bridge.pending_prefixes == set()

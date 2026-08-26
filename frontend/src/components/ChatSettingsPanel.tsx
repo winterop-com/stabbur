@@ -104,7 +104,7 @@ function FieldLabel({
  *
  * ``value === null`` means this chat has chosen nothing, and the slider then sits on ``fallback`` —
  * the value the server will actually use (the model's own recommendation where it ships one, else
- * heim's default). The panel never invents a number: when the server can't tell us the default
+ * stabbur's default). The panel never invents a number: when the server can't tell us the default
  * (a backend older than ``status.default_sampling``), the readout says "default" and the knob just
  * parks mid-range, so nothing on screen claims to be a value that is being sent.
  */
@@ -169,10 +169,10 @@ function SamplingSlider({
  * What one MCP server is configured to do — the env it declares, showing the value actually in
  * force. A server's env is the whole of what it may reach ("Browse, read and search files under a
  * configured workspace root" left *which* root unknowable, so an assistant asked about `~/dev`
- * answered about wherever `heim serve` was launched). The effective value is therefore never
+ * answered about wherever `stabbur serve` was launched). The effective value is therefore never
  * hidden — it fills the field, or greys it as the placeholder when nothing is configured — while
  * editing is gated to the case that can actually work: a server that is on and owned by the
- * machine-global mcp.json, which is the only file heim writes from a web request.
+ * machine-global mcp.json, which is the only file stabbur writes from a web request.
  *
  * Saves on Enter or blur, and only when the text really changed, so tabbing through a card is not
  * a write. Booleans save on the spot.
@@ -240,7 +240,7 @@ function McpSettings({
                 disabled={busy || locked}
                 spellCheck={false}
                 // The effective value as the placeholder: unset is where the surprise lives, so the
-                // resolved answer ("/Users/me/dev/heim") has to be on screen without a click.
+                // resolved answer ("/Users/me/dev/stabbur") has to be on screen without a click.
                 placeholder={s.effective || s.default}
                 title={s.effective}
                 onChange={(e) => setDraft((d) => ({ ...d, [s.env]: e.target.value }))}
@@ -331,7 +331,7 @@ export function ChatSettingsPanel({
   const visionModel = !!libEntry?.vision;
   const [info, setInfo] = useState<ModelInfo | null>(null);
 
-  // Context length is only ours to set when heim loads the model itself. An upstream (`serve
+  // Context length is only ours to set when stabbur loads the model itself. An upstream (`serve
   // --upstream`) serves a window it already chose, and MLX derives one from the checkpoint —
   // in both cases every control here is inert, so the section shows the reason and nothing to
   // click, rather than a picker and an Apply button that quietly do nothing.
@@ -368,7 +368,7 @@ export function ChatSettingsPanel({
     };
   }, [modelName]);
 
-  // The effective default per field: the model's own recommendation when it ships one, else heim's
+  // The effective default per field: the model's own recommendation when it ships one, else stabbur's
   // own defaults *as the server reports them* (/api/status). Both numbers come from the server, so
   // a control shows the value that will really be sent rather than a copy here that can drift.
   const rec: ModelSampling | null = info?.sampling ?? status?.default_sampling ?? null;
@@ -378,7 +378,7 @@ export function ChatSettingsPanel({
   // chat's allow-list *and* the tool itself wasn't switched off inside that server.
   const enabledCount = tools.filter((t) => allowedServers.has(t.server) && !disabled.has(t.name)).length;
 
-  // The MCP server catalogue (what heim *could* run), independent of what's attached. Owned by the
+  // The MCP server catalogue (what stabbur *could* run), independent of what's attached. Owned by the
   // app, not this panel: a chat's baseline allow-list is derived from each server's scope, so the
   // send path needs the same list whether or not this panel was ever opened.
   const { servers, pending, notes, toggle: toggleMcpServer, saveEnv: saveMcpEnv } = mcp;
@@ -401,7 +401,7 @@ export function ChatSettingsPanel({
   }, [servers, tools]);
 
   const voiceLabel = (id: string) => voices.find((v) => v.id === id)?.label ?? id;
-  // Mirrors the server's fallback (heim.routers.serving.voice: kokoro:af_heart).
+  // Mirrors the server's fallback (stabbur.routers.serving.voice: kokoro:af_heart).
   const inheritedVoice = defaultVoice
     ? `${voiceLabel(defaultVoice)} (your default)`
     : status?.default_chat_voice
@@ -486,7 +486,7 @@ export function ChatSettingsPanel({
           {status?.default_system_prompt && (
             <div className="mt-2 rounded-md border border-border bg-background/40 p-2">
               <div className="mb-1 text-xs font-medium text-muted-foreground">
-                Project default (heim.toml){settings.systemPrompt === null ? " · in use" : ""}
+                Project default (stabbur.toml){settings.systemPrompt === null ? " · in use" : ""}
               </div>
               <p className="line-clamp-3 text-sm text-muted-foreground" title={status.default_system_prompt}>
                 {status.default_system_prompt}
@@ -812,7 +812,7 @@ export function ChatSettingsPanel({
               </div>
             </Section>
 
-            {/* The catalogue: every server heim ships, most of them off. Two switches with two
+            {/* The catalogue: every server stabbur ships, most of them off. Two switches with two
                 different scopes live here, so they are deliberately kept apart — the row switch
                 starts/stops the *server* for every chat on this machine (it writes mcp.json),
                 while the switch on "Tools in this chat" says whether *this* conversation may call
@@ -821,7 +821,7 @@ export function ChatSettingsPanel({
                 live in every chat you open afterwards. */}
             <Section
               title="MCP servers"
-              description="What heim can run. Switching one on starts it for every chat on this machine."
+              description="What stabbur can run. Switching one on starts it for every chat on this machine."
             >
               {servers === null ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
@@ -835,7 +835,7 @@ export function ChatSettingsPanel({
                     const allowed = allowedServers.has(name);
                     const on = allowed ? list.filter((t) => !disabled.has(t.name)).length : 0;
                     const note = notes[name];
-                    // No switch for a server heim can't start (an uninstalled extra) or doesn't own
+                    // No switch for a server stabbur can't start (an uninstalled extra) or doesn't own
                     // (an external .mcp.json entry) — a control that cannot work is worse than none.
                     const canToggle = !!server && server.installed;
                     return (
@@ -883,7 +883,7 @@ export function ChatSettingsPanel({
                             ) : server?.enabled === false && list.length > 0 ? (
                               <p className="mt-1 flex items-start gap-1 text-sm text-warning-ink">
                                 <RotateCw className="mt-px h-3 w-3 shrink-0" />
-                                <span>Off, but still running — its tools detach when heim serve restarts.</span>
+                                <span>Off, but still running — its tools detach when stabbur serve restarts.</span>
                               </p>
                             ) : server?.enabled === true && list.length > 0 && !allowed ? (
                               // The confusing case: the row switch is visibly on, so the model

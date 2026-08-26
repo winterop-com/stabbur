@@ -146,8 +146,8 @@ export function Sidebar({
     <aside className="flex h-full w-full min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-3 py-3">
         <span className="px-1 text-sm font-semibold tracking-tight">
-          <span className="md:hidden">Heim</span>
-          <span className="hidden md:inline">Heim Studio</span>
+          <span className="md:hidden">Stabbur</span>
+          <span className="hidden md:inline">Stabbur Studio</span>
         </span>
         <div className="flex items-center gap-0.5">
           <Tooltip>

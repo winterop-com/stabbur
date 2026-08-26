@@ -1,4 +1,4 @@
-// Live E2E: the multi-target registry against real heim + the public play demo, driven through the
+// Live E2E: the multi-target registry against real stabbur + the public play demo, driven through the
 // extension side panel. Proves the shipped `dhis2-multi` template's headline behaviors on a real
 // browser + real model:
 //   - the panel resolves TWO targets (play42 -> /dev-2-42, play41 -> /dev-2-41) from /api/assistants;
@@ -9,13 +9,13 @@
 //     routing) and drives the play41-namespaced tool;
 //   - a non-matching tab collapses to the primary-name one-liner "Not a play42 page.".
 //
-// Serial; ONE warm server (started in the single test, stopped in afterAll). Set HEIM_DRIVE_SHOTS=<dir>
+// Serial; ONE warm server (started in the single test, stopped in afterAll). Set STABBUR_DRIVE_SHOTS=<dir>
 // to save a screenshot at each step.
 //
 // Degradation: both instances are preflighted. dev-2-42 must be reachable (else the whole spec skips).
 // If dev-2-41 is not serving (im.dhis2.org instances hibernate -> 503), the run degrades: the
 // client-side proofs (auto-switch banner, /api/assistants list, target-scoped chat body) still hold
-// because they are driven by heim's config, not by play41's health — only the play41 server round-trips
+// because they are driven by stabbur's config, not by play41's health — only the play41 server round-trips
 // (its "Verified." and a successful tool result) are skipped with a clear message.
 
 import { mkdirSync } from "node:fs";
@@ -39,7 +39,7 @@ import {
 
 const BASE_URL = `http://127.0.0.1:${LIVE_PORT}`;
 const MATCH_TEXT = TAB_MATCHED;
-const SHOTS = process.env.HEIM_DRIVE_SHOTS ?? "";
+const SHOTS = process.env.STABBUR_DRIVE_SHOTS ?? "";
 
 let shotIndex = 0;
 async function shot(page: Page, name: string): Promise<void> {
@@ -58,7 +58,7 @@ let skipReason: string | null = null;
 let play41Up = false;
 let server: LiveServer | null = null;
 
-test.describe.serial("multi-target registry against real heim + play42/play41", () => {
+test.describe.serial("multi-target registry against real stabbur + play42/play41", () => {
   test.beforeAll(async () => {
     // The primary must be reachable at all; a redirect-to-login (302) counts as up.
     skipReason = await preflight(PLAY_BASE_URL);
@@ -96,7 +96,7 @@ test.describe.serial("multi-target registry against real heim + play42/play41", 
       // The e2e build statically pre-grants play.im.dhis2.org/* (origin-wide, so it covers BOTH
       // /dev-2-42 and /dev-2-41); the grant resolves silently.
       const granted = await grantHostPermission(panel, new URL(PLAY_BASE_URL).origin);
-      expect(granted, "run with the e2e build: `bun run build:e2e` + HEIM_E2E_BUILD=1").toBe(true);
+      expect(granted, "run with the e2e build: `bun run build:e2e` + STABBUR_E2E_BUILD=1").toBe(true);
 
       // The registry lists BOTH targets — the multi-target contract at the API boundary. Fetched from
       // node (no browser CORS), mirroring actasyou's direct /api/chat check.
@@ -205,14 +205,14 @@ test.describe.serial("multi-target registry against real heim + play42/play41", 
       await expect(panel.getByText("Not a play42 page.")).toBeVisible({ timeout: 30_000 });
       await shot(panel, "non-matching-example");
 
-      // The heim serve log should show the play41 bridge/tool touched by this turn (belt-and-braces
+      // The stabbur serve log should show the play41 bridge/tool touched by this turn (belt-and-braces
       // alongside the panel proofs above).
-      console.log(`[multitarget] heim serve log tail:\n${server.tailLog(40)}`);
+      console.log(`[multitarget] stabbur serve log tail:\n${server.tailLog(40)}`);
 
       await tab.close();
       await panel.close();
     } catch (err) {
-      if (server) console.log(`[multitarget] heim serve log tail:\n${server.tailLog(80)}`);
+      if (server) console.log(`[multitarget] stabbur serve log tail:\n${server.tailLog(80)}`);
       throw err;
     }
   });

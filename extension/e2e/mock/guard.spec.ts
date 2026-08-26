@@ -1,4 +1,4 @@
-// heim's cross-site guard: a mutating POST (loading the model) is 403-blocked
+// stabbur's cross-site guard: a mutating POST (loading the model) is 403-blocked
 // while GETs pass, and the panel surfaces the cors_origins hint with this
 // extension's id.
 

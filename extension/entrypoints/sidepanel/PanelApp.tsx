@@ -71,7 +71,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
   const extensionId = chrome.runtime.id;
   const active = activeBackend(settings);
 
-  // Client-side target selection (the twin of heim.targets.select): recomputed on tab / registry
+  // Client-side target selection (the twin of stabbur.targets.select): recomputed on tab / registry
   // change. `matches` is the full ranked list; `selected` is the unique strictly-highest-rank pick (a
   // catch-all + a specific target auto-picks the specific one), null only on an equal-rank tie / no match.
   const selection = useMemo(() => selectTarget(tabUrl, targets), [tabUrl, targets]);
@@ -238,7 +238,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     return cachedWhoAmI(tabId, false);
   }
 
-  // Snapshot the active heim backend when a bind flow starts, so a mid-flow backend switch can't
+  // Snapshot the active stabbur backend when a bind flow starts, so a mid-flow backend switch can't
   // redirect the minted token to a different server (BindFlow freezes this at consent-confirm).
   function captureTarget(): BindBackendTarget {
     const b = activeBackend(settings);

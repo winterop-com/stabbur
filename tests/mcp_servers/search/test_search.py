@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from fastmcp import Client
 
-from heim.mcp_servers.search import app, mcp
+from stabbur.mcp_servers.search import app, mcp
 
 # A trimmed but realistic DuckDuckGo HTML results page: two hits, one wrapped in DDG's /l/
 # redirect (uddg=), one a direct URL, with entities + inner tags to strip.
@@ -83,5 +83,5 @@ async def test_keyed_backend_without_key_gives_hint(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(app.settings, "brave_key", "")
     from fastmcp.exceptions import ToolError
 
-    with pytest.raises(ToolError, match="HEIM_SEARCH_BRAVE_KEY"):
+    with pytest.raises(ToolError, match="STABBUR_SEARCH_BRAVE_KEY"):
         await _call("search", query="hello")

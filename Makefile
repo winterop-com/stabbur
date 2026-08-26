@@ -8,10 +8,10 @@ UV := $(shell command -v uv 2> /dev/null)
 VENV_DIR ?= .venv
 PYTHON := $(VENV_DIR)/bin/python
 
-# Type-check the app + the remaining workspace member (packages/heim-sandbox). Its src/
+# Type-check the app + the remaining workspace member (packages/stabbur-sandbox). Its src/
 # and tests/ go on MYPYPATH so its flat module resolves to a clean, hyphen-free name
 # (the packages/ dir name contains '-'). Globs expand at recipe time. The bundled MCP
-# servers are now vendored under src/heim/mcp_servers/** and covered by the `src` root.
+# servers are now vendored under src/stabbur/mcp_servers/** and covered by the `src` root.
 MYPY = MYPYPATH="$$(echo src packages/*/src packages/*/tests | tr ' ' ':')" $(UV) run mypy \
 	--explicit-package-bases src tests packages/*/src packages/*/tests
 
@@ -34,16 +34,16 @@ help:
 	@echo "  frontend    Build the browser UI (bun install + build → frontend/dist)"
 	@echo "  extension   Build the Chrome MV3 side-panel extension (bun install + build)"
 	@echo "  extension-e2e       Run the extension E2E mock tier (fast, hermetic)"
-	@echo "  extension-e2e-live  Run the extension E2E live tier (real heim + DHIS2 demo)"
+	@echo "  extension-e2e-live  Run the extension E2E live tier (real stabbur + DHIS2 demo)"
 	@echo "  extension-prompts   Verify the side-panel prompt catalog vs gemma-4-12B + regen the doc"
 	@echo "  docs        Serve the docs locally with live reload"
 	@echo "  docs-build  Build the docs site"
 	@echo "  clean       Clean up temporary files"
 
 # The `benchmark` extra rides along in every install target: it's a dev/eval tier (its
-# code is vendored at src/heim/benchmark and its tests live under tests/benchmark, collected
+# code is vendored at src/stabbur/benchmark and its tests live under tests/benchmark, collected
 # by `make check`). The extra itself is now empty, but naming it keeps the invocation valid
-# and self-documenting; the dev group (which carries heim-sandbox, the executor) syncs too.
+# and self-documenting; the dev group (which carries stabbur-sandbox, the executor) syncs too.
 install:
 	@echo ">>> Installing dependencies (incl. benchmark/eval harness)"
 	@$(UV) sync --extra benchmark
@@ -128,8 +128,8 @@ frontend:
 	@cd frontend && bun install && bun run build
 
 frontend-dev:
-	@echo ">>> Vite dev server (proxies /api + /v1 to HEIM_DEV_API or :8000)"
-	@echo ">>> Run 'heim serve --port 8000' alongside for the backend"
+	@echo ">>> Vite dev server (proxies /api + /v1 to STABBUR_DEV_API or :8000)"
+	@echo ">>> Run 'stabbur serve --port 8000' alongside for the backend"
 	@cd frontend && bun run dev
 
 extension:
@@ -145,7 +145,7 @@ extension-e2e:
 CAFFEINATE := $(shell command -v caffeinate >/dev/null 2>&1 && echo "caffeinate -is")
 
 extension-e2e-live:
-	@echo ">>> Extension E2E: live tier (real heim serve + DHIS2 play demo; ~5-15 min)"
+	@echo ">>> Extension E2E: live tier (real stabbur serve + DHIS2 play demo; ~5-15 min)"
 	@cd extension && bun install && $(CAFFEINATE) bun run e2e:live
 
 extension-prompts:

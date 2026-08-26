@@ -1,4 +1,4 @@
-// Typed client for GET /api/assistant. A 404 means the heim project carries no
+// Typed client for GET /api/assistant. A 404 means the stabbur project carries no
 // [assistant] metadata -> the panel runs in generic mode (returns null).
 
 import { apiFetch } from "@/lib/http";
@@ -35,7 +35,7 @@ export interface AssistantBindEcho {
   [key: string]: unknown;
 }
 
-/** Assistant metadata bound to the heim project (shape is open — extra keys pass through). */
+/** Assistant metadata bound to the stabbur project (shape is open — extra keys pass through). */
 export interface AssistantInfo {
   name?: string;
   base_url?: string;
@@ -86,14 +86,14 @@ export interface AssistantRegistry {
 
 const SLUG_RE = /[^a-z0-9]+/g;
 
-/** URL/id-safe slug of a target name — the TS twin of `heim.project._slugify` (lower-cased, runs of
+/** URL/id-safe slug of a target name — the TS twin of `stabbur.project._slugify` (lower-cased, runs of
  *  non-[a-z0-9] collapsed to "-", trimmed). Used only to derive the compat target's id below. */
 export function slugify(name: string): string {
   return name.toLowerCase().replace(SLUG_RE, "-").replace(/^-+|-+$/g, "");
 }
 
 /**
- * Fetch the assistant registry (GET /api/assistants). On 404 (old heim without the registry endpoint)
+ * Fetch the assistant registry (GET /api/assistants). On 404 (old stabbur without the registry endpoint)
  * fall back to the single-assistant route and wrap it as a one-entry registry with a derived id (the
  * slugified name, or `target-0`) and a `compat: true` marker so bind/verify use the /api/assistant*
  * routes. `url` is forwarded as `?url=` for parity with server-side selection, but the panel selects

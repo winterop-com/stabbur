@@ -1,5 +1,5 @@
 // UI spot-check (the last mile): drive verified prompts through the REAL extension
-// side panel, with the page-text toggle on, against a REAL `heim serve` (locked
+// side panel, with the page-text toggle on, against a REAL `stabbur serve` (locked
 // gemma). Proves capture -> context block -> /api/chat -> rendered answer.
 //
 // Host-permission note: the manifest grants page access only for 127.0.0.1 /
@@ -18,7 +18,7 @@ import { test, expect, openPanel, seedSettings } from "../fixtures";
 import { startPromptServer, waitForReady, type PromptServer } from "./promptServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const UI_PORT = Number(process.env.HEIM_UI_PORT ?? 4612);
+const UI_PORT = Number(process.env.STABBUR_UI_PORT ?? 4612);
 
 interface Capture {
   key: string;
@@ -52,7 +52,7 @@ function serveContent(cap: Capture): Promise<{ server: Server; url: string }> {
   });
 }
 
-test.describe.serial("extension UI spot-check against real heim", () => {
+test.describe.serial("extension UI spot-check against real stabbur", () => {
   test("JSON extraction + summary + table through the side panel", async ({ context, extensionId }) => {
     // Three sequential real-model asks plus a cold gemma load. The panel (real UI behavior)
     // sends no max_tokens, so each ask is unbounded generation: up to ~8 min per ask
@@ -61,13 +61,13 @@ test.describe.serial("extension UI spot-check against real heim", () => {
     test.setTimeout(3_600_000);
     const cap = hnCapture();
     const { server: contentServer, url: contentUrl } = await serveContent(cap);
-    let heim: PromptServer | null = null;
+    let stabbur: PromptServer | null = null;
     try {
-      heim = startPromptServer({ corsOrigin: `chrome-extension://${extensionId}`, port: UI_PORT });
-      await waitForReady(heim.baseUrl); // cold gemma load; project timeout covers it
+      stabbur = startPromptServer({ corsOrigin: `chrome-extension://${extensionId}`, port: UI_PORT });
+      await waitForReady(stabbur.baseUrl); // cold gemma load; project timeout covers it
 
       await seedSettings(context, extensionId, {
-        baseUrl: heim.baseUrl,
+        baseUrl: stabbur.baseUrl,
         token: "",
         pageContextEnabled: true,
         pageTextEnabled: true,
@@ -148,7 +148,7 @@ test.describe.serial("extension UI spot-check against real heim", () => {
 
       await tab.close();
     } catch (err) {
-      if (heim?.logPath) console.log(`[ui] heim serve log tail:\n${heim.tailLog(40)}`);
+      if (stabbur?.logPath) console.log(`[ui] stabbur serve log tail:\n${stabbur.tailLog(40)}`);
       throw err;
     } finally {
       // close() alone waits for Chrome's pooled keep-alive sockets to drain - they never do
@@ -156,7 +156,7 @@ test.describe.serial("extension UI spot-check against real heim", () => {
       // dies (the observed "Tearing down context exceeded the test timeout").
       contentServer.closeAllConnections();
       await new Promise<void>((r) => contentServer.close(() => r()));
-      if (heim) await heim.stop();
+      if (stabbur) await stabbur.stop();
     }
   });
 });

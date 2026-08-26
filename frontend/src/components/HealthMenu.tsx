@@ -13,7 +13,7 @@ import { type CheckStatus, type DoctorReport, type HealthCheck, overallStatus } 
 import { cn } from "@/lib/utils";
 
 // The doctor's three verdicts, as the semantic word each of them is. `fail` is
-// `--critical` rather than `--destructive`: it is a state heim observed, not a
+// `--critical` rather than `--destructive`: it is a state stabbur observed, not a
 // button that destroys something.
 const DOT: Record<CheckStatus, string> = {
   ok: "bg-good",
@@ -178,7 +178,7 @@ function InlineGroup({ node }: { node: CheckNode }) {
 }
 
 /**
- * Top-bar system-health indicator: a status dot that opens a dropdown of the `heim doctor` checks —
+ * Top-bar system-health indicator: a status dot that opens a dropdown of the `stabbur doctor` checks —
  * same pattern as the model picker, so health lives in the bar rather than crammed into the
  * settings pane.
  *

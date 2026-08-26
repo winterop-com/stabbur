@@ -1,4 +1,4 @@
-"""Tests for heim's MCP client wrapper and agent loop (in-memory, no live runtime).
+"""Tests for stabbur's MCP client wrapper and agent loop (in-memory, no live runtime).
 
 The datetime server's own behavior is tested in ``packages/mcp/tests/test_datetime.py``;
 here we use a tiny inline FastMCP server as a fixture so these tests stay independent of
@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from fastmcp import Client, FastMCP
 
-from heim import agent, tools
+from stabbur import agent, tools
 
 # A minimal in-memory MCP server standing in for any real one — two trivial tools.
 _fixture: FastMCP = FastMCP("fixture")
@@ -83,19 +83,19 @@ def test_user_content_builds_audio_parts() -> None:
 
 
 def test_default_name_derives_prefix() -> None:
-    assert tools._default_name(["heim-mcp-datetime"]) == "datetime"
+    assert tools._default_name(["stabbur-mcp-datetime"]) == "datetime"
     assert tools._default_name(["/usr/bin/dhis2w-mcp-bridge"]) == "dhis2w_mcp_bridge"
     assert tools._default_name([]) == "mcp"
 
 
 def test_server_prefix_prefers_manifest_name() -> None:
-    # A manifest name (heim.toml [[mcp]].name) wins over the derived prefix, slugified.
+    # A manifest name (stabbur.toml [[mcp]].name) wins over the derived prefix, slugified.
     assert tools._server_prefix("dhis2", ["dhis2w-mcp-bridge"]) == "dhis2"
     assert tools._server_prefix("My Server", ["whatever"]) == "My_Server"
     # No name → fall back to the command-derived prefix.
-    assert tools._server_prefix(None, ["heim-mcp-datetime"]) == "datetime"
+    assert tools._server_prefix(None, ["stabbur-mcp-datetime"]) == "datetime"
     # Empty / all-punctuation name → fall back rather than yield an empty prefix.
-    assert tools._server_prefix("  ", ["heim-mcp-datetime"]) == "datetime"
+    assert tools._server_prefix("  ", ["stabbur-mcp-datetime"]) == "datetime"
 
 
 async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -388,7 +388,7 @@ async def test_call_structured_falls_back_to_data_then_text() -> None:
 
 async def test_connect_skips_a_failing_server_and_records_it() -> None:
     # An uninstalled/bad server must not abort the others: it's skipped and recorded in errors.
-    async with tools.connect([("bogus", ["heim-nonexistent-server-xyz"])]) as toolset:
+    async with tools.connect([("bogus", ["stabbur-nonexistent-server-xyz"])]) as toolset:
         assert toolset.schemas == []  # nothing from the failed server
         assert toolset.errors and toolset.errors[0][0] == "bogus"  # failure recorded with its label
 

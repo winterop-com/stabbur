@@ -7,7 +7,7 @@
 // already knows what it was about, so it is asked.
 //
 // THE ONE HARD CONSTRAINT IS WHICH MODEL. The request names the model that is *already loaded* and
-// no other. An upstream llama-server in router mode runs `max_instances: 1` and heim's own
+// no other. An upstream llama-server in router mode runs `max_instances: 1` and stabbur's own
 // ServerManager is single-runtime, so naming a chat with a second model would evict the one being
 // chatted with, and the next message would evict it back — tens of gigabytes of weights swapped to
 // produce five words. The caller passes the name from /api/status; there is no fallback and no
@@ -122,8 +122,8 @@ const REFUSAL =
 /**
  * Turn whatever the model said into a title, or null if there isn't one in there.
  *
- * Models answer the same question in a dozen shapes — `"Heim Sidebar Screenshots"`, `Title: heim
- * sidebar`, `**Heim sidebar**`, a title with a full stop on the end, a title followed by two
+ * Models answer the same question in a dozen shapes — `"Stabbur Sidebar Screenshots"`, `Title: stabbur
+ * sidebar`, `**Stabbur sidebar**`, a title with a full stop on the end, a title followed by two
  * paragraphs explaining the choice. Every one of those contains the answer; stripping the wrapping
  * is cheaper and far more often right than re-asking. What is NOT recoverable — a refusal, a
  * restatement of the question, an empty string — returns null, and the caller keeps the derived
@@ -172,7 +172,7 @@ export async function requestConversationTitle(req: TitleRequest): Promise<strin
   if (!body && !req.image) return null;
   const text = `${INSTRUCTION}\n\n${body}`;
   // A plain string when there is no image: the multimodal parts array is understood by every
-  // backend heim proxies, but a bare string is what a text-only runtime is happiest with, and this
+  // backend stabbur proxies, but a bare string is what a text-only runtime is happiest with, and this
   // path runs against whatever happens to be loaded.
   const content = req.image ? [{ type: "text", text }, { type: "image_url", image_url: { url: req.image } }] : text;
 

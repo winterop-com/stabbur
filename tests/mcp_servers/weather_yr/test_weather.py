@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from heim.mcp_servers.weather_yr.core import Location, WeatherSettings, fetch_forecast
+from stabbur.mcp_servers.weather_yr.core import Location, WeatherSettings, fetch_forecast
 
 
 def _sample_metno() -> dict[str, Any]:
@@ -68,11 +68,11 @@ class _FakeClient:
 
 
 def test_settings_default_user_agent() -> None:
-    assert "heim-mcp-weather-yr" in WeatherSettings().user_agent
+    assert "stabbur-mcp-weather-yr" in WeatherSettings().user_agent
 
 
 def test_fetch_forecast_parses(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("heim.mcp_servers.weather_yr.core.httpx.Client", _FakeClient)
+    monkeypatch.setattr("stabbur.mcp_servers.weather_yr.core.httpx.Client", _FakeClient)
     fc = fetch_forecast(Location(name="Oslo", latitude=59.9133, longitude=10.739))
 
     assert fc.location.name == "Oslo"
@@ -91,7 +91,7 @@ def test_fetch_forecast_parses(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_coordinates_truncated_to_4dp(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("heim.mcp_servers.weather_yr.core.httpx.Client", _FakeClient)
+    monkeypatch.setattr("stabbur.mcp_servers.weather_yr.core.httpx.Client", _FakeClient)
     fetch_forecast(Location(name="x", latitude=59.913330, longitude=10.738970))
     assert _FakeClient.last_params["lat"] == 59.9133  # met.no policy: 4 decimals
     assert _FakeClient.last_params["lon"] == 10.739

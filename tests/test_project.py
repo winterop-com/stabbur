@@ -1,4 +1,4 @@
-"""Tests for loading the heim.toml project manifest."""
+"""Tests for loading the stabbur.toml project manifest."""
 
 import tomllib
 from pathlib import Path
@@ -6,17 +6,17 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from heim import project
-from heim.project import AssistantInfo, AssistantVerify
+from stabbur import project
+from stabbur.project import AssistantInfo, AssistantVerify
 
 
 def test_load_missing_returns_none(tmp_path: Path) -> None:
-    assert project.load(tmp_path / "heim.toml") is None
+    assert project.load(tmp_path / "stabbur.toml") is None
 
 
 def test_load_parses_model_and_prompt(tmp_path: Path) -> None:
-    # Tools are no longer in heim.toml (they live in .mcp.json); the manifest is model+prompt+libs.
-    manifest = tmp_path / "heim.toml"
+    # Tools are no longer in stabbur.toml (they live in .mcp.json); the manifest is model+prompt+libs.
+    manifest = tmp_path / "stabbur.toml"
     manifest.write_text('[project]\nmodel = "gemma-4-12B-it-QAT-GGUF"\nsystem_prompt = "Be terse."\n')
     proj = project.load(manifest)
     assert proj is not None
@@ -31,7 +31,7 @@ def test_voice_defaults_and_toggle(tmp_path: Path) -> None:
     proj = project.load(plain)
     assert proj is not None and proj.chat_voice is None and proj.voice_enabled is True
 
-    manifest = tmp_path / "heim.toml"
+    manifest = tmp_path / "stabbur.toml"
     manifest.write_text('[project]\nmodel = "x"\nchat_voice = "kokoro:af_bella"\n\n[voice]\nenabled = false\n')
     proj = project.load(manifest)
     assert proj is not None
@@ -40,7 +40,7 @@ def test_voice_defaults_and_toggle(tmp_path: Path) -> None:
 
 
 def test_load_raises_projecterror_on_bad_toml(tmp_path: Path) -> None:
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text("this = = not toml [[[")
     with pytest.raises(project.ProjectError, match="not valid TOML"):
         project.load(p)
@@ -54,7 +54,7 @@ def test_render_manifest_round_trips(tmp_path: Path) -> None:
         local_library_dir="library",
         chat_voice="kokoro:af_heart",
     )
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None
@@ -67,7 +67,7 @@ def test_render_manifest_round_trips(tmp_path: Path) -> None:
 def test_assistant_parses_known_and_extra_keys(tmp_path: Path) -> None:
     # [assistant] is echoed verbatim for UI clients: known fields validate, and unknown keys
     # survive (extra="allow") so a project can carry extra target hints untouched.
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(
         '[project]\nmodel = "m"\n\n'
         '[assistant]\nname = "play42"\nbase_url = "https://demo/x"\nauth = "basic"\n'
@@ -86,7 +86,7 @@ def test_assistant_parses_known_and_extra_keys(tmp_path: Path) -> None:
 
 
 def test_assistant_absent_is_none(tmp_path: Path) -> None:
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n')
     proj = project.load(p)
     assert proj is not None and proj.assistant is None
@@ -95,7 +95,7 @@ def test_assistant_absent_is_none(tmp_path: Path) -> None:
 def test_assistant_malformed_verify_raises_projecterror(tmp_path: Path) -> None:
     # A bad [assistant.verify] (missing the required tool) must fail like any manifest value — a
     # clean ProjectError, not a traceback.
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n\n[assistant]\nname = "x"\n\n[assistant.verify]\ntimeout = 5.0\n')
     with pytest.raises(project.ProjectError, match="invalid value"):
         project.load(p)
@@ -117,7 +117,7 @@ def test_render_manifest_round_trips_assistant(tmp_path: Path) -> None:
     )
     text = project.render_manifest(model="pub/Foo-GGUF", system_prompt="hi", assistant=info)
     tomllib.loads(text)  # valid TOML
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant == info
@@ -136,7 +136,7 @@ def test_render_manifest_quotes_non_bare_assistant_keys(tmp_path: Path) -> None:
     )
     text = project.render_manifest(model="m", assistant=info)
     tomllib.loads(text)  # valid TOML
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant == info
@@ -156,7 +156,7 @@ def test_assistant_verify_extra_keys_round_trip(tmp_path: Path) -> None:
     # block's extra="allow" pass-through promise (they must not silently vanish).
     info = AssistantInfo.model_validate({"name": "x", "verify": {"tool": "t", "args": {"a": "b"}, "retries": 3}})
     text = project.render_manifest(model="m", assistant=info)
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant is not None and loaded.assistant == info
@@ -167,7 +167,7 @@ def test_assistant_verify_extra_keys_round_trip(tmp_path: Path) -> None:
 
 def test_render_manifest_rejects_bad_verify_arg_type(tmp_path: Path) -> None:
     # The single writer refuses an arg value that isn't a string or list of strings, so it never
-    # emits a heim.toml the parser would reject.
+    # emits a stabbur.toml the parser would reject.
     info = AssistantInfo.model_validate(
         {"name": "x", "verify": {"tool": "t", "args": {"n": 7}}}  # int arg value → not renderable as TOML
     )
@@ -211,7 +211,7 @@ def test_render_manifest_round_trips_probe_and_bind(tmp_path: Path) -> None:
     )
     text = project.render_manifest(model="m", assistant=info)
     tomllib.loads(text)  # valid TOML
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant is not None
@@ -274,7 +274,7 @@ def test_bind_rejects_out_of_range_timeout() -> None:
 
 
 def test_bind_rejects_unknown_mint_payload_token() -> None:
-    # A mint_payload typo like {expires_days} is caught at heim.toml load, not later at mint time in
+    # A mint_payload typo like {expires_days} is caught at stabbur.toml load, not later at mint time in
     # the browser. The allowed tokens (and the payload's own JSON braces) validate fine.
     with pytest.raises(ValidationError, match="mint_payload"):
         AssistantInfo.model_validate({"bind": {"mint_payload": '{"expire":{expires_days}}'}})
@@ -299,8 +299,8 @@ def test_render_manifest_rejects_non_scalar_probe_extra(tmp_path: Path) -> None:
 
 
 def test_load_rejects_bad_probe_path_as_projecterror(tmp_path: Path) -> None:
-    # A hand-edited heim.toml with a bad probe path fails like any manifest value — a clean ProjectError.
-    p = tmp_path / "heim.toml"
+    # A hand-edited stabbur.toml with a bad probe path fails like any manifest value — a clean ProjectError.
+    p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n\n[assistant]\nname = "x"\n\n[assistant.probe]\npaths = ["notabs"]\n')
     with pytest.raises(project.ProjectError, match="invalid value"):
         project.load(p)
@@ -309,7 +309,7 @@ def test_load_rejects_bad_probe_path_as_projecterror(tmp_path: Path) -> None:
 def test_single_assistant_loads_as_one_target_registry(tmp_path: Path) -> None:
     # A single [assistant] table is the compat case: it becomes a one-target registry whose primary is
     # the aliased `assistant`, and mcp_servers defaults to [] (the "owns all servers" marker).
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n\n[assistant]\nname = "play42"\nbase_url = "https://demo/x"\n')
     proj = project.load(p)
     assert proj is not None
@@ -321,7 +321,7 @@ def test_single_assistant_loads_as_one_target_registry(tmp_path: Path) -> None:
 
 def test_assistants_array_loads_all_targets_in_order(tmp_path: Path) -> None:
     # [[assistants]] parses N targets in declaration order; the primary is the first, ids are derived.
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(
         '[project]\nmodel = "m"\n\n'
         '[[assistants]]\nname = "play42"\nbase_url = "https://demo/dev-2-42"\nmcp_servers = ["play42"]\n\n'
@@ -338,7 +338,7 @@ def test_assistants_array_loads_all_targets_in_order(tmp_path: Path) -> None:
 
 def test_both_assistant_shapes_present_raises(tmp_path: Path) -> None:
     # [assistant] and [[assistants]] together is ambiguous (which is primary?) — a clean ProjectError.
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n\n[assistant]\nname = "a"\n\n[[assistants]]\nname = "b"\n')
     with pytest.raises(project.ProjectError, match="both"):
         project.load(p)
@@ -346,7 +346,7 @@ def test_both_assistant_shapes_present_raises(tmp_path: Path) -> None:
 
 def test_assistants_table_not_array_raises(tmp_path: Path) -> None:
     # A [assistants] *table* (not the array-of-tables [[assistants]]) is a manifest mistake, caught cleanly.
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n\n[assistants]\nname = "a"\n')
     with pytest.raises(project.ProjectError, match="array of tables"):
         project.load(p)
@@ -355,7 +355,7 @@ def test_assistants_table_not_array_raises(tmp_path: Path) -> None:
 def test_malformed_target_in_array_raises_projecterror(tmp_path: Path) -> None:
     # One malformed target (a bad verify) fails like any manifest value — a clean ProjectError, not a
     # traceback — and the error is raised for the array path just as for a single [assistant].
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(
         '[project]\nmodel = "m"\n\n'
         '[[assistants]]\nname = "good"\nbase_url = "https://demo/a"\n\n'
@@ -368,7 +368,7 @@ def test_malformed_target_in_array_raises_projecterror(tmp_path: Path) -> None:
 def test_render_manifest_round_trips_assistants_array(tmp_path: Path) -> None:
     # render (single writer) -> tomllib -> load (single parser) is closed for N targets, including
     # mcp_servers, an extra key, and the nested verify/bind sub-tables under [[assistants]].
-    from heim.targets import AssistantRegistry
+    from stabbur.targets import AssistantRegistry
 
     targets = [
         AssistantInfo.model_validate(
@@ -393,7 +393,7 @@ def test_render_manifest_round_trips_assistants_array(tmp_path: Path) -> None:
     text = project.render_manifest(model="m", registry=AssistantRegistry(targets=targets))
     tomllib.loads(text)  # valid TOML
     assert "[[assistants]]" in text
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None
@@ -408,17 +408,17 @@ def test_render_manifest_single_assistant_stays_table_not_array(tmp_path: Path) 
     text = project.render_manifest(model="m", assistant=info)
     assert "[assistant]" in text and "[[assistants]]" not in text
     assert "mcp_servers" not in text and "\nid = " not in text
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(text)
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant == info
 
 
 def test_read_raw_is_the_single_parser(tmp_path: Path) -> None:
-    # read_raw underlies both the manifest (load) and the machine settings (heim.config), so a
+    # read_raw underlies both the manifest (load) and the machine settings (stabbur.config), so a
     # malformed file raises one clean ProjectError rather than crashing differently in each.
     assert project.read_raw(tmp_path / "absent.toml") == {}
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text('library_root = "/x"\n[project]\nmodel = "m"\n')
     assert project.read_raw(p)["library_root"] == "/x"  # machine key + manifest table in one parse
     p.write_text("nope = = [[[")

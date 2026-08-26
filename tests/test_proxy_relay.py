@@ -1,4 +1,4 @@
-"""Tests for the streaming ``/v1`` proxy (``heim.routers.serving.proxy``).
+"""Tests for the streaming ``/v1`` proxy (``stabbur.routers.serving.proxy``).
 
 Only the no-model-loaded 409 is covered elsewhere (tests/test_api.py). These exercise the
 happy relay (status/content-type/body forwarded verbatim) and — critically — the
@@ -23,11 +23,11 @@ from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from heim.app import create_app
-from heim.config import Settings
-from heim.routers import serving
-from heim.routers.serving import proxy
-from heim.server import ServerManager
+from stabbur.app import create_app
+from stabbur.config import Settings
+from stabbur.routers import serving
+from stabbur.routers.serving import proxy
+from stabbur.server import ServerManager
 
 # NOTE: httpx 0.28's ASGITransport fully buffers a response — it runs the app to completion
 # before returning — so a stream cannot be observed mid-flight through the outer test client.

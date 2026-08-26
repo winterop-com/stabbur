@@ -4,9 +4,9 @@ import json
 import struct
 from pathlib import Path
 
-from heim import capabilities
-from heim.library import LibraryModel
-from heim.models import ModelFormat
+from stabbur import capabilities
+from stabbur.library import LibraryModel
+from stabbur.models import ModelFormat
 
 
 def _gguf_string(text: str) -> bytes:
@@ -114,7 +114,7 @@ def test_tools_needs_a_calling_marker_not_bare_tools(tmp_path: Path) -> None:
 
 
 def test_capabilities_are_cached_in_the_sidecar(tmp_path: Path) -> None:
-    # First call detects + writes .heim/capabilities.json; later calls read it (no re-detection).
+    # First call detects + writes .stabbur/capabilities.json; later calls read it (no re-detection).
     gguf = tmp_path / "m.gguf"
     _write_gguf(gguf, {"general.architecture": (8, "llama"), "llama.context_length": (4, 8192)})
     model = _model(tmp_path, ModelFormat.gguf, gguf)
@@ -127,7 +127,7 @@ def test_capabilities_are_cached_in_the_sidecar(tmp_path: Path) -> None:
 
 
 def test_ollama_capabilities_cache_lands_in_library_sidecar(tmp_path: Path) -> None:
-    # An Ollama model's `path` is the manifest FILE, so a `.heim` under it can't be created; the
+    # An Ollama model's `path` is the manifest FILE, so a `.stabbur` under it can't be created; the
     # cache must go to the ollama/.library/<safe_name>/ sidecar instead. First read detects + writes
     # it there; the second read hits the cache even after the weights are corrupted.
     manifest = tmp_path / "ollama" / "manifests" / "registry.ollama.ai" / "library" / "qwen" / "latest"
@@ -180,7 +180,7 @@ def test_read_gguf_string_caps_a_bogus_length() -> None:
     import io
     import struct
 
-    from heim import capabilities
+    from stabbur import capabilities
 
     fh = io.BytesIO(struct.pack("<Q", 10**10) + b"hello")  # claims 10 GB, has 5 bytes
     assert capabilities._read_gguf_string(fh) == "hello"

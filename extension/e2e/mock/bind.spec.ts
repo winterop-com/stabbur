@@ -1,5 +1,5 @@
 // "Use my login" bind flow: the panel mints a scoped credential in the target site's own context
-// (its cookies) and hands heim only the secret. Drives the flow against a HeimMock (the bind
+// (its cookies) and hands stabbur only the secret. Drives the flow against a HeimMock (the bind
 // endpoint) plus a TargetSiteMock (a stand-in DHIS2 the content tab opens).
 //
 // The DEFAULT path is now proactive: on panel open against a matched tab with a live session and no
@@ -15,29 +15,29 @@ import { TAB_MATCHED } from "../../lib/bannerText";
 import { HeimMock, TargetSiteMock, bindAssistant } from "../mockServer";
 import type { BrowserContext, Page } from "@playwright/test";
 
-const heim = new HeimMock();
+const stabbur = new HeimMock();
 const target = new TargetSiteMock();
 
 test.beforeAll(async () => {
-  await heim.start();
+  await stabbur.start();
   await target.start();
 });
 test.afterAll(async () => {
-  await heim.stop();
+  await stabbur.stop();
   await target.stop();
 });
 test.beforeEach(() => {
-  heim.reset();
-  heim.state.phase = "ready";
+  stabbur.reset();
+  stabbur.state.phase = "ready";
   target.reset();
-  heim.state.assistant = bindAssistant(target.baseUrl());
+  stabbur.state.assistant = bindAssistant(target.baseUrl());
 });
 
 const MATCH_TEXT = TAB_MATCHED;
 
-/** Open the panel (talking to heim), then a content tab on the target site so the tab matches. */
+/** Open the panel (talking to stabbur), then a content tab on the target site so the tab matches. */
 async function openWithTargetTab(context: BrowserContext, extensionId: string): Promise<{ panel: Page; tab: Page }> {
-  await seedSettings(context, extensionId, { baseUrl: heim.baseUrl(), token: "" });
+  await seedSettings(context, extensionId, { baseUrl: stabbur.baseUrl(), token: "" });
   const panel = await openPanel(context, extensionId);
   await expect(panel.getByPlaceholder(/Message \(Enter to send/)).toBeVisible({ timeout: 15_000 });
   const tab = await context.newPage();
@@ -72,9 +72,9 @@ test("auto-offer: logged-in + unbound pops the consent card, but never mints unt
   await panel.getByTestId("bind-confirm").click();
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByTestId("bind-acting-as")).toContainText("Acting as admin");
-  // Now the mint actually hit the target and heim recorded a pat bind.
+  // Now the mint actually hit the target and stabbur recorded a pat bind.
   expect(target.mintCalls.length).toBeGreaterThan(0);
-  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "pat", secret: "d2p_test" });
   await tab.close();
 });
@@ -166,7 +166,7 @@ test("drift: a different user is now logged in -> re-offer a rebind", async ({ c
   await tab.close();
 });
 
-test("happy mint: token minted in the tab, heim records a pat bind, chip appears", async ({ context, extensionId }) => {
+test("happy mint: token minted in the tab, stabbur records a pat bind, chip appears", async ({ context, extensionId }) => {
   const { panel, tab } = await openWithTargetTab(context, extensionId);
   await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
   await panel.getByTestId("bind-confirm").click();
@@ -183,7 +183,7 @@ test("happy mint: token minted in the tab, heim records a pat bind, chip appears
   await expect(panel.getByTestId("bind-scope")).toBeVisible();
   await expect(panel.getByText("auth: basic")).toBeVisible();
 
-  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "pat", secret: "d2p_test" });
   // The target actually minted (its POST /api/apiToken was hit).
   expect(target.mintCalls.length).toBeGreaterThan(0);
@@ -246,7 +246,7 @@ test("manual button: dismiss the auto-offer, then Use my login mints + binds + s
   await expect(panel.getByTestId("bind-acting-as")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByTestId("bind-acting-as")).toContainText("Acting as admin");
   expect(target.mintCalls.length).toBeGreaterThan(0);
-  const bindCall = heim.state.bindCalls.find((c) => c.endpoint === "bind");
+  const bindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "bind");
   expect(bindCall?.body).toMatchObject({ mode: "pat", secret: "d2p_test" });
   await tab.close();
 });
@@ -282,7 +282,7 @@ test("unbind revokes the token on the target and records an unbind call", async 
 
   await expect(panel.getByTestId("bind-acting-as")).toHaveCount(0, { timeout: 15_000 });
   expect(target.deleteCalls).toContain("/api/apiToken/u1");
-  const unbindCall = heim.state.bindCalls.find((c) => c.endpoint === "unbind");
+  const unbindCall = stabbur.state.bindCalls.find((c) => c.endpoint === "unbind");
   expect(unbindCall?.body).toMatchObject({ mode: "pat" });
   await tab.close();
 });

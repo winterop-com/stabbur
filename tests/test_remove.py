@@ -4,8 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from heim import library, tags
-from heim.models import ModelFormat
+from stabbur import library, tags
+from stabbur.models import ModelFormat
 
 
 def test_remove_directory_model_deletes_the_dir(tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ def test_remove_ollama_model_via_library(tmp_path: Path) -> None:
 def test_remove_ollama_deletes_the_library_sidecar(tmp_path: Path) -> None:
     # pull writes a browsable sidecar under ollama/.library/<safe_name>/; remove must delete it
     # too, not orphan it.
-    from heim.sources import ollama
+    from stabbur.sources import ollama
 
     store = tmp_path / "ollama"
     digest = _add_blob(store, b"z" * 40)

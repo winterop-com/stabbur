@@ -1,4 +1,4 @@
-// Spawns `heim serve --model <gemma>` locked to a single model with NO project
+// Spawns `stabbur serve --model <gemma>` locked to a single model with NO project
 // (generic free-play chat) so the prompt harness and the UI spot-check drive the
 // same backend the extension targets. Mirrors e2e/live/liveServer.ts.
 
@@ -12,13 +12,13 @@ import { fileURLToPath } from "node:url";
 // moment the repo moved (it pointed at a directory that no longer existed) and could never work
 // for anyone else. This file sits at <repo>/extension/e2e/<dir>/, so the root is three up.
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-export const DEFAULT_LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/heim/library");
+export const DEFAULT_LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/stabbur/library");
 export const DEFAULT_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
-export const PROMPT_PORT = Number(process.env.HEIM_PROMPT_PORT ?? 4611);
+export const PROMPT_PORT = Number(process.env.STABBUR_PROMPT_PORT ?? 4611);
 
 const SCRATCH =
-  process.env.HEIM_E2E_SCRATCH ??
-  "/private/tmp/claude-502/-Users-morteoh-dev-local-heim/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
+  process.env.STABBUR_E2E_SCRATCH ??
+  "/private/tmp/claude-502/-Users-morteoh-dev-local-stabbur/180a1f72-7889-42d9-bb03-f191e8f9cc1f/scratchpad";
 
 export interface PromptServer {
   baseUrl: string;
@@ -40,7 +40,7 @@ export async function waitForReady(baseUrl: string, timeoutMs = 600_000): Promis
     } catch {
       /* not up yet */
     }
-    if (Date.now() > deadline) throw new Error(`heim serve not ready within ${timeoutMs}ms at ${baseUrl}`);
+    if (Date.now() > deadline) throw new Error(`stabbur serve not ready within ${timeoutMs}ms at ${baseUrl}`);
     await new Promise((r) => setTimeout(r, 2000));
   }
 }
@@ -54,12 +54,12 @@ interface StartOpts {
 }
 
 /**
- * Start a locked-model heim serve. When HEIM_PROMPT_BASE_URL is set, reuse that
+ * Start a locked-model stabbur serve. When STABBUR_PROMPT_BASE_URL is set, reuse that
  * already-running server instead of spawning (no teardown). Returns a handle whose
  * `stop()` group-kills the spawned server (and reaped runtimes).
  */
 export function startPromptServer(opts: StartOpts = {}): PromptServer {
-  const existing = process.env.HEIM_PROMPT_BASE_URL;
+  const existing = process.env.STABBUR_PROMPT_BASE_URL;
   if (existing) {
     return { baseUrl: existing, logPath: null, stop: async () => {}, tailLog: () => "(external server)" };
   }
@@ -68,19 +68,19 @@ export function startPromptServer(opts: StartOpts = {}): PromptServer {
   const libraryRoot = opts.libraryRoot ?? DEFAULT_LIBRARY_ROOT;
   const port = opts.port ?? PROMPT_PORT;
   const root = existsSync(SCRATCH) ? SCRATCH : tmpdir();
-  const dir = mkdtempSync(path.join(root, "heim-prompts-"));
-  const logPath = path.join(dir, "heim-serve.log");
+  const dir = mkdtempSync(path.join(root, "stabbur-prompts-"));
+  const logPath = path.join(dir, "stabbur-serve.log");
   const logFd = openSync(logPath, "a");
 
   const env: Record<string, string> = {
     ...process.env,
-    HEIM_LIBRARY_ROOT: libraryRoot,
+    STABBUR_LIBRARY_ROOT: libraryRoot,
   };
-  if (opts.corsOrigin) env.HEIM_CORS_ORIGINS = opts.corsOrigin;
+  if (opts.corsOrigin) env.STABBUR_CORS_ORIGINS = opts.corsOrigin;
 
   const child: ChildProcess = spawn(
     "uv",
-    ["run", "--project", REPO_ROOT, "heim", "serve", "--model", model, "--port", String(port)],
+    ["run", "--project", REPO_ROOT, "stabbur", "serve", "--model", model, "--port", String(port)],
     { cwd: dir, env, detached: true, stdio: ["ignore", logFd, logFd] },
   );
 

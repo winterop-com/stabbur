@@ -8,14 +8,14 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from heim import agent
-from heim import library as library_ops
-from heim.app import create_app
-from heim.config import Settings
-from heim.library import LibraryModel
-from heim.models import ModelFormat
-from heim.routers import serving
-from heim.runtime import sampling
+from stabbur import agent
+from stabbur import library as library_ops
+from stabbur.app import create_app
+from stabbur.config import Settings
+from stabbur.library import LibraryModel
+from stabbur.models import ModelFormat
+from stabbur.routers import serving
+from stabbur.runtime import sampling
 
 
 @pytest.fixture
@@ -39,11 +39,11 @@ async def test_status_reports_stopped_when_no_model(client: AsyncClient) -> None
     assert body["state"] == "stopped"
     assert body["model"] is None
     assert body["locked"] is False
-    assert body["upstream"] is None  # this heim spawns its own runtimes; there is no remote to name
+    assert body["upstream"] is None  # this stabbur spawns its own runtimes; there is no remote to name
 
 
 async def test_status_exposes_project_model(app: FastAPI, client: AsyncClient) -> None:
-    # /api/status surfaces the project's bound model (heim.toml [project].model),
+    # /api/status surfaces the project's bound model (stabbur.toml [project].model),
     # which the web UI auto-loads on open. The lifespan (which sets this from
     # project.load()) doesn't run under ASGITransport, so set app.state directly.
     app.state.project_model = "acme/widget-3b"
@@ -135,8 +135,8 @@ async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest
     import time
 
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
-    monkeypatch.setattr("heim.routers.serving.chat.library_ops.find", lambda name: [fake])
-    monkeypatch.setattr("heim.routers.serving.chat.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr("stabbur.routers.serving.chat.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("stabbur.routers.serving.chat.runtime.runnable_error", lambda m: None)
 
     active = 0
     max_active = 0
@@ -166,8 +166,8 @@ async def test_load_and_unload_rejected_while_generating(
     # A running generation reserves the runtime (active_generations > 0); load/unload
     # must refuse (409) so the runtime it's streaming from is never swapped/killed.
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
-    monkeypatch.setattr("heim.routers.serving.chat.library_ops.find", lambda name: [fake])
-    monkeypatch.setattr("heim.routers.serving.chat.runtime.runnable_error", lambda m: None)
+    monkeypatch.setattr("stabbur.routers.serving.chat.library_ops.find", lambda name: [fake])
+    monkeypatch.setattr("stabbur.routers.serving.chat.runtime.runnable_error", lambda m: None)
     monkeypatch.setattr(app.state.manager, "load", lambda *a, **k: None)
     monkeypatch.setattr(app.state.manager, "stop", lambda *a, **k: None)
 
@@ -199,7 +199,7 @@ async def test_load_unrunnable_model_is_422_not_500(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch, fmt: ModelFormat, is_ollama: bool
 ) -> None:
     # safetensors (convert/fine-tune source) and Ollama-native entries resolve to
-    # a match but aren't runnable by heim — the API must reject them cleanly (422),
+    # a match but aren't runnable by stabbur — the API must reject them cleanly (422),
     # not pass them to manager.load and surface a 500 / ValueError traceback.
     p = Path("/tmp/x")
     model = LibraryModel(name="pub/X", model_format=fmt, is_ollama=is_ollama, path=p, load_target=p / "w")
@@ -219,12 +219,12 @@ def test_create_app_autopicks_when_runtime_port_none() -> None:
 
 def test_reload_worker_honors_runtime_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # Simulates a --reload worker: fresh process, no in-memory override, reads
-    # HEIM_RUNTIME_PORT that serve() propagated into the environment.
-    from heim import config
-    from heim.config import get_settings
+    # STABBUR_RUNTIME_PORT that serve() propagated into the environment.
+    from stabbur import config
+    from stabbur.config import get_settings
 
     monkeypatch.setattr(config, "_runtime_port_override", None)
-    monkeypatch.setenv("HEIM_RUNTIME_PORT", "8124")
+    monkeypatch.setenv("STABBUR_RUNTIME_PORT", "8124")
     get_settings.cache_clear()
     try:
         assert create_app().state.manager._port == 8124
@@ -250,7 +250,7 @@ async def test_library_lists_runnable_models(client: AsyncClient, monkeypatch: p
 
 
 async def test_api_doctor_returns_report(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    # /api/doctor mirrors `heim doctor`: a list of typed health checks.
+    # /api/doctor mirrors `stabbur doctor`: a list of typed health checks.
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])
     body = (await client.get("/api/doctor")).json()
     assert "checks" in body and isinstance(body["checks"], list)
@@ -397,7 +397,7 @@ async def test_api_speak_unknown_kokoro_voice_is_422(client: AsyncClient, monkey
     # An unknown Kokoro voice id is a client error, not an engine failure: it must 422, not 500.
     from types import SimpleNamespace
 
-    from heim.routers.serving import voice as voice_router
+    from stabbur.routers.serving import voice as voice_router
 
     monkeypatch.setattr(voice_router.kokoro, "available", lambda: True)
     monkeypatch.setattr(voice_router.kokoro, "voices", lambda: [SimpleNamespace(id="af_heart")])
@@ -419,7 +419,7 @@ async def test_api_chat_use_tools_flag_drops_tools(
 ) -> None:
     # use_tools=false must run the loop with an empty toolset (for non-tool models),
     # even when the server has MCP tools configured.
-    from heim.tools import MCPToolset
+    from stabbur.tools import MCPToolset
 
     class FakeManager:
         current = type("M", (), {"load_target": Path("/models/x")})()
@@ -460,7 +460,7 @@ async def test_api_chat_enabled_tools_allowlist_is_explicit(
     # every attached tool, an explicit list narrows to it, and `[]` really is "no tools" — not an
     # empty-means-unset shorthand, which is what let a server switched on for one chat stay
     # callable in every later one.
-    from heim.tools import MCPToolset
+    from stabbur.tools import MCPToolset
 
     class FakeManager:
         current = type("M", (), {"load_target": Path("/models/x")})()
@@ -496,7 +496,7 @@ async def test_api_chat_sampling_parameters_override_recommendations(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # top_k / min_p / repeat_penalty are settable per request like temperature/top_p, and fall back
-    # to the model's recommendation (here heim's defaults — /models/x ships no generation_config)
+    # to the model's recommendation (here stabbur's defaults — /models/x ships no generation_config)
     # when omitted, so a UI control that isn't touched changes nothing.
     class FakeManager:
         current = type("M", (), {"load_target": Path("/models/x")})()
@@ -527,7 +527,7 @@ async def test_api_chat_sampling_parameters_override_recommendations(
 
 async def test_status_reports_heim_sampling_defaults(client: AsyncClient) -> None:
     # The settings UI labels an untouched slider with the value actually in force, so /api/status
-    # carries heim's own defaults rather than the frontend keeping a copy that can drift.
+    # carries stabbur's own defaults rather than the frontend keeping a copy that can drift.
     body = (await client.get("/api/status")).json()
     assert body["default_sampling"] == sampling.defaults().model_dump()
 
@@ -581,7 +581,7 @@ async def test_locked_unresolvable_model_fails_startup() -> None:
 async def test_status_locked_reads_app_settings_not_global(monkeypatch: pytest.MonkeyPatch) -> None:
     # Global cache claims locked; this app was configured unlocked. The status
     # endpoint must reflect the app's own settings, not the process-wide cache.
-    monkeypatch.setattr("heim.config.get_settings", lambda: Settings(serve_model="ghost"))
+    monkeypatch.setattr("stabbur.config.get_settings", lambda: Settings(serve_model="ghost"))
     app = create_app(Settings(serve_model=None))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as inner:
@@ -595,7 +595,7 @@ async def test_audio_speech_rejects_unsupported_model_upfront(
     # A6/VO-M3: a registry-unsupported voice model is rejected at the endpoint with a clear 422,
     # not attempted and failed as a slow opaque 502. Runs before any backend dispatch, so it
     # needs no mlx-audio installed. (No built-in entry is unsupported right now, so inject one.)
-    from heim.voice import registry as voice_registry
+    from stabbur.voice import registry as voice_registry
 
     fake = voice_registry.VoiceModel(
         id="fake-tts",
@@ -606,7 +606,7 @@ async def test_audio_speech_rejects_unsupported_model_upfront(
         voice_mode=voice_registry.VoiceMode.preset,
         supported=False,
     )
-    monkeypatch.setattr("heim.routers.serving.voice.voice_registry.get", lambda _id: fake)
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_registry.get", lambda _id: fake)
     r = await client.post("/v1/audio/speech", json={"model": "fake-tts", "input": "hello"})
     assert r.status_code == 422
     assert "supported" in r.json()["detail"].lower()
@@ -627,7 +627,7 @@ async def test_api_assistant_404_when_none(client: AsyncClient) -> None:
 
 
 async def test_api_assistant_echoes_statics_and_extra_keys_not_verify(app: FastAPI, client: AsyncClient) -> None:
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     # Lifespan doesn't run under ASGITransport; set app.state directly (like the other tests).
     app.state.assistant = AssistantInfo.model_validate(
@@ -665,7 +665,7 @@ class _FakeToolset:
 
 
 def _dhis2_assistant() -> Any:
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     return AssistantInfo.model_validate(
         {
@@ -719,7 +719,7 @@ async def test_api_assistant_verify_uses_ttl_cache(app: FastAPI, client: AsyncCl
     # A fresh cached outcome (< 60s) is returned without re-running the tool.
     import time
 
-    from heim.routers.serving.assistant import AssistantVerified
+    from stabbur.routers.serving.assistant import AssistantVerified
 
     app.state.assistant = _dhis2_assistant()
     fake = _FakeToolset(names=["dhis2__dhis2_cli"], result={"live": True})
@@ -735,8 +735,8 @@ async def test_api_assistant_verify_uses_ttl_cache(app: FastAPI, client: AsyncCl
 def test_api_assistant_response_mirrors_info_fields() -> None:
     # AssistantResponse hand-mirrors AssistantInfo's fields (minus verify); a field added to
     # AssistantInfo must not silently vanish from the echo contract.
-    from heim.project import AssistantInfo
-    from heim.routers.serving.assistant import AssistantResponse
+    from stabbur.project import AssistantInfo
+    from stabbur.routers.serving.assistant import AssistantResponse
 
     info_fields = set(AssistantInfo.model_fields) - {"verify"}
     assert info_fields <= set(AssistantResponse.model_fields)
@@ -744,8 +744,8 @@ def test_api_assistant_response_mirrors_info_fields() -> None:
 
 async def test_api_assistant_reserved_extra_keys_do_not_crash(app: FastAPI, client: AsyncClient) -> None:
     # A project extra key named after a response field (can_verify / verified) must be overridden
-    # by heim's computed values, not raise TypeError (-> 500) or pollute the response.
-    from heim.project import AssistantInfo
+    # by stabbur's computed values, not raise TypeError (-> 500) or pollute the response.
+    from stabbur.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate({"name": "x", "can_verify": True, "verified": "spoofed"})
     r = await client.get("/api/assistant")
@@ -783,7 +783,7 @@ async def test_api_assistant_echoes_probe_and_sanitized_bind(app: FastAPI, clien
     # browser-side mint recipe plus only the mode NAMES (a mode's argv/secret_env are server-side).
     import json as _json
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
         {
@@ -820,7 +820,7 @@ async def test_api_assistant_echoes_probe_and_sanitized_bind(app: FastAPI, clien
 
 
 async def test_api_assistant_bind_404_without_bind(app: FastAPI, client: AsyncClient) -> None:
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     # No assistant metadata at all → 404.
     assert (await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "x"})).status_code == 404
@@ -832,7 +832,7 @@ async def test_api_assistant_bind_404_without_bind(app: FastAPI, client: AsyncCl
 async def test_api_assistant_bind_bad_requests(app: FastAPI, client: AsyncClient) -> None:
     import sys
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
         {
@@ -855,7 +855,7 @@ async def test_api_assistant_bind_runs_mode_and_redacts_secret(
     import sys
     import time
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     proof = tmp_path / "proof.txt"
     code = (
@@ -897,7 +897,7 @@ async def test_api_assistant_unbind_runs_and_requires_command(
 ) -> None:
     import sys
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     marker = tmp_path / "unbound.txt"
     code = "import sys\nopen(sys.argv[1],'w').write('unbound')\n"
@@ -937,10 +937,10 @@ async def test_api_assistant_bind_cross_site_blocked(client: AsyncClient) -> Non
 async def test_api_assistant_bind_missing_command_is_127_not_500(app: FastAPI, client: AsyncClient) -> None:
     # A mode whose argv[0] doesn't exist is a data state, not a crash: BindResult ok=False with
     # exit_code 127 (a shell's "command not found"), never an HTTP 500.
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
-        {"name": "x", "bind": {"modes": {"pat": {"command": ["heim-definitely-missing-xyz"], "secret_env": "X"}}}}
+        {"name": "x", "bind": {"modes": {"pat": {"command": ["stabbur-definitely-missing-xyz"], "secret_env": "X"}}}}
     )
     r = await client.post("/api/assistant/bind", json={"mode": "pat", "secret": "s"})
     assert r.status_code == 200, r.text
@@ -954,7 +954,7 @@ async def test_api_assistant_bind_caps_chatty_output(app: FastAPI, client: Async
     # blow up RAM / the JSON response / the redaction scan.
     import sys
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     code = "import sys\nsys.stdout.write('A' * 200000)\n"
     app.state.assistant = AssistantInfo.model_validate(
@@ -972,7 +972,7 @@ async def test_api_assistant_bind_no_double_substitution(app: FastAPI, client: A
     # Here base_url embeds "{name}", so the rendered argv keeps it verbatim (not replaced by the name).
     import sys
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     proof = tmp_path / "argv.txt"
     code = "import sys\nopen(sys.argv[1], 'w').write(sys.argv[2])\n"
@@ -999,7 +999,7 @@ async def test_api_assistant_bind_timeout_kills_process_group(
     import sys
     import time
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     pidfile = tmp_path / "grandchild.pid"
     code = (
@@ -1039,7 +1039,7 @@ async def test_api_assistant_echoes_unbind_notes(app: FastAPI, client: AsyncClie
     # command/secret_env stay excluded, and a mode's extra="allow" fields never ride into the echo.
     import json as _json
 
-    from heim.project import AssistantInfo
+    from stabbur.project import AssistantInfo
 
     app.state.assistant = AssistantInfo.model_validate(
         {
@@ -1068,7 +1068,7 @@ def test_truncate_detail_preserves_large_json_and_passes_non_json() -> None:
     # structure intact) so the UI's collapsible chips still parse it; non-JSON is a plain hard cut.
     import json as _json
 
-    from heim.routers.serving.chat import _truncate_detail
+    from stabbur.routers.serving.chat import _truncate_detail
 
     detail = _json.dumps({"result": "x" * 5000, "n": 7})
     assert len(detail) > 2000
@@ -1087,7 +1087,7 @@ async def test_audio_speech_openai_alias_maps_to_default_voice(
 ) -> None:
     # Stock OpenAI clients send OpenAI's own model ids ("tts-1"); those must route to the
     # default chat voice (Kokoro backend — 503 here since it's stubbed unavailable), not 404.
-    monkeypatch.setattr("heim.routers.serving.voice.kokoro.available", lambda: False)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: False)
     r = await client.post("/v1/audio/speech", json={"model": "tts-1", "input": "hello"})
     assert r.status_code == 503
 
@@ -1098,7 +1098,7 @@ async def test_audio_speech_openai_alias_maps_to_default_voice(
 @pytest.fixture
 def upstream_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     """App fronting a fake remote /v1 (no network: models() and ready() are stubbed)."""
-    from heim.server import UpstreamManager, UpstreamModel
+    from stabbur.server import UpstreamManager, UpstreamModel
 
     rows = [
         UpstreamModel(name="gemma-4-12b-qat", loaded=False, vision=True, audio=True),
@@ -1209,7 +1209,7 @@ async def test_spa_index_is_revalidated_but_hashed_assets_are_immutable(tmp_path
     """
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text("<!doctype html><title>heim</title>")
+    (dist / "index.html").write_text("<!doctype html><title>stabbur</title>")
     (dist / "assets" / "index-abc123.js").write_text("console.log(1)")
 
     app = create_app(Settings(serve_model=None, serve_ui=True, frontend_dir=dist))
@@ -1231,7 +1231,7 @@ async def test_spa_index_is_revalidated_but_hashed_assets_are_immutable(tmp_path
 async def test_unconfigured_library_answers_with_its_hint_not_a_500(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A first run with no HEIM_LIBRARY_ROOT must not look like a crash.
+    """A first run with no STABBUR_LIBRARY_ROOT must not look like a crash.
 
     The exception carries a ready-to-print hint naming the variable to set; escaping as a bare
     500 stranded the SPA with broken panels and left that hint in the server log.
@@ -1243,4 +1243,4 @@ async def test_unconfigured_library_answers_with_its_hint_not_a_500(
     monkeypatch.setattr(library_ops, "scan", _unconfigured)
     response = await client.get("/api/library")
     assert response.status_code == 503
-    assert "HEIM_LIBRARY_ROOT" in response.json()["detail"]
+    assert "STABBUR_LIBRARY_ROOT" in response.json()["detail"]

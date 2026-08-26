@@ -131,7 +131,7 @@ export function conversationToMarkdown(conv: Conversation, model: string | null)
 /** Export the conversation as a downloaded `.md` file. */
 export function exportConversationMarkdown(conv: Conversation, model: string | null): void {
   const md = conversationToMarkdown(conv, model);
-  downloadFile(`heim-${slug(conv.title)}-${isoDate(Date.now())}.md`, md, "text/markdown;charset=utf-8");
+  downloadFile(`stabbur-${slug(conv.title)}-${isoDate(Date.now())}.md`, md, "text/markdown;charset=utf-8");
 }
 
 function escapeHtml(s: string): string {
@@ -151,7 +151,7 @@ function escapeHtml(s: string): string {
 async function markdownToHtml(content: string): Promise<string> {
   const { renderToStaticMarkup } = await import("react-dom/server");
   const diagrams: string[] = [];
-  const token = (i: number) => `heimmermaidplaceholder${i}heim`;
+  const token = (i: number) => `heimmermaidplaceholder${i}stabbur`;
   const src = content.replace(/```mermaid[^\n]*\n([\s\S]*?)```/g, (_m, code: string) => {
     const i = diagrams.length;
     diagrams.push(code);
@@ -264,7 +264,7 @@ export async function exportConversationPdf(conv: Conversation, model: string | 
   const w = window.open("", "_blank");
   if (!w) {
     // Popup blocked: download the HTML instead (user can open + print it).
-    downloadFile(`heim-${slug(conv.title)}-${isoDate(Date.now())}.html`, html, "text/html;charset=utf-8");
+    downloadFile(`stabbur-${slug(conv.title)}-${isoDate(Date.now())}.html`, html, "text/html;charset=utf-8");
     return;
   }
   w.document.open();

@@ -209,7 +209,7 @@ function bytes(n: number): string {
 }
 
 /**
- * Server: the read-only blocks — what the project's `heim.toml` contributes, what the runtime
+ * Server: the read-only blocks — what the project's `stabbur.toml` contributes, what the runtime
  * currently holds, and where this browser is keeping the chat history. The last of those is a
  * browser fact rather than a server one, but it belongs to the same question the others answer
  * ("what is this session actually running against"), and it is read-only in the same way.
@@ -256,7 +256,7 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
 
   return (
     <>
-      <Section title="Project" description="What this server's heim.toml contributes as defaults.">
+      <Section title="Project" description="What this server's stabbur.toml contributes as defaults.">
         <dl className="space-y-2 text-sm">
           <div className="flex gap-3">
             <dt className="w-28 shrink-0 text-muted-foreground">Model</dt>
@@ -282,8 +282,8 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
           </div>
         </dl>
         <p className="mt-2 text-sm text-muted-foreground">
-          Edit these in the project's <code className="font-mono">heim.toml</code>; machine defaults come from{" "}
-          <code className="font-mono">heim config set</code>.
+          Edit these in the project's <code className="font-mono">stabbur.toml</code>; machine defaults come from{" "}
+          <code className="font-mono">stabbur config set</code>.
         </p>
       </Section>
 
@@ -332,7 +332,7 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
         )}
       </Section>
 
-      {/* WHETHER THE BROWSER WILL KEEP IT is the fact worth stating, not the byte count. heim's
+      {/* WHETHER THE BROWSER WILL KEEP IT is the fact worth stating, not the byte count. stabbur's
           premise is that your data is on your machine, and an unkept IndexedDB store is a bucket
           the browser may reclaim under disk pressure without asking — so the refusal case gets a
           sentence saying exactly that, rather than a reassuring chip either way. */}
@@ -375,7 +375,7 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
 /**
  * Settings: **defaults and environment**, not per-chat knobs. It holds the appearance of this
  * browser, the defaults new conversations inherit (the Listen voice + speed), what the project
- * contributes (`heim.toml`), and reference info about the loaded model. Everything adjustable
+ * contributes (`stabbur.toml`), and reference info about the loaded model. Everything adjustable
  * for a single conversation lives in that chat's settings panel.
  *
  * A dialog rather than a primary view: it is a handful of thin sections, so a whole destination

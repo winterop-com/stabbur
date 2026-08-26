@@ -1,4 +1,4 @@
-// Replay step: POST a context-prefixed prompt to a running heim /api/chat with
+// Replay step: POST a context-prefixed prompt to a running stabbur /api/chat with
 // use_tools=false and a low temperature, parse the typed SSE stream, and return
 // the assembled model output (token frames only) plus latency.
 
@@ -14,7 +14,7 @@ export interface ReplayResult {
  *  Runaway protection, layered:
  *  - `max_tokens` caps generation so a repetition/reasoning loop can't run forever;
  *  - a wall-clock deadline races every stream read; on timeout the fetch is aborted
- *    so heim cancels the in-flight generation;
+ *    so stabbur cancels the in-flight generation;
  *  - an OUTER race guarantees the caller gets control back at deadline+5s even if
  *    the header wait ignores the abort (observed with Bun's fetch when the server
  *    was wedged behind a previous generation - wall times far above the timeout). */
@@ -98,7 +98,7 @@ async function replayInner(
       }
       // Race the read against the wall-clock deadline. On timeout we DON'T await
       // reader.cancel() (it blocks until the server finishes) — we abort the fetch,
-      // which closes the socket so heim cancels the in-flight generation, and return.
+      // which closes the socket so stabbur cancels the in-flight generation, and return.
       const readPromise = reader.read();
       readPromise.catch(() => {}); // swallow the rejection if the deadline wins
       const raced = await Promise.race([

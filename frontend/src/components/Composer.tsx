@@ -119,7 +119,7 @@ export function Composer({
   // documents and PDFs (they end up in the prompt as text); image/audio depend on the
   // model, which is what the attach menu below exists to say out loud.
   const canAttach = ready;
-  // Labels only. What heim does with a file is obvious from its kind — a PDF becomes text,
+  // Labels only. What stabbur does with a file is obvious from its kind — a PDF becomes text,
   // that is what attaching a PDF to a chat means — and a sentence per row turns a four-item
   // menu into something to read. A kind this model cannot take is greyed, which says the one
   // thing that is not obvious. While capabilities are still resolving nothing is greyed:
@@ -367,7 +367,7 @@ export function Composer({
             void addFiles(files);
           }}
           rows={1}
-          placeholder={ready ? "Message heim…" : "Select a model to start"}
+          placeholder={ready ? "Message stabbur…" : "Select a model to start"}
           className="max-h-[200px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>

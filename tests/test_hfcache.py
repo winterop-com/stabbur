@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from heim import hfcache
+from stabbur import hfcache
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,9 @@ def _clean_hf_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _fake_settings(monkeypatch: pytest.MonkeyPatch, library_root: Path | None) -> None:
-    monkeypatch.setattr("heim.config.get_settings", lambda: SimpleNamespace(library_root=library_root, hf_token=None))
+    monkeypatch.setattr(
+        "stabbur.config.get_settings", lambda: SimpleNamespace(library_root=library_root, hf_token=None)
+    )
 
 
 def test_drive_cache_dir_none_for_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:

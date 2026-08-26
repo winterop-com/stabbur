@@ -9,7 +9,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from heim.mcp_servers.git.app import GitSettings, build_server
+from stabbur.mcp_servers.git.app import GitSettings, build_server
 
 _ENV = {
     **os.environ,

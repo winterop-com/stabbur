@@ -10,7 +10,7 @@ import httpx
 import pytest
 from fastmcp import Client
 
-from heim.mcp_servers.http import app, mcp
+from stabbur.mcp_servers.http import app, mcp
 
 
 @pytest.fixture(autouse=True)

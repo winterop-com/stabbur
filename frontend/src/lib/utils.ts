@@ -7,7 +7,7 @@ export function cn(...inputs: ClassValue[]) {
 
 /** A byte count as the library talks about disk: whole MB under a gigabyte, one decimal above.
  *
- *  Binary units (the same 1024 base `heim library` prints), and a *sum* rather than one file's
+ *  Binary units (the same 1024 base `stabbur library` prints), and a *sum* rather than one file's
  *  size — which is why it lives here rather than beside the row that shows a single model:
  *  the Library heading and the status bar are both summing the same models, and two formatters
  *  would drift into disagreeing about the same number on the same screen. */

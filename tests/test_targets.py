@@ -1,4 +1,4 @@
-"""Tests for the multi-target registry and URL-based selection (:mod:`heim.targets`).
+"""Tests for the multi-target registry and URL-based selection (:mod:`stabbur.targets`).
 
 The ``select`` cases below are the **parity fixtures**: they mirror the extension's ``tabTarget.match`` /
 ``selectTarget`` semantics one-for-one (origin equality, longest-base-path-prefix ranking, ``/`` catch-all,
@@ -11,8 +11,8 @@ in lockstep: change one, change both.
 
 import pytest
 
-from heim.project import AssistantInfo
-from heim.targets import AssistantRegistry, select, selected
+from stabbur.project import AssistantInfo
+from stabbur.targets import AssistantRegistry, select, selected
 
 
 def _registry(*targets: tuple[str | None, str | None]) -> AssistantRegistry:

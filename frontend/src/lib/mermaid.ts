@@ -23,7 +23,7 @@ let counter = 0;
 export async function renderMermaid(code: string, dark: boolean): Promise<string> {
   const mermaid = await loadMermaid();
   mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict" });
-  const id = `heim-mermaid-${counter++}`;
+  const id = `stabbur-mermaid-${counter++}`;
   const { svg } = await mermaid.render(id, code);
   return svg;
 }

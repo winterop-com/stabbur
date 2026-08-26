@@ -13,7 +13,7 @@
 // Nothing here touches the network. The request path is deliberately not mocked: what it does is
 // send an HTTP call and read `choices[0].message.content` out of the answer, which a fake server
 // would only re-assert. What matters about a *real* one — that thinking-off is set, that the
-// loaded model is the one named — is verified against a live heim, not against a stub of one.
+// loaded model is the one named — is verified against a live stabbur, not against a stub of one.
 
 import { describe, expect, it } from "vitest";
 
@@ -35,7 +35,7 @@ function conversation(title: string, titledBy: TitleSource): Conversation {
 
 describe("sanitizeTitle", () => {
   it("keeps a title that arrived the way it was asked for", () => {
-    expect(sanitizeTitle("Heim sidebar screenshots")).toBe("Heim sidebar screenshots");
+    expect(sanitizeTitle("Stabbur sidebar screenshots")).toBe("Stabbur sidebar screenshots");
   });
 
   it("strips the wrapping models put around an answer", () => {

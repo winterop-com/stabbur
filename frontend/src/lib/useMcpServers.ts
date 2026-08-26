@@ -1,4 +1,4 @@
-// The MCP server catalogue (what heim *could* run) plus the one path that changes it.
+// The MCP server catalogue (what stabbur *could* run) plus the one path that changes it.
 //
 // This is not the settings panel's private state, even though the panel is the only thing that
 // renders it: a chat's per-conversation allow-list falls back to a baseline derived from each
@@ -73,7 +73,7 @@ export function useMcpServers(onToolsChanged: () => void): McpServersState {
         if (res.restart_required)
           setNotes((n) => ({
             ...n,
-            [name]: { tone: "warn", text: res.detail || "restart heim serve for this to take effect" },
+            [name]: { tone: "warn", text: res.detail || "restart stabbur serve for this to take effect" },
           }));
         else if (!res.applied)
           setNotes((n) => ({ ...n, [name]: { tone: "error", text: res.detail || "the change did not take effect" } }));

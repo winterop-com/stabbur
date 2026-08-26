@@ -62,11 +62,11 @@ export function IconRail({
       {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
       {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
       {/* A tiny horizontal wordmark at the foot — it fits the narrow rail (unlike the full
-          "Heim Studio") and keeps the brand present while collapsed. Settings is not here: the
+          "Stabbur Studio") and keeps the brand present while collapsed. Settings is not here: the
           status bar's left segment shrinks to this rail's width and carries the gear itself, so
           putting one here too would stack two gears in the same corner. */}
       <div className="mt-auto flex flex-col items-center gap-1">
-        <span className="pb-0.5 text-xs font-semibold tracking-tight text-sidebar-muted-foreground">heim</span>
+        <span className="pb-0.5 text-xs font-semibold tracking-tight text-sidebar-muted-foreground">stabbur</span>
       </div>
     </aside>
   );

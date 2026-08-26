@@ -12,8 +12,8 @@ import time
 import httpx
 import pytest
 
-from heim import library, runtime
-from heim.models import ModelFormat
+from stabbur import library, runtime
+from stabbur.models import ModelFormat
 
 pytestmark = pytest.mark.slow
 

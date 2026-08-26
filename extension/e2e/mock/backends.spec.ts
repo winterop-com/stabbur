@@ -1,4 +1,4 @@
-// Multi-backend switcher: the header <select> swaps which heim the panel talks to.
+// Multi-backend switcher: the header <select> swaps which stabbur the panel talks to.
 // Covers (1) switching swaps the TargetBanner assistant name, (2) each backend keeps
 // its own conversation transcript, and (3) a legacy flat {baseUrl, token} seed still
 // works — settings are v2-only (no migrate-on-read); seedSettings translates the flat
@@ -71,7 +71,7 @@ test("each backend keeps its own conversation transcript", async ({ context, ext
 
   // Switch to B: its transcript is empty (fresh backend, empty-state prompt shows).
   await panel.getByTestId("backend-switcher").selectOption("b");
-  await expect(panel.getByText("Ask your local heim assistant anything.")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText("Ask your local stabbur assistant anything.")).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText("message-on-A")).toHaveCount(0);
 
   // Switch back to A: its message is still there.

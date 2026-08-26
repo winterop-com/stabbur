@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from heim import locking, tags
+from stabbur import locking, tags
 
 
 def test_library_lock_is_mutually_exclusive(tmp_path: Path) -> None:
@@ -30,7 +30,7 @@ def test_library_lock_is_mutually_exclusive(tmp_path: Path) -> None:
 
 def test_library_lock_creates_lockfile_and_is_best_effort(tmp_path: Path) -> None:
     with locking.library_lock(tmp_path):
-        assert (tmp_path / ".heim" / "lock").exists()
+        assert (tmp_path / ".stabbur" / "lock").exists()
     # A path whose parent can't be created (a file where a dir is expected) degrades to a no-op
     # rather than raising — mutations still run, just unlocked.
     not_a_dir = tmp_path / "file"

@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 /**
  * What the top bar says on its left for whichever surface is on screen.
  *
- * ONE STRIP, NOT TWO — and this is what makes that possible. heim used to draw a `ViewBand` inside
+ * ONE STRIP, NOT TWO — and this is what makes that possible. stabbur used to draw a `ViewBand` inside
  * Library and Voice: a titled strip immediately below a top bar whose left half was an empty div.
  * Two stacked bands, the upper one blank, which on a wide display reads as the app having no top bar
  * at all. (The status bar had the identical fault at the other end of the window and was fixed the

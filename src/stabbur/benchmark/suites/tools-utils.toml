@@ -1,0 +1,50 @@
+name = "tools-utils"
+description = "Tool-use benchmark: solve small tasks by calling the stabbur-mcp-utils server."
+type = "tool"
+language = "tools"
+# Args are unambiguous (exact strings / integers) so tool-trace scoring is fair.
+
+[[problems]]
+id = "reverse"
+difficulty = "basics"
+prompt = "Reverse the text 'hello' using the available tools."
+servers = ["stabbur-mcp-utils"]
+expect_tool = "utils__reverse_text"
+expect_args = { text = "hello" }
+expect_answer_contains = "olleh"
+
+[[problems]]
+id = "base64"
+difficulty = "basics"
+prompt = "Base64-encode the text 'hi' using the available tools."
+servers = ["stabbur-mcp-utils"]
+expect_tool = "utils__base64_encode"
+expect_args = { text = "hi" }
+expect_answer_contains = "aGk="
+
+[[problems]]
+id = "gcd"
+difficulty = "intermediate"
+prompt = "What is the greatest common divisor of 48 and 36? Use the available tools."
+servers = ["stabbur-mcp-utils"]
+expect_tool = "utils__gcd"
+expect_args = { a = 48, b = 36 }
+expect_answer_contains = "12"
+
+[[problems]]
+id = "to-base"
+difficulty = "intermediate"
+prompt = "Convert the integer 255 to base 16 using the available tools."
+servers = ["stabbur-mcp-utils"]
+expect_tool = "utils__to_base"
+expect_args = { number = 255, base = 16 }
+expect_answer_contains = "ff"
+
+[[problems]]
+id = "sha256"
+difficulty = "advanced"
+prompt = "Compute the SHA-256 hash of the text 'abc' using the available tools."
+servers = ["stabbur-mcp-utils"]
+expect_tool = "utils__sha256"
+expect_args = { text = "abc" }
+expect_answer_contains = "ba7816bf"

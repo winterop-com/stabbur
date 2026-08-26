@@ -1,7 +1,7 @@
-// Thin client for the heim bind endpoints. POST /api/assistants/{id}/bind installs a bound credential
-// (running the mode's server-side argv with the secret in its env); .../unbind reverses it. heim redacts
+// Thin client for the stabbur bind endpoints. POST /api/assistants/{id}/bind installs a bound credential
+// (running the mode's server-side argv with the secret in its env); .../unbind reverses it. stabbur redacts
 // the secret from the returned output. A non-2xx becomes a structured failure so the caller renders one
-// shape. Old heim (the 404-compat registry) has no per-target routes, so `AssistantRoute.compat` falls
+// shape. Old stabbur (the 404-compat registry) has no per-target routes, so `AssistantRoute.compat` falls
 // back to the un-scoped /api/assistant/{bind,unbind}.
 
 import { apiFetch } from "@/lib/http";
@@ -25,7 +25,7 @@ export interface BindTarget {
 export interface AssistantRoute {
   /** The registry target id for /api/assistants/{id}/... ; ignored in compat mode. */
   targetId: string;
-  /** Old heim (404-compat registry): use the un-scoped /api/assistant/... routes instead. */
+  /** Old stabbur (404-compat registry): use the un-scoped /api/assistant/... routes instead. */
   compat: boolean;
 }
 
@@ -59,10 +59,10 @@ async function postToTarget(target: BindTarget, path: string, body: Record<strin
 }
 
 /**
- * Install a bound credential on an explicit backend + assistant target, handing heim the secret for the
+ * Install a bound credential on an explicit backend + assistant target, handing stabbur the secret for the
  * child env. The single bind contract shared by the panel (backend captured when the flow starts, so a
  * mid-mint backend switch can't misroute the token) and the background worker. `route` picks the
- * per-target endpoint (or the compat un-scoped one for old heim).
+ * per-target endpoint (or the compat un-scoped one for old stabbur).
  */
 export function postBindTo(
   target: BindTarget,
@@ -72,7 +72,7 @@ export function postBindTo(
   extraSecret?: string,
 ): Promise<BindApiResult> {
   const body: Record<string, unknown> = { mode, secret };
-  // A session-mode write bind ships the captured XSRF token here (heim redacts it too), so the
+  // A session-mode write bind ships the captured XSRF token here (stabbur redacts it too), so the
   // bound child can satisfy DHIS2's CSRF check on writes. Omitted for reads and the PAT path.
   if (extraSecret) body.extra_secret = extraSecret;
   return postToTarget(target, bindPath(route, "bind"), body);

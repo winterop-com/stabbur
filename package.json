@@ -1,5 +1,5 @@
 {
-  "name": "heim-monorepo",
+  "name": "stabbur-monorepo",
   "private": true,
   "workspaces": [
     "frontend",

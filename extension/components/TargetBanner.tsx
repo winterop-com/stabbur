@@ -44,7 +44,7 @@ interface TargetBannerProps {
   /** True when the registry came from the 404-compat path: bind / verify use the /api/assistant*
    *  routes instead of /api/assistants/{id}. */
   compat: boolean;
-  /** Snapshot the active heim backend for a bind flow (passed through to BindFlow). */
+  /** Snapshot the active stabbur backend for a bind flow (passed through to BindFlow). */
   captureTarget: () => BindBackendTarget;
   /** Re-fetch this target's metadata with ?verify=1; lifts the updated record into the parent and
    *  returns it. */
@@ -246,7 +246,7 @@ export function TargetBanner({
       : sessionError === "unauthenticated"
         ? "Not signed in on this tab."
         : sessionError === "no_access"
-          ? 'heim cannot read this page yet (API tools are unaffected) — click "Who am I here?" and allow page access.'
+          ? 'stabbur cannot read this page yet (API tools are unaffected) — click "Who am I here?" and allow page access.'
           : null;
 
   // Auto-probe on panel open against a matched tab: this is the drift re-check (compare the live
@@ -618,7 +618,7 @@ export function TargetBanner({
                   {session.error === "unauthenticated"
                     ? "Not signed in on this tab."
                     : session.error === "no_access"
-                      ? "heim cannot read this page yet (API tools are unaffected) — click \"Who am I here?\" and allow page access."
+                      ? "stabbur cannot read this page yet (API tools are unaffected) — click \"Who am I here?\" and allow page access."
                       : "Could not read your session on this tab."}
                 </span>
               ) : null}
@@ -694,7 +694,7 @@ export function TargetBanner({
               {confirmUnbind ? (
                 <div className="text-[var(--muted-foreground)]">
                   {active.bind?.unbind_notes?.[binding.mode] ??
-                    "This removes the bound profile from the heim project. If an access token was created, revoke it from your account settings on the target instance."}
+                    "This removes the bound profile from the stabbur project. If an access token was created, revoke it from your account settings on the target instance."}
                 </div>
               ) : null}
             </div>

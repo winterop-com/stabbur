@@ -1,12 +1,12 @@
-"""Tests for the standard mcpServers JSON config (heim.mcpservers)."""
+"""Tests for the standard mcpServers JSON config (stabbur.mcpservers)."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from heim import mcpservers
-from heim.mcpservers import McpServer
+from stabbur import mcpservers
+from stabbur.mcpservers import McpServer
 
 
 def test_read_project_parses_mcpservers(tmp_path: Path) -> None:
@@ -14,7 +14,7 @@ def test_read_project_parses_mcpservers(tmp_path: Path) -> None:
         json.dumps(
             {
                 "mcpServers": {
-                    "datetime": {"command": "heim-mcp-datetime"},
+                    "datetime": {"command": "stabbur-mcp-datetime"},
                     "git": {"command": "uvx", "args": ["mcp-server-git"], "env": {"GIT_ROOT": "."}},
                 }
             }
@@ -45,12 +45,14 @@ def test_entry_without_command_raises(tmp_path: Path) -> None:
 
 
 def test_add_and_remove_roundtrip(tmp_path: Path) -> None:
-    p = mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=False, project_dir=tmp_path)
+    p = mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=False, project_dir=tmp_path)
     assert p == tmp_path / ".mcp.json"
     assert [s.name for s in mcpservers.read_project(tmp_path)] == ["datetime"]
     # Re-adding the same name replaces (idempotent), not duplicates.
     mcpservers.add(
-        McpServer(name="datetime", command="heim-mcp-datetime", args=["--tz", "UTC"]), glob=False, project_dir=tmp_path
+        McpServer(name="datetime", command="stabbur-mcp-datetime", args=["--tz", "UTC"]),
+        glob=False,
+        project_dir=tmp_path,
     )
     servers = mcpservers.read_project(tmp_path)
     assert len(servers) == 1 and servers[0].args == ["--tz", "UTC"]
@@ -67,15 +69,15 @@ def test_written_file_is_standard_mcpservers_shape(tmp_path: Path) -> None:
 
 def test_resolve_merges_global_then_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     mcpservers.add(McpServer(name="search", command="global-search"), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
     # Project overrides "search" and adds "files".
     mcpservers.add(McpServer(name="search", command="proj-search"), glob=False, project_dir=proj)
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=proj)
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
-    assert resolved == {"datetime": "heim-mcp-datetime", "search": "proj-search", "files": "heim-mcp-files"}
+    assert resolved == {"datetime": "stabbur-mcp-datetime", "search": "proj-search", "files": "stabbur-mcp-files"}
 
 
 # --- disable marker ("<name>": null / {"disabled": true}) -----------------------------------
@@ -84,7 +86,7 @@ def test_resolve_merges_global_then_project(tmp_path: Path, monkeypatch: pytest.
 def test_null_marker_tolerated_and_not_a_server(tmp_path: Path) -> None:
     # A ``null`` value disables the name: it is tolerated (no parse error) and yields no server.
     (tmp_path / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"datetime": {"command": "heim-mcp-datetime"}, "playwright": None}})
+        json.dumps({"mcpServers": {"datetime": {"command": "stabbur-mcp-datetime"}, "playwright": None}})
     )
     servers = mcpservers.read_project(tmp_path)
     assert [s.name for s in servers] == ["datetime"]  # the null entry is not a server
@@ -96,7 +98,7 @@ def test_disabled_true_marker_tolerated_and_not_a_server(tmp_path: Path) -> None
         json.dumps(
             {
                 "mcpServers": {
-                    "datetime": {"command": "heim-mcp-datetime"},
+                    "datetime": {"command": "stabbur-mcp-datetime"},
                     "playwright": {"disabled": True, "command": "bunx @playwright/mcp"},
                 }
             }
@@ -109,7 +111,7 @@ def test_disabled_true_marker_tolerated_and_not_a_server(tmp_path: Path) -> None
 def test_project_disable_drops_a_global_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A machine-global server the project marks disabled is removed from the resolved set.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     mcpservers.add(McpServer(name="playwright", command="bunx", args=["@playwright/mcp"]), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
@@ -123,7 +125,7 @@ def test_disabled_global_is_dropped_outright(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     (mcpservers.global_path()).parent.mkdir(parents=True, exist_ok=True)
     mcpservers.global_path().write_text(
-        json.dumps({"mcpServers": {"datetime": {"command": "heim-mcp-datetime"}, "playwright": None}})
+        json.dumps({"mcpServers": {"datetime": {"command": "stabbur-mcp-datetime"}, "playwright": None}})
     )
     assert [s.name for s in mcpservers.read_global()] == ["datetime"]
     resolved = {s.name for s in mcpservers.resolve(tmp_path / "proj")}
@@ -133,18 +135,18 @@ def test_disabled_global_is_dropped_outright(tmp_path: Path, monkeypatch: pytest
 def test_normal_entries_unaffected_by_disable_support(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # With no disable markers present, resolve() behaves exactly as before (global then project merge).
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    mcpservers.add(McpServer(name="datetime", command="heim-mcp-datetime"), glob=True)
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
-    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=proj)
+    mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
-    assert resolved == {"datetime": "heim-mcp-datetime", "files": "heim-mcp-files"}
+    assert resolved == {"datetime": "stabbur-mcp-datetime", "files": "stabbur-mcp-files"}
 
 
 def test_legacy_kodo_command_is_migrated_in_memory(tmp_path: Path) -> None:
-    """A pre-rename config naming `kodo-mcp-*` resolves to the heim binary; the file is untouched."""
+    """A pre-rename config naming `kodo-mcp-*` resolves to the stabbur binary; the file is untouched."""
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"datetime": {"command": "kodo-mcp-datetime"}}}))
     servers = mcpservers._read_file(path)
-    assert servers[0].command == "heim-mcp-datetime"
+    assert servers[0].command == "stabbur-mcp-datetime"
     assert "kodo-mcp-datetime" in path.read_text()  # in-memory only; the user's file is not rewritten

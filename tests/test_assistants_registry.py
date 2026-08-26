@@ -1,7 +1,7 @@
 """Tests for the multi-target registry endpoints (/api/assistants*), plus /api/assistant compat.
 
 Named ``test_assistants_registry`` (not ``test_serve_registry`` — that name already covers the unrelated
-``heim.runtime.serve_registry`` serve-discovery module). The lifespan doesn't run under ASGITransport, so
+``stabbur.runtime.serve_registry`` serve-discovery module). The lifespan doesn't run under ASGITransport, so
 these set ``app.state.registry`` (and ``app.state.assistant`` = the primary) directly, mirroring the
 single-target tests in test_api.py.
 """
@@ -15,10 +15,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from heim.app import create_app
-from heim.config import Settings
-from heim.project import AssistantInfo
-from heim.targets import AssistantRegistry
+from stabbur.app import create_app
+from stabbur.config import Settings
+from stabbur.project import AssistantInfo
+from stabbur.targets import AssistantRegistry
 
 
 @pytest.fixture
@@ -174,7 +174,7 @@ async def test_assistants_verify_is_per_target_isolated(app: FastAPI, client: As
 
 
 async def test_assistants_verify_uses_per_id_ttl_cache(app: FastAPI, client: AsyncClient) -> None:
-    from heim.routers.serving.assistant import AssistantVerified
+    from stabbur.routers.serving.assistant import AssistantVerified
 
     _install(app, _target("play42", "https://play.example/x", verify_tool="tool_a"))
     fake = _FakeToolset(names=["tool_a"], result={"live": True})
@@ -232,7 +232,7 @@ async def test_assistants_bind_routes_to_the_right_target(app: FastAPI, client: 
 
 
 async def test_assistants_bind_invalidates_only_that_target(app: FastAPI, client: AsyncClient, tmp_path: Path) -> None:
-    from heim.routers.serving.assistant import AssistantVerified
+    from stabbur.routers.serving.assistant import AssistantVerified
 
     proof_a = tmp_path / "a.txt"
     _install(
@@ -312,8 +312,8 @@ def _lazy_two_target(app: FastAPI) -> Any:
     """
     from contextlib import AsyncExitStack
 
-    from heim import tools
-    from heim.mcpservers import McpServer
+    from stabbur import tools
+    from stabbur.mcpservers import McpServer
 
     def _t(name: str) -> AssistantInfo:
         return AssistantInfo.model_validate(
@@ -367,7 +367,7 @@ async def test_doctor_discloses_deferred_lazy_server(
 ) -> None:
     # F-3: a not-yet-spawned (deferred) server is invisible to /api/doctor until first use. Each pending
     # prefix now gets an informational row naming the target whose first use will spawn it.
-    from heim import library as library_ops
+    from stabbur import library as library_ops
 
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # keep the doctor's library scan trivial
     _lazy_two_target(app)  # play41 pending on the bridge, not spawned
@@ -385,9 +385,9 @@ def test_mcp_checks_failed_deferred_not_double_listed() -> None:
     # must not ALSO get a "deferred" informational row.
     from contextlib import AsyncExitStack
 
-    from heim import tools
-    from heim.mcpservers import McpServer
-    from heim.routers.serving import core
+    from stabbur import tools
+    from stabbur.mcpservers import McpServer
+    from stabbur.routers.serving import core
 
     toolset = tools.MCPToolset()
     toolset.errors.append(("play41", "boom"))  # a prior lazy spawn failed and was recorded

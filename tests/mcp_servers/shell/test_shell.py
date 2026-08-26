@@ -7,7 +7,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from heim.mcp_servers.shell import app, mcp
+from stabbur.mcp_servers.shell import app, mcp
 
 
 async def _call(name: str, **kw: Any) -> Any:
@@ -73,7 +73,7 @@ def test_net_binary_readonly_predicates() -> None:
 
 
 async def test_unrestricted_mode_runs_a_shell(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HEIM_SHELL_UNRESTRICTED", "1")
+    monkeypatch.setenv("STABBUR_SHELL_UNRESTRICTED", "1")
     # A pipe only works through a shell — proves full mode uses one.
     out = await _call("run", command="echo one two three | wc -w")
     assert out["exit_code"] == 0 and out["stdout"].strip() == "3"
@@ -88,7 +88,7 @@ async def test_empty_command_errors() -> None:
 async def test_timeout_returns_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
     # A command that prints then hangs (ping without -c, tail -f, ...) is stopped at the timeout
     # and returns what it printed, flagged — not an empty error.
-    monkeypatch.setenv("HEIM_SHELL_UNRESTRICTED", "1")  # need a shell to `sleep`
+    monkeypatch.setenv("STABBUR_SHELL_UNRESTRICTED", "1")  # need a shell to `sleep`
     # The deadline has to cover *starting a shell*, not just the printf: this asserts on partial
     # output, so a timeout that can fire before bash is scheduled makes the test fail on a busy
     # machine rather than on a broken timeout. Do not shorten it to make the suite faster — 0.5s
@@ -105,7 +105,7 @@ async def test_timeout_kills_the_whole_process_group(monkeypatch: pytest.MonkeyP
     # running detached; the group kill must take them down too.
     import asyncio  # noqa: PLC0415
 
-    monkeypatch.setenv("HEIM_SHELL_UNRESTRICTED", "1")
+    monkeypatch.setenv("STABBUR_SHELL_UNRESTRICTED", "1")
     monkeypatch.setattr(app, "_TIMEOUT", 0.5)
     marker = tmp_path / "grandchild-survived"
     out = await _call("run", command=f"(sleep 2 && touch {marker}) & wait")

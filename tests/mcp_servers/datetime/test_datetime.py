@@ -6,7 +6,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from heim.mcp_servers.datetime import mcp
+from stabbur.mcp_servers.datetime import mcp
 
 _WEEKDAYS = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
 
@@ -142,7 +142,7 @@ async def test_local_timezone_reports_iana_name(monkeypatch: pytest.MonkeyPatch)
 
 async def test_local_timezone_ignores_bogus_tz(monkeypatch: pytest.MonkeyPatch) -> None:
     # A TZ that isn't a real IANA zone is skipped (falls through to the file probes / offset).
-    from heim.mcp_servers.datetime import app
+    from stabbur.mcp_servers.datetime import app
 
     monkeypatch.setenv("TZ", "Not/AZone")
     monkeypatch.setattr(app.Path, "is_file", lambda self: False)  # ignore /etc/timezone

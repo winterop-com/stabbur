@@ -65,7 +65,7 @@ const RECENTS_IN_PALETTE = 6;
  * THE ROWS ARE DATA AND THIS IS THE RENDERER. `lib/palette` answers what is offered and how well
  * each row answers what has been typed; this file knows what a row looks like and what choosing one
  * does, and nothing else. That split is not tidiness — cmdk's default filter is a fuzzy subsequence
- * match, which over heim's mix of sentences and model ids put three theme descriptions above
+ * match, which over stabbur's mix of sentences and model ids put three theme descriptions above
  * "Switch to dark mode" for the query `swit`. Scoring that lives in a pure module can be reasoned
  * about and asserted on; scoring inlined here could only ever be tried.
  */

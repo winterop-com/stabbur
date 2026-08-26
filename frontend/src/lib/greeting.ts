@@ -1,7 +1,7 @@
 /**
  * What the empty chat says before you have typed anything.
  *
- * A fixed line is the first thing you read every single time you open heim, and it goes stale
+ * A fixed line is the first thing you read every single time you open stabbur, and it goes stale
  * faster than anything else on the screen. These rotate — quietly. Nothing here is a joke: a joke
  * is funny once and then you meet it four hundred more times.
  *
@@ -18,7 +18,7 @@
 export interface GreetingFacts {
   /** Models in the library. Omitted while it is still loading. */
   models?: number;
-  /** The host heim is fronting, when it is not running the model itself. */
+  /** The host stabbur is fronting, when it is not running the model itself. */
   upstream?: string | null;
 }
 

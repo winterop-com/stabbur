@@ -13,7 +13,7 @@ import { setBinding, type Binding } from "../lib/binding";
 import { requestHostAccess } from "../lib/hostAccess";
 import type { SessionResult } from "../lib/sessionReads";
 
-/** The heim backend a bind is written to, snapshotted when the flow starts. */
+/** The stabbur backend a bind is written to, snapshotted when the flow starts. */
 export interface BindBackendTarget extends BindTarget {
   backendId: string;
 }
@@ -25,7 +25,7 @@ interface BindFlowProps {
   recipe: BindRecipe;
   /** The target instance base URL (mint runs against this in the tab's context). */
   basePath: string;
-  /** Snapshot the active heim backend at flow start — freezes {backendId, baseUrl, token} so a
+  /** Snapshot the active stabbur backend at flow start — freezes {backendId, baseUrl, token} so a
    *  mid-mint backend switch can't misroute the minted token to a different server. */
   captureTarget: () => BindBackendTarget;
   /** Resolve the current tab's signed-in user (for the binding's identity). */
@@ -76,7 +76,7 @@ function originOf(url: string): string | null {
 }
 
 /** The consent + progress card for "Use my login": mint a scoped credential (or fall back to the
- *  live session cookie) entirely in the target site's context, then hand heim only the secret. */
+ *  live session cookie) entirely in the target site's context, then hand stabbur only the secret. */
 export function BindFlow({
   assistant,
   route,
@@ -135,8 +135,8 @@ export function BindFlow({
       setStage({
         kind: "error",
         message:
-          `heim needs access to ${originOf(basePath) ?? targetName} to request the token in your tab. ` +
-          "Click Confirm again and allow the permission prompt, or open the panel from the heim toolbar icon on that tab.",
+          `stabbur needs access to ${originOf(basePath) ?? targetName} to request the token in your tab. ` +
+          "Click Confirm again and allow the permission prompt, or open the panel from the stabbur toolbar icon on that tab.",
       });
       return;
     }
@@ -181,7 +181,7 @@ export function BindFlow({
         try {
           await executeRevoke(tabId, basePath, substitute(recipe.revokePath, { credentialId: replaceCredentialId }));
         } catch (err) {
-          console.warn("heim: failed to revoke the replaced read-only token", err);
+          console.warn("stabbur: failed to revoke the replaced read-only token", err);
         }
       }
       // Reuse the session already resolved by the pre-gate above (thread it through) so the binding's
@@ -287,8 +287,8 @@ export function BindFlow({
               <strong className="text-[var(--foreground)]">
                 a personal access token for your account, {writable && allowWrites ? "read-write" : "read-only (GET)"}
               </strong>
-              , expires in {recipe.expiresInDays} days, stored as a profile in the heim project. It is minted in this
-              tab using your existing login and never leaves your browser except as the token heim stores.
+              , expires in {recipe.expiresInDays} days, stored as a profile in the stabbur project. It is minted in this
+              tab using your existing login and never leaves your browser except as the token stabbur stores.
             </p>
             {replaceCredentialId ? (
               <p data-testid="bind-remint-notice" className="mt-1">
@@ -372,7 +372,7 @@ export function BindFlow({
             <KeyRound className="h-3.5 w-3.5" /> Share your live session instead
           </div>
           <p className="text-[var(--muted-foreground)]">
-            This instance would not mint a token, so heim can use your current login session instead. This asks for the{" "}
+            This instance would not mint a token, so stabbur can use your current login session instead. This asks for the{" "}
             <strong className="text-[var(--foreground)]">cookies</strong> permission on {originOf(basePath) ?? baseUrl},
             reads the <code>{recipe.sessionCookie}</code> cookie, and keeps it synced. The session dies when you log out
             of {targetName}.

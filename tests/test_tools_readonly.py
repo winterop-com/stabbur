@@ -7,7 +7,7 @@ fail-safe: an unknown tool, or one with no annotation, is treated as NOT read-on
 
 from typing import Any
 
-from heim import tools
+from stabbur import tools
 
 
 class _FakeTool:

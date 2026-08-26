@@ -9,10 +9,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from heim import chat_tui, runtime
-from heim.library import LibraryModel
-from heim.models import ModelFormat
-from heim.runtime.sampling import ModelSampling
+from stabbur import chat_tui, runtime
+from stabbur.library import LibraryModel
+from stabbur.models import ModelFormat
+from stabbur.runtime.sampling import ModelSampling
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def _fake_runtime(model: LibraryModel, base: str = "http://127.0.0.1:9", port: i
         base=base,
         port=port,
         cmd=["llama-server"],
-        state_dir=Path("/tmp/heim-fake-runtime"),
+        state_dir=Path("/tmp/stabbur-fake-runtime"),
         log_fh=None,
     )
     rt.model = model
@@ -403,7 +403,7 @@ async def test_remote_attach_switches_by_repointing_model_id(monkeypatch: pytest
         refused = [w for w in app.query(Static) if "does not serve" in str(w.render())]
         assert len(refused) == 1
         # /model opens the arrow-key picker over the remote's ids; a selection switches.
-        from heim.chat_tui._widgets import ModelPickerModal
+        from stabbur.chat_tui._widgets import ModelPickerModal
 
         app.action_show_models()
         for _ in range(20):
@@ -512,7 +512,7 @@ async def test_model_picker_tolerates_a_name_in_two_formats() -> None:
     # user highlighted — the *index*, since the name alone can't tell the two builds apart.
     from textual.widgets import OptionList
 
-    from heim.chat_tui._widgets import ModelPickerModal
+    from stabbur.chat_tui._widgets import ModelPickerModal
 
     rows = [("pub/Foo", "gguf"), ("pub/Foo", "mlx"), ("pub/Bar", "gguf")]
     picked: list[int | None] = []
@@ -543,9 +543,9 @@ async def test_picking_another_format_of_the_running_model_actually_switches(
 ) -> None:
     # The picker used to answer with the row's *name*, so choosing the MLX build of a model
     # already running as GGUF read as "you picked what you're on" and did nothing at all — on
-    # exactly the libraries heim's keep-GGUF-and-MLX policy produces. The row's identity (its
+    # exactly the libraries stabbur's keep-GGUF-and-MLX policy produces. The row's identity (its
     # index) must survive the round trip, and the two builds run on different runtimes.
-    from heim.chat_tui._widgets import ModelPickerModal
+    from stabbur.chat_tui._widgets import ModelPickerModal
 
     app = _app()
     gguf = app._model
@@ -688,7 +688,7 @@ async def test_palette_lists_the_remotes_models_on_an_attach(monkeypatch: pytest
     # A remote attach can only move between the ids the server serves, so the Ctrl+P palette must
     # offer those — not local library models it would refuse ("does not serve") — and it must not
     # scan the library at all: that blocks the UI on a drive this session never touches.
-    from heim.chat_tui._widgets import _HeimCommands
+    from stabbur.chat_tui._widgets import _HeimCommands
 
     def _boom() -> list[LibraryModel]:
         raise AssertionError("a remote attach must not scan the local library")

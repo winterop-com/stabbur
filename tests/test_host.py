@@ -1,10 +1,10 @@
-"""Tests for the OS-aware helpers in :mod:`heim.host`."""
+"""Tests for the OS-aware helpers in :mod:`stabbur.host`."""
 
 from pathlib import Path
 
 import pytest
 
-from heim import host
+from stabbur import host
 
 
 def test_os_detection_is_mutually_exclusive(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,7 +3,7 @@
 //   bun run e2e/prompts/run.ts                 # capture + serve + replay + assert
 //   bun run e2e/prompts/run.ts --no-capture    # reuse cached captures
 //   bun run e2e/prompts/run.ts --only hn-csv,wiki-summary-bullets
-//   HEIM_PROMPT_BASE_URL=http://127.0.0.1:4611 bun run e2e/prompts/run.ts --no-capture
+//   STABBUR_PROMPT_BASE_URL=http://127.0.0.1:4611 bun run e2e/prompts/run.ts --no-capture
 //
 // Writes results/<out>.json + results/outputs/<id>.md and prints a summary. The
 // full run gates at >= 25 verified (skipped when --only narrows the set).
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   if (prompts.length === 0) throw new Error("no prompts selected");
 
   let server = startPromptServer({ model: args.model, libraryRoot: args.library });
-  const external = !!process.env.HEIM_PROMPT_BASE_URL;
+  const external = !!process.env.STABBUR_PROMPT_BASE_URL;
   const startedAt = new Date().toISOString();
   const results: PromptResult[] = [];
   try {
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
       // reset is a runtime restart: cheap (warm model reload) and cascade-proof.
       if (r.error?.includes("timeout")) {
         if (external) {
-          console.log(`[run] ${p.id} timed out; external server (HEIM_PROMPT_BASE_URL) - probing until idle ...`);
+          console.log(`[run] ${p.id} timed out; external server (STABBUR_PROMPT_BASE_URL) - probing until idle ...`);
           const idle = await waitForIdle(server.baseUrl);
           if (!idle) console.log("[run] WARNING: runtime still busy after 300s; subsequent results may be unreliable");
         } else {

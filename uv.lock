@@ -13,8 +13,8 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "heim",
-    "heim-sandbox",
+    "stabbur",
+    "stabbur-sandbox",
 ]
 
 [[package]]
@@ -1387,121 +1387,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86", size = 37515, upload-time = "2025-04-24T03:35:24.344Z" },
 ]
-
-[[package]]
-name = "heim"
-version = "0.5.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi", extra = ["standard"] },
-    { name = "fastmcp" },
-    { name = "hf-xet" },
-    { name = "httpx" },
-    { name = "huggingface-hub" },
-    { name = "kokoro-onnx" },
-    { name = "pluginkit" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "soundfile" },
-    { name = "textual" },
-    { name = "typer" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-mlx = [
-    { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
-    { name = "mlx-vlm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
-    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
-]
-voice = [
-    { name = "misaki", extra = ["en"] },
-    { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
-    { name = "soundfile" },
-    { name = "soxr" },
-    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
-]
-web = [
-    { name = "playwright" },
-    { name = "trafilatura" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "coverage" },
-    { name = "heim-sandbox" },
-    { name = "httpx" },
-    { name = "mkdocs" },
-    { name = "mkdocs-git-revision-date-localized-plugin" },
-    { name = "mkdocs-glightbox" },
-    { name = "mkdocs-material" },
-    { name = "mkdocs-panzoom-plugin" },
-    { name = "mkdocstrings", extra = ["python"] },
-    { name = "mypy" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.138.2" },
-    { name = "fastmcp", specifier = ">=3.4.2" },
-    { name = "hf-xet", specifier = ">=1.5.1" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "huggingface-hub", specifier = ">=1.21.0" },
-    { name = "kokoro-onnx", specifier = ">=0.4.9" },
-    { name = "misaki", extras = ["en"], marker = "extra == 'voice'", specifier = ">=0.9.4" },
-    { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'voice'", specifier = ">=0.4.4" },
-    { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.31.3" },
-    { name = "mlx-vlm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.6.3" },
-    { name = "playwright", marker = "extra == 'web'", specifier = ">=1.47" },
-    { name = "pluginkit", specifier = ">=0.4.7" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.14.2" },
-    { name = "soundfile", specifier = ">=0.13.1" },
-    { name = "soundfile", marker = "extra == 'voice'", specifier = ">=0.13.1" },
-    { name = "soxr", marker = "extra == 'voice'", specifier = ">=0.5" },
-    { name = "textual", specifier = ">=0.85" },
-    { name = "trafilatura", marker = "extra == 'web'", specifier = ">=1.12" },
-    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=5.5,<5.13" },
-    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'voice'", specifier = ">=5.5,<5.13" },
-    { name = "typer", specifier = ">=0.25.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
-]
-provides-extras = ["mlx", "voice", "web", "benchmark"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "coverage", specifier = ">=7.14.3" },
-    { name = "heim-sandbox", editable = "packages/heim-sandbox" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "mkdocs", specifier = ">=1.6.1" },
-    { name = "mkdocs-git-revision-date-localized-plugin", specifier = ">=1.3.0" },
-    { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
-    { name = "mkdocs-material", specifier = ">=9.7.6" },
-    { name = "mkdocs-panzoom-plugin", specifier = ">=0.2.0" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.4" },
-    { name = "mypy", specifier = ">=2.1.0" },
-    { name = "pyright", specifier = ">=1.1.411" },
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", specifier = ">=1.4.0" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "ruff", specifier = ">=0.15.20" },
-]
-
-[[package]]
-name = "heim-sandbox"
-version = "0.3.0"
-source = { editable = "packages/heim-sandbox" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.0" }]
 
 [[package]]
 name = "hf-xet"
@@ -4231,6 +4116,121 @@ sdist = { url = "https://files.pythonhosted.org/packages/f8/00/b42a44342a054d58c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/3a/764912c58293d95b6dcdf4cc255f9d10de310580ced547b082eb9d72018c/sse_starlette-3.4.8-py3-none-any.whl", hash = "sha256:6e82314c786709a3cd9520f2285cf9fff90e181e598e8a357b0cf80f66afba0d", size = 16516, upload-time = "2026-08-05T11:19:48.748Z" },
 ]
+
+[[package]]
+name = "stabbur"
+version = "0.5.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi", extra = ["standard"] },
+    { name = "fastmcp" },
+    { name = "hf-xet" },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
+    { name = "kokoro-onnx" },
+    { name = "pluginkit" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "soundfile" },
+    { name = "textual" },
+    { name = "typer" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+mlx = [
+    { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "mlx-vlm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+]
+voice = [
+    { name = "misaki", extra = ["en"] },
+    { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "soundfile" },
+    { name = "soxr" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+]
+web = [
+    { name = "playwright" },
+    { name = "trafilatura" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "coverage" },
+    { name = "httpx" },
+    { name = "mkdocs" },
+    { name = "mkdocs-git-revision-date-localized-plugin" },
+    { name = "mkdocs-glightbox" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-panzoom-plugin" },
+    { name = "mkdocstrings", extra = ["python"] },
+    { name = "mypy" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "stabbur-sandbox" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.138.2" },
+    { name = "fastmcp", specifier = ">=3.4.2" },
+    { name = "hf-xet", specifier = ">=1.5.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "huggingface-hub", specifier = ">=1.21.0" },
+    { name = "kokoro-onnx", specifier = ">=0.4.9" },
+    { name = "misaki", extras = ["en"], marker = "extra == 'voice'", specifier = ">=0.9.4" },
+    { name = "mlx-audio", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'voice'", specifier = ">=0.4.4" },
+    { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.31.3" },
+    { name = "mlx-vlm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.6.3" },
+    { name = "playwright", marker = "extra == 'web'", specifier = ">=1.47" },
+    { name = "pluginkit", specifier = ">=0.4.7" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "soundfile", specifier = ">=0.13.1" },
+    { name = "soundfile", marker = "extra == 'voice'", specifier = ">=0.13.1" },
+    { name = "soxr", marker = "extra == 'voice'", specifier = ">=0.5" },
+    { name = "textual", specifier = ">=0.85" },
+    { name = "trafilatura", marker = "extra == 'web'", specifier = ">=1.12" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=5.5,<5.13" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'voice'", specifier = ">=5.5,<5.13" },
+    { name = "typer", specifier = ">=0.25.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
+]
+provides-extras = ["mlx", "voice", "web", "benchmark"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "coverage", specifier = ">=7.14.3" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-git-revision-date-localized-plugin", specifier = ">=1.3.0" },
+    { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
+    { name = "mkdocs-material", specifier = ">=9.7.6" },
+    { name = "mkdocs-panzoom-plugin", specifier = ">=0.2.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.4" },
+    { name = "mypy", specifier = ">=2.1.0" },
+    { name = "pyright", specifier = ">=1.1.411" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "ruff", specifier = ">=0.15.20" },
+    { name = "stabbur-sandbox", editable = "packages/stabbur-sandbox" },
+]
+
+[[package]]
+name = "stabbur-sandbox"
+version = "0.3.0"
+source = { editable = "packages/stabbur-sandbox" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.0" }]
 
 [[package]]
 name = "starlette"

@@ -16,12 +16,12 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from heim import agent, mcpservers, tools
-from heim.app import create_app
-from heim.config import Settings
-from heim.project import AssistantInfo
-from heim.routers import serving
-from heim.targets import AssistantRegistry
+from stabbur import agent, mcpservers, tools
+from stabbur.app import create_app
+from stabbur.config import Settings
+from stabbur.project import AssistantInfo
+from stabbur.routers import serving
+from stabbur.targets import AssistantRegistry
 
 
 def _servers(*names: str) -> list[mcpservers.McpServer]:

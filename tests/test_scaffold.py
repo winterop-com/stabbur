@@ -1,21 +1,21 @@
 """Tests for project scaffolding logic extracted from the CLI (A7).
 
 These functions used to live in command bodies, reachable only through Typer; extracting them to
-``heim.scaffold`` makes them directly testable.
+``stabbur.scaffold`` makes them directly testable.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from heim import project
-from heim.project import AssistantInfo, scaffold
-from heim.project.templates import TEMPLATES
+from stabbur import project
+from stabbur.project import AssistantInfo, scaffold
+from stabbur.project.templates import TEMPLATES
 
 
 def test_strip_uvx() -> None:
     assert scaffold.strip_uvx("uvx dhis2w-mcp-bridge") == "dhis2w-mcp-bridge"
-    assert scaffold.strip_uvx("heim-mcp-datetime") == "heim-mcp-datetime"  # unchanged when no uvx
+    assert scaffold.strip_uvx("stabbur-mcp-datetime") == "stabbur-mcp-datetime"  # unchanged when no uvx
 
 
 def test_split_env_prefix() -> None:
@@ -23,13 +23,13 @@ def test_split_env_prefix() -> None:
     assert cmd == "dhis2w-mcp-bridge"
     assert env == {"DHIS2_PROFILE": "play42"}
     # No prefix → command unchanged, empty env.
-    assert scaffold.split_env_prefix("heim-mcp-utils") == ("heim-mcp-utils", {})
+    assert scaffold.split_env_prefix("stabbur-mcp-utils") == ("stabbur-mcp-utils", {})
 
 
 def test_pip_deps_from_mcp() -> None:
     mcp = [
         ("bridge", "uvx dhis2w-mcp-bridge==1.2.0"),  # uvx pkg → pinned dep (version stripped)
-        ("datetime", "heim-mcp-datetime"),  # bundled, no uvx → skipped
+        ("datetime", "stabbur-mcp-datetime"),  # bundled, no uvx → skipped
         ("node", "npx some-node-server"),  # node runner → skipped
     ]
     assert scaffold.pip_deps_from_mcp(mcp) == ["dhis2w-mcp-bridge"]
@@ -40,18 +40,18 @@ def test_render_pyproject_pins_heim_and_mcp_deps() -> None:
         "My Project!", mcp=[("bridge", "uvx dhis2w-mcp-bridge")], mlx=True, extras=["voice"]
     )
     assert 'name = "my-project"' in text  # sanitized package name
-    assert '"heim[mlx,voice]"' in text  # extras merged + sorted, mlx added
+    assert '"stabbur[mlx,voice]"' in text  # extras merged + sorted, mlx added
     assert '"dhis2w-mcp-bridge"' in text  # the uvx server pinned
-    assert "[tool.uv.sources]" in text and "editable = true" in text  # local heim checkout pinned
+    assert "[tool.uv.sources]" in text and "editable = true" in text  # local stabbur checkout pinned
 
 
 def test_add_pyproject_dep_inserts_and_is_idempotent(tmp_path: Path) -> None:
     p = tmp_path / "pyproject.toml"
-    p.write_text('[project]\ndependencies = [\n    "heim",\n]\n')
+    p.write_text('[project]\ndependencies = [\n    "stabbur",\n]\n')
     assert scaffold.add_pyproject_dep(p, "extra-pkg") is True
     assert '"extra-pkg",' in p.read_text()
     assert scaffold.add_pyproject_dep(p, "extra-pkg") is False  # already present → left alone
-    assert scaffold.add_pyproject_dep(p, "heim") is False  # existing dep (bare) not re-added
+    assert scaffold.add_pyproject_dep(p, "stabbur") is False  # existing dep (bare) not re-added
 
 
 def test_add_pyproject_dep_expands_empty_list(tmp_path: Path) -> None:
@@ -63,11 +63,11 @@ def test_add_pyproject_dep_expands_empty_list(tmp_path: Path) -> None:
 
 def test_dhis2_template_scaffolds_assistant_block(tmp_path: Path) -> None:
     # The dhis2 template carries [assistant] target metadata; scaffolding it (validate -> render,
-    # as _write_project does) writes a heim.toml whose load() round-trips the verify tool + readonly.
+    # as _write_project does) writes a stabbur.toml whose load() round-trips the verify tool + readonly.
     tmpl = TEMPLATES["dhis2"]
     assert tmpl.assistant is not None
     info = AssistantInfo.model_validate(tmpl.assistant)
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(project.render_manifest(model=tmpl.model, system_prompt=tmpl.system_prompt, assistant=info))
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant is not None
@@ -82,7 +82,7 @@ def test_dhis2_template_carries_probe_and_bind(tmp_path: Path) -> None:
     tmpl = TEMPLATES["dhis2"]
     assert tmpl.assistant is not None
     info = AssistantInfo.model_validate(tmpl.assistant)
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(project.render_manifest(model=tmpl.model, system_prompt=tmpl.system_prompt, assistant=info))
     loaded = project.load(p)
     assert loaded is not None and loaded.assistant is not None
@@ -105,13 +105,13 @@ def test_single_dhis2_templates_emit_no_mcp_servers(tmp_path: Path) -> None:
 
 def test_dhis2_multi_template_scaffolds_two_targets(tmp_path: Path) -> None:
     # The dhis2-multi template carries two [[assistants]] blocks + two named bridges. Scaffolding it
-    # (validate -> render, as _write_project does) writes a heim.toml that loads as a 2-target registry
+    # (validate -> render, as _write_project does) writes a stabbur.toml that loads as a 2-target registry
     # with ids play42/play41, each owning its own bridge, and round-trips closed.
     tmpl = TEMPLATES["dhis2-multi"]
     assert tmpl.assistant is None and tmpl.assistants is not None
     targets = [AssistantInfo.model_validate(a) for a in tmpl.assistants]
     registry = project.AssistantRegistry(targets=targets)
-    p = tmp_path / "heim.toml"
+    p = tmp_path / "stabbur.toml"
     p.write_text(project.render_manifest(model=tmpl.model, system_prompt=tmpl.system_prompt, registry=registry))
     loaded = project.load(p)
     assert loaded is not None

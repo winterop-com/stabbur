@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from heim import cards
+from stabbur import cards
 
 
 def test_has_card_detects_readme_and_sidecar(tmp_path: Path) -> None:

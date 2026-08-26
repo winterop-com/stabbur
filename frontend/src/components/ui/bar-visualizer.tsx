@@ -1,7 +1,7 @@
 "use client"
 
 // Vendored from ElevenLabs UI (https://ui.elevenlabs.io, MIT) via /r/bar-visualizer.json.
-// Driven by an external `mediaStream` prop (no self-managed getUserMedia), so heim feeds
+// Driven by an external `mediaStream` prop (no self-managed getUserMedia), so stabbur feeds
 // it the recorder's shared mic stream — one stream, guaranteed live data.
 
 import {

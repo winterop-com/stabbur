@@ -1,15 +1,15 @@
 // Interactive test drive: launch a HEADED Chromium with the built extension loaded,
-// start a real `heim serve` (gemma + dhis2 bridge -> play42, read-only), seed the
+// start a real `stabbur serve` (gemma + dhis2 bridge -> play42, read-only), seed the
 // panel settings, and leave everything running until Ctrl+C.
 //
-// This is the engine behind `heim ext-dev` (the supported launcher, which owns discovery,
+// This is the engine behind `stabbur ext-dev` (the supported launcher, which owns discovery,
 // preconditions, the build, and process lifecycle). Still runnable directly:
 //
 //   bun run e2e/try.ts
 //
-// Env contract (both set by `heim ext-dev`; unset -> today's byte-identical behavior):
-//   HEIM_EXT_DEV_MULTI=1        -> load the two-target fixture (play42 + play41) instead of play42
-//   HEIM_EXT_DEV_FLAVOR=dhis2   -> load `.output/chrome-mv3-dhis2` instead of `.output/chrome-mv3`
+// Env contract (both set by `stabbur ext-dev`; unset -> today's byte-identical behavior):
+//   STABBUR_EXT_DEV_MULTI=1        -> load the two-target fixture (play42 + play41) instead of play42
+//   STABBUR_EXT_DEV_FLAVOR=dhis2   -> load `.output/chrome-mv3-dhis2` instead of `.output/chrome-mv3`
 //
 // Reuses the live-E2E fixture (startLiveServer) so the backend is exactly what the
 // live tier verifies: locked model, [assistant]/[[assistants]] block(s), published bridge.
@@ -22,13 +22,13 @@ import { chromium } from "@playwright/test";
 import { startLiveServer, warmBridge, LIVE_PORT, MULTI_TARGETS, LIVE_MULTI_MODEL, MULTI_SYSTEM_PROMPT } from "./live/liveServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const MULTI = process.env.HEIM_EXT_DEV_MULTI === "1";
-const OUT_SUFFIX = process.env.HEIM_EXT_DEV_FLAVOR === "dhis2" ? "-dhis2" : "";
+const MULTI = process.env.STABBUR_EXT_DEV_MULTI === "1";
+const OUT_SUFFIX = process.env.STABBUR_EXT_DEV_FLAVOR === "dhis2" ? "-dhis2" : "";
 const EXTENSION_PATH = path.resolve(HERE, "..", ".output", `chrome-mv3${OUT_SUFFIX}`);
 
 async function main(): Promise<void> {
   console.log("[try] launching headed Chromium with the extension ...");
-  const userDataDir = mkdtempSync(path.join(tmpdir(), "heim-ext-try-"));
+  const userDataDir = mkdtempSync(path.join(tmpdir(), "stabbur-ext-try-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: false,
@@ -52,8 +52,8 @@ async function main(): Promise<void> {
 
   console.log(
     MULTI
-      ? "[try] starting heim serve (Ornith-1.0-9B, play42 + play41 multi-target, read-only) ..."
-      : "[try] starting heim serve (gemma-4-12B, play42, read-only) ...",
+      ? "[try] starting stabbur serve (Ornith-1.0-9B, play42 + play41 multi-target, read-only) ..."
+      : "[try] starting stabbur serve (gemma-4-12B, play42, read-only) ...",
   );
   const server = MULTI
     ? startLiveServer(extensionId, {
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     : startLiveServer(extensionId);
   process.on("SIGINT", () => {
     void (async () => {
-      console.log("\n[try] shutting down heim serve + browser ...");
+      console.log("\n[try] shutting down stabbur serve + browser ...");
       await server.stop();
       await context.close().catch(() => {});
       process.exit(0);
@@ -110,14 +110,14 @@ async function main(): Promise<void> {
   }
   console.log("[try] READY.");
   console.log(`[try]   panel tab:   chrome-extension://${extensionId}/sidepanel.html`);
-  console.log("[try]   real side panel: click the heim icon in the toolbar (puzzle-piece menu)");
+  console.log("[try]   real side panel: click the stabbur icon in the toolbar (puzzle-piece menu)");
   console.log(
     MULTI
       ? `[try]   backend:     http://127.0.0.1:${LIVE_PORT} (Ornith-1.0-9B locked, dhis2 bridges -> play42 + play41)`
       : `[try]   backend:     http://127.0.0.1:${LIVE_PORT} (gemma-4-12B locked, dhis2 bridge -> play42)`,
   );
   console.log("[try]   page-context + page-text toggles are ON; an HN tab is open for prompt-catalog testing");
-  console.log("[try] Ctrl+C here stops heim serve and closes the browser.");
+  console.log("[try] Ctrl+C here stops stabbur serve and closes the browser.");
 
   await new Promise(() => {}); // run until Ctrl+C
 }

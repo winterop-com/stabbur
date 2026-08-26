@@ -1,5 +1,5 @@
-// Thin client for heim's server: status/library/load + a hand-rolled SSE chat
-// loop against /api/chat (heim's tool-aware endpoint). /api/chat emits its own
+// Thin client for stabbur's server: status/library/load + a hand-rolled SSE chat
+// loop against /api/chat (stabbur's tool-aware endpoint). /api/chat emits its own
 // event envelope (token/tool/error/done), NOT raw OpenAI SSE, so we parse that.
 
 import { apiFetch } from "@/lib/http";
@@ -61,16 +61,16 @@ export interface Status {
   locked: boolean;
   n_ctx: number | null;
   error: string | null;
-  // The remote /v1 this heim fronts (serve --upstream), or null/absent when it runs its own
+  // The remote /v1 this stabbur fronts (serve --upstream), or null/absent when it runs its own
   // runtimes. Optional: a backend older than the field simply doesn't send it, which reads as local.
   upstream?: string | null;
   default_system_prompt: string;
-  project_model: string | null; // the project's bound model (heim.toml), to auto-load on open
+  project_model: string | null; // the project's bound model (stabbur.toml), to auto-load on open
   default_chat_voice: string | null; // the project's [project] chat_voice; UI defaults the Listen voice to it
   voice_enabled: boolean; // the project's [voice] enabled; false hides the Voice surface (text-only assistant)
   runtime_load_timeout: number; // seconds a load may take; the UI polls at least this long
   default_max_tokens?: number; // cap applied when a request omits max_tokens (0 = unbounded)
-  // Heim's own sampling defaults — the values in force for a model that recommends none of its
+  // Stabbur's own sampling defaults — the values in force for a model that recommends none of its
   // own, so the settings panel can label an untouched control without a second copy of the
   // numbers. Optional: a backend older than the field simply doesn't send it.
   default_sampling?: ModelSampling;
@@ -117,7 +117,7 @@ export interface HealthCheck {
   detail: string;
   hint: string | null;
   /** The `name` of the check this one nests under, when it is a detail of another one (an MCP
-   *  server under the tools row). OPTIONAL on purpose: a heim older than the field sends none, and
+   *  server under the tools row). OPTIONAL on purpose: a stabbur older than the field sends none, and
    *  HealthMenu then renders every row flat rather than losing the ones it can't place. */
   group?: string | null;
 }
@@ -125,7 +125,7 @@ export interface HealthCheck {
 /** The full system-health report. */
 export interface DoctorReport {
   checks: HealthCheck[];
-  /** Which heim answered. Absent on a server older than the field. */
+  /** Which stabbur answered. Absent on a server older than the field. */
   version?: string;
 }
 
@@ -195,14 +195,14 @@ export const setModelTags = (model: string, tags: string[]) =>
     body: JSON.stringify({ model, tags }),
   }).then(json<{ model: string; tags: string[] }>);
 
-/** The tag style registry ({tag: {color, icon, description}}); set via `heim library tag-style`. */
+/** The tag style registry ({tag: {color, icon, description}}); set via `stabbur library tag-style`. */
 export const getTagRegistry = () => apiFetch("/api/tags/registry").then(json<TagRegistry>);
 
 /** List the MCP tools attached to the server (empty if none configured). */
 export const getTools = () => apiFetch("/api/tools").then(json<ToolInfo[]>);
 
 /**
- * One first-party MCP server heim ships (GET /api/mcp/servers). `/api/tools` only answers "what
+ * One first-party MCP server stabbur ships (GET /api/mcp/servers). `/api/tools` only answers "what
  * can the agent call right now", which is empty on a fresh machine; this is the other half — the
  * whole shipped set, so the Tools panel can render a catalogue instead of a void. `enabled` is the
  * resolved truth (global mcp.json + the project's .mcp.json), `scope` names the file that switches
@@ -225,11 +225,11 @@ export interface McpServerInfo {
 /**
  * One environment variable a bundled server understands, as declared by the server itself, plus the
  * value in force. `effective` is the point of the whole thing: a server's env decides what it can
- * reach (`HEIM_FILES_ROOT` is the *only* directory the assistant can browse), but an unset default
+ * reach (`STABBUR_FILES_ROOT` is the *only* directory the assistant can browse), but an unset default
  * like "." is invisible from outside the process — so the card can only say "a configured workspace
- * root" while the user wonders why they got a listing of the heim checkout. `effective` is the
+ * root" while the user wonders why they got a listing of the stabbur checkout. `effective` is the
  * configured value when there is one, else the resolved default (a path resolved absolute against
- * the directory `heim serve` runs in). Every value is a string: that is all a spawned process gets.
+ * the directory `stabbur serve` runs in). Every value is a string: that is all a spawned process gets.
  * `boolean` settings are always exactly "true" / "false".
  */
 export interface McpSetting {

@@ -1,10 +1,10 @@
-"""heim's plugin seam: first-party plugins are discovered and mount their command groups."""
+"""stabbur's plugin seam: first-party plugins are discovered and mount their command groups."""
 
 from typing import Any, cast
 
 from rich.console import Console
 
-from heim import plugins
+from stabbur import plugins
 
 
 class _FakeContext:
@@ -27,14 +27,14 @@ def test_benchmark_plugin_is_discovered_and_mounts_a_group() -> None:
     pm = plugins.load_plugins()
     groups = plugins.command_groups(pm, cast(plugins.PluginContext, _FakeContext()))
     names = [name for name, _ in groups]
-    assert "benchmark" in names  # contributed by heim-benchmark's heim.plugins entry point
+    assert "benchmark" in names  # contributed by stabbur-benchmark's stabbur.plugins entry point
 
 
 def test_cli_mounts_plugin_commands() -> None:
     # The assembled Typer app exposes the plugin group as a real command.
     from typer.testing import CliRunner
 
-    from heim.cli import app
+    from stabbur.cli import app
 
     result = CliRunner().invoke(app, ["benchmark", "--help"])
     assert result.exit_code == 0
@@ -46,8 +46,8 @@ def test_advertised_mcp_servers_and_resolution() -> None:
     # the mcp_servers hook surfaces them and that names resolve to spawn commands.
     from pluginkit import PluginManager
 
-    from heim.benchmark.plugin import PLUGIN as BENCH
-    from heim.mcp_servers.datetime.plugin import PLUGIN as DATETIME
+    from stabbur.benchmark.plugin import PLUGIN as BENCH
+    from stabbur.mcp_servers.datetime.plugin import PLUGIN as DATETIME
 
     pm = PluginManager(plugins.PROJECT)
     pm.add_extension_points(plugins.Specs)
@@ -55,7 +55,7 @@ def test_advertised_mcp_servers_and_resolution() -> None:
     pm.register(BENCH, name="benchmark")
 
     servers = {s.name: s.command for s in plugins.advertised_servers(pm)}
-    assert servers["datetime"] == "heim-mcp-datetime"
-    # benchmark is a dev/benchmarking tool (heim benchmark + its own MCP app), not an
+    assert servers["datetime"] == "stabbur-mcp-datetime"
+    # benchmark is a dev/benchmarking tool (stabbur benchmark + its own MCP app), not an
     # everyday assistant tool, so it deliberately advertises no assistant MCP server.
     assert "benchmark" not in servers

@@ -1,12 +1,12 @@
-// Live WRITE E2E: the extension panel driving a real `heim serve` (locked model + DHIS2 CLI
+// Live WRITE E2E: the extension panel driving a real `stabbur serve` (locked model + DHIS2 CLI
 // bridge, read-write) against a LOCAL, mutable DHIS2 instance. Serial, single flow. Skips cleanly
 // if the local instance is unreachable.
 //
-// Because the assistant is readonly:false, heim arms the per-write confirm gate: when the model
+// Because the assistant is readonly:false, stabbur arms the per-write confirm gate: when the model
 // calls a mutating tool, an inline Approve/Deny card (`chat-confirm`) appears and the write only
 // runs after the user approves. This spec proves that path end-to-end:
 //   1. connect, cold-load, confirm the WRITE assistant is active (no read-only chip).
-//   2. ask the model to CREATE a NUMBER data element `HEIM_E2E_<rand>`; approve the confirm.
+//   2. ask the model to CREATE a NUMBER data element `STABBUR_E2E_<rand>`; approve the confirm.
 //   3. read it back with a direct authenticated fetch -> it EXISTS.
 //   4. ask to DELETE it; approve the confirm.
 //   5. read back again -> it is GONE.
@@ -35,8 +35,8 @@ const WRITE_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
 
 const BASE_URL = `http://127.0.0.1:${LIVE_PORT}`;
 const AUTH = "Basic " + Buffer.from("admin:district").toString("base64");
-// All HEIM_E2E_* objects this spec may create share this prefix, so the sweep can find strays.
-const NAME_PREFIX = "HEIM_E2E";
+// All STABBUR_E2E_* objects this spec may create share this prefix, so the sweep can find strays.
+const NAME_PREFIX = "STABBUR_E2E";
 
 /** List data element groups whose name exactly equals `name` (authenticated, no paging).
  *
@@ -52,7 +52,7 @@ async function findByName(name: string): Promise<Array<{ id: string; name: strin
   return b.dataElementGroups ?? [];
 }
 
-/** Best-effort: delete every HEIM_E2E_* data element group (leaves no residue after a failed run). */
+/** Best-effort: delete every STABBUR_E2E_* data element group (leaves no residue after a failed run). */
 async function sweepTestElements(): Promise<number> {
   try {
     const url = `${WRITE_BASE_URL}/api/dataElementGroups.json?filter=name:like:${NAME_PREFIX}&fields=id,name&paging=false`;
@@ -76,7 +76,7 @@ let skipReason: string | null = null;
 let server: LiveServer | null = null;
 let baselineLlama = 0;
 
-test.describe.serial("live extension WRITE against real heim + local DHIS2", () => {
+test.describe.serial("live extension WRITE against real stabbur + local DHIS2", () => {
   test.beforeAll(async () => {
     skipReason = await preflight(WRITE_BASE_URL);
     if (skipReason) return;
@@ -114,9 +114,9 @@ test.describe.serial("live extension WRITE against real heim + local DHIS2", () 
       // Seed + open the panel BEFORE the server is up -> disconnected state.
       await seedSettings(context, extensionId, { baseUrl: BASE_URL, token: "" });
       const panel = await openPanel(context, extensionId);
-      await expect(panel.getByText(/heim is not reachable/)).toBeVisible({ timeout: 20_000 });
+      await expect(panel.getByText(/stabbur is not reachable/)).toBeVisible({ timeout: 20_000 });
 
-      // Boot heim with the WRITE options: local_basic profile, mutable base_url, readonly:false
+      // Boot stabbur with the WRITE options: local_basic profile, mutable base_url, readonly:false
       // (arms the confirm gate), and mintReadonly:false (the bridge runs read-write).
       server = startLiveServer(extensionId, {
         profile: WRITE_PROFILE,
@@ -191,7 +191,7 @@ test.describe.serial("live extension WRITE against real heim + local DHIS2", () 
 
       await panel.close();
     } catch (err) {
-      if (server) console.log(`[live-write] heim serve log tail:\n${server.tailLog(60)}`);
+      if (server) console.log(`[live-write] stabbur serve log tail:\n${server.tailLog(60)}`);
       // Immediate best-effort cleanup of this run's object even if the flow failed mid-way.
       await sweepTestElements().catch(() => {});
       throw err;

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from heim import arch, library, tags
-from heim.models import ModelFormat
-from heim.sources import base
+from stabbur import arch, library, tags
+from stabbur.models import ModelFormat
+from stabbur.sources import base
 
 
 def _gguf(dirpath: Path, name: str = "model.gguf", data: bytes = b"weights") -> None:
@@ -35,7 +35,7 @@ def test_config_is_generative_handles_non_dict_json(tmp_path: Path) -> None:
 def test_scan_skips_loose_weight_and_staging(tmp_path: Path) -> None:
     _gguf(tmp_path / "gguf" / "pub" / "Real-GGUF")  # a real model
     _gguf(tmp_path / "gguf")  # a loose weight at the bucket root -> nameless, must be skipped
-    _gguf(tmp_path / "gguf" / ".heim-stage-abc" / "Repo")  # interrupted-pull staging, must be skipped
+    _gguf(tmp_path / "gguf" / ".stabbur-stage-abc" / "Repo")  # interrupted-pull staging, must be skipped
     names = {m.name for m in library.scan(root=tmp_path)}
     assert names == {"pub/Real-GGUF"}
 

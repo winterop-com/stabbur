@@ -1,5 +1,5 @@
 // Parity pin for the URL-based target selection: `selectTarget` (extension) must agree with
-// `heim.targets.select` (server) case-for-case. The fixtures below are COPIED VERBATIM from
+// `stabbur.targets.select` (server) case-for-case. The fixtures below are COPIED VERBATIM from
 // tests/test_targets.py's SELECT_CASES — origin equality, longest-base-path-prefix ranking, the "/"
 // catch-all, and normalization of default ports / trailing slashes / host case. Change one side, change
 // both. A pure-function spec (no browser/extension fixture), so it runs fast under the `mock` project.
@@ -121,7 +121,7 @@ for (const [name, tabUrl, pairs, expectedMatches, expectedSelected] of SELECT_CA
     const { matches, selected } = selectTarget(tabUrl, targets(pairs));
     expect(matches.map((t) => t.id)).toEqual(expectedMatches);
     // `selected` is the unique strictly-highest-rank pick, null on a real tie / no match (mirrors
-    // heim.targets.selected — the explicit column above, NOT derived from matches.length).
+    // stabbur.targets.selected — the explicit column above, NOT derived from matches.length).
     expect(selected?.id ?? null).toBe(expectedSelected);
   });
 }

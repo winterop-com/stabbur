@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from heim.benchmark import core
+from stabbur.benchmark import core
 
 pytestmark = pytest.mark.filterwarnings("ignore")
 
@@ -29,8 +29,8 @@ def test_suites_load_and_language_propagates() -> None:
 def test_qualifies_gates_by_capability_and_tag() -> None:
     from typing import Any, cast
 
-    from heim.benchmark.plugin import _qualifies
-    from heim.plugins import PluginContext
+    from stabbur.benchmark.plugin import _qualifies
+    from stabbur.plugins import PluginContext
 
     class _Ctx:
         def __init__(self, tools: bool, tags: list[str]) -> None:
@@ -64,7 +64,7 @@ def test_tool_suite_loads_with_expectations() -> None:
     problem = next(p for p in suite.problems if p.id == "day-of-week")
     assert problem.type == "tool"  # propagated from the suite
     assert problem.expect_tool == "datetime__day_of_week"
-    assert problem.servers == ["heim-mcp-datetime"]
+    assert problem.servers == ["stabbur-mcp-datetime"]
 
 
 def test_unknown_suite_errors() -> None:
@@ -107,7 +107,7 @@ def test_score_tool_requires_correct_call_and_answer() -> None:
 
 
 class _StubReader:
-    """A stand-in :class:`heim.benchmark.core.StateReader` returning canned live counts."""
+    """A stand-in :class:`stabbur.benchmark.core.StateReader` returning canned live counts."""
 
     def __init__(self, counts: dict[tuple[str, str], int] | None = None, unreachable: bool = False) -> None:
         self._counts = counts or {}
@@ -130,7 +130,7 @@ def test_write_suite_loads_with_end_state_expectations() -> None:
     suite = core.load_suite("tools-dhis2-write")
     assert suite.type == "tool"
     problem = _write_problem("de-create-delete")
-    assert problem.expect_absent == [core.ExpectAbsent(type="dataElements", name="HEIM_DE1")]
+    assert problem.expect_absent == [core.ExpectAbsent(type="dataElements", name="STABBUR_DE1")]
     # A problem that creates two objects lists both.
     two = _write_problem("deg-add-member-delete")
     assert {s.type for s in two.expect_absent} == {"dataElements", "dataElementGroups"}
@@ -139,23 +139,23 @@ def test_write_suite_loads_with_end_state_expectations() -> None:
 def test_stateful_pass_only_when_created_and_absent_at_end() -> None:
     problem = _write_problem("de-create-delete")
     calls = [
-        _call(["metadata", "data-elements", "create", "--name", "HEIM_DE1", "--short-name", "HEIM_DE1"]),
+        _call(["metadata", "data-elements", "create", "--name", "STABBUR_DE1", "--short-name", "STABBUR_DE1"]),
         _call(["metadata", "data-elements", "delete", "abc"]),
     ]
-    reader = _StubReader({("dataElements", "HEIM_DE1"): 0})  # gone at end
+    reader = _StubReader({("dataElements", "STABBUR_DE1"): 0})  # gone at end
     assert core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
 
 
 def test_stateful_fails_when_residue_remains() -> None:
     problem = _write_problem("de-create-delete")
-    calls = [_call(["metadata", "data-elements", "create", "--name", "HEIM_DE1"])]
-    reader = _StubReader({("dataElements", "HEIM_DE1"): 1})  # created but never deleted
+    calls = [_call(["metadata", "data-elements", "create", "--name", "STABBUR_DE1"])]
+    reader = _StubReader({("dataElements", "STABBUR_DE1"): 1})  # created but never deleted
     assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
 
 
 def test_stateful_vacuous_pass_is_gone() -> None:
     problem = _write_problem("de-create-delete")
-    reader = _StubReader({("dataElements", "HEIM_DE1"): 0})  # trivially absent
+    reader = _StubReader({("dataElements", "STABBUR_DE1"): 0})  # trivially absent
     # Old scoring passed on "one tool call + token"; now doing NOTHING fails despite absence.
     assert not core.score_tool_stateful(problem, [], "LIFECYCLE_OK", 0.1, reader).passed
     # Calling the tool for a READ only (no create verb) + emitting the token also fails now.
@@ -166,20 +166,20 @@ def test_stateful_vacuous_pass_is_gone() -> None:
 def test_stateful_fails_when_create_result_errored() -> None:
     problem = _write_problem("de-create-delete")
     # A create that returned a non-zero d2w exit code is not evidence the object existed.
-    calls = [_call(["metadata", "data-elements", "create", "--name", "HEIM_DE1"], result='{"exit_code": 1}')]
-    reader = _StubReader({("dataElements", "HEIM_DE1"): 0})
+    calls = [_call(["metadata", "data-elements", "create", "--name", "STABBUR_DE1"], result='{"exit_code": 1}')]
+    reader = _StubReader({("dataElements", "STABBUR_DE1"): 0})
     assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
 
 
 def test_stateful_fails_on_decoy_create_of_unrelated_object() -> None:
     # A create+delete of an UNRELATED object must not pass a problem whose target was never touched
     # (and is thus trivially absent). The create has to target the EXPECTED object.
-    problem = _write_problem("de-create-delete")  # expects dataElements/HEIM_DE1
+    problem = _write_problem("de-create-delete")  # expects dataElements/STABBUR_DE1
     calls = [
-        _call(["metadata", "data-elements", "create", "--name", "HEIM_DECOY"]),
+        _call(["metadata", "data-elements", "create", "--name", "STABBUR_DECOY"]),
         _call(["metadata", "data-elements", "delete", "abc"]),
     ]
-    reader = _StubReader({("dataElements", "HEIM_DE1"): 0})  # HEIM_DE1 trivially absent (never created)
+    reader = _StubReader({("dataElements", "STABBUR_DE1"): 0})  # STABBUR_DE1 trivially absent (never created)
     assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
 
 
@@ -189,7 +189,7 @@ def test_stateful_ignores_verbs_that_are_only_flag_values() -> None:
     # both against a live reader and in the offline (degraded) fallback.
     problem = _write_problem("de-create-delete")
     calls = [_call(["metadata", "list", "dataElements", "--filter", "create"])]
-    reader = _StubReader({("dataElements", "HEIM_DE1"): 0})
+    reader = _StubReader({("dataElements", "STABBUR_DE1"): 0})
     assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, reader).passed
     assert not core.score_tool_stateful(problem, calls, "LIFECYCLE_OK", 0.1, None).passed
 
@@ -197,7 +197,7 @@ def test_stateful_ignores_verbs_that_are_only_flag_values() -> None:
 def test_stateful_degrades_gracefully_without_a_reader() -> None:
     problem = _write_problem("de-create-delete")
     create_and_delete = [
-        _call(["metadata", "data-elements", "create", "--name", "HEIM_DE1"]),
+        _call(["metadata", "data-elements", "create", "--name", "STABBUR_DE1"]),
         _call(["metadata", "data-elements", "delete", "abc"]),
     ]
     # No reader (offline): fall back to trace verbs + token — both present -> pass.
@@ -207,7 +207,7 @@ def test_stateful_degrades_gracefully_without_a_reader() -> None:
         problem, create_and_delete, "LIFECYCLE_OK", 0.1, _StubReader(unreachable=True)
     ).passed
     # Offline with only a create (no delete verb) -> fail.
-    create_only = [_call(["metadata", "data-elements", "create", "--name", "HEIM_DE1"])]
+    create_only = [_call(["metadata", "data-elements", "create", "--name", "STABBUR_DE1"])]
     assert not core.score_tool_stateful(problem, create_only, "LIFECYCLE_OK", 0.1, None).passed
 
 
@@ -219,16 +219,16 @@ def test_read_suite_scoring_unchanged_with_result_key_present() -> None:
 
 
 def test_sweep_only_touches_heim_prefixed_objects(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim.benchmark import dhis2_state
+    from stabbur.benchmark import dhis2_state
 
     reader = dhis2_state.Dhis2StateReader(
         dhis2_state.Dhis2Profile(base_url="http://localhost:8080", username="admin", password="district")
     )
-    # `like` is a substring match, so a non-HEIM_ object can slip into the candidate list.
+    # `like` is a substring match, so a non-STABBUR_ object can slip into the candidate list.
     found = [
-        {"id": "u1", "name": "HEIM_DE1"},
-        {"id": "u2", "name": "ORG_HEIM_DE1"},  # contains HEIM_ but does NOT start with it
-        {"id": "u3", "name": "HEIM_DE2"},
+        {"id": "u1", "name": "STABBUR_DE1"},
+        {"id": "u2", "name": "ORG_HEIM_DE1"},  # contains STABBUR_ but does NOT start with it
+        {"id": "u3", "name": "STABBUR_DE2"},
     ]
     deleted: list[str] = []
 
@@ -243,7 +243,7 @@ def test_sweep_only_touches_heim_prefixed_objects(monkeypatch: pytest.MonkeyPatc
 
 
 def test_sweep_skips_when_instance_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim.benchmark import dhis2_state
+    from stabbur.benchmark import dhis2_state
 
     reader = dhis2_state.Dhis2StateReader(dhis2_state.Dhis2Profile(base_url="http://x", username="a", password="b"))
     monkeypatch.setattr(reader, "_find", lambda resource, name: None)  # unreachable
@@ -255,9 +255,9 @@ def test_sweep_skips_when_instance_unreachable(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_profile_resolution_from_servers_and_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim.benchmark import dhis2_state
+    from stabbur.benchmark import dhis2_state
 
-    monkeypatch.delenv("HEIM_BENCH_DHIS2_URL", raising=False)
+    monkeypatch.delenv("STABBUR_BENCH_DHIS2_URL", raising=False)
     servers = ["env DHIS2_PROFILE=local_basic uvx dhis2w-mcp-bridge"]
     assert dhis2_state.profile_from_servers(servers) == "local_basic"
     profiles = tmp_path / "profiles.toml"
@@ -270,7 +270,7 @@ def test_profile_resolution_from_servers_and_file(tmp_path: Path, monkeypatch: p
 
 
 def test_sweep_types_derived_from_expect_absent() -> None:
-    from heim.benchmark import dhis2_state
+    from stabbur.benchmark import dhis2_state
 
     suite = core.load_suite("tools-dhis2-write")
     assert dhis2_state.sweep_types(list(suite.problems)) == [

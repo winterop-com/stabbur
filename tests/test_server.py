@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from heim.library import LibraryModel
-from heim.models import ModelFormat
-from heim.runtime import supervisor
-from heim.server import ServerManager, UpstreamModel
+from stabbur.library import LibraryModel
+from stabbur.models import ModelFormat
+from stabbur.runtime import supervisor
+from stabbur.server import ServerManager, UpstreamModel
 
 
 def _model(path: Path) -> LibraryModel:
@@ -60,7 +60,7 @@ def test_load_is_serialized_across_threads(tmp_path: Path, monkeypatch: pytest.M
             active -= 1
         return [sys.executable, "-c", "import time; time.sleep(30)"]  # long-lived so spawn succeeds
 
-    monkeypatch.setattr("heim.server.runtime.build_command", slow_build)
+    monkeypatch.setattr("stabbur.server.runtime.build_command", slow_build)
     m1 = LibraryModel(name="pub/A", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "a")
     m2 = LibraryModel(name="pub/B", model_format=ModelFormat.gguf, path=tmp_path, load_target=tmp_path / "b")
     threads = [threading.Thread(target=manager.load, args=(m,)) for m in (m1, m2)]
@@ -109,7 +109,7 @@ def _recording_post(sink: list[dict[str, object]]) -> Callable[..., _FakeRespons
 
 
 def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     manager = server_mod.UpstreamManager("http://up:1234/v1/")
     assert manager.base_url == "http://up:1234"  # trailing /v1 normalized away
@@ -128,7 +128,7 @@ def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) 
     manager.load_by_name("GEMMA-4-12B-QAT")  # case-insensitive match
     assert manager.current is not None and manager.current.name == "gemma-4-12b-qat"
     # The router has no load endpoint, so the switch must send a request naming the model —
-    # otherwise heim reports it ready while the remote is still serving the old one.
+    # otherwise stabbur reports it ready while the remote is still serving the old one.
     assert posted and posted[0]["model"] == "gemma-4-12b-qat"
     assert posted[0]["max_tokens"] == 1
 
@@ -142,7 +142,7 @@ def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) 
 
 def test_upstream_switch_to_an_already_loaded_model_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     # qwen3-coder is already resident; re-selecting it must not cost a reload.
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     manager = server_mod.UpstreamManager("http://up:1234")
     monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
@@ -155,10 +155,10 @@ def test_upstream_switch_to_an_already_loaded_model_sends_nothing(monkeypatch: p
 
 
 def test_upstream_failed_warmup_keeps_the_previous_selection(monkeypatch: pytest.MonkeyPatch) -> None:
-    # If the remote cannot load the model, heim must not claim it is serving it.
+    # If the remote cannot load the model, stabbur must not claim it is serving it.
     import httpx
 
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     manager = server_mod.UpstreamManager("http://up:1234")
     monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
@@ -176,9 +176,9 @@ def test_upstream_failed_warmup_keeps_the_previous_selection(monkeypatch: pytest
 
 
 def test_upstream_warmup_is_skipped_for_the_name_only_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
-    # `heim serve --upstream --model X` validates the name before the server exists; loading
+    # `stabbur serve --upstream --model X` validates the name before the server exists; loading
     # there would evict the remote's resident model for a process that is about to exit.
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     manager = server_mod.UpstreamManager("http://up:1234")
     monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
@@ -193,7 +193,7 @@ def test_upstream_warmup_is_skipped_for_the_name_only_preflight(monkeypatch: pyt
 
 async def test_upstream_state_reports_loading_during_a_switch(monkeypatch: pytest.MonkeyPatch) -> None:
     # The whole point of the eager load: the UI shows the swap rather than a stale "ready".
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     manager = server_mod.UpstreamManager("http://up:1234")
     monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
@@ -226,7 +226,7 @@ async def test_upstream_state_reports_loading_during_a_switch(monkeypatch: pytes
 def test_upstream_manager_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
 
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     def _boom(url: str, timeout: object = None) -> object:
         raise httpx.ConnectError("no route to host")
@@ -245,7 +245,7 @@ async def test_upstream_ready_paces_probes_and_forgives_jitter() -> None:
 
     import httpx
 
-    from heim import server as server_mod
+    from stabbur import server as server_mod
 
     manager = server_mod.UpstreamManager("http://up:1234")
 
@@ -266,10 +266,10 @@ async def test_upstream_ready_paces_probes_and_forgives_jitter() -> None:
 
 
 def test_resolve_binary_prefers_heims_own_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The MLX runtimes are heim extras, so they land in heim's own environment where a
+    # The MLX runtimes are stabbur extras, so they land in stabbur's own environment where a
     # `uv tool install` exposes nothing on PATH. Look beside the interpreter first, so
-    # installing the extra "into heim" works without a global install.
-    from heim import runtime as runtime_mod
+    # installing the extra "into stabbur" works without a global install.
+    from stabbur import runtime as runtime_mod
 
     envbin = tmp_path / "bin"
     envbin.mkdir()

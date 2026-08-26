@@ -3,9 +3,9 @@
 from typing import Any
 
 import pytest
-from heim_sandbox import DockerError, RunResult
+from stabbur_sandbox import DockerError, RunResult
 
-import heim.mcp_servers.exec.app as app
+import stabbur.mcp_servers.exec.app as app
 
 
 def test_run_python_ok(monkeypatch: pytest.MonkeyPatch) -> None:

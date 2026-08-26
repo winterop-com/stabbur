@@ -1,4 +1,4 @@
-// Live E2E: the extension panel driving a real `heim serve` (locked gemma model +
+// Live E2E: the extension panel driving a real `stabbur serve` (locked gemma model +
 // DHIS2 CLI bridge against the public play demo). Serial, single flow. Skips
 // cleanly if the demo instance is unreachable.
 //
@@ -44,7 +44,7 @@ let skipReason: string | null = null;
 let server: LiveServer | null = null;
 let baselineLlama = 0;
 
-test.describe.serial("live extension against real heim + DHIS2", () => {
+test.describe.serial("live extension against real stabbur + DHIS2", () => {
   test.beforeAll(async () => {
     skipReason = await preflight(PLAY_BASE_URL);
     if (skipReason) return;
@@ -72,9 +72,9 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
       // Seed the panel and open it BEFORE the server is up -> disconnected state.
       await seedSettings(context, extensionId, { baseUrl: BASE_URL, token: "" });
       const panel = await openPanel(context, extensionId);
-      await expect(panel.getByText(/heim is not reachable/)).toBeVisible({ timeout: 20_000 });
+      await expect(panel.getByText(/stabbur is not reachable/)).toBeVisible({ timeout: 20_000 });
 
-      // Now boot heim, allowing this extension's origin through the cross-site guard.
+      // Now boot stabbur, allowing this extension's origin through the cross-site guard.
       // Kept warm in the module-scoped `server` so test 2 reuses the loaded model.
       server = startLiveServer(extensionId);
 
@@ -144,7 +144,7 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
       await tab.close();
       await panel.close();
     } catch (err) {
-      if (server) console.log(`[live] heim serve log tail:\n${server.tailLog(60)}`);
+      if (server) console.log(`[live] stabbur serve log tail:\n${server.tailLog(60)}`);
       throw err;
     }
   });
@@ -218,7 +218,7 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
         await expect(panel.getByTestId("bind-consent")).toBeVisible({ timeout: 15_000 });
         await expect(panel.getByText(/read-only \(GET\)/)).toBeVisible({ timeout: 15_000 });
         await expect(panel.getByText(/expires in 30 days/)).toBeVisible({ timeout: 15_000 });
-        await expect(panel.getByText(/stored as a profile in the heim project/)).toBeVisible({ timeout: 15_000 });
+        await expect(panel.getByText(/stored as a profile in the stabbur project/)).toBeVisible({ timeout: 15_000 });
         await expect(panel.getByTestId("bind-allow-writes")).toHaveCount(0);
         console.log("[live-bind] consent card asserted (read-only GET, 30-day, profile-stored, no writes)");
       }
@@ -254,7 +254,7 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
       // instead of being skipped before the consent card. The deeper post-bind chain (acting-as
       // text, Verify, unbind, revoke) drives the live play demo and can wedge a headless panel, so
       // it is authoritatively covered by e2e/mock/bind.spec.ts. Assert the reliably-provable bound
-      // state (the "Acting as" banner rendered OR heim flipped the profile to a PAT), then finish.
+      // state (the "Acting as" banner rendered OR stabbur flipped the profile to a PAT), then finish.
       const boundBanner = (await panel.getByTestId("bind-acting-as").count()) > 0;
       const boundProfile = readFileSync(profilesPath, "utf8").includes('auth = "pat"');
       console.log(`[live-bind] bound state: acting-as banner=${boundBanner}, profile flipped to PAT=${boundProfile}`);
@@ -265,7 +265,7 @@ test.describe.serial("live extension against real heim + DHIS2", () => {
           "live mint tail proves consent + Create token + bound state headless; the full mint/verify/unbind cycle is covered by e2e/mock/bind.spec.ts",
       });
     } finally {
-      if (server) console.log(`[live-bind] heim serve log tail:\n${server.tailLog(40)}`);
+      if (server) console.log(`[live-bind] stabbur serve log tail:\n${server.tailLog(40)}`);
       // A wedged play tab can make page.close() hang; race each close against a short deadline
       // (Playwright tears down the test-scoped context regardless).
       const closeSoon = (p: Page | null) =>

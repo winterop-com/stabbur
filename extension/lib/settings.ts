@@ -42,7 +42,7 @@ const WATCH_KEYS: string[] = [...V2_KEYS];
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 /**
- * Canonical form of a heim base URL for `apiFetch(baseUrl + path)`: trimmed, no
+ * Canonical form of a stabbur base URL for `apiFetch(baseUrl + path)`: trimmed, no
  * trailing slashes. A pasted "http://127.0.0.1:2222/" would otherwise produce
  * "//api/status", which Starlette does not match (every call 404s).
  */
@@ -51,26 +51,26 @@ export function normalizeBaseUrl(raw: string): string {
 }
 
 /**
- * Validate a heim base URL. Returns null when acceptable, otherwise a
+ * Validate a stabbur base URL. Returns null when acceptable, otherwise a
  * human-readable reason. Accepts any http(s) URL, but requires https for a
  * non-loopback (remote/cloud) host — an extension page can't fetch plain http
  * from a remote origin (mixed-content block).
  */
 export function validateBaseUrl(raw: string): string | null {
   const value = raw.trim();
-  if (!value) return "Enter a heim base URL (e.g. http://127.0.0.1:2222).";
+  if (!value) return "Enter a stabbur base URL (e.g. http://127.0.0.1:2222).";
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return "Enter a valid URL, e.g. http://127.0.0.1:2222 or https://heim.example.com.";
+    return "Enter a valid URL, e.g. http://127.0.0.1:2222 or https://stabbur.example.com.";
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return "Base URL must start with http:// or https://.";
   }
   const isLoopback = LOOPBACK_HOSTS.has(url.hostname);
   if (url.protocol === "http:" && !isLoopback) {
-    return "Remote heim requires https (extension pages block mixed content). Use https:// or an SSH tunnel to 127.0.0.1.";
+    return "Remote stabbur requires https (extension pages block mixed content). Use https:// or an SSH tunnel to 127.0.0.1.";
   }
   return null;
 }

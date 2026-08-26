@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from heim import attach, cli
-from heim import catalog as catalog_ops
-from heim import library as library_ops
-from heim.library import LibraryModel
-from heim.models import Catalog, ModelEntry, ModelFormat, ModelSource, PullResult
+from stabbur import attach, cli
+from stabbur import catalog as catalog_ops
+from stabbur import library as library_ops
+from stabbur.library import LibraryModel
+from stabbur.models import Catalog, ModelEntry, ModelFormat, ModelSource, PullResult
 
 runner = CliRunner()
 
@@ -46,7 +46,7 @@ def _mk_lib_dir(path: Path, *files: tuple[str, bytes]) -> None:
 
 
 def test_library_formats_flags_redundant_and_missing_quant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import library
+    from stabbur import library
 
     # gguf-only (no note); gguf + safetensors (safetensors redundant); safetensors-only (no quant).
     _mk_lib_dir(tmp_path / "gguf" / "pub" / "OnlyGGUF", ("model.Q4_K_M.gguf", b"g" * 100))
@@ -77,7 +77,7 @@ def test_library_formats_flags_redundant_and_missing_quant(tmp_path: Path, monke
     assert "pub/OnlyGGUF" in out  # gguf-only model is listed...
     assert out.count("redundant safetensors (") == 1  # ...but flagged for exactly one model (Both)
     assert out.count("no ready-to-run quant") == 1  # exactly one safetensors-only model (OnlySafe)
-    assert "heim library rm pub/Both --format safetensors" in out  # actionable hint
+    assert "stabbur library rm pub/Both --format safetensors" in out  # actionable hint
     assert f"{both_sft.size_human} reclaimable" in out  # total == only the redundant copy's size
 
 
@@ -112,7 +112,7 @@ def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch,
     # input = blank lines accepting the defaults for the kind + system-prompt questions
     first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
     assert first.exit_code == 0, first.output
-    parsed = tomllib.loads(Path("heim.toml").read_text())
+    parsed = tomllib.loads(Path("stabbur.toml").read_text())
     assert parsed["project"]["model"] == "unsloth/X-GGUF"
     assert "libraries" not in parsed  # uses the shared library — no project-local store
 
@@ -151,15 +151,15 @@ def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch,
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     # `project show` must surface the bound model, the system prompt, and the *actual*
     # tools (from connecting to the MCP servers) — not just server names.
-    from heim import mcpservers
-    from heim import project as project_mod
+    from stabbur import mcpservers
+    from stabbur import project as project_mod
 
     proj = project_mod.Project(model="unsloth/X-GGUF", system_prompt="Be concise.")
     monkeypatch.setattr(project_mod, "load", lambda *a, **k: proj)
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
     # Tools now come from the resolved mcp.json layers; stub resolve + the connect so it's hermetic.
     monkeypatch.setattr(
-        mcpservers, "resolve", lambda *a, **k: [mcpservers.McpServer(name="datetime", command="heim-mcp-datetime")]
+        mcpservers, "resolve", lambda *a, **k: [mcpservers.McpServer(name="datetime", command="stabbur-mcp-datetime")]
     )
     monkeypatch.setattr(
         cli.project, "_connect_project_tools", lambda mcp: ({"datetime": [("today", "Return today's date.")]}, None, [])
@@ -172,12 +172,12 @@ def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.Monk
 
 
 def test_project_show_without_manifest_hints_init(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import project as project_mod
+    from stabbur import project as project_mod
 
     monkeypatch.setattr(project_mod, "load", lambda *a, **k: None)
     result = runner.invoke(cli.app, ["project", "show"])
     assert result.exit_code == 1
-    assert "heim project init" in result.output
+    assert "stabbur project init" in result.output
 
 
 def _pull_result(name: str) -> PullResult:
@@ -352,7 +352,7 @@ def test_uninstalled_optional_lists_web_only_when_absent() -> None:
 
 
 def test_mcp_list_shows_optional_web_with_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import plugins
+    from stabbur import plugins
 
     monkeypatch.setattr(plugins, "advertised_servers", lambda _pm: [])  # simulate web (and all) not installed
     result = runner.invoke(cli.app, ["mcp", "list"])
@@ -369,11 +369,11 @@ def test_voice_import_rejects_all_with_ids() -> None:
 
 def test_config_set_get_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("HEIM_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("STABBUR_DEFAULT_MODEL", raising=False)
     set_res = runner.invoke(cli.app, ["config", "set", "model", "pub/Model-GGUF"])
     assert set_res.exit_code == 0, set_res.output
     assert "Set model = pub/Model-GGUF" in set_res.output
-    from heim import userconfig
+    from stabbur import userconfig
 
     assert userconfig.read()["default_model"] == "pub/Model-GGUF"
     # `get` prints just the raw value (scriptable); `list` shows the whole picture.
@@ -385,7 +385,7 @@ def test_config_set_get_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 def test_config_get_unset_is_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("HEIM_CHAT_SERVER", raising=False)
+    monkeypatch.delenv("STABBUR_CHAT_SERVER", raising=False)
     got = runner.invoke(cli.app, ["config", "get", "server"])
     assert got.exit_code == 0 and got.output.strip() == ""
 
@@ -399,12 +399,12 @@ def test_config_get_set_reject_unknown_key(tmp_path: Path, monkeypatch: pytest.M
 
 def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.delenv("HEIM_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("STABBUR_LIBRARY_ROOT", raising=False)
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # empty library (find() passes args through)
     lib = tmp_path / "lib"
     res = runner.invoke(cli.app, ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui"])
     assert res.exit_code == 0, res.output
-    from heim import userconfig
+    from stabbur import userconfig
 
     stored = userconfig.read()
     assert stored["default_model"] == "pub/M"
@@ -413,7 +413,7 @@ def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: py
 
 
 def _fake_extension_checkout(root: Path) -> Path:
-    """Create the minimal marker `heim ext-dev` discovery looks for: extension/wxt.config.ts."""
+    """Create the minimal marker `stabbur ext-dev` discovery looks for: extension/wxt.config.ts."""
     ext = root / "extension"
     ext.mkdir(parents=True, exist_ok=True)
     (ext / "wxt.config.ts").write_text("// marker\n")
@@ -424,7 +424,7 @@ def test_ext_dev_outside_checkout_errors(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)  # no extension/wxt.config.ts anywhere above
     res = runner.invoke(cli.app, ["ext-dev"])
     assert res.exit_code == 1
-    assert "heim source checkout" in res.output
+    assert "stabbur source checkout" in res.output
 
 
 def test_ext_dev_requires_bun(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -449,7 +449,7 @@ def test_ext_dev_discovers_root_from_subdir(tmp_path: Path, monkeypatch: pytest.
     # Discovery walks up: invoked from a nested dir, it still finds the checkout — but with bun
     # absent it stops at the precondition (never launching a browser), which is what we assert.
     _fake_extension_checkout(tmp_path)
-    nested = tmp_path / "src" / "heim"
+    nested = tmp_path / "src" / "stabbur"
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)
     monkeypatch.setattr("shutil.which", lambda _name: None)
@@ -469,7 +469,7 @@ def test_normalize_server_url() -> None:
 
 def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
     # With base_url set, generate() must NOT spawn a runtime (_serve); it POSTs to the given base.
-    from heim import runtime
+    from stabbur import runtime
 
     def _boom(_model: object) -> object:
         raise AssertionError("_serve must not be called when base_url is provided")
@@ -490,7 +490,7 @@ def test_runtime_generate_attaches_without_spawning(monkeypatch: pytest.MonkeyPa
 
 
 def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import capabilities, runtime
+    from stabbur import capabilities, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -512,9 +512,9 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import capabilities, runtime
-    from heim.runtime import serve_registry
-    from heim.runtime.serve_registry import ServeRecord
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
+    from stabbur.runtime.serve_registry import ServeRecord
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -527,12 +527,12 @@ def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) 
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] == "http://127.0.0.1:9"
-    assert "attaching to running heim serve" in result.output  # note printed
+    assert "attaching to running stabbur serve" in result.output  # note printed
 
 
 def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import capabilities, runtime
-    from heim.runtime import serve_registry
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -546,10 +546,10 @@ def test_chat_p_no_serve_spawns_locally(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_chat_no_server_overrides_a_configured_server(monkeypatch: pytest.MonkeyPatch) -> None:
     # A configured chat server otherwise applies to every run with no way back to a local load.
-    from heim import capabilities, runtime
-    from heim.runtime import serve_registry
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
 
-    monkeypatch.setenv("HEIM_CHAT_SERVER", "http://msai:1234")
+    monkeypatch.setenv("STABBUR_CHAT_SERVER", "http://msai:1234")
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
     monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
@@ -563,11 +563,11 @@ def test_chat_no_server_overrides_a_configured_server(monkeypatch: pytest.Monkey
 
 def test_chat_no_server_also_skips_auto_attach(monkeypatch: pytest.MonkeyPatch) -> None:
     # Attaching to a running serve is still not a local load, so --no-server opts out of that too.
-    from heim import capabilities, runtime
-    from heim.runtime import serve_registry
-    from heim.runtime.serve_registry import ServeRecord
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
+    from stabbur.runtime.serve_registry import ServeRecord
 
-    monkeypatch.delenv("HEIM_CHAT_SERVER", raising=False)
+    monkeypatch.delenv("STABBUR_CHAT_SERVER", raising=False)
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
     monkeypatch.setattr(
@@ -579,7 +579,7 @@ def test_chat_no_server_also_skips_auto_attach(monkeypatch: pytest.MonkeyPatch) 
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--no-server"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] is None
-    assert "attaching to running heim serve" not in result.output
+    assert "attaching to running stabbur serve" not in result.output
 
 
 def test_chat_server_and_no_server_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -593,10 +593,10 @@ def test_chat_server_and_no_server_conflict(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_chat_empty_server_string_clears_a_configured_server(monkeypatch: pytest.MonkeyPatch) -> None:
     # `--server ''` reads as "no server"; it used to fall back to the configured one instead.
-    from heim import capabilities, runtime
-    from heim.runtime import serve_registry
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
 
-    monkeypatch.setenv("HEIM_CHAT_SERVER", "http://msai:1234")
+    monkeypatch.setenv("STABBUR_CHAT_SERVER", "http://msai:1234")
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
     monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
@@ -625,7 +625,7 @@ def _stub_httpx_get(monkeypatch: pytest.MonkeyPatch, responses: dict[str, object
 
 def test_chat_tui_server_flag_attaches_without_spawning(monkeypatch: pytest.MonkeyPatch) -> None:
     # --server with no -p now attaches the interactive TUI: no runtime spawn, remote endpoint.
-    from heim import capabilities, chat_tui, runtime
+    from stabbur import capabilities, chat_tui, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -645,7 +645,7 @@ def test_chat_tui_server_flag_attaches_without_spawning(monkeypatch: pytest.Monk
 
 def test_chat_tui_server_attaches_without_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
     # The served model doesn't exist locally (and no name was given): attach on server metadata alone.
-    from heim import chat_tui, runtime
+    from stabbur import chat_tui, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])
     monkeypatch.setattr(runtime, "load", lambda _m: (_ for _ in ()).throw(AssertionError("must not spawn")))
@@ -662,8 +662,8 @@ def test_chat_tui_server_attaches_without_local_model(monkeypatch: pytest.Monkey
 
 
 def test_probe_remote_falls_back_to_v1_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Not heim serve (no /api/status): a raw llama-server answers /v1/models.
-    from heim.cli.chat import _probe_remote
+    # Not stabbur serve (no /api/status): a raw llama-server answers /v1/models.
+    from stabbur.cli.chat import _probe_remote
 
     _stub_httpx_get(monkeypatch, {"/v1/models": {"data": [{"id": "/models/foo.gguf"}]}})
     endpoint = _probe_remote("http://127.0.0.1:9999", None, None)
@@ -674,7 +674,7 @@ def test_probe_remote_falls_back_to_v1_models(monkeypatch: pytest.MonkeyPatch) -
 def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from heim.cli.chat import _probe_remote
+    from stabbur.cli.chat import _probe_remote
 
     _stub_httpx_get(monkeypatch, {})  # both probes refuse
     with pytest.raises(typer.Exit):
@@ -684,7 +684,7 @@ def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch
 def test_probe_remote_exits_when_serve_has_no_model_and_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from heim.cli.chat import _probe_remote
+    from stabbur.cli.chat import _probe_remote
 
     # Unlocked, empty, and nothing to auto-load (no request, no server default) -> exit with a hint.
     _stub_httpx_get(monkeypatch, {"/api/status": {"state": "stopped", "model": None, "locked": False}})
@@ -695,7 +695,7 @@ def test_probe_remote_exits_when_serve_has_no_model_and_no_default(monkeypatch: 
 def test_probe_remote_exits_when_locked_serve_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from heim.cli.chat import _probe_remote
+    from stabbur.cli.chat import _probe_remote
 
     # A locked serve loads eagerly; empty means its load failed -> never try to load into it.
     _stub_httpx_get(monkeypatch, {"/api/status": {"state": "stopped", "model": None, "locked": True, "error": "boom"}})
@@ -736,7 +736,7 @@ def _stub_loadable_serve(monkeypatch: pytest.MonkeyPatch, default: str | None) -
 
 def test_probe_remote_autoloads_the_server_default(monkeypatch: pytest.MonkeyPatch) -> None:
     # Idle unlocked serve with a default: attach loads it like the web UI does on open.
-    from heim.cli.chat import _probe_remote
+    from stabbur.cli.chat import _probe_remote
 
     posts = _stub_loadable_serve(monkeypatch, default="pub/Default-GGUF")
     endpoint = _probe_remote("http://127.0.0.1:8000", None, None)
@@ -747,7 +747,7 @@ def test_probe_remote_autoloads_the_server_default(monkeypatch: pytest.MonkeyPat
 
 def test_probe_remote_autoload_prefers_the_requested_model(monkeypatch: pytest.MonkeyPatch) -> None:
     # An explicitly requested model wins over the server's default.
-    from heim.cli.chat import _probe_remote
+    from stabbur.cli.chat import _probe_remote
 
     posts = _stub_loadable_serve(monkeypatch, default="pub/Default-GGUF")
     endpoint = _probe_remote("http://127.0.0.1:8000", _lib_model("pub/X"), "pub/X")
@@ -757,7 +757,7 @@ def test_probe_remote_autoload_prefers_the_requested_model(monkeypatch: pytest.M
 
 def test_probe_remote_drops_local_metadata_on_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     # The server runs a different model than the locally-resolved one: its metadata would mislead.
-    from heim.cli.chat import _probe_remote
+    from stabbur.cli.chat import _probe_remote
 
     _stub_httpx_get(monkeypatch, {"/api/status": {"state": "running", "model": "pub/Other-GGUF"}})
     endpoint = _probe_remote("http://127.0.0.1:8000", _lib_model("pub/X"), "pub/X")
@@ -767,8 +767,8 @@ def test_probe_remote_drops_local_metadata_on_mismatch(monkeypatch: pytest.Monke
 
 def _stub_generate_reply(monkeypatch: pytest.MonkeyPatch, reply: str) -> None:
     """Point a no-tools `-p` chat at a fixed reply (no runtime, no serve)."""
-    from heim import capabilities, runtime
-    from heim.runtime import serve_registry
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -807,11 +807,11 @@ def test_chat_p_raw_flag_forces_raw_on_tty(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_mcp_tools_lists_tools_by_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import mcpservers
+    from stabbur import mcpservers
 
     servers = [
-        mcpservers.McpServer(name="datetime", command="heim-mcp-datetime"),
-        mcpservers.McpServer(name="weather-yr", command="heim-mcp-weather-yr"),
+        mcpservers.McpServer(name="datetime", command="stabbur-mcp-datetime"),
+        mcpservers.McpServer(name="weather-yr", command="stabbur-mcp-weather-yr"),
     ]
     monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: servers)
     grouped = {
@@ -828,7 +828,7 @@ def test_mcp_tools_lists_tools_by_server(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_mcp_tools_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim import mcpservers
+    from stabbur import mcpservers
 
     monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: [])
     result = runner.invoke(cli.app, ["mcp", "tools"])
@@ -838,7 +838,7 @@ def test_mcp_tools_none_configured(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_remote_model_id_matches_router_ids(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from heim.cli import chat as chat_cli
+    from stabbur.cli import chat as chat_cli
 
     # A llama-server router (or LM Studio) lists its own model ids, which need not exist in
     # the local library: the remote one-shot resolves the requested name against that listing.
@@ -855,7 +855,7 @@ def test_remote_model_id_matches_router_ids(monkeypatch: pytest.MonkeyPatch) -> 
 def test_remote_model_id_no_models(monkeypatch: pytest.MonkeyPatch) -> None:
     import typer
 
-    from heim.cli import chat as chat_cli
+    from stabbur.cli import chat as chat_cli
 
     monkeypatch.setattr(chat_cli, "_probe_json", lambda url: None)  # nothing answering
     with pytest.raises(typer.Exit):
@@ -863,7 +863,7 @@ def test_remote_model_id_no_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_remote_model_id_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim.cli import chat as chat_cli
+    from stabbur.cli import chat as chat_cli
 
     # Free-play -p must not evict what the user has running: a router hot-swaps on request,
     # so with no name given the currently loaded model wins over the first listed one.
@@ -878,14 +878,14 @@ def test_remote_model_id_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from heim.cli import chat as chat_cli
+    from stabbur.cli import chat as chat_cli
 
     # Interactive attach to a plain OpenAI server (no /api/status): the session must start on
     # the model the server has LOADED, not the first listed one — a router hot-swaps on
     # request, so first-listed would both mislabel the session and evict the loaded model.
     def fake_probe(url: str) -> dict | None:
         if url.endswith("/api/status"):
-            return None  # not a heim serve
+            return None  # not a stabbur serve
         return {
             "data": [
                 {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
@@ -901,11 +901,11 @@ def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatc
 
 def test_config_set_port_pins_serve_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.delenv("HEIM_PORT", raising=False)
+    monkeypatch.delenv("STABBUR_PORT", raising=False)
     res = runner.invoke(cli.app, ["config", "set", "port", "8990"])
     assert res.exit_code == 0, res.output
-    from heim import userconfig
-    from heim.config import Settings
+    from stabbur import userconfig
+    from stabbur.config import Settings
 
     assert userconfig.read()["port"] == 8990  # stored as a real TOML integer
     assert Settings().port == 8990  # and resolves through the settings chain (what serve binds)
@@ -921,8 +921,8 @@ def test_config_set_port_pins_serve_port(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_serve_port_default_is_fixed() -> None:
     # The serve URL must be stable across restarts (bookmarks, the extension origin,
-    # `heim chat --server`), so the port is a fixed default rather than auto-picked.
-    from heim.config import DEFAULT_SERVE_PORT, Settings
+    # `stabbur chat --server`), so the port is a fixed default rather than auto-picked.
+    from stabbur.config import DEFAULT_SERVE_PORT, Settings
 
     assert DEFAULT_SERVE_PORT == 2222
     assert Settings().port == DEFAULT_SERVE_PORT
@@ -933,7 +933,7 @@ def test_serve_refuses_a_busy_port_instead_of_moving(monkeypatch: pytest.MonkeyP
     # than a clear failure the user can act on.
     import socket
 
-    monkeypatch.setattr("heim.cli.serve.project.load", lambda *a, **k: None)
+    monkeypatch.setattr("stabbur.cli.serve.project.load", lambda *a, **k: None)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
         held.bind(("127.0.0.1", 0))
         held.listen()
@@ -950,7 +950,7 @@ def test_port_free_ignores_time_wait_leftovers() -> None:
     # uvicorn does (SO_REUSEADDR) or it refuses a port uvicorn would have taken.
     import socket
 
-    from heim.cli.serve import _port_free
+    from stabbur.cli.serve import _port_free
 
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -971,7 +971,7 @@ def test_port_free_ignores_time_wait_leftovers() -> None:
 def test_chat_save_writes_the_exchange(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # `-p --save` records the one-shot exchange in the same Markdown the TUI's /export writes,
     # so a scripted run leaves a transcript without a second tool.
-    from heim import capabilities, runtime
+    from stabbur import capabilities, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
@@ -991,7 +991,7 @@ def test_chat_save_writes_the_exchange(tmp_path: Path, monkeypatch: pytest.Monke
 def test_chat_save_failure_does_not_fail_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The answer already reached stdout, so an unwritable --save path must be reported and
     # otherwise ignored — a scripted pipeline should not die over its logging.
-    from heim import capabilities, runtime
+    from stabbur import capabilities, runtime
 
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())

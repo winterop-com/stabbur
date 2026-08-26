@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-/** cmdk primitives styled for heim (the shadcn "command" shape, self-contained). */
+/** cmdk primitives styled for stabbur (the shadcn "command" shape, self-contained). */
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive>
