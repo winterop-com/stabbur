@@ -110,6 +110,28 @@ page and composer pills.
 - **Attach button needs its own design pass** — what it accepts, how pending attachments are
   shown/removed, and how it reads on a model without vision/audio. Discuss before building.
 
+## WebMCP — watch, don't build (assessed 2026-08-26)
+
+`document.modelContext.registerTool()` lets a *page* declare tools to a browser agent. It
+would only matter to heim as a **consumer** (a `world: "MAIN"` content script can read a
+page's tools same-origin, no site cooperation needed), and there is a drop-in shape —
+`@mcp-b/webmcp-local-relay` is an stdio MCP server, so it would enter `.mcp.json` like any
+other. Not worth building yet:
+
+- Draft CG report, not Rec track; **WebKit opposed**, Mozilla neutral — no vendor consensus.
+- Chrome/Edge **origin trial only**, M149–M156; no Intent to Ship, nothing on by default.
+- The consumer half (`getTools`/`executeTool`) is weeks old and still changing signatures.
+- Adoption is ~zero (a 111k-domain scan found none); **DHIS2 has nothing** and is going the
+  REST-MCP route heim already took. No WebExtensions API yet (webmcp#74, stalled).
+- It contributes nothing to the hard part of page-actions: the blast radius of an AI acting
+  as a logged-in admin. Page-declared tool descriptions are attacker-influenceable text
+  (DHIS2 renders user-authored dashboard/interpretation content), which is *worse* than
+  today's posture where descriptions come from a server we wrote.
+
+Revisit if: Chrome files an Intent to Ship or extends the trial past M156; webmcp#74 lands;
+DHIS2 opens any WebMCP issue; Mozilla turns positive or WebKit softens. Full write-up with
+sources was produced 2026-08-26 (see git history for the research note).
+
 ## Other open ideas
 
 - **Chat export.** Still open: PDF export in the TUI (the web UI has it) and a non-interactive
