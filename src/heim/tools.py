@@ -538,6 +538,42 @@ class MCPBridge:
         if wanted:
             await asyncio.gather(*(self._ensure_one(p) for p in wanted))
 
+    def is_live(self, server: "McpServer") -> bool:
+        """Whether ``server``'s tools are attached to the toolset **right now**.
+
+        Keyed by the same prefix :func:`_server_prefix` gives it at spawn time, so a caller (the
+        enable/disable API) can ask "is this already running?" without re-deriving the namespacing
+        convention — the one place that knows it stays in this module.
+        """
+        return _server_prefix(server.name, [server.command, *server.args]) in self.toolset.prefixes()
+
+    async def add_server(self, server: "McpServer") -> tuple[bool, str]:
+        """Attach a newly-configured server to the live toolset — an *enable* that needs no restart.
+
+        The bridge already owns a still-open exit stack for lazy first-use spawns, so a server switched
+        on while ``heim serve`` is running can ride the same path instead of waiting for a restart: it is
+        queued as pending and spawned immediately under the fixed prefix it would have had at startup.
+        Returns ``(attached, reason)`` — ``reason`` is the recorded spawn error when ``attached`` is False,
+        so the caller reports a real failure rather than a fake success. A failed spawn stays *pending*
+        (the existing retry contract), so an owns-all target's next first-use tries again.
+
+        Not routed: ``app.state.target_routing`` was computed at startup, so a server added later is owned
+        by no target and therefore **shared** — visible to every target, which is what a machine-global
+        toggle means. A per-target scoping change still needs a restart.
+        """
+        prefix = _server_prefix(server.name, [server.command, *server.args])
+        if prefix in self.toolset.prefixes():
+            return True, "already attached"
+        if prefix in self._pending:
+            return True, "deferred - spawns on first use"
+        self._pending[prefix] = server
+        await self._ensure_one(prefix)
+        if prefix not in self._pending:  # _ensure_one clears it only on a successful spawn
+            return True, ""
+        label = server.name or server.command
+        reason = next((err for lbl, err in reversed(self.toolset.errors) if lbl == label), "could not start")
+        return False, reason
+
     async def ensure_target(self, routing: TargetRouting, target_id: str) -> None:
         """Spawn ``target_id``'s pending servers: its explicit set, or every pending one for owns-all.
 

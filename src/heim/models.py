@@ -137,6 +137,26 @@ class CuratedMcp(BaseModel):
     setup: str = ""  # one-line hint when the server needs config (a profile, path, key, Node, …)
 
 
+class BundledMcp(BaseModel):
+    """One first-party MCP server heim ships, plus whether it is currently switched on.
+
+    The unit the Tools UI renders: heim bundles a dozen ``heim-mcp-*`` servers, but until one is
+    named in an ``mcp.json`` it is invisible — so this pairs the *shipped* set (from the plugins'
+    own advertisements, never a second hardcoded list) with the *resolved* on/off state, letting a
+    client show "here is everything heim can do, these are on" instead of an empty list.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str  # tool namespace + the mcp.json server key, e.g. "datetime"
+    command: str  # the console script that runs it, e.g. "heim-mcp-datetime"
+    description: str = ""
+    enabled: bool = False  # in the resolved global+project set, i.e. heim spawns it
+    scope: str | None = None  # "global" | "project": which file switches it on (None when off)
+    installed: bool = True  # False = an optional first-party server whose extra isn't installed yet
+    setup: str = ""  # install hint, only when `installed` is False
+
+
 class ProjectTemplate(BaseModel):
     """A named starter for `heim project new --template <name>`.
 

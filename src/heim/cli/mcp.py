@@ -23,9 +23,14 @@ from heim.project import scaffold
 # Project templates now live in heim.templates (TEMPLATES).
 
 
-def _project_mcp_keys() -> set[str]:
-    """Names of MCP servers already in the local ``.mcp.json`` (empty if none)."""
-    return {s.name for s in mcpservers.read_project()}
+def _enabled_mcp_keys() -> set[str]:
+    """Names of the MCP servers currently switched on — the resolved global + project set.
+
+    Resolved, not project-only: a machine-global server (``heim mcp add --global``, or the default
+    ``datetime`` seed) is just as "on" for this directory's chats, and marking only the project file
+    made every globally-enabled server read as missing.
+    """
+    return {s.name for s in mcpservers.resolve()}
 
 
 @mcp_app.command("list")
@@ -35,15 +40,15 @@ def mcp_list() -> None:
 
     First-party ``heim-mcp-*`` plugins are the recommended set — heim controls them, they
     need no external runtime, and they're always up to date. The external catalog is a
-    fallback for tools heim doesn't ship yet. A [green]✓[/] marks a server already in this
-    directory's ``.mcp.json``; add one with ``heim mcp add <name>``.
+    fallback for tools heim doesn't ship yet. A [green]✓[/] marks a server currently switched on —
+    this directory's ``.mcp.json`` or the machine-global one; add one with ``heim mcp add <name>``.
     """
     from heim import plugins  # noqa: PLC0415
 
-    in_project = _project_mcp_keys()
+    enabled = _enabled_mcp_keys()
 
     def mark(name: str, command: str) -> str:
-        return "[green]✓[/]" if name in in_project or command in in_project else ""
+        return "[green]✓[/]" if name in enabled or command in enabled else ""
 
     # First-party plugins lead: they're what heim controls and recommends.
     servers = plugins.advertised_servers(plugins.manager())

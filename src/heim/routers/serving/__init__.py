@@ -1,8 +1,8 @@
 """The serving API, split by concern behind one shared APIRouter.
 
 :mod:`._base` owns the ``router`` and request-scoped dependencies; the route modules
-(:mod:`.core`, :mod:`.chat`, :mod:`.voice`, :mod:`.proxy`) attach their endpoints to it on
-import. The assembled ``router`` is re-exported here and mounted by :mod:`heim.app`.
+(:mod:`.core`, :mod:`.chat`, :mod:`.mcp`, :mod:`.voice`, :mod:`.proxy`) attach their endpoints to it
+on import. The assembled ``router`` is re-exported here and mounted by :mod:`heim.app`.
 
 **Import order is significant**: routes register in import order, and :mod:`.proxy`'s
 ``/v1/{path}`` catch-all must come *after* the specific ``/v1/audio/*`` routes in :mod:`.voice`,
@@ -11,7 +11,7 @@ app wiring) can target them via ``serving.get_manager`` for ``dependency_overrid
 """
 
 # Order matters — specific routes before proxy's /v1 catch-all (see module docstring).
-from heim.routers.serving import core, chat, assistant, voice, proxy  # noqa: F401,I001 - register routes, in order
+from heim.routers.serving import core, chat, assistant, mcp, voice, proxy  # noqa: F401,I001 - register routes, in order
 from heim.routers.serving._base import get_conf, get_http, get_lifecycle_lock, get_manager, router
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "core",
     "chat",
     "assistant",
+    "mcp",
     "voice",
     "proxy",
     "get_manager",

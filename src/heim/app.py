@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from heim import config, mcpservers, project, runtime
+from heim import config, mcp_catalog, mcpservers, project, runtime
 from heim import library as library_ops
 from heim import tools as mcp_tools
 from heim.config import Settings, get_settings
@@ -161,24 +161,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     pass
 
             threading.Thread(target=_warm_kokoro, name="kokoro-warm", daemon=True).start()
+        # Fresh machine: write the default-on tool set (datetime) into ~/.config/heim/mcp.json before
+        # resolving, so someone who never ran `heim setup` doesn't get a toolless assistant that can't
+        # even name today's date. No-op once the file exists. Best-effort — a read-only config dir must
+        # degrade to "no tools", never block serving.
+        try:
+            mcp_catalog.seed_global_defaults()
+        except Exception:  # noqa: BLE001 - seeding is a convenience, never a startup requirement
+            pass
         resolved = mcpservers.resolve()
         # Per-target routing table, computed once here (not per request): each target id -> the exact
         # tool prefixes it owns (its mcp_servers names slugged the way connect namespaces them), plus an
         # owns-all marker for targets that declared no mcp_servers. narrow_to_servers reads this per turn.
         routing = mcp_tools.build_target_routing(resolved, registry)
         app.state.target_routing = routing
-        if resolved:
-            # Lazy per-target bridge: spawn the eager set now (shared/unowned servers + the PRIMARY
-            # target's own servers; everything for free-play / single-[assistant] / HEIM_EAGER_MCP), and
-            # defer a non-primary scoped target's servers to its first use (chat turn / verify / bind).
-            # The bridge grows app.state.toolset in place under mcp_stack, so every reader (chat, verify,
-            # /api/tools, doctor) keeps seeing the current live set.
-            primary_id = registry.ids[0] if registry.ids else None
-            bridge = await mcp_stack.enter_async_context(
-                mcp_tools.connect_bridge(resolved, routing, primary_id, eager_all=settings.eager_mcp)
-            )
-            app.state.mcp_bridge = bridge
-            app.state.toolset = bridge.toolset
+        # Lazy per-target bridge: spawn the eager set now (shared/unowned servers + the PRIMARY
+        # target's own servers; everything for free-play / single-[assistant] / HEIM_EAGER_MCP), and
+        # defer a non-primary scoped target's servers to its first use (chat turn / verify / bind).
+        # The bridge grows app.state.toolset in place under mcp_stack, so every reader (chat, verify,
+        # /api/tools, doctor) keeps seeing the current live set.
+        # Entered even with nothing resolved (an empty toolset, not None): that keeps the stack open so
+        # POST /api/mcp/servers can attach a just-enabled server without a restart — the empty-config
+        # case is exactly the one where a user is about to switch their first tool on.
+        primary_id = registry.ids[0] if registry.ids else None
+        bridge = await mcp_stack.enter_async_context(
+            mcp_tools.connect_bridge(resolved, routing, primary_id, eager_all=settings.eager_mcp)
+        )
+        app.state.mcp_bridge = bridge
+        app.state.toolset = bridge.toolset
         try:
             yield
         finally:

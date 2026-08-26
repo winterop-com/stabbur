@@ -10,13 +10,13 @@ from rich.table import Table
 from heim import (
     config,
     doctor,
+    mcp_catalog,
     mcpservers,
     userconfig,
 )
 from heim import library as library_ops
 from heim.cli._app import app
 from heim.cli._common import (
-    _to_mcp_server,
     console,
 )
 
@@ -156,23 +156,24 @@ def _setup_ui(build_ui: bool | None, yes: bool) -> None:
 
 
 def _setup_default_tools(yes: bool) -> None:
-    """Seed the global mcp.json with a minimal default toolset (datetime) if it has none."""
+    """Seed the global mcp.json with heim's default-on toolset (datetime) if it has none."""
     existing = mcpservers.read_global()
     if existing:
         console.print(f"[green]Tools[/]  global default -> {', '.join(s.name for s in existing)}")
         return
-    from heim import plugins  # noqa: PLC0415
-
-    # Minimal, safe default: datetime — models otherwise don't know the current date/time. More
-    # via `heim mcp add --global <name>` (see `heim mcp list`).
-    server = next((s for s in plugins.advertised_servers(plugins.manager()) if s.name == "datetime"), None)
-    if server is None:
-        return
-    if not yes and not typer.confirm("Enable the default 'datetime' tool for chats?", default=True):
+    # The same minimal default `heim serve` seeds on a fresh machine (mcp_catalog.DEFAULT_ENABLED):
+    # models otherwise don't know the current date/time. More via `heim mcp add --global <name>`.
+    if not yes and not typer.confirm(
+        f"Enable the default {', '.join(mcp_catalog.DEFAULT_ENABLED)!r} tool for chats?", default=True
+    ):
         console.print("[dim]Tools[/]  none — add with `heim mcp add --global <name>`.")
         return
-    mcpservers.add(_to_mcp_server(server.name, server.command), glob=True)
-    console.print(f"[green]Set[/]  default tools -> {server.name}  [dim](heim mcp add --global <name> for more)[/]")
+    seeded = mcp_catalog.seed_global_defaults(only_if_absent=False)  # asked already; fill an empty file too
+    if not seeded:
+        return
+    console.print(
+        f"[green]Set[/]  default tools -> {', '.join(seeded)}  [dim](heim mcp add --global <name> for more)[/]"
+    )
 
 
 @app.command()
