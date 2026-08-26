@@ -90,13 +90,15 @@ Three routes, in decreasing appeal:
 
 1. **DHIS2 adopts it upstream.** The only version that actually pays off, because the value of
    the standard is that a *third party* declares the tools. Nothing we can do but watch.
-2. **Per-instance script injection, no fork.** DHIS2 exposes
-   [`POST /api/files/script`](https://docs.dhis2.org/en/develop/using-the-api/dhis-core-version-243/settings-and-configuration.html),
-   a global custom JS file loaded by the web app
-   ([documented since 2.x](https://docs.dhis2.org/archive/en/2.29/developer/html/webapi_ui_customization.html)).
-   An admin can inject a script per instance without touching source. **Unverified:** whether
-   it still loads inside the modern app-platform SPAs or only legacy pages — test before
-   relying on it.
+2. **Per-instance script injection, no fork — but it does not reach the modern UI.**
+   DHIS2 exposes [`POST /api/files/script`](https://docs.dhis2.org/en/develop/using-the-api/dhis-core-version-243/settings-and-configuration.html),
+   a global custom JS file ([documented since 2.x](https://docs.dhis2.org/archive/en/2.29/developer/html/webapi_ui_customization.html)),
+   and the endpoint still exists on 2.42. **Checked 2026-08-26 against
+   `play.im.dhis2.org/dev-2-42`: it is a legacy-page mechanism only.** The app-platform SPAs
+   (Dashboard, Maintenance, …) serve an `index.html` whose sole script is their own bundled
+   `main-*.js` — no custom-script include anywhere. Legacy `dhis-web-commons` assets still
+   serve (200), which is what the mechanism was built for. So this cannot inject into the
+   apps where the actual UI lives; treat it as closed unless DHIS2 adds a modern hook.
 3. **Fork DHIS2 and add `registerTool()` calls.** Bad economics *and* self-defeating:
    - Not one app — Data Entry, Capture, Maintenance, Dashboards, Analytics are separate;
    - instances run 40/41/42/43, so the fork is maintained across releases;

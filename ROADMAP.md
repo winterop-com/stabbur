@@ -119,8 +119,9 @@ not blocked on it — the extension already executes script in the tab. Open wor
   permissions the extension already holds, and it is what makes the panel feel *in* the app.
 - **Mutating clicks** only if a case appears that REST cannot serve — and then behind the
   existing per-action confirmation gate.
-- **Verify** whether DHIS2's `POST /api/files/script` still loads inside modern app-platform
-  SPAs (it is the no-fork injection point if we ever want page-declared tools).
+  (The `POST /api/files/script` injection point was checked on 2026-08-26 and is **legacy-page
+  only** — modern app-platform SPAs load nothing but their own bundle, so it cannot reach the
+  apps that matter. See `WEBMCP.md`.)
 
 ## Other open ideas
 
