@@ -9,6 +9,7 @@ read surface, but "loading" a model means selecting one of the remote's ids.
 
 import shutil
 import threading
+import time
 from enum import StrEnum
 
 import httpx
@@ -197,12 +198,24 @@ class UpstreamManager:
     stopped here, and ``stop`` merely clears the selection (nothing is unloaded remotely).
     """
 
+    # Probe pacing: a successful probe is trusted for _READY_TTL seconds (no re-probe), and a
+    # FAILED probe within _READY_GRACE of the last success still reports ready. Status is polled
+    # every few seconds by the UI; without keep-alive + this hysteresis, every poll opens a fresh
+    # connection (DNS + TCP) to the upstream and a single slow/lost probe flaps the UI to
+    # "disconnected" even though generations are streaming fine.
+    _READY_TTL = 10.0
+    _READY_GRACE = 30.0
+
     def __init__(self, upstream: str) -> None:
         # Accept with or without a trailing /v1 — routes append their own /v1 paths.
         self._upstream = upstream.strip().rstrip("/").removesuffix("/v1").rstrip("/")
         self._selected: UpstreamModel | None = None
         self._last_error: str | None = None
         self._lock = threading.Lock()  # serializes selection writes (routes mutate off-loop)
+        self._ready_at = 0.0  # time.monotonic() of the last successful probe (0 = never)
+        self._http: httpx.AsyncClient | None = None  # persistent keep-alive client for probes
+        self._models_at = 0.0  # time.monotonic() of the cached listing
+        self._models: list[UpstreamModel] = []
 
     @property
     def base_url(self) -> str:
@@ -233,6 +246,9 @@ class UpstreamManager:
         Raises:
             RuntimeError: If the upstream is unreachable or answers garbage.
         """
+        now = time.monotonic()
+        if self._models and now - self._models_at < 5.0:
+            return list(self._models)  # fresh enough; don't re-hit the upstream per poll
         try:
             resp = httpx.get(f"{self._upstream}/v1/models", timeout=5)
             resp.raise_for_status()
@@ -257,7 +273,8 @@ class UpstreamManager:
                         audio="audio" in mods,
                     )
                 )
-        return out
+        self._models, self._models_at = out, now
+        return list(out)
 
     def load_by_name(self, name: str) -> None:
         """Select the remote model matching ``name`` (exact, case-insensitive, or basename).
@@ -299,13 +316,22 @@ class UpstreamManager:
                 self._selected = match
 
     async def ready(self) -> bool:
-        """Whether the upstream answers its ``/v1/models``."""
+        """Whether the upstream answers its ``/v1/models`` (paced; see the class pacing note)."""
+        now = time.monotonic()
+        if now - self._ready_at < self._READY_TTL:
+            return True
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=4.0)
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{self._upstream}/v1/models")
-                return resp.status_code < 500
+            resp = await self._http.get(f"{self._upstream}/v1/models")
+            ok = resp.status_code < 500
         except httpx.HTTPError:
-            return False
+            ok = False
+        if ok:
+            self._ready_at = now
+            return True
+        # One slow/failed probe shortly after a good one is jitter, not an outage.
+        return now - self._ready_at < self._READY_GRACE
 
     async def state(self) -> ServerState:
         """Coarse lifecycle state for the UI (an unreachable upstream reads as stopped)."""

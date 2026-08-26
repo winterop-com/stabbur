@@ -46,6 +46,7 @@ import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
 import { TargetSelector } from "@/components/TargetSelector";
 import { LibraryView } from "@/components/LibraryView";
+import { VoiceControl } from "@/components/VoiceControl";
 import { VoiceView } from "@/components/VoiceView";
 import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
@@ -894,6 +895,13 @@ export function App() {
         onToggleTool={toggleTool}
         onToggleServer={toggleServer}
       />
+      <VoiceControl
+        voices={voices}
+        selected={ttsVoice}
+        onChooseVoice={chooseVoice}
+        speed={ttsSpeed}
+        onChooseSpeed={chooseSpeed}
+      />
     </>
   );
 
@@ -1169,10 +1177,7 @@ export function App() {
                       onRegenerate={regenerate}
                       onResolveConfirm={resolveConfirm}
                       ttsVoice={effectiveTtsVoice}
-                      voices={voices}
-                      onChooseVoice={chooseVoice}
                       ttsSpeed={ttsSpeed}
-                      onChooseSpeed={chooseSpeed}
                     />
                   ))}
                 </div>

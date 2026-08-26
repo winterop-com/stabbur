@@ -137,3 +137,28 @@ def test_upstream_manager_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     manager.select_loaded()  # best-effort: swallows the failure, records why
     assert manager.current is None
     assert manager.last_error is not None and "unreachable" in manager.last_error
+
+
+async def test_upstream_ready_paces_probes_and_forgives_jitter() -> None:
+    import time as _time
+
+    import httpx
+
+    from heim import server as server_mod
+
+    manager = server_mod.UpstreamManager("http://up:1234")
+
+    class _FailingClient:
+        async def get(self, url: str) -> object:
+            raise httpx.ConnectError("probe lost")
+
+    manager._http = _FailingClient()  # type: ignore[assignment]
+    assert not await manager.ready()  # never succeeded -> genuinely down
+
+    now = _time.monotonic()
+    manager._ready_at = now  # a probe just succeeded -> trusted without re-probing
+    assert await manager.ready()
+    manager._ready_at = now - 15  # past the TTL, probe fails, but within the grace window
+    assert await manager.ready()
+    manager._ready_at = now - 60  # grace exhausted -> report the outage
+    assert not await manager.ready()

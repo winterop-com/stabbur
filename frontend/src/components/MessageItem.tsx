@@ -23,10 +23,7 @@ export function MessageItem({
   onRegenerate,
   onResolveConfirm,
   ttsVoice,
-  voices,
-  onChooseVoice,
   ttsSpeed,
-  onChooseSpeed,
 }: {
   message: ChatMessage;
   streaming: boolean;
@@ -35,10 +32,7 @@ export function MessageItem({
   /** Approve/Deny a pending per-action write confirmation (does not abort the stream). */
   onResolveConfirm: (id: string, approve: boolean) => void;
   ttsVoice?: string;
-  voices?: import("@/api").Voice[];
-  onChooseVoice?: (id: string) => void;
   ttsSpeed?: number;
-  onChooseSpeed?: (speed: number) => void;
 }) {
   if (message.role === "user") {
     const images = message.images ?? [];
@@ -145,14 +139,7 @@ export function MessageItem({
         <div className="mt-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
           {message.content && !message.error && <CopyButton text={message.content} />}
           {message.content && !message.error && (
-            <SpeakButton
-              text={message.content}
-              voice={ttsVoice}
-              voices={voices}
-              onChooseVoice={onChooseVoice}
-              speed={ttsSpeed}
-              onChooseSpeed={onChooseSpeed}
-            />
+            <SpeakButton text={message.content} voice={ttsVoice} speed={ttsSpeed} />
           )}
           {canRegenerate && (
             <Tooltip>
