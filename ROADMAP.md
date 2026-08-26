@@ -96,16 +96,22 @@ TUI, and `heim serve --upstream` all front it. Open threads:
 
 ## Web UI
 
-- **Unify the design system across projects.** heim and `dhis2w-fhir-serve` now share a
-  radius scale, four named themes, and the shadcn command palette — by *copying*, which will
-  drift the moment either moves (the FHIR frontend is under active development). Extract the
-  shared layer instead: the token blocks + `--radius` scale as one CSS file, and ideally the
-  handful of ui/ primitives both keep re-deriving. Consider a small published package both
-  frontends depend on, versioned, so a theme fix lands once.
-- **Theme polish.** The four ported palettes (indigo, paper, contrast, terminal) are
-  mechanically correct but visually unrefined — the token values need a real design pass.
-- **Attach button needs a design pass** — what it accepts, how pending attachments are shown
-  and removed, and how it reads on a model without vision/audio. Discuss before building.
+- **A design pass on the colours.** The plumbing is done — the semantic and syntax variables
+  exist, no component holds a hardcoded colour, and `docs/ui-conventions.md` records the rules —
+  so retuning a value now actually moves the app, which it did not before. The four ported
+  palettes are still mechanically correct and visually unrefined, and the empty chat is a
+  heading and a box. `dhis2w-fhir-serve` is the source of truth for the shared variables.
+- **`--good-ink` / `--warning-ink` should flow back to dhis2w-fhir-serve**, or the source is
+  behind the copy. They exist because `--good`/`--warning` are tuned as fills and measure
+  3.2-4.0:1 as small text on a light card, under the 4.5 AA needs; the same gap is in fhir.
+- **A shared package, eventually.** Both frontends now carry the same variables, the same
+  `ui/sheet.tsx`, and the same command palette, kept in step by copying. At two apps a package
+  costs more than it saves; at three or four, extract the variable blocks and the primitives
+  both keep re-deriving so a fix lands once.
+- **The extension is unswept.** `extension/` still holds ~12 hand-written type sizes that
+  `scripts/check_ui_classes.py` does not cover; the SPA has none.
+- **`ToolsControl.tsx` is unreferenced.** A composer-docked tools pill that nothing imports —
+  wire it up or delete it, but it should not sit there being neither.
 
 ## Page actions (and WebMCP)
 
@@ -125,11 +131,25 @@ not blocked on it — the extension already executes script in the tab. Open wor
 
 ## Other open ideas
 
+- **Chat history is browser-local.** Conversations live in this browser's IndexedDB, so they are
+  invisible to the CLI and scoped per origin — `:2222` and `:2260` keep separate histories on one
+  machine. For a tool whose premise is that your data lives on your own machine, the library is
+  the obvious home. Would also make transcripts searchable and exportable without a browser.
+- **Encryption at rest, opt-in.** Only worth it once history is worth protecting: a DHIS2
+  assistant's transcripts hold tool results, which are real records. `~/dev/mortenoh/lockbox`
+  is the pattern (encrypt before IndexedDB; threat model is a lost device). The storage module
+  is a single read/write seam with whole-record boundaries and no plaintext index, so the
+  encrypt/decrypt pair has one place to go. Never by default.
+- **Structured output.** No `response_format` or grammar support, so anything wanting a parseable
+  answer — classification, extraction — gets prose and a regex. The gap shows up the moment heim
+  is used as a service rather than a chat window (see `docs/guides/api.md`).
 - **Chat export.** Still open: PDF export in the TUI (the web UI has it, via the browser's
   own print pipeline — the TUI has no equivalent, so this needs a real renderer decision).
 - **Rich tags — the last mile.** Assigning a tag a color/icon ships as `heim library tag-style`;
   what is left is a color-picker in the web UI and a curated default tag set seeded from
   `docs/guides/models.md`.
+- **Paste-long-text-as-file.** llama.cpp's webui turns a long pasted block into an attachment.
+  Cheap, but it changes paste behaviour, so it wants its own setting.
 
 ## North-star
 
