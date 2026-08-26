@@ -121,7 +121,9 @@ def serve(
             from heim.server import UpstreamManager  # noqa: PLC0415
 
             try:
-                UpstreamManager(upstream_url).load_by_name(locked_model)
+                # Name check only: this pre-flight runs before the server exists, so loading
+                # here would evict the remote's resident model for a process about to exit.
+                UpstreamManager(upstream_url).load_by_name(locked_model, warmup=False)
             except RuntimeError as exc:
                 console.print(f"[red]{exc}[/]")
                 raise typer.Exit(1) from exc

@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ import pytest
 from heim.library import LibraryModel
 from heim.models import ModelFormat
 from heim.runtime import supervisor
-from heim.server import ServerManager
+from heim.server import ServerManager, UpstreamModel
 
 
 def _model(path: Path) -> LibraryModel:
@@ -97,6 +98,16 @@ class _FakeResponse:
         return self._payload
 
 
+def _recording_post(sink: list[dict[str, object]]) -> Callable[..., _FakeResponse]:
+    """A stub ``httpx.post`` that records each warmup body it is handed."""
+
+    def _post(url: str, json: dict[str, object] | None = None, timeout: object = None) -> _FakeResponse:
+        sink.append(json or {})
+        return _FakeResponse({})
+
+    return _post
+
+
 def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     from heim import server as server_mod
 
@@ -112,14 +123,104 @@ def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) 
     manager.select_loaded()  # startup default: what the remote has resident
     assert manager.current is not None and manager.current.name == "qwen3-coder"
 
+    posted: list[dict[str, object]] = []
+    monkeypatch.setattr(server_mod.httpx, "post", _recording_post(posted))
     manager.load_by_name("GEMMA-4-12B-QAT")  # case-insensitive match
     assert manager.current is not None and manager.current.name == "gemma-4-12b-qat"
+    # The router has no load endpoint, so the switch must send a request naming the model —
+    # otherwise heim reports it ready while the remote is still serving the old one.
+    assert posted and posted[0]["model"] == "gemma-4-12b-qat"
+    assert posted[0]["max_tokens"] == 1
+
     with pytest.raises(RuntimeError, match="available: gemma-4-12b-qat, qwen3-coder"):
         manager.load_by_name("not-served")
     assert manager.current is not None  # a failed switch keeps the selection
 
     manager.stop()  # clears the selection only; nothing to kill
     assert manager.current is None
+
+
+def test_upstream_switch_to_an_already_loaded_model_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # qwen3-coder is already resident; re-selecting it must not cost a reload.
+    from heim import server as server_mod
+
+    manager = server_mod.UpstreamManager("http://up:1234")
+    monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
+    posted: list[dict[str, object]] = []
+    monkeypatch.setattr(server_mod.httpx, "post", _recording_post(posted))
+
+    manager.load_by_name("qwen3-coder")
+    assert manager.current is not None and manager.current.name == "qwen3-coder"
+    assert posted == []
+
+
+def test_upstream_failed_warmup_keeps_the_previous_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    # If the remote cannot load the model, heim must not claim it is serving it.
+    import httpx
+
+    from heim import server as server_mod
+
+    manager = server_mod.UpstreamManager("http://up:1234")
+    monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
+    manager.select_loaded()
+    assert manager.current is not None and manager.current.name == "qwen3-coder"
+
+    def _boom(url: str, json: object = None, timeout: object = None) -> object:
+        raise httpx.ConnectError("out of memory")
+
+    monkeypatch.setattr(server_mod.httpx, "post", _boom)
+    with pytest.raises(RuntimeError, match="could not be loaded"):
+        manager.load_by_name("gemma-4-12b-qat")
+    assert manager.current.name == "qwen3-coder"  # unchanged, and not left mid-switch
+    assert manager._loading is None
+
+
+def test_upstream_warmup_is_skipped_for_the_name_only_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `heim serve --upstream --model X` validates the name before the server exists; loading
+    # there would evict the remote's resident model for a process that is about to exit.
+    from heim import server as server_mod
+
+    manager = server_mod.UpstreamManager("http://up:1234")
+    monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
+    posted: list[dict[str, object]] = []
+    monkeypatch.setattr(server_mod.httpx, "post", _recording_post(posted))
+
+    manager.load_by_name("gemma-4-12b-qat", warmup=False)
+    assert posted == []
+    with pytest.raises(RuntimeError, match="not served by"):
+        manager.load_by_name("nope", warmup=False)
+
+
+async def test_upstream_state_reports_loading_during_a_switch(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The whole point of the eager load: the UI shows the swap rather than a stale "ready".
+    from heim import server as server_mod
+
+    manager = server_mod.UpstreamManager("http://up:1234")
+    monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
+    manager.select_loaded()
+    manager._ready_at = time.monotonic()  # count the upstream as just-probed; no real socket here
+    assert await manager.state() is server_mod.ServerState.ready
+
+    # What a status poll sees while the remote is loading the weights.
+    mid_switch: list[tuple[UpstreamModel | None, UpstreamModel | None]] = []
+
+    def _post(url: str, json: object = None, timeout: object = None) -> object:
+        mid_switch.append((manager._loading, manager.current))
+        return _FakeResponse({})
+
+    monkeypatch.setattr(server_mod.httpx, "post", _post)
+    manager.load_by_name("gemma-4-12b-qat")
+
+    ((loading, current),) = mid_switch
+    assert loading is not None and loading.name == "gemma-4-12b-qat"
+    assert current is not None and current.name == "gemma-4-12b-qat"  # the UI names the incoming model
+    # state() reports `loading` purely from that flag — no upstream probe involved.
+    manager._loading = loading
+    assert await manager.state() is server_mod.ServerState.loading
+    manager._loading = None
+
+    assert manager.current is not None and manager.current.name == "gemma-4-12b-qat"
+    assert await manager.state() is server_mod.ServerState.ready
 
 
 def test_upstream_manager_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:

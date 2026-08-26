@@ -208,6 +208,9 @@ class UpstreamManager:
     # A busy llama-server answers /v1/models slowly (measured 1-3s while generating, and
     # occasionally worse), so give the listing real room rather than reporting a false outage.
     _LISTING_TIMEOUT = 15.0
+    # The warmup request that forces a model swap waits for the remote to load the weights —
+    # minutes for a large model off cold storage, not seconds.
+    _WARMUP_TIMEOUT = 600.0
 
     def __init__(self, upstream: str) -> None:
         # Accept with or without a trailing /v1 — routes append their own /v1 paths.
@@ -219,6 +222,7 @@ class UpstreamManager:
         self._http: httpx.AsyncClient | None = None  # persistent keep-alive client for probes
         self._models_at = 0.0  # time.monotonic() of the cached listing
         self._models: list[UpstreamModel] = []
+        self._loading: UpstreamModel | None = None  # model being warmed up on the remote right now
 
     @property
     def base_url(self) -> str:
@@ -227,8 +231,8 @@ class UpstreamManager:
 
     @property
     def current(self) -> UpstreamModel | None:
-        """The selected remote model, or ``None``."""
-        return self._selected
+        """The selected remote model — the one being loaded while a switch is in flight."""
+        return self._loading or self._selected
 
     @property
     def last_error(self) -> str | None:
@@ -279,12 +283,45 @@ class UpstreamManager:
         self._models, self._models_at = out, now
         return list(out)
 
-    def load_by_name(self, name: str) -> None:
-        """Select the remote model matching ``name`` (exact, case-insensitive, or basename).
+    def _warmup(self, model_id: str) -> None:
+        """Make the remote actually load ``model_id``, by sending it a one-token request.
+
+        A router-mode llama-server exposes no load endpoint — it autoloads on the first request
+        naming a model — so that request *is* the load. Issuing it here rather than leaving it to
+        the user's first message is what makes a model switch real: without it heim reports the
+        new model as ready while the remote is still serving the old one, and the switch silently
+        costs a full model load on the next message instead.
 
         Raises:
-            RuntimeError: If the upstream is unreachable, or nothing matches (the message
-                lists what the upstream actually serves).
+            RuntimeError: If the upstream refused or never finished loading.
+        """
+        payload = {
+            "model": model_id,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+            "stream": False,
+        }
+        try:
+            resp = httpx.post(f"{self._upstream}/v1/chat/completions", json=payload, timeout=self._WARMUP_TIMEOUT)
+            resp.raise_for_status()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError(f"{model_id!r} could not be loaded on {self._upstream}: {exc}") from exc
+        # The listing's per-model ``loaded`` flags just changed, and the upstream answered a real
+        # request — so drop the cached listing and count this as a successful liveness probe.
+        self._models_at = 0.0
+        self._ready_at = time.monotonic()
+
+    def load_by_name(self, name: str, *, warmup: bool = True) -> None:
+        """Load the remote model matching ``name`` (exact, case-insensitive, or basename).
+
+        With ``warmup`` (the default) the remote is made to load it before the selection is
+        recorded, so heim never reports a model as ready that the remote is not actually serving.
+        Pass ``warmup=False`` to only validate that the upstream serves the name — the pre-flight
+        check at CLI startup, which must not evict whatever is resident.
+
+        Raises:
+            RuntimeError: If the upstream is unreachable, nothing matches (the message lists what
+                the upstream actually serves), or the remote failed to load the model.
         """
         rows = self.models()
         want = name.strip().lower()
@@ -296,8 +333,19 @@ class UpstreamManager:
         if match is None:
             served = ", ".join(r.name for r in rows) or "(nothing)"
             raise RuntimeError(f"{name!r} is not served by {self._upstream} — available: {served}")
+        # Warm up BEFORE selecting: a failed load must leave the previous selection in place
+        # rather than point heim at a model the remote never loaded. ``_loading`` is what the
+        # status poll reports meanwhile, so the UI shows the swap instead of a stale "ready".
+        if warmup and not match.loaded:
+            with self._lock:
+                self._loading = match
+            try:
+                self._warmup(match.name)
+            finally:
+                with self._lock:
+                    self._loading = None
         with self._lock:
-            self._selected = match
+            self._selected = match.model_copy(update={"loaded": True}) if warmup else match
             self._last_error = None
 
     def select_loaded(self) -> None:
@@ -349,6 +397,8 @@ class UpstreamManager:
 
     async def state(self) -> ServerState:
         """Coarse lifecycle state for the UI (an unreachable upstream reads as stopped)."""
+        if self._loading is not None:
+            return ServerState.loading  # a switch is in flight; the remote is loading the weights
         if not await self.ready():
             self._last_error = f"upstream {self._upstream} unreachable"
             return ServerState.stopped
