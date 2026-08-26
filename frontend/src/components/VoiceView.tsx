@@ -287,7 +287,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   return (
     <div className="rounded-xl border border-border p-4">
       <div className="mb-3 flex items-center gap-2">
-        <AudioLines className="h-4 w-4 text-emerald-500" />
+        <AudioLines className="h-4 w-4 text-good-ink" />
         <h3 className="text-sm font-semibold">Text to speech</h3>
       </div>
 
@@ -683,7 +683,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
   return (
     <div className="rounded-xl border border-border p-4">
       <div className="mb-3 flex items-center gap-2">
-        <Mic className="h-4 w-4 text-sky-500" />
+        <Mic className="h-4 w-4 text-info" />
         <h3 className="text-sm font-semibold">Speech to text</h3>
         <span className="text-[11px] text-muted-foreground">{model?.display_name}</span>
       </div>
@@ -722,7 +722,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
           barCount={40}
           minHeight={4}
           centerAlign
-          className="mt-3 h-16 w-full gap-1 rounded-lg border border-border bg-muted/30 px-3 [&>div]:bg-sky-500"
+          className="mt-3 h-16 w-full gap-1 rounded-lg border border-border bg-muted/30 px-3 [&>div]:bg-info"
         />
       )}
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}

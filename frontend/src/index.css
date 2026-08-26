@@ -3,9 +3,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* highlight.js theme for fenced code blocks (works for both light/dark; the
-   surface around it adapts). */
-@import "highlight.js/styles/github-dark.css";
+/* No highlight.js stylesheet is imported. Every one of them is a fixed palette
+   with a hardcoded background, so importing one painted chat's code blocks with
+   somebody else's theme in all ten palette/mode combinations - github-dark's
+   inks on a cream Paper ground included. The `.hljs-*` rules at the foot of this
+   file paint them from the `--code-*` tokens instead, so source follows the
+   theme like every other surface. The PDF export is the one place that still
+   loads a stock theme (github light, inlined into the print document), because
+   that document has no theme to follow - see lib/export.tsx. */
 
 :root {
   --radius: 0.375rem;
@@ -28,6 +33,41 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  /* The semantic set: what a state MEANS, before any component picks a colour
+     for it. Four words, and every palette below states all four, so a "loaded"
+     dot is that palette's green rather than a green imported into it. THE FOUR
+     HUE FAMILIES ARE THE SAME IN EVERY PALETTE - a palette moves their lightness
+     and chroma to suit its ground, never their family, because green means
+     healthy and amber means look-at-this on every screen heim has.
+
+     `--critical` is not `--destructive`, and the split is by who acts:
+     `--destructive` is an affordance the reader can press to destroy something
+     (and the error text shadcn already paints with it), `--critical` is a state
+     heim OBSERVED and is reporting - a failed doctor check has nothing for the
+     reader to press. */
+  --good: oklch(0.6 0.14 155);
+  --critical: oklch(0.55 0.17 25);
+  --warning: oklch(0.65 0.13 75);
+  --warning-ink: oklch(0.565 0.13 75);
+  --good-ink: oklch(0.545 0.14 155);
+  --info: oklch(0.55 0.11 240);
+  /* Source colours, spent by the `.hljs-*` rules at the foot of this file (that
+     is where the role-by-role argument for them is). Deliberately narrow in
+     chroma: a code block sits inside a chat turn, and a rainbow would make the
+     one actionable hue on the page stop meaning "act here". Each role is its own
+     hue family, so a keyword can never be mistaken for a string, and none of
+     them spends the identity blue. Comment and punctuation carry the palette's
+     own cast - here none, because heim's default palette is achromatic. */
+  --code-keyword: oklch(0.46 0.15 300);
+  --code-operator: oklch(0.48 0.08 25);
+  --code-string: oklch(0.45 0.12 150);
+  --code-number: oklch(0.5 0.12 60);
+  --code-literal: oklch(0.5 0.13 30);
+  --code-comment: oklch(0.56 0 0);
+  --code-variable: oklch(0.45 0.1 265);
+  --code-type: oklch(0.45 0.11 210);
+  --code-property: oklch(0.42 0.1 265);
+  --code-punctuation: oklch(0.5 0 0);
 }
 
 .dark {
@@ -50,6 +90,22 @@
   --border: oklch(0.3 0.006 265);
   --input: oklch(0.32 0.006 265);
   --ring: oklch(0.55 0.02 265);
+  --good: oklch(0.72 0.16 155);
+  --critical: oklch(0.7 0.16 25);
+  --warning: oklch(0.75 0.13 75);
+  --warning-ink: var(--warning);
+  --good-ink: var(--good);
+  --info: oklch(0.72 0.14 240);
+  --code-keyword: oklch(0.78 0.13 300);
+  --code-operator: oklch(0.78 0.08 25);
+  --code-string: oklch(0.78 0.13 150);
+  --code-number: oklch(0.82 0.12 75);
+  --code-literal: oklch(0.78 0.13 35);
+  --code-comment: oklch(0.62 0 0);
+  --code-variable: oklch(0.78 0.1 265);
+  --code-type: oklch(0.8 0.1 210);
+  --code-property: oklch(0.82 0.09 265);
+  --code-punctuation: oklch(0.7 0 0);
 }
 
 @theme inline {
@@ -72,6 +128,17 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* The semantic set gets utilities (bg-good, text-warning, border-critical/40,
+     …) so a component says what a thing MEANS and the palette decides the hue.
+     The `--code-*` tokens deliberately get none: they are spent by the `.hljs-*`
+     rules alone, and a utility would invite a component to paint prose with a
+     syntax colour. */
+  --color-good: var(--good);
+  --color-critical: var(--critical);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-good-ink: var(--good-ink);
+  --color-info: var(--info);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -226,6 +293,12 @@ select {
    family. Each theme is a light block plus a dark one carrying one class
    more, so it wins on specificity rather than source order - which makes
    these safe to reorder and safe to read one theme at a time.
+
+   COMPLETENESS IS THE MECHANISM, NOT THE STYLE. Every block below restates
+   EVERY token :root/.dark declare, in the same order. A theme that repainted
+   the surfaces and left `--code-string` behind would put the default's green
+   inside Terminal's code blocks, where the surface is already green - so a
+   token added to :root is a token added to all ten blocks.
    -------------------------------------------------------------------------- */
 
 html[data-theme='indigo'] {
@@ -248,6 +321,22 @@ html[data-theme='indigo'] {
   --input: oklch(0.77 0.028 268);
   --ring: oklch(0.48 0.19 285);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.59 0.14 158);
+  --critical: oklch(0.55 0.18 25);
+  --warning: oklch(0.64 0.13 75);
+  --warning-ink: oklch(0.56 0.13 75);
+  --good-ink: oklch(0.535 0.14 158);
+  --info: oklch(0.52 0.13 262);
+  --code-keyword: oklch(0.46 0.15 300);
+  --code-operator: oklch(0.48 0.08 25);
+  --code-string: oklch(0.45 0.12 150);
+  --code-number: oklch(0.5 0.12 60);
+  --code-literal: oklch(0.5 0.13 30);
+  --code-comment: oklch(0.57 0.03 270);
+  --code-variable: oklch(0.45 0.1 265);
+  --code-type: oklch(0.45 0.11 210);
+  --code-property: oklch(0.42 0.1 265);
+  --code-punctuation: oklch(0.5 0.025 270);
 }
 
 html.dark[data-theme='indigo'] {
@@ -270,6 +359,22 @@ html.dark[data-theme='indigo'] {
   --input: oklch(0.45 0.038 268);
   --ring: oklch(0.74 0.16 285);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.73 0.16 158);
+  --critical: oklch(0.71 0.17 25);
+  --warning: oklch(0.76 0.13 75);
+  --warning-ink: var(--warning);
+  --good-ink: var(--good);
+  --info: oklch(0.73 0.13 262);
+  --code-keyword: oklch(0.78 0.13 300);
+  --code-operator: oklch(0.78 0.08 25);
+  --code-string: oklch(0.78 0.13 150);
+  --code-number: oklch(0.82 0.12 75);
+  --code-literal: oklch(0.78 0.13 35);
+  --code-comment: oklch(0.6 0.03 272);
+  --code-variable: oklch(0.78 0.1 265);
+  --code-type: oklch(0.8 0.1 210);
+  --code-property: oklch(0.82 0.09 265);
+  --code-punctuation: oklch(0.68 0.025 272);
 }
 
 html[data-theme='paper'] {
@@ -292,6 +397,22 @@ html[data-theme='paper'] {
   --input: oklch(0.76 0.034 82);
   --ring: oklch(0.45 0.12 250);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.58 0.13 152);
+  --critical: oklch(0.53 0.16 28);
+  --warning: oklch(0.62 0.13 70);
+  --warning-ink: oklch(0.555 0.13 70);
+  --good-ink: oklch(0.535 0.13 152);
+  --info: oklch(0.5 0.1 250);
+  --code-keyword: oklch(0.46 0.15 300);
+  --code-operator: oklch(0.48 0.08 25);
+  --code-string: oklch(0.45 0.12 150);
+  --code-number: oklch(0.5 0.12 60);
+  --code-literal: oklch(0.5 0.13 30);
+  --code-comment: oklch(0.56 0.025 75);
+  --code-variable: oklch(0.45 0.1 265);
+  --code-type: oklch(0.45 0.11 210);
+  --code-property: oklch(0.42 0.1 265);
+  --code-punctuation: oklch(0.5 0.02 75);
 }
 
 html.dark[data-theme='paper'] {
@@ -314,6 +435,22 @@ html.dark[data-theme='paper'] {
   --input: oklch(0.46 0.024 70);
   --ring: oklch(0.74 0.12 250);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.73 0.15 152);
+  --critical: oklch(0.71 0.15 28);
+  --warning: oklch(0.76 0.13 72);
+  --warning-ink: var(--warning);
+  --good-ink: var(--good);
+  --info: oklch(0.73 0.1 252);
+  --code-keyword: oklch(0.78 0.13 300);
+  --code-operator: oklch(0.78 0.08 25);
+  --code-string: oklch(0.78 0.13 150);
+  --code-number: oklch(0.82 0.12 75);
+  --code-literal: oklch(0.78 0.13 35);
+  --code-comment: oklch(0.62 0.025 80);
+  --code-variable: oklch(0.78 0.1 265);
+  --code-type: oklch(0.8 0.1 210);
+  --code-property: oklch(0.82 0.09 265);
+  --code-punctuation: oklch(0.7 0.02 80);
 }
 
 html[data-theme='contrast'] {
@@ -336,6 +473,22 @@ html[data-theme='contrast'] {
   --input: oklch(0.34 0 0);
   --ring: oklch(0.4 0.19 255);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.55 0.15 152);
+  --critical: oklch(0.52 0.19 27);
+  --warning: oklch(0.6 0.14 75);
+  --warning-ink: oklch(0.565 0.14 75);
+  --good-ink: oklch(0.54 0.15 152);
+  --info: oklch(0.49 0.15 262);
+  --code-keyword: oklch(0.46 0.15 300);
+  --code-operator: oklch(0.48 0.08 25);
+  --code-string: oklch(0.45 0.12 150);
+  --code-number: oklch(0.5 0.12 60);
+  --code-literal: oklch(0.5 0.13 30);
+  --code-comment: oklch(0.52 0 0);
+  --code-variable: oklch(0.45 0.1 265);
+  --code-type: oklch(0.45 0.11 210);
+  --code-property: oklch(0.42 0.1 265);
+  --code-punctuation: oklch(0.45 0 0);
 }
 
 html.dark[data-theme='contrast'] {
@@ -358,6 +511,22 @@ html.dark[data-theme='contrast'] {
   --input: oklch(0.68 0 0);
   --ring: oklch(0.8 0.16 255);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.75 0.17 152);
+  --critical: oklch(0.73 0.17 27);
+  --warning: oklch(0.78 0.14 75);
+  --warning-ink: var(--warning);
+  --good-ink: var(--good);
+  --info: oklch(0.75 0.14 262);
+  --code-keyword: oklch(0.78 0.13 300);
+  --code-operator: oklch(0.78 0.08 25);
+  --code-string: oklch(0.78 0.13 150);
+  --code-number: oklch(0.82 0.12 75);
+  --code-literal: oklch(0.78 0.13 35);
+  --code-comment: oklch(0.62 0 0);
+  --code-variable: oklch(0.78 0.1 265);
+  --code-type: oklch(0.8 0.1 210);
+  --code-property: oklch(0.82 0.09 265);
+  --code-punctuation: oklch(0.7 0 0);
 }
 
 html[data-theme='terminal'] {
@@ -380,6 +549,22 @@ html[data-theme='terminal'] {
   --input: oklch(0.755 0.05 147);
   --ring: oklch(0.45 0.15 148);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.62 0.15 162);
+  --critical: oklch(0.55 0.17 25);
+  --warning: oklch(0.64 0.13 75);
+  --warning-ink: oklch(0.555 0.13 75);
+  --good-ink: oklch(0.525 0.15 162);
+  --info: oklch(0.52 0.1 230);
+  --code-keyword: oklch(0.46 0.15 300);
+  --code-operator: oklch(0.48 0.08 25);
+  --code-string: oklch(0.45 0.12 150);
+  --code-number: oklch(0.5 0.12 60);
+  --code-literal: oklch(0.5 0.13 30);
+  --code-comment: oklch(0.56 0.025 150);
+  --code-variable: oklch(0.45 0.1 265);
+  --code-type: oklch(0.45 0.11 210);
+  --code-property: oklch(0.42 0.1 265);
+  --code-punctuation: oklch(0.5 0.02 150);
 }
 
 html.dark[data-theme='terminal'] {
@@ -402,4 +587,163 @@ html.dark[data-theme='terminal'] {
   --input: oklch(0.46 0.065 150);
   --ring: oklch(0.8 0.2 148);
   --destructive-foreground: oklch(0.98 0 0);
+  --good: oklch(0.76 0.17 168);
+  --critical: oklch(0.71 0.16 25);
+  --warning: oklch(0.76 0.13 75);
+  --warning-ink: var(--warning);
+  --good-ink: var(--good);
+  --info: oklch(0.72 0.11 230);
+  --code-keyword: oklch(0.78 0.13 300);
+  --code-operator: oklch(0.78 0.08 25);
+  --code-string: oklch(0.78 0.13 150);
+  --code-number: oklch(0.82 0.12 75);
+  --code-literal: oklch(0.78 0.13 35);
+  --code-comment: oklch(0.58 0.04 150);
+  --code-variable: oklch(0.78 0.1 265);
+  --code-type: oklch(0.8 0.1 210);
+  --code-property: oklch(0.82 0.09 265);
+  --code-punctuation: oklch(0.68 0.035 150);
+}
+
+/* --------------------------------------------------------------------------
+   SOURCE COLOURS - the highlight.js classes, painted from the --code-* tokens.
+
+   rehype-highlight (Markdown.tsx) runs highlight.js over every fenced block in
+   chat and every model card, so these classes are on screen constantly. The
+   class names below are the ones lowlight's `common` set actually emits - the
+   37 bundled grammars were highlighted and their output classes collected,
+   rather than copied off a stock theme, which is why `hljs-class` (php) and
+   `hljs-function` (go, php) appear alongside the `title.*` forms. A dotted
+   highlight.js scope emits as sibling classes with trailing underscores
+   (`title.function` -> `hljs-title function_`), hence `.hljs-title.function_`;
+   two classes outrank one, so the specific forms win over the bare `.hljs-title`
+   below them no matter what order these rules are read in.
+
+   TEN TOKENS, NOT FIFTY, AND THE GROUPING IS THE ARGUMENT. A reader needs to
+   tell a name from a string from a comment at a glance; they do not need seven
+   shades of name. So the roles collapse into ten hue families and the whole
+   block is legible in every palette, including the light ones - which is the
+   bug this replaced: a stock github-dark import painted these on a fixed dark
+   theme in all ten palette/mode combinations.
+
+   `.hljs` itself is deliberately transparent: CodeBlock.tsx owns the surface,
+   so a block sits on the palette's own recessed ground rather than on a colour
+   this file smuggles in under it. */
+
+.hljs {
+  color: var(--foreground);
+  background: transparent;
+}
+
+/* Structure: the words that make it a language rather than a list of names. */
+.hljs-keyword,
+.hljs-doctag,
+.hljs-meta .hljs-keyword {
+  color: var(--code-keyword);
+  font-weight: 500;
+}
+.hljs-section {
+  color: var(--code-keyword);
+  font-weight: 600;
+}
+
+/* Named things the language provides: types, built-ins, element and tag names. */
+.hljs-type,
+.hljs-built_in,
+.hljs-class,
+.hljs-name,
+.hljs-selector-tag,
+.hljs-title.class_,
+.hljs-title.class_.inherited__ {
+  color: var(--code-type);
+}
+
+/* Named things the source declares: functions, variables, parameters. */
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.function_.invoke__,
+.hljs-function,
+.hljs-function.dispatch_,
+.hljs-variable,
+.hljs-variable.language_,
+.hljs-variable.constant_,
+.hljs-template-variable,
+.hljs-params {
+  color: var(--code-variable);
+}
+
+/* Keys and selectors - the left-hand side of a mapping, which is most of what
+   a JSON, YAML or CSS block in chat consists of. */
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--code-property);
+}
+
+/* Values. Interpolation is deliberately NOT string-coloured: `{n}` inside an
+   f-string is code again, and painting it as string hides that. */
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string {
+  color: var(--code-string);
+}
+.hljs-quote {
+  color: var(--code-string);
+  font-style: italic;
+}
+.hljs-subst {
+  color: var(--foreground);
+}
+.hljs-number,
+.hljs-bullet {
+  color: var(--code-number);
+}
+.hljs-literal,
+.hljs-symbol,
+.hljs-meta,
+.hljs-char.escape_ {
+  color: var(--code-literal);
+}
+.hljs-operator {
+  color: var(--code-operator);
+}
+.hljs-punctuation,
+.hljs-tag,
+.hljs-meta.prompt_ {
+  color: var(--code-punctuation);
+}
+.hljs-comment {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.hljs-link {
+  color: var(--code-property);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* A diff is the one place syntax IS a state: an added line is good and a
+   removed one is critical, so it spends the semantic set rather than a colour
+   of its own, and the tint under it comes from the same token. */
+.hljs-addition {
+  color: var(--good);
+  background: color-mix(in oklab, var(--good) 14%, transparent);
+  display: inline-block;
+  width: 100%;
+}
+.hljs-deletion {
+  color: var(--critical);
+  background: color-mix(in oklab, var(--critical) 14%, transparent);
+  display: inline-block;
+  width: 100%;
 }

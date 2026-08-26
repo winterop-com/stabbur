@@ -14,10 +14,12 @@ import type { LibModel, Status } from "@/api";
 import { allTagsOf, tagColor } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
+// The runtime's three states. `stopped` is not a semantic colour — nothing is
+// wrong with a runtime that isn't running — so it takes the muted ink.
 const STATE_COLOR: Record<Status["state"], string> = {
-  ready: "bg-emerald-400",
-  loading: "bg-amber-400",
-  stopped: "bg-zinc-500",
+  ready: "bg-good",
+  loading: "bg-warning",
+  stopped: "bg-muted-foreground",
 };
 
 function shortName(name: string): string {
@@ -142,7 +144,7 @@ export function ModelSelector({
         title={status?.model ?? undefined}
       >
         {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-warning-ink" />
         ) : (
           <span className={cn("h-2 w-2 rounded-full", STATE_COLOR[status?.state ?? "stopped"])} />
         )}

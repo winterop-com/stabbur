@@ -32,10 +32,10 @@ export function ConfirmCard({
   return (
     <div
       data-testid="chat-confirm"
-      className="w-full rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-2 text-xs"
+      className="w-full rounded-md border border-warning/50 bg-warning/10 px-2.5 py-2 text-xs"
     >
       <div className="flex items-center gap-1.5 font-medium text-foreground">
-        <ShieldAlert className="h-3.5 w-3.5 text-amber-600" /> Confirm action
+        <ShieldAlert className="h-3.5 w-3.5 text-warning-ink" /> Confirm action
       </div>
       <div className="mt-1 break-all font-mono text-muted-foreground">
         <span className="font-medium text-foreground">{confirm.tool}</span>

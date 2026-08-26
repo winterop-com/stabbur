@@ -1,10 +1,39 @@
 import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 
 import { getModelInfo, type LibModel, type ModelInfo, type Status, type Voice } from "@/api";
 import { Markdown } from "@/components/Markdown";
+import { THEME_PALETTES, type Theme, type ThemePalette } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
+
+/** A pill in a row of mutually-exclusive choices (speed, mode, palette). */
+function Choice({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs tabular-nums transition-colors",
+        selected
+          ? "bg-primary/15 font-medium text-primary"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 /** A titled settings section: heading + muted description. */
 function Section({
@@ -42,9 +71,14 @@ function metaFields(meta: Record<string, unknown> | null): [string, string][] {
 
 /**
  * The Settings page: **defaults and environment**, not per-chat knobs. It holds the
- * defaults new conversations inherit (the Listen voice + speed), what the project
- * contributes (`heim.toml`), and reference info about the loaded model. Everything
- * adjustable for a single conversation lives in that chat's settings panel.
+ * appearance of this browser, the defaults new conversations inherit (the Listen
+ * voice + speed), what the project contributes (`heim.toml`), and reference info
+ * about the loaded model. Everything adjustable for a single conversation lives
+ * in that chat's settings panel.
+ *
+ * Theme state is not owned here — `useTheme` (App) owns both axes, and the ⌘K
+ * palette drives the same handlers. Two surfaces, one source of truth, so
+ * switching in one is instantly reflected in the other.
  */
 export function SettingsView({
   status,
@@ -54,6 +88,10 @@ export function SettingsView({
   onChooseVoice,
   ttsSpeed,
   onChooseSpeed,
+  theme,
+  onToggleTheme,
+  palette,
+  onChoosePalette,
 }: {
   status: Status | null;
   library: LibModel[];
@@ -62,6 +100,10 @@ export function SettingsView({
   onChooseVoice: (name: string) => void;
   ttsSpeed: number;
   onChooseSpeed: (speed: number) => void;
+  theme: Theme;
+  onToggleTheme: () => void;
+  palette: ThemePalette;
+  onChoosePalette: (palette: ThemePalette) => void;
 }) {
   const modelName = status?.model ?? null;
   const libEntry = library.find((m) => m.name === modelName) ?? null;
@@ -101,6 +143,33 @@ export function SettingsView({
 
         <div className="mt-8 space-y-10">
           <Section
+            title="Appearance"
+            description="Light or dark, and the colour palette. Stored in this browser, not in the project."
+          >
+            <div className="flex flex-wrap items-center gap-1">
+              <Choice selected={theme === "light"} onClick={() => theme !== "light" && onToggleTheme()}>
+                <Sun className="h-3.5 w-3.5" /> Light
+              </Choice>
+              <Choice selected={theme === "dark"} onClick={() => theme !== "dark" && onToggleTheme()}>
+                <Moon className="h-3.5 w-3.5" /> Dark
+              </Choice>
+            </div>
+
+            <div className="mt-3">
+              <div className="mb-1 text-sm font-medium">Palette</div>
+              <div className="flex flex-wrap items-center gap-1">
+                {/* THEME_PALETTES rather than a list of our own: adding a palette
+                    is one block pair in index.css and one name in that array. */}
+                {THEME_PALETTES.map((p) => (
+                  <Choice key={p} selected={palette === p} onClick={() => onChoosePalette(p)}>
+                    <span className="capitalize">{p}</span>
+                  </Choice>
+                ))}
+              </div>
+            </div>
+          </Section>
+
+          <Section
             title="Default voice"
             description="Used by Listen in chats that don't set their own voice. 54 built-in Kokoro voices across 9 languages."
           >
@@ -132,19 +201,9 @@ export function SettingsView({
               <div className="mb-1 text-sm font-medium">Default speed</div>
               <div className="flex flex-wrap items-center gap-1">
                 {SPEEDS.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => onChooseSpeed(v)}
-                    className={cn(
-                      "rounded-md px-2 py-1 text-xs tabular-nums transition-colors",
-                      ttsSpeed === v
-                        ? "bg-primary/15 font-medium text-primary"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
+                  <Choice key={v} selected={ttsSpeed === v} onClick={() => onChooseSpeed(v)}>
                     {v}x
-                  </button>
+                  </Choice>
                 ))}
               </div>
             </div>

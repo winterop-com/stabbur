@@ -4,7 +4,10 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** A fenced code block with a hover copy button. Highlighting is applied by
- *  rehype-highlight (adds `hljs` + language classes to the inner <code>). */
+ *  rehype-highlight (adds `hljs` + language classes to the inner <code>), and
+ *  the `.hljs-*` rules in index.css paint those from the palette's `--code-*`
+ *  tokens — so the surface here is a token too, not the fixed near-black a
+ *  stock highlight.js theme used to force on every palette. */
 export function CodeBlock({ className, children }: { className?: string; children: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   const text = extractText(children);
@@ -32,7 +35,7 @@ export function CodeBlock({ className, children }: { className?: string; childre
       </button>
       <pre
         className={cn(
-          "overflow-x-auto rounded-lg border border-border/60 bg-[#0d1117] p-4 text-[0.85em] leading-relaxed",
+          "overflow-x-auto rounded-lg border border-border/60 bg-muted p-4 text-[0.85em] leading-relaxed",
           className,
         )}
       >

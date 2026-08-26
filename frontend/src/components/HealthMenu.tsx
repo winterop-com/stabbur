@@ -2,10 +2,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { type CheckStatus, type DoctorReport, overallStatus } from "@/api";
 import { cn } from "@/lib/utils";
 
+// The doctor's three verdicts, as the semantic word each of them is. `fail` is
+// `--critical` rather than `--destructive`: it is a state heim observed, not a
+// button that destroys something.
 const DOT: Record<CheckStatus, string> = {
-  ok: "bg-emerald-500",
-  warn: "bg-amber-400",
-  fail: "bg-red-500",
+  ok: "bg-good",
+  warn: "bg-warning",
+  fail: "bg-critical",
 };
 
 const OVERALL_LABEL: Record<CheckStatus, string> = {
@@ -49,7 +52,7 @@ export function HealthMenu({ health }: { health: DoctorReport | null }) {
                 <div className="text-sm">{c.name}</div>
                 <div className="break-words text-[11px] text-muted-foreground">{c.detail}</div>
                 {c.hint && (
-                  <div className="break-words text-[11px] text-amber-600 dark:text-amber-400">{c.hint}</div>
+                  <div className="break-words text-[11px] text-warning-ink">{c.hint}</div>
                 )}
               </div>
             </li>

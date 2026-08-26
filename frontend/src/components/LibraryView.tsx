@@ -32,11 +32,13 @@ function publisher(name: string): string | null {
 }
 
 // Format badge accent, mirroring the CLI's per-format colors (gguf cyan, mlx
-// fuchsia, safetensors amber).
+// fuchsia, safetensors amber). safetensors takes `--warning` rather than a
+// literal amber because that is what its amber has always meant: not
+// ready-to-run, and 2-4x the size of the quant it was converted from.
 const FORMAT_ACCENT: Record<string, string> = {
   gguf: "border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
   mlx: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400",
-  safetensors: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  safetensors: "border-warning/30 bg-warning/10 text-warning-ink",
 };
 const FALLBACK_ACCENT = "border-border bg-muted text-muted-foreground";
 
@@ -238,7 +240,7 @@ function ModelDetailsDialog({
         <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-muted-foreground">
           {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
           {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
-          {model.audio && <CapChip icon={AudioLines} label="audio" className="text-emerald-600 dark:text-emerald-400" />}
+          {model.audio && <CapChip icon={AudioLines} label="audio" className="text-good-ink" />}
           {model.tags.map((t) => (
             <span key={t} className="rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[10px]">
               {t}
@@ -324,7 +326,7 @@ function ModelCard({
       <div className="mt-2 flex items-center gap-2.5 text-[11px] text-muted-foreground">
         {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
         {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
-        {model.audio && <CapChip icon={AudioLines} label="audio" className="text-emerald-600 dark:text-emerald-400" />}
+        {model.audio && <CapChip icon={AudioLines} label="audio" className="text-good-ink" />}
         {ctx && <span className="ml-auto">{ctx} ctx</span>}
       </div>
 

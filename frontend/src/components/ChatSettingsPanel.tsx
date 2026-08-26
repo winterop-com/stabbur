@@ -870,7 +870,7 @@ export function ChatSettingsPanel({
                               <p
                                 className={cn(
                                   "mt-1 flex items-start gap-1 text-[11px]",
-                                  note.tone === "warn" ? "text-amber-700 dark:text-amber-400" : "text-destructive",
+                                  note.tone === "warn" ? "text-warning-ink" : "text-destructive",
                                 )}
                               >
                                 {note.tone === "warn" ? (
@@ -881,7 +881,7 @@ export function ChatSettingsPanel({
                                 <span>{note.text}</span>
                               </p>
                             ) : server?.enabled === false && list.length > 0 ? (
-                              <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                              <p className="mt-1 flex items-start gap-1 text-[11px] text-warning-ink">
                                 <RotateCw className="mt-px h-3 w-3 shrink-0" />
                                 <span>Off, but still running — its tools detach when heim serve restarts.</span>
                               </p>

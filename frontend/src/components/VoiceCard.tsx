@@ -21,9 +21,11 @@ export function VoiceCard({ model }: { model: VoiceModelInfo }) {
         <span
           className={cn(
             "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-            model.kind === "tts"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+            // The two voice directions, kept apart by the semantic set rather
+            // than by two hand-picked hues: speaking is the thing the chat
+            // actually does (`good`), transcribing is a fact about the audio
+            // you gave it (`info`).
+            model.kind === "tts" ? "border-good/30 bg-good/10 text-good-ink" : "border-info/30 bg-info/10 text-info",
           )}
         >
           {model.kind}
@@ -38,13 +40,16 @@ export function VoiceCard({ model }: { model: VoiceModelInfo }) {
         <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">{model.description}</p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+        {/* Two pills that used to share one amber and do not share a meaning:
+            "not runnable yet" is a warning, "chat voice" is a fact about which
+            voice this build speaks with. */}
         {!model.supported && (
-          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-warning-ink">
             not runnable yet
           </span>
         )}
         {model.chat_default && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-1.5 py-0.5 text-info">
             <Sparkles className="h-2.5 w-2.5" /> chat voice
           </span>
         )}

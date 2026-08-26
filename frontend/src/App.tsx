@@ -1403,7 +1403,7 @@ export function App() {
 
           {storageWarning && (
             <div className="mx-auto mt-1 w-full max-w-4xl px-4">
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-ink">
                 <span className="flex-1">{storageWarning}</span>
                 <button
                   type="button"
@@ -1440,6 +1440,10 @@ export function App() {
               onChooseVoice={chooseVoice}
               ttsSpeed={ttsSpeed}
               onChooseSpeed={chooseSpeed}
+              theme={theme}
+              onToggleTheme={toggle}
+              palette={palette}
+              onChoosePalette={setPalette}
             />
           ) : (
           <>

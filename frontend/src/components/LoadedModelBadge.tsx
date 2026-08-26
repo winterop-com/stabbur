@@ -54,7 +54,7 @@ export function LoadedModelBadge({
       {loading ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
       ) : (
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+        <span className="h-1.5 w-1.5 rounded-full bg-good" aria-hidden />
       )}
       <button
         type="button"
