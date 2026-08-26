@@ -1,3 +1,5 @@
+<img src="assets/logo.png" alt="stabbur" width="150" align="right">
+
 # stabbur
 
 Build a **full local library of LLM models**, then **run, chat, and serve** them

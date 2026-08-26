@@ -1,3 +1,5 @@
+<img src="docs/assets/logo.png" alt="stabbur" width="180" align="right">
+
 # stabbur
 
 [![CI](https://github.com/winterop-com/stabbur/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/stabbur/actions/workflows/ci.yml)
