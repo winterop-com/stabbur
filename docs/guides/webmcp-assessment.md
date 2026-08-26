@@ -1,5 +1,31 @@
 # WebMCP — research and maturity assessment for heim
 
+## Correction (2026-08-26): "WebMCP" names at least two different things
+
+The assessment below is about the **browser API** (`document.modelContext`, W3C WebML CG,
+Chrome origin trial). That is not the only thing shipping under the name, and conflating them
+makes claims like "vendor X supports WebMCP today" sound bigger than they are:
+
+1. **The browser API** — `document.modelContext.registerTool()`. Needs a browser (or an
+   extension polyfill). Chrome 149 origin trial / `chrome://flags/#enable-webmcp-testing`;
+   nothing shipped on by default anywhere. Everything below applies to this.
+2. **Site-embedded JS libraries that expose an MCP server** — e.g.
+   [webmcp.dev](https://webmcp.dev/) (`@jason.today/webmcp`): a site adds a `<script>`, and an
+   ordinary MCP client (Claude Desktop, or anything speaking MCP) connects. No browser support
+   involved at all. `@mcp-b/webmcp-local-relay` is the same shape.
+3. **Edge injection** — [Cloudflare's developer preview](https://blog.cloudflare.com/webmcp/)
+   (2026-08-06) injects a bridge script at the CDN so the *origin* needs no code change. Still
+   opt-in per domain by its owner, still a preview.
+
+**Why this matters for heim:** an MCP client does not need to "support WebMCP" for flavor 2 —
+it is just an MCP server, so heim could consume one **today with no code change** (an entry in
+`.mcp.json`). So vendor announcements of support are largely a non-event for us; heim is
+already an MCP client. The binding constraint is unchanged and is on the *other* side: some
+site has to expose tools, and for our purposes that site is DHIS2, which exposes none. The
+browser API only becomes interesting if it is what drives sites to do that.
+
+
+
 Research date: **2026-08-26**. All dates below are the dates of the source, not of this document.
 Primary sources (spec repo, standards-position issues, Chrome/Cloudflare blogs, GitHub API) were
 preferred; the SEO/AI-blog layer around WebMCP is large, contradictory, and demonstrably wrong on

@@ -112,11 +112,13 @@ page and composer pills.
 
 ## WebMCP — watch, don't build (assessed 2026-08-26)
 
-`document.modelContext.registerTool()` lets a *page* declare tools to a browser agent. It
-would only matter to heim as a **consumer** (a `world: "MAIN"` content script can read a
-page's tools same-origin, no site cooperation needed), and there is a drop-in shape —
-`@mcp-b/webmcp-local-relay` is an stdio MCP server, so it would enter `.mcp.json` like any
-other. Not worth building yet:
+Careful: the name covers (1) the **browser API** `document.modelContext.registerTool()`,
+(2) **site-embedded JS libraries exposing an MCP server** ([webmcp.dev](https://webmcp.dev/),
+`@mcp-b/webmcp-local-relay`), and (3) **CDN injection** (Cloudflare preview). Only (1) needs
+browser support — so "vendor X supports WebMCP" usually means (2), which any MCP client gets
+for free. heim is already an MCP client: it could consume (2) **today with no code change**,
+as an `.mcp.json` entry. The blocker is on the other side — a site has to expose tools, and
+DHIS2 exposes none. On the browser API specifically:
 
 - Draft CG report, not Rec track; **WebKit opposed**, Mozilla neutral — no vendor consensus.
 - Chrome/Edge **origin trial only**, M149–M156; no Intent to Ship, nothing on by default.
@@ -126,7 +128,8 @@ other. Not worth building yet:
 - It contributes nothing to the hard part of page-actions: the blast radius of an AI acting
   as a logged-in admin. Page-declared tool descriptions are attacker-influenceable text
   (DHIS2 renders user-authored dashboard/interpretation content), which is *worse* than
-  today's posture where descriptions come from a server we wrote.
+  today's posture where descriptions come from a server we wrote — and this applies to
+  every flavor above, not just the browser API.
 
 Revisit if: Chrome files an Intent to Ship or extends the trial past M156; webmcp#74 lands;
 DHIS2 opens any WebMCP issue; Mozilla turns positive or WebKit softens. Full write-up with
