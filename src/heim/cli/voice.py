@@ -104,6 +104,7 @@ def speak(
 
     if voice is not None and model is not None:
         console.print(f"[yellow]--voice takes precedence[/] — ignoring `--model {model}` (that's for mlx-audio).")
+        model = None  # it lost; don't then fail resolving it (two contradictory messages)
     spec = voice_registry.get(model) if model else None
     spec = spec or (voice_registry.by_repo(model) if model else None)
     if model is not None and spec is None:

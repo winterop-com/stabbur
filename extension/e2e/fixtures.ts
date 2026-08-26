@@ -135,7 +135,7 @@ export const PANEL_PATH = "sidepanel.html";
 function toV2Shape(patch: Record<string, unknown>): Record<string, unknown> {
   if ("backends" in patch || !("baseUrl" in patch || "token" in patch)) return patch;
   const { baseUrl, token, ...rest } = patch;
-  const url = typeof baseUrl === "string" ? baseUrl : "http://127.0.0.1:8000";
+  const url = typeof baseUrl === "string" ? baseUrl : "http://127.0.0.1:2222";
   let name = "Default";
   try {
     name = new URL(url).host || "Default";

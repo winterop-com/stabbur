@@ -112,10 +112,6 @@ class ServerManager:
             self._handle.stop()  # no-op kill if already dead; closes the log + removes state
             self._handle = None
 
-    def touch(self) -> None:
-        """Mark the upstream as just-seen-alive (e.g. a generation is actively streaming)."""
-        self._ready_at = time.monotonic()
-
     async def ready(self) -> bool:
         """Whether the runtime is up and answering requests."""
         if not self._alive():

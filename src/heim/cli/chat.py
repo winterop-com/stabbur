@@ -174,13 +174,12 @@ def chat(
         # so letting the machine/project *default* model label the session would mislead.
         model = _maybe_library_model(name, model_format) if name is not None else None
     elif base_url is not None:
-        # Remote one-shot (-p against --server): the server may hold models that are not in
-        # the local library (e.g. a llama-server router with its own store). Resolve the name
-        # locally for metadata when possible; otherwise — or with no name at all — pick the
-        # id from the server's own /v1/models listing instead of failing.
+        # Remote one-shot (-p against --server). A local copy supplies metadata only
+        # (sampling, capabilities); the wire ``model`` field ALWAYS comes from the server's own
+        # /v1/models listing, because the remote matches ids, not local filesystem paths — and
+        # a name can exist both places.
         model = _maybe_library_model(model_name, model_format) if model_name is not None else None
-        if model is None:
-            remote_model_id = _remote_model_id(base_url, model_name)
+        remote_model_id = _remote_model_id(base_url, model_name)
     else:
         if model_name is None:
             console.print(

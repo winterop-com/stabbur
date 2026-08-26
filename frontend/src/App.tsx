@@ -1004,7 +1004,7 @@ export function App() {
           onToggleChatSettings: toggleChatSettings,
           onToggleTheme: toggle,
           onChoosePalette: setPalette,
-          onClearChat: () => activeId && deleteConversation(activeId),
+          onDeleteChat: () => activeId && deleteConversation(activeId),
           onExportMarkdown: () => activeConv && exportConversationMarkdown(activeConv, status?.model ?? null),
           onExportPdf: () => {
             if (activeConv) void exportConversationPdf(activeConv, status?.model ?? null);

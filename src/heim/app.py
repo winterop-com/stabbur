@@ -99,20 +99,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001 - a sweep failure must never block startup
         pass
 
-    # Pre-warm the in-chat voice: Kokoro's assets (~310 MB) download on first use, which
-    # otherwise happens inside the user's first Listen click and reads as a hang. Fetch them
-    # in the background at startup instead; best-effort, never blocks serving.
-    def _warm_kokoro() -> None:
-        from heim.voice import kokoro  # noqa: PLC0415
-
-        try:
-            if kokoro.available() and not kokoro.assets_present():
-                kokoro.ensure_assets()
-        except Exception:  # noqa: BLE001 - the first Listen just downloads instead
-            pass
-
-    threading.Thread(target=_warm_kokoro, name="kokoro-warm", daemon=True).start()
-
     if isinstance(manager, UpstreamManager):
         if settings.serve_model:
             # Locked upstream serve: the name must match one of the remote's ids — fail
@@ -158,6 +144,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # /api/status so the UI defaults the Listen voice and hides Voice for a text-only assistant.
         app.state.chat_voice = proj.chat_voice if proj else None
         app.state.voice_enabled = proj.voice_enabled if proj else True
+
+        # Pre-warm the in-chat voice: Kokoro's assets (~310 MB) download on first use, which
+        # otherwise happens inside the user's first Listen click and reads as a hang. Started
+        # only once the project is known, so a text-only assistant ([voice] enabled = false)
+        # never pulls them. Background + best-effort: it never blocks serving.
+        if app.state.voice_enabled:
+
+            def _warm_kokoro() -> None:
+                from heim.voice import kokoro  # noqa: PLC0415
+
+                try:
+                    if kokoro.available() and not kokoro.assets_present():
+                        kokoro.ensure_assets()
+                except Exception:  # noqa: BLE001 - the first Listen just downloads instead
+                    pass
+
+            threading.Thread(target=_warm_kokoro, name="kokoro-warm", daemon=True).start()
         resolved = mcpservers.resolve()
         # Per-target routing table, computed once here (not per request): each target id -> the exact
         # tool prefixes it owns (its mcp_servers names slugged the way connect namespaces them), plus an

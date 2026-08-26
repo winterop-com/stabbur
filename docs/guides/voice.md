@@ -72,15 +72,15 @@ Served by `heim serve`, so any OpenAI client works:
 
 ```bash
 # Text to speech (wav | mp3 | flac | opus | ogg | aac)
-curl -X POST localhost:8000/v1/audio/speech -H 'Content-Type: application/json' \
+curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
   -d '{"model":"kokoro","input":"Hello","voice":"af_heart","response_format":"mp3"}' -o out.mp3
 
 # Voice cloning (Dia): ref_audio_b64 (base64 WAV) + ref_text
-curl -X POST localhost:8000/v1/audio/speech -H 'Content-Type: application/json' \
+curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
   -d '{"model":"dia","input":"Cloned line.","ref_audio_b64":"...","ref_text":"...","seed":0}' -o out.wav
 
 # Speech to text
-curl -X POST localhost:8000/v1/audio/transcriptions -F model=whisper -F file=@clip.wav
+curl -X POST localhost:2222/v1/audio/transcriptions -F model=whisper -F file=@clip.wav
 ```
 
 Non-WAV formats are transcoded with **ffmpeg** (WAV passes through untouched).

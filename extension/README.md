@@ -70,7 +70,7 @@ build so the panel is branded in the images.
 ## Connect it to heim
 
 Open the panel's Settings (gear icon) and set the base URL (default
-`http://127.0.0.1:8000`) and, if the server requires one, an access token.
+`http://127.0.0.1:2222`) and, if the server requires one, an access token.
 
 Read-only requests (status, tools, chat streaming) work immediately. Mutating
 requests (loading a model) are blocked by heim's cross-site guard until you allow
@@ -113,8 +113,8 @@ To connect to a remote heim:
    ```
 
 If you would rather not expose heim publicly, forward it to loopback over SSH
-(`ssh -L 8000:127.0.0.1:8000 user@host`) and point the panel at
-`http://127.0.0.1:8000` as usual — loopback is allowed over `http`.
+(`ssh -L 2222:127.0.0.1:2222 user@host`) and point the panel at
+`http://127.0.0.1:2222` as usual — loopback is allowed over `http`.
 
 ## End-to-end tests
 

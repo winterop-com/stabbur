@@ -18,7 +18,7 @@ type TestState =
   | { kind: "fail"; detail: string };
 
 function newBackend(): Backend {
-  return { id: crypto.randomUUID(), name: "", baseUrl: "http://127.0.0.1:8000", token: "" };
+  return { id: crypto.randomUUID(), name: "", baseUrl: "http://127.0.0.1:2222", token: "" };
 }
 
 /** Editable list of named backends (each its own base URL + token, one active), plus
@@ -165,7 +165,7 @@ export function SettingsView({ settings, extensionId, onSave, onClose }: Setting
                   type="text"
                   value={b.baseUrl}
                   onChange={(e) => patchBackend(b.id, { baseUrl: e.target.value })}
-                  placeholder="http://127.0.0.1:8000"
+                  placeholder="http://127.0.0.1:2222"
                   className="w-full rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
                 />
                 {err ? <span className="block text-xs text-[var(--destructive)]">{err}</span> : null}

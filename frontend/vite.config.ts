@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 // Built to dist/, served by `heim serve --ui` (same-origin, so /api and /v1 are
 // relative). In `vite dev`, proxy those to a heim server — run `heim serve
 // --port 8000` alongside, or set HEIM_DEV_API to its printed URL.
-const target = process.env.HEIM_DEV_API || "http://localhost:8000";
+const target = process.env.HEIM_DEV_API || "http://localhost:2222";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

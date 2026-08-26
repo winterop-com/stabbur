@@ -40,7 +40,7 @@ cd extension && bun run build:dhis2 # DHIS2   -> extension/.output/chrome-mv3-dh
 Then load it — pick `.output/chrome-mv3` for the generic panel or
 `.output/chrome-mv3-dhis2` to sit next to your DHIS2 work:
 
-1. Start a heim server on a **pinned port**, e.g. `heim serve --ui --port 8000`.
+1. Start a heim server on a **pinned port**, e.g. `heim serve --ui --port 2222`.
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. **Load unpacked** -> select `extension/.output/chrome-mv3` (or
    `extension/.output/chrome-mv3-dhis2`).
@@ -52,7 +52,7 @@ scaffolded from the dhis2 template instead of a bare model:
 ```bash
 heim project new --template dhis2 myassistant && cd myassistant
 mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo credentials
-heim serve --port 8000
+heim serve --port 2222
 ```
 
 ### Allow the extension (cors_origins)

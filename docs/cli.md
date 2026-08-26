@@ -195,7 +195,7 @@ heim chat <name> -p "prompt"          # one-shot, prints just the answer (pipeab
 heim chat <name> -p "prompt" -n 256   # --max-tokens
 heim chat <name> --system "..."       # session system prompt (overrides heim.toml)
 heim chat <name> --mcp <cmd>          # attach an MCP tool server (repeatable)
-heim chat <name> -p "prompt" --server http://127.0.0.1:8000   # reuse a running `heim serve`
+heim chat <name> -p "prompt" --server http://127.0.0.1:2222   # reuse a running `heim serve`
 ```
 
 Interactive chat opens a scrolling TUI: markdown replies, collapsible reasoning,
@@ -209,7 +209,7 @@ running `heim serve` instead and it attaches to that server's `/v1`, reusing the
 already-loaded model (tools still run):
 
 ```bash
-heim serve --model <name> --port 8000        # load the model once, keep it resident
+heim serve --model <name> --port 2222        # load the model once, keep it resident
 heim chat -p "what is todays date"           # instant — no reload
 ```
 
@@ -303,7 +303,7 @@ Run the web server (browse API + `/v1` proxy; browser UI with `--ui`).
 
 ```bash
 heim serve --ui                       # browse + chat, switch models (auto-picks a free port)
-heim serve --ui --port 8000           # pin the port for a stable URL
+heim serve --ui --port 2222           # pin the port for a stable URL
 heim serve --ui --model <name>        # locked single-model mode (extension backend)
 heim serve --reload                   # dev auto-reload
 ```

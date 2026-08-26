@@ -79,12 +79,12 @@ Then serve it:
 
 ```bash
 heim serve --ui                       # browse + chat in the browser, switch models
-heim serve --ui --port 8000           # pin the port for a stable URL/bookmark
+heim serve --ui --port 2222           # pin the port for a stable URL/bookmark
 heim serve --ui --model <name>        # locked to one model (extension backend)
 ```
 
 For UI development, `make frontend-dev` runs Vite with hot reload (it proxies
-`/api` + `/v1` to `HEIM_DEV_API` or `:8000`, so run `heim serve --port 8000`
+`/api` + `/v1` to `HEIM_DEV_API` or `:2222`, so a plain `heim serve` (which binds 2222)
 alongside).
 
 By default `serve` **auto-picks a free port** and prints the URL on startup, so it

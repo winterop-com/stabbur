@@ -57,6 +57,14 @@ def synthesize(
         raise RuntimeError("mlx-audio not installed — run `uv sync --extra voice` (Apple Silicon).")
     from mlx_audio.tts.generate import generate_audio  # noqa: PLC0415
 
+    # Some models shape their voice with parameters instead of named presets; map the common
+    # "female"/"male" voice names onto the gender parameter such models expect. This runs
+    # BEFORE the prompt fallback below, which would otherwise consume the name and silently
+    # drop the requested gender on a model that ships both prompts/ and a gender parameter.
+    if voice in ("female", "male"):
+        params["gender"] = voice
+        voice = None
+
     # A cloneable model with no reference clip: fall back to a prompt clip bundled with the
     # model itself (a ``prompts/*.wav`` dir in its repo). Naming a prompt's stem as ``voice``
     # picks it; otherwise the first is used. This keeps such models fully local — without it
@@ -72,12 +80,6 @@ def synthesize(
             if ref_text is None and transcript.is_file():
                 ref_text = transcript.read_text().strip()
             voice = None  # consumed as a prompt pick, not an engine voice name
-
-    # Some models shape their voice with parameters instead of named presets; map the
-    # common "female"/"male" voice names onto the gender parameter such models expect.
-    if voice in ("female", "male"):
-        params["gender"] = voice
-        voice = None
 
     loaded = _load(str(model))
     # mlx-audio's generate_audio has no `seed` arg (it silently ignores one), so a seed only

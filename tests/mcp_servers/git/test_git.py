@@ -17,6 +17,12 @@ _ENV = {
     "GIT_AUTHOR_EMAIL": "tester@example.com",
     "GIT_COMMITTER_NAME": "Tester",
     "GIT_COMMITTER_EMAIL": "tester@example.com",
+    # Ignore the developer's global/system git config. Without this the suite inherits
+    # whatever they have set — notably `commit.gpgsign = true`, where gpg has no TTY to
+    # prompt on under pytest and each commit hangs until it fails (exit 128). Hooks,
+    # templates and aliases would leak in the same way.
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
 }
 
 # Read tools the server always advertises (there are no write tools).

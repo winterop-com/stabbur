@@ -163,13 +163,20 @@ class ModelPickerModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         options: list[Option] = []
+        # A library legitimately holds one model in several formats (GGUF *and* MLX is the
+        # documented default policy), so ids must be unique per ROW, not per name — Textual
+        # raises DuplicateID otherwise and the picker never opens. The row's own id is still
+        # the name, so selection keeps working; only the widget key is disambiguated.
+        seen: dict[str, int] = {}
         for rid, note in self._rows:
+            seen[rid] = seen.get(rid, 0) + 1
+            option_id = rid if seen[rid] == 1 else f"{rid}#{seen[rid]}"
             label = Text()
             label.append("● " if rid == self._current else "  ", style="#fb7185")
             label.append(rid)
             if note:
                 label.append(f"   {note}", style="dim")
-            options.append(Option(label, id=rid))
+            options.append(Option(label, id=option_id))
         with Vertical(id="model-box"):
             yield Label(self._title, id="model-title")
             yield OptionList(*options)
@@ -186,7 +193,10 @@ class ModelPickerModal(ModalScreen[str | None]):
 
     @on(OptionList.OptionSelected)
     def _selected(self, event: OptionList.OptionSelected) -> None:
-        self.dismiss(str(event.option.id) if event.option.id is not None else None)
+        if event.option.id is None:
+            self.dismiss(None)
+            return
+        self.dismiss(str(event.option.id).split("#")[0])  # strip the uniqueness suffix
 
     def action_cancel(self) -> None:
         self.dismiss(None)

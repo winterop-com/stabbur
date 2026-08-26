@@ -498,12 +498,17 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
 
     def _fake_generate(model: object, prompt: str, *a: object) -> str:
         captured["base_url"] = a[4]  # (max_tokens, system_prompt, images, audios, base_url, model_id)
+        captured["model_id"] = a[5]
         return "ok"
 
     monkeypatch.setattr(runtime, "generate", _fake_generate)
+    # The wire model id always comes from the remote's own listing (a local path would match
+    # nothing there), so the remote path probes /v1/models — stub it rather than hitting it.
+    monkeypatch.setattr(cli.chat, "_probe_json", lambda url: {"data": [{"id": "pub/X"}]})
     result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000/v1"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] == "http://127.0.0.1:8000"  # normalized (trailing /v1 stripped)
+    assert captured["model_id"] == "pub/X"  # the remote's id, never the local load_target path
 
 
 def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) -> None:

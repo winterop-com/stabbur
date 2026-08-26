@@ -53,9 +53,17 @@ def _port_free(host: str, port: int) -> bool:
     """
     import socket  # noqa: PLC0415
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+    target = host or "127.0.0.1"
+    try:
+        # Resolve first so the probe uses the host's real family: binding AF_INET at an IPv6
+        # address (::1, or an IPv6-only name) fails, which would be misreported as "in use".
+        infos = socket.getaddrinfo(target, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return True  # unresolvable here: let uvicorn produce the real error, don't guess
+    for family, socktype, proto, _canon, sockaddr in infos:
         try:
-            probe.bind((host or "127.0.0.1", port))
+            with socket.socket(family, socktype, proto) as probe:
+                probe.bind(sockaddr)
         except OSError:
             return False
     return True

@@ -21,7 +21,7 @@ export interface Settings {
   pageTextEnabled: boolean;
 }
 
-export const DEFAULT_BASE_URL = "http://127.0.0.1:8000";
+export const DEFAULT_BASE_URL = "http://127.0.0.1:2222";
 
 /** The backend synthesized when nothing is stored (fresh install, no legacy keys). */
 const FALLBACK_BACKEND: Backend = { id: "default", name: "Default", baseUrl: DEFAULT_BASE_URL, token: "" };
@@ -43,7 +43,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 /**
  * Canonical form of a heim base URL for `apiFetch(baseUrl + path)`: trimmed, no
- * trailing slashes. A pasted "http://127.0.0.1:8000/" would otherwise produce
+ * trailing slashes. A pasted "http://127.0.0.1:2222/" would otherwise produce
  * "//api/status", which Starlette does not match (every call 404s).
  */
 export function normalizeBaseUrl(raw: string): string {
@@ -58,12 +58,12 @@ export function normalizeBaseUrl(raw: string): string {
  */
 export function validateBaseUrl(raw: string): string | null {
   const value = raw.trim();
-  if (!value) return "Enter a heim base URL (e.g. http://127.0.0.1:8000).";
+  if (!value) return "Enter a heim base URL (e.g. http://127.0.0.1:2222).";
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return "Enter a valid URL, e.g. http://127.0.0.1:8000 or https://heim.example.com.";
+    return "Enter a valid URL, e.g. http://127.0.0.1:2222 or https://heim.example.com.";
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return "Base URL must start with http:// or https://.";

@@ -183,9 +183,13 @@ class ChatApp(App[None]):
         await transcript.mount(Static(self._intro(), classes="intro"))
         self._refresh_status()
         self.query_one(ChatInput).focus()
-        # Prime the remote model list (for /model and its name completion) off the UI thread.
+        # Prime the model list (for /model and its name completion) off the UI thread — the
+        # local branch scans the library, which is slow on an external drive and would
+        # otherwise block on the first `/model ` keystroke.
         if isinstance(self._endpoint, RemoteEndpoint):
             self.run_worker(self._prime_remote_models(), group="models")
+        else:
+            self.run_worker(self._prime_library_models(), group="models")
         # Connecting MCP servers can take a moment; do it after the UI is up.
         if self._servers:
             self.toolset = await self._stack.enter_async_context(mcp_tools.connect(self._servers))
@@ -365,10 +369,7 @@ class ChatApp(App[None]):
     def _switchable_models(self) -> list[library_ops.LibraryModel]:
         """Generative library models the session can switch to (scanned once, then cached)."""
         if self._models_cache is None:
-            try:
-                self._models_cache = [m for m in library_ops.scan() if m.generative]
-            except Exception:  # noqa: BLE001 - a missing/unreadable library just means no switching
-                self._models_cache = []
+            self._models_cache = self._scan_switchable()
         return self._models_cache
 
     def _fetch_remote_models(self) -> list[tuple[str, bool]]:
@@ -392,6 +393,18 @@ class ChatApp(App[None]):
                     status = row.get("status")
                     out.append((rid, isinstance(status, dict) and status.get("value") == "loaded"))
         return out
+
+    async def _prime_library_models(self) -> None:
+        """Fill the library model cache off the UI thread (the scan hits the filesystem)."""
+        self._models_cache = await asyncio.to_thread(self._scan_switchable)
+
+    @staticmethod
+    def _scan_switchable() -> list[library_ops.LibraryModel]:
+        """Scan the library for generative models; empty on any failure (missing/unreadable)."""
+        try:
+            return [m for m in library_ops.scan() if m.generative]
+        except Exception:  # noqa: BLE001 - a missing/unreadable library just means no switching
+            return []
 
     async def _prime_remote_models(self) -> None:
         """Fill the remote model cache off the UI thread (for /model and its name completion)."""

@@ -3,7 +3,6 @@ import {
   AudioLines,
   Boxes,
   Download,
-  Eraser,
   FileDown,
   MessagesSquare,
   Moon,
@@ -12,6 +11,7 @@ import {
   Palette,
   Settings,
   SquarePen,
+  Trash2,
   Sun,
 } from "lucide-react";
 
@@ -48,7 +48,7 @@ export interface PaletteActions {
   onToggleChatSettings: () => void;
   onToggleTheme: () => void;
   onChoosePalette: (palette: ThemePalette) => void;
-  onClearChat: () => void;
+  onDeleteChat: () => void;
   onExportMarkdown: () => void;
   onExportPdf: () => void;
 }
@@ -147,9 +147,9 @@ export function CommandPalette({
           </CommandItem>
           {hasConversation && (
             <>
-              <CommandItem onSelect={run(actions.onClearChat)}>
-                <Eraser className="h-4 w-4 text-muted-foreground" />
-                Clear this conversation
+              <CommandItem onSelect={run(actions.onDeleteChat)}>
+                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                Delete this conversation
               </CommandItem>
               <CommandItem onSelect={run(actions.onExportMarkdown)}>
                 <FileDown className="h-4 w-4 text-muted-foreground" />
