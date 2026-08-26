@@ -127,6 +127,14 @@ frontend:
 	@echo ">>> Building the browser UI → frontend/dist"
 	@cd frontend && bun install && bun run build
 
+# Stage the built SPA INTO the package, so the wheel carries it and `uvx stabbur serve --ui`
+# actually has a UI. Without this the wheel ships no frontend and `/` answers 404 - a checkout
+# still works (config falls back to frontend/dist), which is what hid the bug.
+frontend-pack: frontend
+	@echo ">>> Staging the browser UI → src/stabbur/webui"
+	@rm -rf src/stabbur/webui
+	@cp -R frontend/dist src/stabbur/webui
+
 frontend-dev:
 	@echo ">>> Vite dev server (proxies /api + /v1 to STABBUR_DEV_API or :8000)"
 	@echo ">>> Run 'stabbur serve --port 8000' alongside for the backend"

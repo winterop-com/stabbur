@@ -99,6 +99,25 @@ def _default_runtime_state_dir() -> Path:
 DEFAULT_SERVE_PORT = 2222
 
 
+def _default_frontend_dir() -> Path:
+    """Where the built SPA lives, for an installed package and for a checkout alike.
+
+    Two locations, in priority order:
+
+    1. ``stabbur/webui`` INSIDE the installed package. This is the one that matters for a real
+       install: the wheel carries the built SPA as package data, so ``uvx stabbur serve --ui``
+       has a UI. Before this existed the wheel shipped no frontend at all and ``/`` answered
+       404 for every PyPI user, while every checkout worked - which is exactly why it went
+       unnoticed.
+    2. ``frontend/dist`` beside the source tree, for development. `uv run` from a checkout uses
+       the live Vite build, so editing the SPA does not require re-packaging it.
+    """
+    packaged = Path(__file__).resolve().parent / "webui"
+    if (packaged / "index.html").is_file():
+        return packaged
+    return Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
 class Settings(BaseSettings):
     """Application settings — read from ``stabbur.toml`` first, then env vars.
 
@@ -149,12 +168,11 @@ class Settings(BaseSettings):
     # `stabbur config set port`.
     port: int = DEFAULT_SERVE_PORT
 
-    # Serve the browser UI (single-page app) alongside the API. Defaults to the
-    # ``frontend/dist`` that ships with the source tree (resolved from this file, not the
-    # CWD) so ``serve --ui`` works from any directory — e.g. a globally-installed stabbur run
-    # inside a project. If it's missing (not built), the API still runs.
+    # Serve the browser UI (single-page app) alongside the API. Resolved from this file rather
+    # than the CWD, so ``serve --ui`` works from any directory. If it's missing (not built), the
+    # API still runs.
     serve_ui: bool = False
-    frontend_dir: Path = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+    frontend_dir: Path = _default_frontend_dir()
 
     # Lock the server to a single model (no switching) — for the Chrome-extension
     # backend. Empty means free model switching.

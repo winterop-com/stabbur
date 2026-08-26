@@ -40,8 +40,33 @@ jobs:
       - name: Install Python 3.13
         run: uv python install 3.13
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      # The wheel must CARRY the built SPA (staged into src/stabbur/webui), otherwise
+      # `stabbur serve --ui` answers 404 for everyone who installed from PyPI while every
+      # checkout keeps working - which is how that shipped unnoticed in 0.6.0-0.6.2.
+      - name: Build and stage the browser UI
+        run: make frontend-pack
+
+      - name: Verify the SPA was staged
+        run: test -f src/stabbur/webui/index.html
+
       - name: Build wheel + sdist
         run: uv build --package stabbur
+
+      # A wheel without the SPA is the exact regression this job exists to prevent, so fail
+      # here rather than publishing one.
+      - name: Verify the wheel carries the SPA
+        run: |
+          python3 - <<'PY'
+          import glob, sys, zipfile
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          if "stabbur/webui/index.html" not in names:
+              sys.exit(f"::error::{wheel} does not contain stabbur/webui/index.html")
+          print(f"{wheel}: {sum('webui' in n for n in names)} SPA files")
+          PY
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -121,3 +146,23 @@ jobs:
             echo "attempt ${attempt}/12 failed, sleeping 5s"; sleep 5
           done
           echo "::error::stabbur ${VERSION} never installed from PyPI"; exit 1
+
+      - name: Serve the browser UI from the published wheel
+        # `--help` passing proved nothing about the SPA: 0.6.0-0.6.2 all published a wheel with
+        # no frontend in it, so `serve --ui` answered 404 at `/` for every PyPI user while every
+        # checkout worked. Actually fetch the page.
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          export STABBUR_LIBRARY_ROOT="$(mktemp -d)"
+          uvx --from "stabbur==${VERSION}" stabbur serve --ui --port 8933 &
+          for i in $(seq 1 30); do
+            sleep 2
+            code=$(curl -s -o /tmp/root.html -w '%{http_code}' "http://127.0.0.1:8933/" || true)
+            [ "$code" = "200" ] && break
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::serve --ui returned HTTP $code at / - the wheel is missing the SPA"; exit 1
+          fi
+          grep -qi '<div id="root"' /tmp/root.html \
+            || { echo "::error::/ returned 200 but not the SPA shell"; exit 1; }
+          echo "browser UI served from the published wheel"

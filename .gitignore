@@ -50,6 +50,8 @@ coverage.xml
 # Frontend
 node_modules/
 frontend/dist/
+# Built SPA staged into the package by `make frontend-pack` (see the Makefile).
+src/stabbur/webui/
 
 # Docs build output
 /site/

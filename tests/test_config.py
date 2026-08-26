@@ -158,3 +158,38 @@ def test_cors_origins_accepts_plain_string_env(monkeypatch: pytest.MonkeyPatch) 
     assert Settings().cors_origins == ["a.com", "b.com"]
     monkeypatch.setenv("STABBUR_CORS_ORIGINS", '["x.com","y.com"]')
     assert Settings().cors_origins == ["x.com", "y.com"]
+
+
+def test_frontend_dir_prefers_the_spa_packaged_inside_the_wheel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The regression this guards: 0.6.0-0.6.2 shipped wheels with no SPA, so `serve --ui`
+    # answered 404 at `/` for every PyPI install while every checkout worked — because the
+    # default pointed only at `frontend/dist` beside the source tree, which an installed
+    # package does not have. The packaged copy must win when it exists.
+    pkg = tmp_path / "stabbur"
+    webui = pkg / "webui"
+    webui.mkdir(parents=True)
+    (webui / "index.html").write_text("<div id='root'></div>")
+    monkeypatch.setattr(config, "__file__", str(pkg / "config.py"))
+    assert config._default_frontend_dir() == webui
+
+
+def test_frontend_dir_falls_back_to_the_checkout_when_not_packaged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A checkout has no packaged webui/ (it is a build artifact), and must keep using the live
+    # Vite output so editing the SPA does not require re-packaging it.
+    pkg = tmp_path / "repo" / "src" / "stabbur"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(config, "__file__", str(pkg / "config.py"))
+    assert config._default_frontend_dir() == tmp_path / "repo" / "frontend" / "dist"
+
+
+def test_frontend_dir_ignores_a_packaged_dir_with_no_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An empty or half-staged webui/ is worse than none: mounting it would serve a directory
+    # that cannot answer `/`. Presence of the directory is not the test — index.html is.
+    pkg = tmp_path / "stabbur"
+    (pkg / "webui").mkdir(parents=True)
+    monkeypatch.setattr(config, "__file__", str(pkg / "config.py"))
+    assert config._default_frontend_dir() == tmp_path.parent / "frontend" / "dist"
