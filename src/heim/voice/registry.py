@@ -121,8 +121,8 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/Soprano-1.1-80M-bf16",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Tiny (80M) high-quality English TTS, a Kokoro-family model with named voices — "
-        "a lightweight alternative to Kokoro.",
+        description="Tiny (80M) high-quality English TTS with a single built-in voice — a "
+        "lightweight alternative to Kokoro (this base checkpoint takes no voice selection).",
         voice_mode=VoiceMode.preset,
         languages=["en"],
         sample_rate=24000,
@@ -147,9 +147,10 @@ BUILTIN: tuple[VoiceModel, ...] = (
         repo="mlx-community/Spark-TTS-0.5B-bf16",
         kind=VoiceKind.tts,
         backend=Backend.mlx_audio,
-        description="Bilingual (English + Chinese) TTS with voice creation: pick a gender, or "
+        description="Bilingual (English + Chinese) TTS with voice creation: pick a gender and "
+        "pin a seed for a stable voice (the timbre is sampled fresh each run otherwise), or "
         "clone from a reference clip.",
-        voice_mode=VoiceMode.preset,
+        voice_mode=VoiceMode.seeded,
         voices=["female", "male"],
         cloneable=True,
         languages=["en", "zh"],
