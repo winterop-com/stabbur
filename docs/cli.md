@@ -179,7 +179,14 @@ per-source paths — the rebuild-a-drive companion to `heim library manifest`.
 heim library sync models.toml             # pull everything missing
 heim library sync models.toml --dry-run   # show the plan, download nothing
 heim library sync models.toml --shared    # into the shared/default library
+heim library sync models.toml --repair    # also re-pull models that fail verification
 ```
+
+`--repair` runs `heim library verify` over each model the want list already covers and treats a
+failure as absent, so the pull rewrites it — for a drive that came back with a half-finished or
+corrupted copy. Add `--deep` to extend verification to re-hashing Ollama blobs (slow, but true
+content integrity). Re-pulling genuinely repairs rather than skipping: the Hugging Face snapshot
+re-fetches any file whose size or etag no longer matches.
 
 One model failing doesn't stop the others; the command exits non-zero if any failed. Ollama
 entries need the model in your **local Ollama store** first (`ollama pull <name>`), since the

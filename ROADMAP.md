@@ -127,10 +127,9 @@ not blocked on it — the extension already executes script in the tab. Open wor
 
 - **Chat export.** Still open: PDF export in the TUI (the web UI has it, via the browser's
   own print pipeline — the TUI has no equivalent, so this needs a real renderer decision).
-- **Rich tags — the last mile.** A color-picker / `heim library tag --color`, and a curated
-  default tag set seeded from `docs/guides/models.md`.
-- **Want-list drive rebuild.** A `--verify`/repair pass that re-pulls only models failing
-  `heim library verify --deep`.
+- **Rich tags — the last mile.** Assigning a tag a color/icon ships as `heim library tag-style`;
+  what is left is a color-picker in the web UI and a curated default tag set seeded from
+  `docs/guides/models.md`.
 
 ## North-star
 
