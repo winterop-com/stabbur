@@ -149,7 +149,13 @@ export interface ChatOptions {
 export type ChatEvent =
   | { type: "token"; text: string }
   | { type: "reasoning"; text: string }
-  | { type: "usage"; promptTokens: number; completionTokens: number }
+  | {
+      type: "usage";
+      promptTokens: number;
+      completionTokens: number;
+      /** llama.cpp's own decode timings, when the runtime reports them. */
+      timings?: { predictedTokens: number; predictedMs: number; promptMs: number };
+    }
   | { type: "tool"; kind: "call" | "result"; detail: string }
   | { type: "confirm"; id: string; tool: string; args: Record<string, unknown> }
   | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }
@@ -466,7 +472,15 @@ function parseEvent(evt: unknown): ChatEvent | null {
     case "usage": {
       const u = (e.usage ?? {}) as Record<string, unknown>;
       const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-      return { type: "usage", promptTokens: n(u.prompt_tokens), completionTokens: n(u.completion_tokens) };
+      const t = u.timings as Record<string, unknown> | undefined;
+      return {
+        type: "usage",
+        promptTokens: n(u.prompt_tokens),
+        completionTokens: n(u.completion_tokens),
+        timings: t
+          ? { predictedTokens: n(t.predicted_n), predictedMs: n(t.predicted_ms), promptMs: n(t.prompt_ms) }
+          : undefined,
+      };
     }
     case "tool":
       return {

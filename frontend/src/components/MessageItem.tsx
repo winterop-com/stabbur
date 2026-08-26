@@ -141,7 +141,7 @@ export function MessageItem({
            count when the turn ends. */
         <div
           className="mt-1 flex items-center gap-2.5 text-[11px] tabular-nums text-muted-foreground"
-          title={`${message.stats.promptTokens.toLocaleString()} prompt + ${message.stats.completionTokens.toLocaleString()} completion tokens`}
+          title={`${message.stats.promptTokens.toLocaleString()} prompt + ${message.stats.completionTokens.toLocaleString()} completion tokens\n${message.stats.ttftSeconds.toFixed(2)}s to first token · rate measured after it`}
         >
           <span className="inline-flex items-center gap-1">
             <Hash className="h-3 w-3" />

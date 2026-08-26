@@ -122,6 +122,12 @@ async def _stream_turn(
             # `choices` list; capture it and skip the (missing) delta.
             if chunk.get("usage"):
                 usage = chunk["usage"]
+                # llama.cpp adds its own `timings` (prompt_ms, predicted_ms,
+                # predicted_per_second) to that chunk. Pass them through: the runtime's
+                # measurement of its own decode rate beats anything a client can infer
+                # from arrival times. Absent on other servers, hence the guard.
+                if isinstance(chunk.get("timings"), dict):
+                    usage = {**usage, "timings": chunk["timings"]}
             if not chunk.get("choices"):
                 continue
             delta = chunk["choices"][0]["delta"]

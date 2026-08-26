@@ -43,8 +43,15 @@ export interface AttachedFile {
 export interface GenerationStats {
   promptTokens: number;
   completionTokens: number;
+  /** Wall time for the whole turn, prompt processing included. */
   seconds: number;
-  /** Completion tokens per second over the whole turn (tool time included). */
+  /** Seconds until the first token arrived (prompt processing / queueing). */
+  ttftSeconds: number;
+  /**
+   * Decode rate: tokens per second measured from the FIRST token, not from the request.
+   * Including prompt processing would make the figure ramp up from ~0 instead of reading
+   * the model's actual generation speed.
+   */
   tokensPerSecond: number;
 }
 

@@ -563,17 +563,32 @@ export function App() {
       // end of each round, so tick a live estimate from streamed deltas (llama.cpp emits one
       // token per delta) and correct it with the real numbers when they land.
       const startedAt = Date.now();
+      let firstTokenAt: number | null = null; // set on the first streamed delta
       let promptTokens = 0;
       let usageCompletion = 0; // authoritative, summed across rounds
       let deltas = 0; // live estimate: streamed content + reasoning chunks
+      // llama.cpp reports its own decode timings; summed across rounds they beat any
+      // client-side inference, which is inflated by network and render latency.
+      let predictedTokens = 0;
+      let predictedMs = 0;
+      let promptMs = 0;
       const statsFor = (tokens: number) => {
-        const seconds = (Date.now() - startedAt) / 1000;
+        const now = Date.now();
+        // Prefer the runtime's measurement of its own decode rate. Falling back to arrival
+        // times, measure from the FIRST token over the tokens that followed it — measuring
+        // from the request would fold prompt processing in, making the figure ramp from ~0.
+        const genSeconds = firstTokenAt != null ? (now - firstTokenAt) / 1000 : 0;
+        const measured = predictedMs > 0 ? predictedTokens / (predictedMs / 1000) : 0;
         return {
           promptTokens,
           completionTokens: tokens,
-          seconds,
-          tokensPerSecond: seconds > 0 ? tokens / seconds : 0,
+          seconds: (now - startedAt) / 1000,
+          ttftSeconds: promptMs > 0 ? promptMs / 1000 : firstTokenAt != null ? (firstTokenAt - startedAt) / 1000 : 0,
+          tokensPerSecond: measured || (genSeconds > 0 && tokens > 1 ? (tokens - 1) / genSeconds : 0),
         };
+      };
+      const markFirstToken = () => {
+        if (firstTokenAt == null) firstTokenAt = Date.now();
       };
       const stampStats = () => {
         const tokens = usageCompletion || deltas;
@@ -605,6 +620,7 @@ export function App() {
           target: targets.length >= 2 ? (targetId ?? undefined) : undefined,
         })) {
           if (evt.type === "token") {
+            markFirstToken();
             deltas += 1;
             const live = statsFor(usageCompletion + deltas);
             upsertConv(convId, (c) => ({
@@ -615,6 +631,7 @@ export function App() {
               ),
             }));
           } else if (evt.type === "reasoning") {
+            markFirstToken();
             deltas += 1;
             const live = statsFor(usageCompletion + deltas);
             upsertConv(convId, (c) => ({
@@ -679,6 +696,11 @@ export function App() {
             promptTokens = Math.max(promptTokens, evt.promptTokens);
             usageCompletion += evt.completionTokens;
             deltas = 0; // that round is now counted authoritatively; keep estimating the next
+            if (evt.timings) {
+              predictedTokens += evt.timings.predictedTokens;
+              predictedMs += evt.timings.predictedMs;
+              promptMs += evt.timings.promptMs;
+            }
           } else if (evt.type === "done") {
             stampStats();
             break;
