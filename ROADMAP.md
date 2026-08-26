@@ -96,6 +96,14 @@ TUI, and `heim serve --upstream` all front it. Open threads:
 
 ## Web UI
 
+- **Unify the design system across projects.** heim and `dhis2w-fhir-serve` now share a
+  radius scale, four named themes, and the shadcn command palette — by *copying*, which will
+  drift the moment either moves (the FHIR frontend is under active development). Extract the
+  shared layer instead: the token blocks + `--radius` scale as one CSS file, and ideally the
+  handful of ui/ primitives both keep re-deriving. Consider a small published package both
+  frontends depend on, versioned, so a theme fix lands once.
+- **Theme polish.** The four ported palettes (indigo, paper, contrast, terminal) are
+  mechanically correct but visually unrefined — the token values need a real design pass.
 - **Attach button needs a design pass** — what it accepts, how pending attachments are shown
   and removed, and how it reads on a model without vision/audio. Discuss before building.
 

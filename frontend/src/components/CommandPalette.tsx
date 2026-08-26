@@ -9,6 +9,7 @@ import {
   Moon,
   PanelLeft,
   PanelRight,
+  Palette,
   Settings,
   SquarePen,
   Sun,
@@ -24,6 +25,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { THEME_PALETTES, type ThemePalette } from "@/lib/store";
 import type { Conversation } from "@/lib/types";
 
 /** Whether a keypress is the palette chord (Cmd+K on Apple, Ctrl+K elsewhere). */
@@ -45,6 +47,7 @@ export interface PaletteActions {
   onToggleSidebar: () => void;
   onToggleChatSettings: () => void;
   onToggleTheme: () => void;
+  onChoosePalette: (palette: ThemePalette) => void;
   onClearChat: () => void;
   onExportMarkdown: () => void;
   onExportPdf: () => void;
@@ -65,6 +68,7 @@ export function CommandPalette({
   library,
   conversations,
   theme,
+  palette,
   voiceEnabled,
   hasConversation,
   actions,
@@ -75,6 +79,7 @@ export function CommandPalette({
   library: LibModel[];
   conversations: Conversation[];
   theme: string;
+  palette: ThemePalette;
   voiceEnabled: boolean;
   /** Whether there is an open conversation (gates clear/export rows). */
   hasConversation: boolean;
@@ -202,6 +207,16 @@ export function CommandPalette({
             )}
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </CommandItem>
+        </CommandGroup>
+
+        <CommandGroup heading="Theme">
+          {THEME_PALETTES.map((p) => (
+            <CommandItem key={p} value={`theme ${p}`} onSelect={run(() => actions.onChoosePalette(p))}>
+              <Palette className="h-4 w-4 text-muted-foreground" />
+              <span className="capitalize">{p}</span>
+              {palette === p && <CommandShortcut>current</CommandShortcut>}
+            </CommandItem>
+          ))}
         </CommandGroup>
       </CommandList>
     </CommandDialog>

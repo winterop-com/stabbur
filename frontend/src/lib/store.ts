@@ -7,6 +7,7 @@ import type { Conversation } from "@/lib/types";
 
 const CONVERSATIONS_KEY = "heim.conversations";
 const THEME_KEY = "heim.theme";
+const PALETTE_KEY = "heim.theme_palette";
 
 export interface Settings {
   // null = use the project default (heim.toml); "" = explicitly no system prompt;
@@ -152,4 +153,22 @@ export function deriveTitle(text: string): string {
   const clean = text.trim().replace(/\s+/g, " ");
   if (!clean) return "New chat";
   return clean.length > 40 ? `${clean.slice(0, 40)}…` : clean;
+}
+
+/** Named colour themes (the palette; light/dark is a separate axis). */
+export const THEME_PALETTES = ["default", "indigo", "paper", "contrast", "terminal"] as const;
+export type ThemePalette = (typeof THEME_PALETTES)[number];
+
+export function loadPalette(): ThemePalette {
+  const raw = localStorage.getItem(PALETTE_KEY);
+  return (THEME_PALETTES as readonly string[]).includes(raw ?? "") ? (raw as ThemePalette) : "default";
+}
+
+export function savePalette(palette: ThemePalette): void {
+  try {
+    if (palette === "default") localStorage.removeItem(PALETTE_KEY);
+    else localStorage.setItem(PALETTE_KEY, palette);
+  } catch {
+    /* storage full/blocked: the choice still applies this session */
+  }
 }

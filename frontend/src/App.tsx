@@ -87,7 +87,7 @@ function friendlyRuntimeError(raw: string): string | null {
 }
 
 export function App() {
-  const { theme, toggle } = useTheme();
+  const { theme, toggle, palette, setPalette } = useTheme();
 
   // Server state.
   const [status, setStatus] = useState<Status | null>(null);
@@ -989,6 +989,7 @@ export function App() {
         library={library}
         conversations={conversations}
         theme={theme}
+        palette={palette}
         voiceEnabled={voiceEnabled}
         hasConversation={!!activeConv && messages.length > 0}
         actions={{
@@ -1002,6 +1003,7 @@ export function App() {
           onToggleSidebar: toggleSidebar,
           onToggleChatSettings: toggleChatSettings,
           onToggleTheme: toggle,
+          onChoosePalette: setPalette,
           onClearChat: () => activeId && deleteConversation(activeId),
           onExportMarkdown: () => activeConv && exportConversationMarkdown(activeConv, status?.model ?? null),
           onExportPdf: () => {
