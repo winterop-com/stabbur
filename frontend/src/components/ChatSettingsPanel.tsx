@@ -1,7 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { PanelRightClose, RotateCcw, SlidersHorizontal, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { PanelRightClose, RotateCcw, RotateCw, SlidersHorizontal, TriangleAlert, Wrench } from "lucide-react";
 
-import { getModelInfo, type LibModel, type ModelInfo, type Status, type ToolInfo, type Voice } from "@/api";
+import {
+  getMcpServers,
+  getModelInfo,
+  setMcpServer,
+  type LibModel,
+  type McpServerInfo,
+  type ModelInfo,
+  type Status,
+  type ToolInfo,
+  type Voice,
+} from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -111,6 +121,9 @@ export function ChatSettingsPanel({
   onToggleUse,
   onToggleTool,
   onToggleServer,
+  onToolsChanged,
+  tab,
+  onTabChange,
 }: {
   status: Status | null;
   library: LibModel[];
@@ -129,12 +142,26 @@ export function ChatSettingsPanel({
   onToggleUse: (on: boolean) => void;
   onToggleTool: (name: string, enabled: boolean) => void;
   onToggleServer: (names: string[], enabled: boolean) => void;
+  /** Re-read /api/tools: a server switched on attaches its tools live, so the list is stale. */
+  onToolsChanged: () => void;
+  /** Which tab is showing. Owned by the app so a "manage tools" affordance elsewhere can
+   *  open this panel *on* the Tools tab instead of dropping the user on Parameters. */
+  tab: "parameters" | "tools";
+  onTabChange: (tab: "parameters" | "tools") => void;
 }) {
-  const [tab, setTab] = useState<"parameters" | "tools">("parameters");
   const modelName = status?.model ?? null;
   const libEntry = library.find((m) => m.name === modelName) ?? null;
   const visionModel = !!libEntry?.vision;
   const [info, setInfo] = useState<ModelInfo | null>(null);
+
+  // Context length is only ours to set when heim loads the model itself. An upstream (`serve
+  // --upstream`) serves a window it already chose, and MLX derives one from the checkpoint —
+  // in both cases every control here is inert, so the section shows the reason and nothing to
+  // click, rather than a picker and an Apply button that quietly do nothing.
+  const modelFormat = (libEntry?.model_format ?? "").toLowerCase();
+  const isMlx = modelFormat === "mlx";
+  const isRemote = modelFormat === "remote";
+  const contextInert = isMlx || isRemote;
 
   // Local text state for the numeric inputs so partial edits (e.g. "0.") aren't clobbered.
   const [maxTokens, setMaxTokens] = useState(settings.maxTokens != null ? String(settings.maxTokens) : "");
@@ -176,12 +203,71 @@ export function ChatSettingsPanel({
   const defTopP = num(rec?.top_p, 0.95);
   const defMaxTokens = status?.default_max_tokens ? String(status.default_max_tokens) : "unlimited";
 
-  const groupedTools = useMemo(() => {
-    const by: Record<string, ToolInfo[]> = {};
-    for (const t of tools) (by[t.server] ??= []).push(t);
-    return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
-  }, [tools]);
   const enabledCount = tools.filter((t) => !disabled.has(t.name)).length;
+
+  // --- the MCP server catalogue (what heim *could* run), independent of what's attached ---
+  const [servers, setServers] = useState<McpServerInfo[] | null>(null); // null = still loading
+  const [pending, setPending] = useState<string | null>(null);
+  // The last toggle outcome per server, kept only for this panel session: the server tells us
+  // whether the change actually took effect, and that answer is the whole point of the control.
+  const [notes, setNotes] = useState<Record<string, { tone: "warn" | "error"; text: string }>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    getMcpServers()
+      .then((s) => !cancelled && setServers(s))
+      .catch(() => !cancelled && setServers([])); // an older backend has no route; show the attached tools only
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleMcpServer = useCallback(
+    async (name: string, on: boolean) => {
+      setPending(name);
+      setNotes((n) => {
+        const next = { ...n };
+        delete next[name];
+        return next;
+      });
+      try {
+        const res = await setMcpServer(name, on);
+        // The response carries the refreshed row, so trust it over the optimistic value —
+        // an enable the project vetoes comes back still disabled.
+        setServers((list) => (list ?? []).map((s) => (s.name === res.server.name ? res.server : s)));
+        if (res.applied) onToolsChanged(); // its tools are attached (or gone) right now
+        if (res.restart_required)
+          setNotes((n) => ({
+            ...n,
+            [name]: { tone: "warn", text: res.detail || "restart heim serve for this to take effect" },
+          }));
+        else if (!res.applied)
+          setNotes((n) => ({ ...n, [name]: { tone: "error", text: res.detail || "the change did not take effect" } }));
+      } catch (e) {
+        setNotes((n) => ({ ...n, [name]: { tone: "error", text: e instanceof Error ? e.message : String(e) } }));
+      } finally {
+        setPending(null);
+      }
+    },
+    [onToolsChanged],
+  );
+
+  /**
+   * One row per server: the whole bundled catalogue, plus any server that is attached without
+   * being one of ours (an external `.mcp.json` entry — listed so its tools stay reachable, but
+   * with no on/off switch, since the toggle route is an allow-list over the bundled set).
+   */
+  const rows = useMemo(() => {
+    const byServer: Record<string, ToolInfo[]> = {};
+    for (const t of tools) (byServer[t.server] ??= []).push(t);
+    const bundled = servers ?? [];
+    const known = new Set(bundled.map((s) => s.name));
+    const external = Object.keys(byServer)
+      .filter((name) => !known.has(name))
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ name, server: null as McpServerInfo | null, list: byServer[name] }));
+    return [...bundled.map((s) => ({ name: s.name, server: s, list: byServer[s.name] ?? [] })), ...external];
+  }, [servers, tools]);
 
   const voiceLabel = (id: string) => voices.find((v) => v.id === id)?.label ?? id;
   // Mirrors the server's fallback (heim.routers.serving.voice: kokoro:af_heart).
@@ -222,7 +308,7 @@ export function ChatSettingsPanel({
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
+            onClick={() => onTabChange(id)}
             className={cn(
               "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
               tab === id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -376,11 +462,12 @@ export function ChatSettingsPanel({
           </div>
         </Section>
 
-        <Section title="Context length" description="Set when the model loads; applying reloads it.">
+        <Section
+          title="Context length"
+          description={contextInert ? undefined : "Set when the model loads; applying reloads it."}
+        >
           {(() => {
-            const isMlx = (libEntry?.model_format ?? "").toLowerCase() === "mlx";
-            const isRemote = (libEntry?.model_format ?? "").toLowerCase() === "remote";
-            const locked = isMlx || isRemote || !modelName;
+            const locked = !modelName;
             const parsed = parseNum(context, { int: true, min: 1 });
             const max = libEntry?.context_length ?? null;
             const presets = contextPresets(max);
@@ -389,55 +476,59 @@ export function ChatSettingsPanel({
             const custom = customCtx || (context !== "" && !presets.some((p) => String(p) === context));
             return (
               <>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={custom ? "custom" : context}
-                    disabled={locked}
-                    onChange={(e) => {
-                      if (e.target.value === "custom") setCustomCtx(true);
-                      else {
-                        setCustomCtx(false);
-                        setContext(e.target.value);
-                      }
-                    }}
-                    className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <option value="">Default{max ? ` — full ${fmtTokens(max)}` : ""}</option>
-                    {presets.map((v) => (
-                      <option key={v} value={String(v)}>
-                        {fmtTokens(v)}
-                        {v === max ? " (max)" : ""}
-                      </option>
-                    ))}
-                    <option value="custom">Custom…</option>
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={locked || busy || overMax || !dirty}
-                    onClick={() => {
-                      onChange({ ...settings, contextLength: parsed });
-                      onReloadContext(parsed);
-                    }}
-                    className="h-8 shrink-0"
-                  >
-                    {busy ? "Loading…" : "Apply"}
-                  </Button>
-                </div>
-                {custom && (
-                  <Input
-                    type="number"
-                    min={1}
-                    max={max ?? undefined}
-                    value={context}
-                    autoFocus
-                    disabled={locked}
-                    onChange={(e) => setContext(e.target.value)}
-                    placeholder={max ? `tokens (max ${max.toLocaleString()})` : "tokens"}
-                    className="mt-2 h-8 bg-background/60"
-                  />
+                {!contextInert && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={custom ? "custom" : context}
+                        disabled={locked}
+                        onChange={(e) => {
+                          if (e.target.value === "custom") setCustomCtx(true);
+                          else {
+                            setCustomCtx(false);
+                            setContext(e.target.value);
+                          }
+                        }}
+                        className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <option value="">Default{max ? ` — full ${fmtTokens(max)}` : ""}</option>
+                        {presets.map((v) => (
+                          <option key={v} value={String(v)}>
+                            {fmtTokens(v)}
+                            {v === max ? " (max)" : ""}
+                          </option>
+                        ))}
+                        <option value="custom">Custom…</option>
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={locked || busy || overMax || !dirty}
+                        onClick={() => {
+                          onChange({ ...settings, contextLength: parsed });
+                          onReloadContext(parsed);
+                        }}
+                        className="h-8 shrink-0"
+                      >
+                        {busy ? "Loading…" : "Apply"}
+                      </Button>
+                    </div>
+                    {custom && (
+                      <Input
+                        type="number"
+                        min={1}
+                        max={max ?? undefined}
+                        value={context}
+                        autoFocus
+                        disabled={locked}
+                        onChange={(e) => setContext(e.target.value)}
+                        placeholder={max ? `tokens (max ${max.toLocaleString()})` : "tokens"}
+                        className="mt-2 h-8 bg-background/60"
+                      />
+                    )}
+                  </>
                 )}
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                <p className={cn("text-[11px] text-muted-foreground", !contextInert && "mt-1.5")}>
                   {isRemote
                     ? "The upstream server decides this model's context."
                     : isMlx
@@ -536,68 +627,153 @@ export function ChatSettingsPanel({
         )}
 
         {tab === "tools" && (
-        <Section title="Tools" description="MCP tools this chat may call. New tools default on.">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Enable tools</div>
-              <div className="truncate text-[11px] text-muted-foreground">
-                {tools.length === 0
-                  ? "No MCP servers configured"
-                  : settings.useTools
-                    ? `${enabledCount} of ${tools.length} active`
-                    : "Off for this chat"}
+          <>
+            <Section title="Tools" description="MCP tools this chat may call. New tools default on.">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Enable tools</div>
+                  <div className="truncate text-[11px] text-muted-foreground">
+                    {tools.length === 0
+                      ? "Nothing attached — switch a server on below"
+                      : settings.useTools
+                        ? `${enabledCount} of ${tools.length} active`
+                        : "Off for this chat"}
+                  </div>
+                </div>
+                <Switch
+                  checked={settings.useTools}
+                  disabled={tools.length === 0}
+                  onCheckedChange={onToggleUse}
+                  aria-label="Enable tools"
+                />
               </div>
-            </div>
-            <Switch
-              checked={settings.useTools}
-              disabled={tools.length === 0}
-              onCheckedChange={onToggleUse}
-              aria-label="Enable tools"
-            />
-          </div>
+            </Section>
 
-          {settings.useTools && groupedTools.length > 0 && (
-            <div className="mt-3 flex flex-col gap-1">
-              {groupedTools.map(([server, list]) => {
-                const names = list.map((t) => t.name);
-                const on = names.filter((n) => !disabled.has(n)).length;
-                return (
-                  <details key={server} className="rounded-md border border-border bg-background/40">
-                    <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-2.5 py-1.5">
-                      <span className="min-w-0 flex-1 truncate text-sm">{server}</span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                        {on}/{list.length}
-                      </span>
-                      {/* The wrapper swallows the click so hitting the switch doesn't
-                          also open/close the <details> it sits in. */}
-                      <span className="shrink-0" onClick={(e) => e.preventDefault()}>
-                        <Switch
-                          checked={on > 0}
-                          onCheckedChange={(enabled) => onToggleServer(names, enabled)}
-                          aria-label={`Enable ${server} tools`}
-                        />
-                      </span>
-                    </summary>
-                    <div className="flex flex-col gap-1 border-t border-border px-2.5 py-1.5">
-                      {list.map((t) => (
-                        <div key={t.name} className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 flex-1 truncate text-[11px]" title={t.description || t.tool}>
-                            {t.tool}
-                          </span>
-                          <Switch
-                            checked={!disabled.has(t.name)}
-                            onCheckedChange={(enabled) => onToggleTool(t.name, enabled)}
-                            aria-label={t.tool}
-                          />
+            {/* The catalogue: every server heim ships, most of them off. Two switches with two
+                different scopes live here, so they are deliberately kept apart — the row switch
+                starts/stops the *server* for every chat on this machine (it writes mcp.json),
+                while the switches inside "Tools in this chat" are this conversation's denylist. */}
+            <Section
+              title="MCP servers"
+              description="What heim can run. Switching one on starts it for every chat on this machine."
+            >
+              {servers === null ? (
+                <p className="text-[11px] text-muted-foreground">Loading…</p>
+              ) : rows.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">This server reports no MCP servers.</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {rows.map(({ name, server, list }) => {
+                    const names = list.map((t) => t.name);
+                    const on = names.filter((n) => !disabled.has(n)).length;
+                    const note = notes[name];
+                    // No switch for a server heim can't start (an uninstalled extra) or doesn't own
+                    // (an external .mcp.json entry) — a control that cannot work is worse than none.
+                    const canToggle = !!server && server.installed;
+                    return (
+                      <div key={name} className="rounded-md border border-border bg-background/40">
+                        <div className="flex items-start justify-between gap-2 px-2.5 py-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium">{name}</span>
+                              {list.length > 0 && (
+                                <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] tabular-nums text-muted-foreground">
+                                  {list.length} tools
+                                </span>
+                              )}
+                              {server?.scope === "project" && (
+                                <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] text-muted-foreground">
+                                  .mcp.json
+                                </span>
+                              )}
+                            </div>
+                            {(server?.description || !server) && (
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                {server?.description || "Configured by this project's .mcp.json."}
+                              </p>
+                            )}
+                            {/* Why this row has no switch, or why its switch didn't do what it looks
+                                like it did. Only one of these ever shows at a time. */}
+                            {server && !server.installed ? (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Not installed{server.setup ? ` — ${server.setup}` : "."}
+                              </p>
+                            ) : note ? (
+                              <p
+                                className={cn(
+                                  "mt-1 flex items-start gap-1 text-[11px]",
+                                  note.tone === "warn" ? "text-amber-700 dark:text-amber-400" : "text-destructive",
+                                )}
+                              >
+                                {note.tone === "warn" ? (
+                                  <RotateCw className="mt-px h-3 w-3 shrink-0" />
+                                ) : (
+                                  <TriangleAlert className="mt-px h-3 w-3 shrink-0" />
+                                )}
+                                <span>{note.text}</span>
+                              </p>
+                            ) : server?.enabled === false && list.length > 0 ? (
+                              <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                                <RotateCw className="mt-px h-3 w-3 shrink-0" />
+                                <span>Off, but still running — its tools detach when heim serve restarts.</span>
+                              </p>
+                            ) : (
+                              server?.enabled === true &&
+                              list.length === 0 && (
+                                <p className="mt-1 text-[11px] text-muted-foreground">On, but it attached no tools.</p>
+                              )
+                            )}
+                          </div>
+                          {canToggle && (
+                            <Switch
+                              checked={server.enabled}
+                              disabled={pending === name}
+                              onCheckedChange={(enabled) => void toggleMcpServer(name, enabled)}
+                              aria-label={`Run the ${name} MCP server`}
+                            />
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </details>
-                );
-              })}
-            </div>
-          )}
-        </Section>
+
+                        {settings.useTools && list.length > 0 && (
+                          <details className="border-t border-border">
+                            <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                              <span className="min-w-0 flex-1 truncate">Tools in this chat</span>
+                              <span className="shrink-0 tabular-nums">
+                                {on}/{list.length}
+                              </span>
+                              {/* The wrapper swallows the click so hitting the switch doesn't
+                                  also open/close the <details> it sits in. */}
+                              <span className="shrink-0" onClick={(e) => e.preventDefault()}>
+                                <Switch
+                                  checked={on > 0}
+                                  onCheckedChange={(enabled) => onToggleServer(names, enabled)}
+                                  aria-label={`Use ${name} tools in this chat`}
+                                />
+                              </span>
+                            </summary>
+                            <div className="flex flex-col gap-1 border-t border-border px-2.5 py-1.5">
+                              {list.map((t) => (
+                                <div key={t.name} className="flex items-center justify-between gap-2">
+                                  <span className="min-w-0 flex-1 truncate text-[11px]" title={t.description || t.tool}>
+                                    {t.tool}
+                                  </span>
+                                  <Switch
+                                    checked={!disabled.has(t.name)}
+                                    onCheckedChange={(enabled) => onToggleTool(t.name, enabled)}
+                                    aria-label={t.tool}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Section>
+          </>
         )}
       </div>
     </aside>

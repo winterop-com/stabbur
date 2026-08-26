@@ -95,6 +95,14 @@ export function App() {
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [tagRegistry, setTagRegistry] = useState<TagRegistry>({}); // first-class tag colors/icons
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  // Tools are optional (empty when no MCP server is switched on) — a failure here is never fatal.
+  // Also called straight after switching a server on, which attaches its tools live: waiting for
+  // the slow poll would show a stale list for up to a refresh interval.
+  const refreshTools = useCallback(() => {
+    getTools()
+      .then(setTools)
+      .catch(() => {});
+  }, []);
   // Multi-target project registry ([[assistants]]): a picker shows only with >= 2 targets, and the
   // chosen id rides every chat turn as `target` (the server routes per turn, spawning a target's
   // bridge lazily on first use). Empty for generic/single-target servers -> no picker, no `target`.
@@ -146,6 +154,9 @@ export function App() {
   );
 
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  // Owned here, not in the panel: the panel unmounts while collapsed, and an affordance that
+  // opens it (the tools pill) has to land on the Tools tab, not on whatever it showed last.
+  const [chatSettingsTab, setChatSettingsTab] = useState<"parameters" | "tools">("parameters");
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // --- resizable layout: imperative handles to collapse/expand the rails. ---
@@ -320,7 +331,7 @@ export function App() {
         })
         .catch((e) => setError(`Library: ${e}`))
         .finally(() => setLibraryLoaded(true)); // distinguish "still loading" from "empty"
-      getTools().then(setTools).catch(() => {}); // tools are optional; empty if none configured
+      refreshTools();
       // Assistant targets: only a multi-target project (>= 2) shows the picker. Reconcile the
       // persisted pick against the live registry, defaulting to the primary (first) when it's gone
       // or unset; a generic/single-target server clears both so no `target` is ever sent. Skip the
@@ -370,7 +381,7 @@ export function App() {
       clearInterval(s);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshStatus, reconcileTargets]);
+  }, [refreshStatus, reconcileTargets, refreshTools]);
 
   const ready = !!status?.model && status.state === "ready";
   // Which attachment modalities the loaded model accepts (composer gating).
@@ -1346,6 +1357,9 @@ export function App() {
               onToggleUse={setUseTools}
               onToggleTool={toggleTool}
               onToggleServer={toggleServer}
+              onToolsChanged={refreshTools}
+              tab={chatSettingsTab}
+              onTabChange={setChatSettingsTab}
             />
           )}
         </Panel>

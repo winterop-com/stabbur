@@ -185,6 +185,56 @@ export const getTagRegistry = () => apiFetch("/api/tags/registry").then(json<Tag
 export const getTools = () => apiFetch("/api/tools").then(json<ToolInfo[]>);
 
 /**
+ * One first-party MCP server heim ships (GET /api/mcp/servers). `/api/tools` only answers "what
+ * can the agent call right now", which is empty on a fresh machine; this is the other half — the
+ * whole shipped set, so the Tools panel can render a catalogue instead of a void. `enabled` is the
+ * resolved truth (global mcp.json + the project's .mcp.json), `scope` names the file that switches
+ * it on, and `installed: false` marks an optional server whose extra isn't built yet (`setup` says
+ * how to install it).
+ */
+export interface McpServerInfo {
+  name: string;
+  command: string;
+  description: string;
+  enabled: boolean;
+  scope: "global" | "project" | null;
+  installed: boolean;
+  setup: string;
+}
+
+/**
+ * The outcome of a toggle, which is deliberately not just "ok". Enabling attaches the server live
+ * (`applied: true`, tools callable next turn); disabling persists but cannot detach an already-
+ * spawned subprocess, so it answers `applied: false, restart_required: true`; a failed spawn is
+ * `applied: false` with the reason in `detail`. Callers must render this, never a blanket success.
+ */
+export interface McpToggleResult {
+  server: McpServerInfo;
+  applied: boolean;
+  restart_required: boolean;
+  detail: string;
+}
+
+/** Every bundled MCP server with its resolved on/off state (the Tools panel's catalogue). */
+export const getMcpServers = () => apiFetch("/api/mcp/servers").then(json<McpServerInfo[]>);
+
+/** Switch one bundled MCP server on/off (machine-global). Returns what actually happened. */
+export async function setMcpServer(name: string, enabled: boolean): Promise<McpToggleResult> {
+  const res = await apiFetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) {
+    // 409 (a project .mcp.json owns this server) carries the file to edit in `detail` — the one
+    // thing that makes the refusal actionable, so surface it rather than the bare status.
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+  return json<McpToggleResult>(res);
+}
+
+/**
  * One assistant target in a multi-target project registry ([[assistants]]), as sanitized by
  * GET /api/assistants. Minimal mirror of the extension's shape (kept independent — the web app
  * must not import extension code); `id` is the registry's collision-safe id, `mcp_servers` names
