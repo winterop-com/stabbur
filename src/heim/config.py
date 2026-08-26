@@ -93,6 +93,12 @@ def _default_runtime_state_dir() -> Path:
     return (Path(cache) if cache else Path.home() / ".cache") / "heim" / "runtimes"
 
 
+# `heim serve`'s default port. Deliberately unusual (and above the privileged range) to
+# avoid the common dev-server ports; 2222 is sometimes an alternate SSH port, so a collision
+# is reported rather than guessed around.
+DEFAULT_SERVE_PORT = 2222
+
+
 class Settings(BaseSettings):
     """Application settings — read from ``heim.toml`` first, then env vars.
 
@@ -136,10 +142,12 @@ class Settings(BaseSettings):
     app_name: str = "heim"
     debug: bool = False
     host: str = "127.0.0.1"
-    # Web server (heim serve) port. ``None`` (default) auto-picks a free port and
-    # prints the URL on startup; set an int (or pass --port) to pin it for a stable
-    # bookmark / Chrome-extension origin.
-    port: int | None = None
+    # Web server (heim serve) port. A fixed default so the URL is stable across restarts
+    # (bookmarks, the Chrome-extension origin, `heim chat --server`): a port that moves every
+    # start is worse than one that occasionally collides — and a collision is reported, never
+    # silently worked around. Override per run with --port, or per machine with
+    # `heim config set port`.
+    port: int = DEFAULT_SERVE_PORT
 
     # Serve the browser UI (single-page app) alongside the API. Defaults to the
     # ``frontend/dist`` that ships with the source tree (resolved from this file, not the

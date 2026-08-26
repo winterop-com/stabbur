@@ -848,3 +848,28 @@ def test_config_set_port_pins_serve_port(tmp_path: Path, monkeypatch: pytest.Mon
         res = runner.invoke(cli.app, ["config", "set", "port", bad])
         assert res.exit_code == 1, bad
     assert userconfig.read()["port"] == 8990
+
+
+def test_serve_port_default_is_fixed() -> None:
+    # The serve URL must be stable across restarts (bookmarks, the extension origin,
+    # `heim chat --server`), so the port is a fixed default rather than auto-picked.
+    from heim.config import DEFAULT_SERVE_PORT, Settings
+
+    assert DEFAULT_SERVE_PORT == 2222
+    assert Settings().port == DEFAULT_SERVE_PORT
+
+
+def test_serve_refuses_a_busy_port_instead_of_moving(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A taken port is reported, never silently worked around — a wandering URL is worse
+    # than a clear failure the user can act on.
+    import socket
+
+    monkeypatch.setattr("heim.cli.serve.project.load", lambda *a, **k: None)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen()
+        busy = held.getsockname()[1]
+        result = runner.invoke(cli.app, ["serve", "--port", str(busy)])
+    assert result.exit_code == 1, result.output
+    assert "already in use" in result.output
+    assert "--port" in result.output  # tells the user how to move it

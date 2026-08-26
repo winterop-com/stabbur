@@ -9,7 +9,6 @@ import typer
 from heim import (
     config,
     project,
-    runtime,
 )
 from heim import library as library_ops
 from heim.cli._app import app
@@ -45,6 +44,23 @@ def _export_serve_env(
         os.environ["HEIM_UPSTREAM"] = upstream
 
 
+def _port_free(host: str, port: int) -> bool:
+    """Whether ``port`` can be bound on ``host`` right now (a pre-flight, so the failure is ours).
+
+    Deliberately does not set SO_REUSEADDR: the question is whether something already holds the
+    port, not whether we could share it. A race with another process between this check and
+    uvicorn's bind is possible but harmless — uvicorn then reports the collision itself.
+    """
+    import socket  # noqa: PLC0415
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host or "127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
 @app.command()
 def serve(
     ui: Annotated[bool, typer.Option("--ui", help="Also serve the browser UI (single-page app).")] = False,
@@ -64,15 +80,16 @@ def serve(
     host: Annotated[str | None, typer.Option("--host", help="Bind address (default 127.0.0.1).")] = None,
     port: Annotated[
         int | None,
-        typer.Option("--port", help="Web server port (default: auto-pick a free port; pin for a stable URL)."),
+        typer.Option("--port", help=f"Web server port (default {config.DEFAULT_SERVE_PORT})."),
     ] = None,
     reload: Annotated[bool, typer.Option(help="Auto-reload on code changes.")] = False,
 ) -> None:
     """Run the web server (browse API, plus the browser UI with --ui).
 
     With --model the server is locked to a single model (the Chrome-extension
-    backend); otherwise the UI can switch models freely. The port defaults to a
-    free auto-picked one (printed below); pass --port to pin a stable URL.
+    backend); otherwise the UI can switch models freely. The port is fixed (2222 by
+    default) so the URL is stable across restarts; if it's taken, serve says so
+    rather than moving — pass --port, or `heim config set port` for a new default.
     """
     import os  # noqa: PLC0415
 
@@ -113,9 +130,18 @@ def serve(
 
     get_settings.cache_clear()
     settings = get_settings()
-    # Precedence: --host/--port > HEIM_HOST/HEIM_PORT/heim.toml > auto-pick a free port.
+    # Precedence: --host/--port > HEIM_HOST/HEIM_PORT/heim.toml > the fixed default.
     bind_host = host or settings.host
-    bind_port = port or settings.port or runtime.find_free_port()
+    bind_port = port or settings.port
+    if not _port_free(bind_host, bind_port):
+        # Never silently move: a wandering URL breaks bookmarks, the extension origin, and
+        # `heim chat --server`. Say what is wrong and let the user choose.
+        console.print(
+            f"[red]Port {bind_port} is already in use[/] — another heim serve may be running.\n"
+            f"Pass [cyan]--port <number>[/] for this run, or set a new default with "
+            f"[cyan]heim config set port <number>[/]."
+        )
+        raise typer.Exit(1)
     base = f"http://{bind_host}:{bind_port}"
 
     # Binding a non-loopback address exposes model control + MCP tool execution (arbitrary code

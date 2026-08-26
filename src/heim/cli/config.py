@@ -63,7 +63,7 @@ def config_list() -> None:
     console.print(f"  library-root  {settings.library_root or '[yellow](not set)[/]'}")
     console.print(f"  model         {settings.default_model or '[dim](none — free-play)[/]'}")
     console.print(f"  server        {settings.chat_server or '[dim](none — heim chat loads per call)[/]'}")
-    console.print(f"  port          {settings.port or '[dim](auto-pick a free port per serve)[/]'}")
+    console.print(f"  port          {settings.port}")
     console.print(f"  host          {settings.host}")
 
 

@@ -26,8 +26,8 @@ WRITABLE: dict[str, str] = {
     "library-root": "library_root",
     "model": "default_model",
     "server": "chat_server",
-    # Pin `heim serve` to a stable address machine-wide (a bookmarkable URL / a stable
-    # Chrome-extension origin); unset, serve auto-picks a free port every start.
+    # Change `heim serve`'s address machine-wide (it defaults to a fixed port, so the URL
+    # is already stable; set these to move it).
     "port": "port",
     "host": "host",
 }
