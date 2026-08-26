@@ -99,30 +99,20 @@ TUI, and `heim serve --upstream` all front it. Open threads:
 - **Attach button needs a design pass** — what it accepts, how pending attachments are shown
   and removed, and how it reads on a model without vision/audio. Discuss before building.
 
-## WebMCP — watch, don't build (assessed 2026-08-26)
+## Page actions (and WebMCP)
 
-Careful: the name covers (1) the **browser API** `document.modelContext.registerTool()`,
-(2) **site-embedded JS libraries exposing an MCP server** ([webmcp.dev](https://webmcp.dev/),
-`@mcp-b/webmcp-local-relay`), and (3) **CDN injection** (Cloudflare preview). Only (1) needs
-browser support — so "vendor X supports WebMCP" usually means (2), which any MCP client gets
-for free. heim is already an MCP client: it could consume (2) **today with no code change**,
-as an `.mcp.json` entry. The blocker is on the other side — a site has to expose tools, and
-DHIS2 exposes none. On the browser API specifically:
+Design + assessment: **[`WEBMCP.md`](WEBMCP.md)**. Short version: WebMCP is **watch, don't
+build** — it inverts UI control rather than providing it, and heim (already an MCP client)
+isn't the side that's missing anything; DHIS2 exposing tools is. Page actions themselves are
+not blocked on it — the extension already executes script in the tab. Open work, in order:
 
-- Draft CG report, not Rec track; **WebKit opposed**, Mozilla neutral — no vendor consensus.
-- Chrome/Edge **origin trial only**, M149–M156; no Intent to Ship, nothing on by default.
-- The consumer half (`getTools`/`executeTool`) is weeks old and still changing signatures.
-- Adoption is ~zero (a 111k-domain scan found none); **DHIS2 has nothing** and is going the
-  REST-MCP route heim already took. No WebExtensions API yet (webmcp#74, stalled).
-- It contributes nothing to the hard part of page-actions: the blast radius of an AI acting
-  as a logged-in admin. Page-declared tool descriptions are attacker-influenceable text
-  (DHIS2 renders user-authored dashboard/interpretation content), which is *worse* than
-  today's posture where descriptions come from a server we wrote — and this applies to
-  every flavor above, not just the browser API.
-
-Revisit if: Chrome files an Intent to Ship or extends the trial past M156; webmcp#74 lands;
-DHIS2 opens any WebMCP issue; Mozilla turns positive or WebKit softens. Full write-up with
-sources was produced 2026-08-26 (see git history for the research note).
+- **Read-only page actions first**: navigate to a URL the assistant constructs (app + org unit
+  + dataset + period), scroll to and highlight a field it just mentioned. No writes, uses
+  permissions the extension already holds, and it is what makes the panel feel *in* the app.
+- **Mutating clicks** only if a case appears that REST cannot serve — and then behind the
+  existing per-action confirmation gate.
+- **Verify** whether DHIS2's `POST /api/files/script` still loads inside modern app-platform
+  SPAs (it is the no-fork injection point if we ever want page-declared tools).
 
 ## Other open ideas
 
