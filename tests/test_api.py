@@ -1137,3 +1137,21 @@ async def test_spa_index_is_revalidated_but_hashed_assets_are_immutable(tmp_path
         # API responses keep their own semantics — the SPA policy must not leak onto them.
         api = await client.get("/api/status")
         assert "cache-control" not in api.headers
+
+
+async def test_unconfigured_library_answers_with_its_hint_not_a_500(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first run with no HEIM_LIBRARY_ROOT must not look like a crash.
+
+    The exception carries a ready-to-print hint naming the variable to set; escaping as a bare
+    500 stranded the SPA with broken panels and left that hint in the server log.
+    """
+
+    def _unconfigured(*_a: object, **_k: object) -> list[LibraryModel]:
+        raise library_ops.LibraryNotConfigured
+
+    monkeypatch.setattr(library_ops, "scan", _unconfigured)
+    response = await client.get("/api/library")
+    assert response.status_code == 503
+    assert "HEIM_LIBRARY_ROOT" in response.json()["detail"]

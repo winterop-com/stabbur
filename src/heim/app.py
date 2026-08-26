@@ -282,6 +282,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse({"detail": "cross-site request blocked"}, status_code=403)
         return await call_next(request)
 
+    # An unconfigured library is a first-run state, not a crash: with no HEIM_LIBRARY_ROOT the
+    # library routes raise LibraryNotConfigured, which reached the client as a bare 500 and
+    # stranded the SPA with broken Library/Voice panels while the exception's actual, actionable
+    # message sat in the server log. The CLI already prints that message (heim.cli._app); this is
+    # the same courtesy for the API, so the UI can show the user what to set.
+    @app.exception_handler(library_ops.LibraryNotConfigured)
+    async def _library_not_configured(_request: Request, exc: library_ops.LibraryNotConfigured) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=503)
+
     app.include_router(health.router)
     app.include_router(catalog.router)
     app.include_router(serving.router)
