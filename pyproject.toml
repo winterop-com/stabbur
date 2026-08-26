@@ -1,6 +1,6 @@
 [project]
 name = "heim"
-version = "0.4.0"
+version = "0.5.0"
 description = "Heim — build a local LLM library, then run, chat, and serve it — fully on-box"
 readme = "README.md"
 requires-python = ">=3.13"

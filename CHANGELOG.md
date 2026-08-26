@@ -3,6 +3,102 @@
 All notable changes to heim are recorded here. heim is proprietary/source-available
 (see [`LICENSE`](LICENSE)); versions follow semantic versioning.
 
+## 0.5.0 — 2026-08-26
+
+A UI pass, and the honesty work that came with it. heim's chat surface stopped looking like a
+template: chrome that carries the app's identity, a settings dialog instead of a sparse page,
+attachments that say what they take, and — underneath — conventions written down and enforced,
+so the next change is consistent without anyone re-deriving them.
+
+Many of these are the same defect wearing different clothes: a control that stated something it
+had not checked. A model switch that did not switch, a "ready" that was not ready, a panel
+claiming no MCP servers existed while twelve shipped, a status bar asserting "Local runtime"
+against a remote host, a filter that verified a truncated file as intact. Each is listed where
+it belongs below.
+
+### Attachments
+
+- **PDFs.** Text extraction via pdf.js — bundled locally, so an offline heim still works — or
+  rendered page images with "Parse PDF as image", falling back to text when the model cannot see,
+  and *forward* to images when a scan has no text layer. Dropping a PDF previously did nothing at
+  all: no attachment, no hint, no error.
+- **No file is dropped in silence.** Every file either becomes an attachment or produces a named
+  reason. Oversized images are downscaled before they are sent.
+- **The paperclip says what this model can take** — images, audio, text and code, PDF — with a
+  kind this model cannot read greyed rather than absent, since an absent control teaches nothing
+  and the point is that a vision model and a text-only one differ.
+
+### Chat history
+
+- **Conversations moved to IndexedDB.** Everything, images included, lived in one ~5MB
+  localStorage key, so a fallback silently re-saved transcripts with the attachments thrown away.
+  That is deleted: nothing discards data quietly any more. Attachments are Blobs at rest;
+  migration verifies every id reads back before removing the old key, and leaves content it
+  cannot parse alone.
+- **Storage persistence is requested**, and a refusal is reported in Settings rather than assumed
+  — otherwise the move trades a 5MB cliff for a bucket the browser may reclaim.
+- **The model names the conversation.** A chat was named by slicing 40 characters off its first
+  message, once, forever — so an image-only message was "Attachment" permanently. A title you
+  type is never overwritten.
+
+### Tools and MCP
+
+- **The twelve bundled servers are visible and toggleable**, with `datetime` seeded on a fresh
+  install. The Tools panel previously said "No MCP servers configured" while heim shipped twelve.
+  Enabling applies live; disabling cannot detach a running subprocess, so it says so.
+- **A server's settings are editable in the panel** instead of by hand in `mcp.json` — including
+  the workspace root that decides what `files` can reach, which was previously unknowable.
+- **A new chat starts on a baseline**, not on whatever you last switched on. Switching a server
+  on is machine-wide and persistent; per-chat selection is now an allow-list.
+
+### System health
+
+- Leads with the two facts anyone opens it for — **which backend, which model** — and folds the
+  rest into groups that fly out rather than shoving the menu around. The backend was not reported
+  at all, so a dead upstream looked like heim being broken.
+- Four failure modes are told apart rather than collapsed into "unreachable", and the probe
+  cannot stall the menu.
+
+### Interface
+
+- **Settings is a dialog**, not a primary view competing with Chat, Library and Voice.
+- **A status bar and a single top bar** carrying the surface's title; the model badge is gone
+  from the header because the composer's selector was a strict superset of it.
+- **The sidebar is a fixed 240px.** It was 18% of the viewport, so it grew with the display —
+  345px at 1920, 461px at 2560 — while the type stayed put, which is what read as a zoomed-out
+  page.
+- **Narrow windows get a sheet** instead of a rail squeezed to 61px; no viewport renders a rail
+  under 320px, which covers tablets and a half-screen desktop window alike.
+- Collapsing a rail no longer re-flows its contents on every frame.
+
+### Colour and conventions
+
+- **Colours follow the theme.** Roughly 35 hardcoded values ignored it entirely, and code blocks
+  were pinned to a dark syntax stylesheet in every light palette. `--good-ink` / `--warning-ink`
+  exist because the fill colours measure 3.2-4.0:1 as small text, under AA.
+- **`docs/ui-conventions.md`**, and a gate that enforces it: oxlint, a class check for what a JS
+  linter structurally cannot see, vitest, and the frontend typecheck — which `make check` did not
+  run, so it passed on code CI then rejected.
+- The named colour set is **Theme** and light/dark is **Mode**, matching the UI and
+  `dhis2w-fhir-serve`. Saved appearance choices reset once on upgrade.
+
+### Sampling, serving, docs
+
+- **top_k, min_p and repeat_penalty are reachable** from the UI with sliders and plain
+  descriptions. `sampling.py` and the agent loop already supported them; only the web request
+  did not carry them.
+- **`heim library verify` checks what it always claimed to.** It compared nothing, so a truncated
+  pull verified clean; `sync --repair` re-pulls what fails.
+- The built SPA is served with a cache policy, so an upgrade is not invisible behind a stale
+  `index.html`; an unconfigured library answers with its hint instead of a bare 500.
+- **`docs/guides/api.md`** — calling heim from your own code, including that a reasoning model
+  with a small `max_tokens` returns a valid response containing an empty string.
+
+### Terminal
+
+- The TUI's model picker could not select a second format of a name — with a model kept as both
+  GGUF and MLX, choosing the second did nothing at all. Five further fixes alongside it.
+
 ## 0.4.0 — 2026-08-26
 
 Headline: **heim runs against models it doesn't host**. `heim serve --upstream <url>` fronts a
