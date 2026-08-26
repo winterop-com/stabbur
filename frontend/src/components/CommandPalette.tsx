@@ -25,7 +25,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { THEME_PALETTES, type ThemePalette } from "@/lib/store";
+import { THEMES, type Theme } from "@/lib/store";
 import type { Conversation } from "@/lib/types";
 
 /** Whether a keypress is the palette chord (Cmd+K on Apple, Ctrl+K elsewhere). */
@@ -46,8 +46,8 @@ export interface PaletteActions {
   onPickModel: (name: string) => void;
   onToggleSidebar: () => void;
   onToggleChatSettings: () => void;
-  onToggleTheme: () => void;
-  onChoosePalette: (palette: ThemePalette) => void;
+  onToggleMode: () => void;
+  onChooseTheme: (theme: Theme) => void;
   onDeleteChat: () => void;
   onExportMarkdown: () => void;
   onExportPdf: () => void;
@@ -67,8 +67,8 @@ export function CommandPalette({
   status,
   library,
   conversations,
+  mode,
   theme,
-  palette,
   voiceEnabled,
   hasConversation,
   actions,
@@ -78,8 +78,8 @@ export function CommandPalette({
   status: Status | null;
   library: LibModel[];
   conversations: Conversation[];
-  theme: string;
-  palette: ThemePalette;
+  mode: string;
+  theme: Theme;
   voiceEnabled: boolean;
   /** Whether there is an open conversation (gates clear/export rows). */
   hasConversation: boolean;
@@ -195,13 +195,13 @@ export function CommandPalette({
             <PanelRight className="h-4 w-4 text-muted-foreground" />
             Toggle chat settings
           </CommandItem>
-          <CommandItem onSelect={run(actions.onToggleTheme)}>
-            {theme === "dark" ? (
+          <CommandItem onSelect={run(actions.onToggleMode)}>
+            {mode === "dark" ? (
               <Sun className="h-4 w-4 text-muted-foreground" />
             ) : (
               <Moon className="h-4 w-4 text-muted-foreground" />
             )}
-            {theme === "dark" ? "Light mode" : "Dark mode"}
+            {mode === "dark" ? "Light mode" : "Dark mode"}
           </CommandItem>
           {/* Not under "Go to": settings is a dialog over the current surface, not a destination
               — running this leaves you exactly where you were. */}
@@ -212,11 +212,20 @@ export function CommandPalette({
         </CommandGroup>
 
         <CommandGroup heading="Theme">
-          {THEME_PALETTES.map((p) => (
-            <CommandItem key={p} value={`theme ${p}`} onSelect={run(() => actions.onChoosePalette(p))}>
-              <Palette className="h-4 w-4 text-muted-foreground" />
-              <span className="capitalize">{p}</span>
-              {palette === p && <CommandShortcut>current</CommandShortcut>}
+          {THEMES.map((t) => (
+            // The hint rides in `value` as well as on screen, so typing "phosphor" finds Terminal
+            // — a theme is picked by what it looks like far more often than by its name.
+            <CommandItem
+              key={t.name}
+              value={`theme ${t.label} ${t.hint}`}
+              onSelect={run(() => actions.onChooseTheme(t.name))}
+            >
+              <Palette className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="shrink-0">{t.label}</span>
+              {/* Truncates first and is gone entirely on a phone: the label and the "current"
+                  marker are what the row is for, and neither may be pushed out by a sentence. */}
+              <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">{t.hint}</span>
+              {theme === t.name && <CommandShortcut>current</CommandShortcut>}
             </CommandItem>
           ))}
         </CommandGroup>

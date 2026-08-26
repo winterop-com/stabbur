@@ -28,6 +28,7 @@ import { AudioScrubber } from "@/components/ui/waveform";
 import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import { audioPeaks } from "@/lib/audio";
 import { startRecording, type Recording } from "@/lib/recorder";
+import { ViewBand } from "@/components/ViewBand";
 import { cn } from "@/lib/utils";
 
 /** Output formats offered in the playground (WAV always; the rest need ffmpeg). */
@@ -760,13 +761,12 @@ export function VoiceView() {
   const sttModels = useMemo(() => models.filter((m) => m.kind === "stt"), [models]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <>
+      {/* Same band as the Library, for the same reason: the heading belongs above the scroll, not
+          inside it, and the two data views should be titled identically. */}
+      <ViewBand title="Voice" chip={models.length > 0 ? `${models.length} models` : undefined} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
-        <div className="mb-4 flex items-baseline gap-2">
-          <h1 className="text-lg font-semibold tracking-tight">Voice</h1>
-          {models.length > 0 && <span className="text-sm text-muted-foreground">{models.length} models</span>}
-        </div>
-
         {!loaded ? (
           <div className="flex items-center gap-2 px-1 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading voice models…
@@ -789,6 +789,7 @@ export function VoiceView() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

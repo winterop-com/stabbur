@@ -61,6 +61,9 @@ export interface Status {
   locked: boolean;
   n_ctx: number | null;
   error: string | null;
+  // The remote /v1 this heim fronts (serve --upstream), or null/absent when it runs its own
+  // runtimes. Optional: a backend older than the field simply doesn't send it, which reads as local.
+  upstream?: string | null;
   default_system_prompt: string;
   project_model: string | null; // the project's bound model (heim.toml), to auto-load on open
   default_chat_voice: string | null; // the project's [project] chat_voice; UI defaults the Listen voice to it

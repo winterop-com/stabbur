@@ -4,7 +4,7 @@ import { AudioLines, Moon, Palette, Server, Sun } from "lucide-react";
 import { getModelInfo, type LibModel, type ModelInfo, type Status, type Voice } from "@/api";
 import { Markdown } from "@/components/Markdown";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { THEME_PALETTES, type Theme, type ThemePalette } from "@/lib/store";
+import { THEMES, type Mode, type Theme } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
@@ -24,7 +24,7 @@ const CATEGORIES = [
 
 type CategoryId = (typeof CATEGORIES)[number]["id"];
 
-/** A pill in a row of mutually-exclusive choices (speed, mode, palette). */
+/** A pill in a row of mutually-exclusive choices (speed, mode). */
 function Choice({
   selected,
   onClick,
@@ -85,43 +85,51 @@ function metaFields(meta: Record<string, unknown> | null): [string, string][] {
   return out;
 }
 
-/** Appearance: light/dark and the palette, both stored in this browser. */
+/** Appearance: the mode (light/dark) and the theme (the named colour set), both stored here. */
 function AppearancePane({
+  mode,
+  onToggleMode,
   theme,
-  onToggleTheme,
-  palette,
-  onChoosePalette,
+  onChooseTheme,
 }: {
+  mode: Mode;
+  onToggleMode: () => void;
   theme: Theme;
-  onToggleTheme: () => void;
-  palette: ThemePalette;
-  onChoosePalette: (palette: ThemePalette) => void;
+  onChooseTheme: (theme: Theme) => void;
 }) {
   return (
     <>
       <Section title="Mode" description="Light or dark. Stored in this browser, not in the project.">
         <div className="flex flex-wrap items-center gap-1">
-          <Choice selected={theme === "light"} onClick={() => theme !== "light" && onToggleTheme()}>
+          <Choice selected={mode === "light"} onClick={() => mode !== "light" && onToggleMode()}>
             <Sun className="h-3.5 w-3.5" /> Light
           </Choice>
-          <Choice selected={theme === "dark"} onClick={() => theme !== "dark" && onToggleTheme()}>
+          <Choice selected={mode === "dark"} onClick={() => mode !== "dark" && onToggleMode()}>
             <Moon className="h-3.5 w-3.5" /> Dark
           </Choice>
         </div>
       </Section>
 
-      {/* "Theme" is the named colour set and "Mode" is light/dark — the labels the ⌘K palette and
-          the sibling dhis2w projects already use. The code identifiers are the other way round
-          (`palette` is the named set, `theme` is light/dark); renaming those needs a migration of
-          the saved `heim.theme*` keys, so the copy leads and the code follows later. */}
-      <Section title="Theme" description="The accent colours the whole app draws from.">
-        <div className="flex flex-wrap items-center gap-1">
-          {/* THEME_PALETTES rather than a list of our own: adding a theme
-              is one block pair in index.css and one name in that array. */}
-          {THEME_PALETTES.map((p) => (
-            <Choice key={p} selected={palette === p} onClick={() => onChoosePalette(p)}>
-              <span className="capitalize">{p}</span>
-            </Choice>
+      <Section title="Theme" description="The named colour set the whole app draws from. Every one has both modes.">
+        {/* Rows rather than the pill row the other choices use: a theme is picked by what it
+            looks like, and the hint is the only thing here that says that — a pill has nowhere
+            to put a sentence. THEMES rather than a list of our own, so adding a theme is one
+            block pair in index.css and one row in that array. */}
+        <div className="flex flex-col gap-0.5">
+          {THEMES.map((t) => (
+            <button
+              key={t.name}
+              type="button"
+              onClick={() => onChooseTheme(t.name)}
+              aria-pressed={theme === t.name}
+              className={cn(
+                "rounded-md px-2 py-1.5 text-left transition-colors",
+                theme === t.name ? "bg-primary/15 text-primary" : "hover:bg-accent hover:text-foreground",
+              )}
+            >
+              <span className="text-xs font-medium">{t.label}</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{t.hint}</span>
+            </button>
           ))}
         </div>
       </Section>
@@ -311,9 +319,9 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
  * between. Two panes (categories left, the selection right) rather than one long scrolling
  * column, so a group is a place you go rather than something you scroll past.
  *
- * Theme state is not owned here — `useTheme` (App) owns both axes, and the ⌘K palette drives the
- * same handlers. Two surfaces, one source of truth, so switching in one is instantly reflected
- * in the other.
+ * Appearance state is not owned here — `useTheme` (App) owns both axes (mode and theme), and the
+ * ⌘K palette drives the same handlers. Two surfaces, one source of truth, so switching in one is
+ * instantly reflected in the other.
  */
 export function SettingsDialog({
   open,
@@ -325,10 +333,10 @@ export function SettingsDialog({
   onChooseVoice,
   ttsSpeed,
   onChooseSpeed,
+  mode,
+  onToggleMode,
   theme,
-  onToggleTheme,
-  palette,
-  onChoosePalette,
+  onChooseTheme,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -339,10 +347,10 @@ export function SettingsDialog({
   onChooseVoice: (name: string) => void;
   ttsSpeed: number;
   onChooseSpeed: (speed: number) => void;
+  mode: Mode;
+  onToggleMode: () => void;
   theme: Theme;
-  onToggleTheme: () => void;
-  palette: ThemePalette;
-  onChoosePalette: (palette: ThemePalette) => void;
+  onChooseTheme: (theme: Theme) => void;
 }) {
   const [category, setCategory] = useState<CategoryId>("appearance");
 
@@ -394,12 +402,7 @@ export function SettingsDialog({
 
         <div className="min-h-0 min-w-0 flex-1 space-y-8 overflow-y-auto px-5 py-5 md:px-6 md:pr-12">
           {category === "appearance" && (
-            <AppearancePane
-              theme={theme}
-              onToggleTheme={onToggleTheme}
-              palette={palette}
-              onChoosePalette={onChoosePalette}
-            />
+            <AppearancePane mode={mode} onToggleMode={onToggleMode} theme={theme} onChooseTheme={onChooseTheme} />
           )}
           {category === "voice" && (
             <VoicePane

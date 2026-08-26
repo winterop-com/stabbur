@@ -1,38 +1,41 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { loadPalette, loadTheme, savePalette, saveTheme, type Theme, type ThemePalette } from "@/lib/store";
+import { loadMode, loadTheme, saveMode, saveTheme, type Mode, type Theme } from "@/lib/store";
 
 /**
- * The two independent theme axes, both persisted and both applied to <html>:
- * light/dark as the `dark` class, and the named palette as `data-theme`.
+ * The two independent appearance axes, both persisted and both applied to <html>:
+ * the **mode** (light/dark) as the `dark` class, and the **theme** (the named colour
+ * set) as `data-theme`. Neither knows about the other — picking Paper does not decide
+ * light or dark, and switching to dark does not decide Paper. These are the names the
+ * screen uses, so the code and the copy say the same thing.
  * Geometry (`--radius`) is deliberately not an axis — a theme that changed it
- * would be a second design rather than a second palette.
+ * would be a second design rather than a second set of colours.
  */
 export function useTheme(): {
+  mode: Mode;
+  toggleMode: () => void;
   theme: Theme;
-  toggle: () => void;
-  palette: ThemePalette;
-  setPalette: (p: ThemePalette) => void;
+  setTheme: (t: Theme) => void;
 } {
-  const [theme, setTheme] = useState<Theme>(() => loadTheme());
-  const [palette, setPaletteState] = useState<ThemePalette>(() => loadPalette());
+  const [mode, setMode] = useState<Mode>(() => loadMode());
+  const [theme, setThemeState] = useState<Theme>(() => loadTheme());
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle("dark", theme === "dark");
+    root.classList.toggle("dark", mode === "dark");
+    saveMode(mode);
+  }, [mode]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "default") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", theme);
     saveTheme(theme);
   }, [theme]);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    if (palette === "default") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", palette);
-    savePalette(palette);
-  }, [palette]);
-
-  const toggle = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  const toggleMode = useCallback(() => {
+    setMode((m) => (m === "dark" ? "light" : "dark"));
   }, []);
 
-  return { theme, toggle, palette, setPalette: setPaletteState };
+  return { mode, toggleMode, theme, setTheme: setThemeState };
 }

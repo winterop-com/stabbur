@@ -7,7 +7,6 @@ import {
   PanelLeftClose,
   PencilLine,
   Search,
-  Settings,
   SquarePen,
   Trash2,
   X,
@@ -23,7 +22,29 @@ import {
 import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** A primary nav row: icon + title + one-line subtitle, with an accent bar when active. */
+/**
+ * The shape every row in the rail wears, active or not — a nav destination and a conversation
+ * row are the same object at two sizes, so they must not be highlighted two different ways.
+ *
+ * THE LEFT BORDER IS ALWAYS THERE, transparent when idle. That is what makes the column of rows
+ * line up: an active marker that only exists while active (an absolutely-positioned bar, or a
+ * border that appears) either sits outside the box model or shoves the row 3px sideways the
+ * moment you land on it. Reserving the space costs nothing and the text never moves.
+ *
+ * THE ASYMMETRIC RADIUS pairs with it: the right side rounds like any card, while the left edge
+ * stays nearly square so the accent border reads as an edge of the row rather than a floating pill.
+ *
+ * AND THE FILLS ARE SOLID `--sidebar-*` TOKENS, never an alpha of the page's accent. The rail has a
+ * ground of its own; a wash over a wash is what made the old highlight invisible on some themes.
+ */
+const ROW = "flex w-full rounded-l-[4px] rounded-r-lg border-l-[3px] text-left transition-colors";
+const ROW_ACTIVE = "border-sidebar-primary bg-sidebar-accent text-sidebar-accent-foreground";
+const ROW_IDLE = "border-transparent text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground";
+/** Ghost buttons inside the rail. The shared variant hovers to the PAGE's `--accent`, which over
+ *  the rail's own ground is a patch of a different room; the wash is the rail's own hover. */
+const RAIL_GHOST = "text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground";
+
+/** A primary nav row: icon + title + one-line subtitle, with an accent border when active. */
 function NavItem({
   icon,
   title,
@@ -42,18 +63,15 @@ function NavItem({
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        "relative flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-        active ? "bg-primary/10" : "hover:bg-accent/60",
-      )}
+      className={cn(ROW, "items-start gap-3 px-3 py-2", active ? `${ROW_ACTIVE} font-medium` : ROW_IDLE)}
     >
-      {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden />}
-      <span className={cn("mt-0.5 shrink-0", active ? "text-primary" : "text-muted-foreground")}>{icon}</span>
+      <span className="mt-0.5 shrink-0">{icon}</span>
       <span className="min-w-0">
-        <span className={cn("block text-sm font-medium leading-tight", active && "text-primary")}>{title}</span>
-        {subtitle && (
-          <span className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground">{subtitle}</span>
-        )}
+        <span className="block text-sm leading-tight">{title}</span>
+        {/* The subtitle takes its own colour from nothing: it inherits the row's, at 75%, so it
+            stays a step quieter than the title in the idle, hover and active states alike rather
+            than being pinned to one ink that only reads against one of them. */}
+        {subtitle && <span className="mt-0.5 block truncate text-[11px] leading-tight opacity-75">{subtitle}</span>}
       </span>
     </button>
   );
@@ -61,12 +79,12 @@ function NavItem({
 
 /**
  * The left rail: brand + compose at top, primary destinations as subtitled nav
- * rows (Chat, Library, Voice), the "Recents" conversation list (hover reveals
- * rename/delete), and Settings pinned at the bottom. The current model lives in
- * the top bar, not here.
+ * rows (Chat, Library, Voice), and the "Recents" conversation list (hover reveals
+ * rename/delete). The current model lives in the top bar, not here.
  *
- * Settings is the odd one out: it opens a dialog over the current surface, so it
- * never takes the active styling the three destinations share.
+ * Settings is NOT here: it sits in the status bar's left segment, which lines up with this
+ * column. It used to be a row pinned at the foot of the rail, which put two stacked strips
+ * across the bottom of the window once the status bar existed — one strip, one gear.
  */
 export function Sidebar({
   conversations,
@@ -77,7 +95,6 @@ export function Sidebar({
   onShowChat,
   onShowLibrary,
   onShowVoice,
-  onOpenSettings,
   voiceEnabled = true,
   onRename,
   onDelete,
@@ -91,7 +108,6 @@ export function Sidebar({
   onShowChat: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
-  onOpenSettings: () => void;
   voiceEnabled?: boolean;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -121,7 +137,9 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col border-r border-border bg-muted/40 text-foreground">
+    // `bg-sidebar` rather than a tint of the page: the row fills below are solid colours mixed
+    // against exactly this ground, so the rail has to actually be it for them to land as designed.
+    <aside className="flex h-full w-full min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-3 py-3">
         <span className="px-1 text-sm font-semibold tracking-tight">
           <span className="md:hidden">Heim</span>
@@ -130,7 +148,7 @@ export function Sidebar({
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={onNew} aria-label="New chat">
+              <Button variant="ghost" size="icon-sm" onClick={onNew} aria-label="New chat" className={RAIL_GHOST}>
                 <SquarePen className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -138,7 +156,7 @@ export function Sidebar({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={onCollapse} aria-label="Collapse sidebar">
+              <Button variant="ghost" size="icon-sm" onClick={onCollapse} aria-label="Collapse sidebar" className={RAIL_GHOST}>
                 <PanelLeftClose className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -149,12 +167,12 @@ export function Sidebar({
 
       <div className="px-3 pb-2">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sidebar-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
-            className="h-8 border-transparent bg-background/60 pl-8 text-sm focus-visible:ring-1"
+            className="h-8 border-transparent bg-sidebar-wash pl-8 text-sm focus-visible:ring-1"
           />
         </div>
       </div>
@@ -186,11 +204,11 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-sidebar-muted-foreground">
           Recents
         </div>
         {filtered.length === 0 && (
-          <div className="px-2 py-2 text-xs text-muted-foreground">
+          <div className="px-2 py-2 text-xs text-sidebar-muted-foreground">
             {conversations.length === 0 ? "No conversations yet." : "No matches."}
           </div>
         )}
@@ -198,11 +216,15 @@ export function Sidebar({
           const active = view === "chat" && c.id === activeId;
           const editing = c.id === editingId;
           return (
+            // Same treatment as the nav rows above, at conversation-row size — a chat you are in
+            // and a surface you are on are the same kind of "here", and the eye should not have to
+            // learn two markers for it in one column.
             <div
               key={c.id}
               className={cn(
-                "group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors",
-                active ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+                ROW,
+                "group items-center gap-1 py-1.5 pl-2 pr-2 text-sm",
+                active ? ROW_ACTIVE : ROW_IDLE,
               )}
             >
               {editing ? (
@@ -217,10 +239,10 @@ export function Sidebar({
                     }}
                     className="h-6 flex-1 border-transparent bg-background px-1.5 py-0 text-sm"
                   />
-                  <Button variant="ghost" size="icon-sm" onClick={commitEdit} aria-label="Save name">
+                  <Button variant="ghost" size="icon-sm" onClick={commitEdit} aria-label="Save name" className={RAIL_GHOST}>
                     <Check className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon-sm" onClick={() => setEditingId(null)} aria-label="Cancel">
+                  <Button variant="ghost" size="icon-sm" onClick={() => setEditingId(null)} aria-label="Cancel" className={RAIL_GHOST}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </>
@@ -240,7 +262,7 @@ export function Sidebar({
                       size="icon-sm"
                       onClick={() => startEdit(c)}
                       aria-label="Rename"
-                      className="text-muted-foreground"
+                      className={RAIL_GHOST}
                     >
                       <PencilLine className="h-3.5 w-3.5" />
                     </Button>
@@ -249,7 +271,7 @@ export function Sidebar({
                       size="icon-sm"
                       onClick={() => onDelete(c.id)}
                       aria-label="Delete"
-                      className="text-muted-foreground hover:text-destructive"
+                      className={cn(RAIL_GHOST, "hover:text-destructive")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -259,12 +281,6 @@ export function Sidebar({
             </div>
           );
         })}
-      </div>
-
-      {/* Settings pinned at the bottom, where the reference UIs put it — but it opens a dialog
-          rather than navigating, so the surface behind it stays where you left it. */}
-      <div className="border-t border-border px-2 py-2">
-        <NavItem icon={<Settings className="h-4 w-4" />} title="Settings" onClick={onOpenSettings} />
       </div>
     </aside>
   );

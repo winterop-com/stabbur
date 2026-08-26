@@ -46,6 +46,7 @@ import { ChatSettingsPanel } from "@/components/ChatSettingsPanel";
 import { CommandPalette, opensPalette } from "@/components/CommandPalette";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
+import { StatusBar } from "@/components/StatusBar";
 import {
   DEFAULT_SETTINGS,
   baselineServers,
@@ -122,7 +123,7 @@ function friendlyRuntimeError(raw: string): string | null {
 }
 
 export function App() {
-  const { theme, toggle, palette, setPalette } = useTheme();
+  const { mode, toggleMode, theme, setTheme } = useTheme();
 
   // Server state.
   const [status, setStatus] = useState<Status | null>(null);
@@ -298,6 +299,28 @@ export function App() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  // Where the main panel starts, which is exactly how wide the rail column is right now: the icon
+  // rail's 48px while collapsed, the sidebar's own width (drag-resized or not) while expanded, plus
+  // the handle between them. The status bar's Settings segment matches it, so the bar's divider
+  // continues the rail's right edge straight down. Measured rather than derived: a percentage-sized
+  // panel the user has dragged has no width this code could compute. The sidebar panel is always
+  // mounted (it collapses to zero), so observing it catches every case — a drag, a toggle, and the
+  // icon rail mounting alongside it, which happens in the same commit.
+  const [railWidth, setRailWidth] = useState(48);
+  useEffect(() => {
+    const root = layoutRef.current;
+    if (!root) return;
+    const measure = () => {
+      const main = root.querySelector<HTMLElement>('[data-panel-id="main"]');
+      if (main) setRailWidth(Math.round(main.getBoundingClientRect().left - root.getBoundingClientRect().left));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    const sidebar = root.querySelector<HTMLElement>('[data-panel-id="sidebar"]');
+    if (sidebar) observer.observe(sidebar);
     return () => observer.disconnect();
   }, []);
   const toggleSidebar = useCallback(() => {
@@ -1202,8 +1225,8 @@ export function App() {
         status={status}
         library={library}
         conversations={conversations}
+        mode={mode}
         theme={theme}
-        palette={palette}
         voiceEnabled={voiceEnabled}
         hasConversation={!!activeConv && messages.length > 0}
         actions={{
@@ -1216,8 +1239,8 @@ export function App() {
           onPickModel: pick,
           onToggleSidebar: toggleSidebar,
           onToggleChatSettings: toggleChatSettings,
-          onToggleTheme: toggle,
-          onChoosePalette: setPalette,
+          onToggleMode: toggleMode,
+          onChooseTheme: setTheme,
           onDeleteChat: () => activeId && deleteConversation(activeId),
           onExportMarkdown: () => activeConv && exportConversationMarkdown(activeConv, status?.model ?? null),
           onExportPdf: () => {
@@ -1238,10 +1261,10 @@ export function App() {
         onChooseVoice={chooseVoice}
         ttsSpeed={ttsSpeed}
         onChooseSpeed={chooseSpeed}
+        mode={mode}
+        onToggleMode={toggleMode}
         theme={theme}
-        onToggleTheme={toggle}
-        palette={palette}
-        onChoosePalette={setPalette}
+        onChooseTheme={setTheme}
       />
       {/* Mobile: the sidebar is an overlay drawer (a resizable rail would squeeze the content).
           The persistent IconRail is the closed-state nav; tapping expand opens this. */}
@@ -1273,10 +1296,6 @@ export function App() {
                 showVoice();
                 closeSidebar();
               }}
-              onOpenSettings={() => {
-                openSettings();
-                closeSidebar();
-              }}
               voiceEnabled={voiceEnabled}
               onRename={renameConversation}
               onDelete={deleteConversation}
@@ -1301,7 +1320,11 @@ export function App() {
           {chatSettingsAsSheet && chatSettingsEl}
         </SheetContent>
       </Sheet>
-      <div ref={layoutRef} onTransitionEnd={onRailTransitionEnd} className="flex h-full overflow-hidden">
+      {/* The status bar is a sibling of the whole panel group, not of any surface inside it: it
+          reports on this heim, which is the same fact whichever view is showing, and a strip that
+          only existed on some of them would read as part of that view instead. */}
+      <div className="flex h-full flex-col overflow-hidden">
+      <div ref={layoutRef} onTransitionEnd={onRailTransitionEnd} className="flex min-h-0 flex-1 overflow-hidden">
         {/* When the sidebar is collapsed, a thin icon rail keeps new-chat + Models +
             Voice reachable (and usable on mobile) rather than hiding nav entirely. */}
         {!sidebarOpen && (
@@ -1311,7 +1334,6 @@ export function App() {
             onNew={startNewChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
-            onOpenSettings={openSettings}
             voiceEnabled={voiceEnabled}
           />
         )}
@@ -1347,7 +1369,6 @@ export function App() {
             onShowChat={showChat}
             onShowLibrary={showLibrary}
             onShowVoice={showVoice}
-            onOpenSettings={openSettings}
             voiceEnabled={voiceEnabled}
             onRename={renameConversation}
             onDelete={deleteConversation}
@@ -1582,6 +1603,14 @@ export function App() {
           </div>
         </Panel>
         </PanelGroup>
+      </div>
+      <StatusBar
+        status={status}
+        library={library}
+        tools={tools}
+        width={railWidth}
+        onOpenSettings={openSettings}
+      />
       </div>
     </TooltipProvider>
   );

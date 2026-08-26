@@ -5,9 +5,9 @@ import { cn } from "@/lib/utils";
 
 /** A fenced code block with a hover copy button. Highlighting is applied by
  *  rehype-highlight (adds `hljs` + language classes to the inner <code>), and
- *  the `.hljs-*` rules in index.css paint those from the palette's `--code-*`
+ *  the `.hljs-*` rules in index.css paint those from the theme's `--code-*`
  *  tokens — so the surface here is a token too, not the fixed near-black a
- *  stock highlight.js theme used to force on every palette. */
+ *  stock highlight.js stylesheet used to force on every theme. */
 export function CodeBlock({ className, children }: { className?: string; children: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   const text = extractText(children);

@@ -1,4 +1,4 @@
-import { AudioLines, Boxes, PanelLeft, Settings, SquarePen } from "lucide-react";
+import { AudioLines, Boxes, PanelLeft, SquarePen } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,6 @@ export function IconRail({
   onNew,
   onShowLibrary,
   onShowVoice,
-  onOpenSettings,
   voiceEnabled = true,
 }: {
   view: "chat" | "library" | "voice";
@@ -23,7 +22,6 @@ export function IconRail({
   onNew: () => void;
   onShowLibrary: () => void;
   onShowVoice: () => void;
-  onOpenSettings: () => void;
   voiceEnabled?: boolean;
 }) {
   const item = (
@@ -39,8 +37,14 @@ export function IconRail({
           onClick={onClick}
           aria-label={label}
           className={cn(
+            // The same fills as the expanded rail's rows, on the same ground — collapsing the
+            // sidebar must not change what "you are here" looks like. No reserved left border
+            // here: at 36px square there is no text to hold still, and an edge marker on a
+            // 48px rail reads as a stripe down the window rather than as part of the button.
             "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
-            active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+            active
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground",
           )}
         >
           {icon}
@@ -51,19 +55,18 @@ export function IconRail({
   );
 
   return (
-    <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-muted/40 py-3">
+    <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3">
       {item("Expand sidebar", <PanelLeft className="h-4 w-4" />, onExpand)}
-      <div className="my-1 h-px w-6 bg-border" />
+      <div className="my-1 h-px w-6 bg-sidebar-border" />
       {item("New chat", <SquarePen className="h-4 w-4" />, onNew, view === "chat")}
       {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
       {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
-      {/* Settings pinned at the bottom (mirrors the expanded sidebar), then a tiny horizontal
-          wordmark — fits the narrow rail (unlike the full "Heim Studio") and keeps the brand
-          present while collapsed. Settings takes no active state: it opens a dialog over the
-          current surface rather than replacing it. */}
+      {/* A tiny horizontal wordmark at the foot — it fits the narrow rail (unlike the full
+          "Heim Studio") and keeps the brand present while collapsed. Settings is not here: the
+          status bar's left segment shrinks to this rail's width and carries the gear itself, so
+          putting one here too would stack two gears in the same corner. */}
       <div className="mt-auto flex flex-col items-center gap-1">
-        {item("Settings", <Settings className="h-4 w-4" />, onOpenSettings)}
-        <span className="pb-0.5 text-[10px] font-semibold tracking-tight text-muted-foreground">heim</span>
+        <span className="pb-0.5 text-[10px] font-semibold tracking-tight text-sidebar-muted-foreground">heim</span>
       </div>
     </aside>
   );

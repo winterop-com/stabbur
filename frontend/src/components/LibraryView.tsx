@@ -14,7 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { ViewBand } from "@/components/ViewBand";
+import { cn, formatBytes } from "@/lib/utils";
 
 /** Format a context length in tokens as a compact label (262144 -> "256K"). */
 function ctxLabel(n: number | null): string | null {
@@ -445,11 +446,7 @@ export function LibraryView({
     [models, activeTags],
   );
 
-  const totalHuman = useMemo(() => {
-    const bytes = filtered.reduce((sum, m) => sum + m.size_bytes, 0);
-    const gb = bytes / 1024 ** 3;
-    return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-  }, [filtered]);
+  const totalHuman = useMemo(() => formatBytes(filtered.reduce((sum, m) => sum + m.size_bytes, 0)), [filtered]);
 
   const grouped = useMemo(() => {
     const by: Record<string, LibModel[]> = {};
@@ -459,18 +456,23 @@ export function LibraryView({
   }, [filtered]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">
-        <div className="mb-3 flex items-baseline gap-2">
-          <h1 className="text-lg font-semibold tracking-tight">Library</h1>
-          {models.length > 0 && (
-            <span className="text-sm text-muted-foreground">
+    <>
+      {/* The heading this view used to render inline, lifted out of the scroll container into the
+          band it shares with Voice — so it stays put while the grid moves, and the two data views
+          are titled the same way. The chip is the same summary it always carried. */}
+      <ViewBand
+        title="Library"
+        chip={
+          models.length > 0 ? (
+            <>
               {filtered.length}
-              {filtered.length !== models.length && ` / ${models.length}`} · {totalHuman}
-            </span>
-          )}
-        </div>
-
+              {filtered.length !== models.length && ` / ${models.length}`} models · {totalHuman}
+            </>
+          ) : undefined
+        }
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-5xl px-6 py-6">
         {allTags.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
             <Tag className="h-3.5 w-3.5 text-muted-foreground" />
@@ -616,6 +618,7 @@ export function LibraryView({
           </p>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

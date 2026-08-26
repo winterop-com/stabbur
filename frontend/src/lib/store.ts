@@ -1,4 +1,4 @@
-// localStorage-backed persistence for conversations and theme. Settings (system
+// localStorage-backed persistence for conversations and appearance. Settings (system
 // prompt, sampling, tools, context length) are stored *per conversation* — each
 // chat owns its own, so a new chat starts from DEFAULT_SETTINGS and one chat's
 // settings never leak into the next.
@@ -6,8 +6,12 @@
 import type { Conversation } from "@/lib/types";
 
 const CONVERSATIONS_KEY = "heim.conversations";
+// The two appearance axes, named the way the screen names them: the THEME is the named
+// colour set, the MODE is light/dark. `heim.theme` held light/dark before that alignment,
+// so a browser that used heim then still has "dark" under this key — which is why
+// `loadTheme` validates against THEMES rather than trusting what it reads.
 const THEME_KEY = "heim.theme";
-const PALETTE_KEY = "heim.theme_palette";
+const MODE_KEY = "heim.mode";
 
 export interface Settings {
   // null = use the project default (heim.toml); "" = explicitly no system prompt;
@@ -190,20 +194,21 @@ export function saveConversations(convs: Conversation[]): SaveResult {
   }
 }
 
-export type Theme = "dark" | "light";
+/** The mode: light or dark, the ground every theme below is designed for both of. */
+export type Mode = "dark" | "light";
 
-export function loadTheme(): Theme {
+export function loadMode(): Mode {
   try {
-    const raw = localStorage.getItem(THEME_KEY);
+    const raw = localStorage.getItem(MODE_KEY);
     return raw === "light" ? "light" : "dark";
   } catch {
     return "dark";
   }
 }
 
-export function saveTheme(theme: Theme): void {
+export function saveMode(mode: Mode): void {
   try {
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(MODE_KEY, mode);
   } catch {
     // ignore
   }
@@ -216,19 +221,61 @@ export function deriveTitle(text: string): string {
   return clean.length > 40 ? `${clean.slice(0, 40)}…` : clean;
 }
 
-/** Named colour themes (the palette; light/dark is a separate axis). */
-export const THEME_PALETTES = ["default", "indigo", "paper", "contrast", "terminal"] as const;
-export type ThemePalette = (typeof THEME_PALETTES)[number];
+/**
+ * Every named colour theme, in the order a picker offers them: what it is called, and one
+ * line saying what it looks like — true of it in both modes, because every theme has both.
+ *
+ * The colours are nowhere near here. Each theme is a block of custom-property overrides in
+ * index.css hung off `html[data-theme='<name>']` (light) and `html.dark[data-theme='<name>']`
+ * (dark), beside the base set that Default is. This carries the names, so adding a theme is
+ * that block pair plus one row here — no component learns that a theme exists.
+ *
+ * The order is quiet-to-loud, not a ranking: the three after Default change the ground and the
+ * identity hue and nothing about how much colour a surface spends, while Contrast and Terminal
+ * are the ones with an argument.
+ */
+export const THEMES = [
+  {
+    // Not a style, and it must not be sold as one: Default is what heim looks like when nobody has
+    // chosen. The line says the ground state first and then what that ground actually is — grey is
+    // the honest word for `:root`, where every surface token has zero chroma.
+    name: "default",
+    label: "Default",
+    hint: "The ground state, before anything is chosen: grey surfaces with no hue of their own, and an accent that is near-black in light and blue in dark.",
+  },
+  { name: "indigo", label: "Indigo", hint: "Deep blue surfaces under a violet identity." },
+  { name: "paper", label: "Paper", hint: "Warm surfaces and an ink blue, the way a printed form reads." },
+  {
+    name: "contrast",
+    label: "Contrast",
+    hint: "The widest separation this app has between text and the surface under it.",
+  },
+  { name: "terminal", label: "Terminal", hint: "Phosphor green, and a ground to match." },
+] as const;
 
-export function loadPalette(): ThemePalette {
-  const raw = localStorage.getItem(PALETTE_KEY);
-  return (THEME_PALETTES as readonly string[]).includes(raw ?? "") ? (raw as ThemePalette) : "default";
+/** The name a theme is stored and written under: its `data-theme` value and its stored value. */
+export type Theme = (typeof THEMES)[number]["name"];
+
+/** What the app is painted in when nothing has been chosen, and what an unknown name falls back to. */
+export const DEFAULT_THEME: Theme = "default";
+
+export function loadTheme(): Theme {
+  // Validated, never trusted: `heim.theme` meant light/dark before the names were aligned with
+  // the screen, so a browser that used heim then has "dark" under it — and stamping that onto
+  // <html> as data-theme would paint the app in a theme that does not exist. Same rule as
+  // `normalizeSettings`: an unknown value is the default, not an error state worth a screen.
+  try {
+    const raw = localStorage.getItem(THEME_KEY);
+    return THEMES.some((t) => t.name === raw) ? (raw as Theme) : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
 }
 
-export function savePalette(palette: ThemePalette): void {
+export function saveTheme(theme: Theme): void {
   try {
-    if (palette === "default") localStorage.removeItem(PALETTE_KEY);
-    else localStorage.setItem(PALETTE_KEY, palette);
+    if (theme === DEFAULT_THEME) localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, theme);
   } catch {
     /* storage full/blocked: the choice still applies this session */
   }

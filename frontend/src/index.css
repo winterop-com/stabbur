@@ -5,7 +5,7 @@
 
 /* No highlight.js stylesheet is imported. Every one of them is a fixed palette
    with a hardcoded background, so importing one painted chat's code blocks with
-   somebody else's theme in all ten palette/mode combinations - github-dark's
+   somebody else's theme in all ten theme/mode combinations - github-dark's
    inks on a cream Paper ground included. The `.hljs-*` rules at the foot of this
    file paint them from the `--code-*` tokens instead, so source follows the
    theme like every other surface. The PDF export is the one place that still
@@ -33,10 +33,38 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  /* THE RAIL IS A SURFACE OF ITS OWN, and that is the whole reason this family
+     exists rather than the sidebar borrowing the page's tokens. A rail painted
+     from `--muted` at an alpha, over a page ground, lands muddy: the active row
+     and the hover row differ by a few percent of the same wash, which on some
+     themes is invisible. These are SOLID fills on a ground the theme states
+     outright, so "this row is the one you are on" survives every theme. Ported
+     from the dhis2w-fhir-serve frontend, values included, so the two apps' rails
+     read as one family - and so a theme that ever wants a rail painted from a
+     different world (a dark rail under a light page) has the tokens to say it.
+
+     `--sidebar-accent` is the active row's fill and `--sidebar-primary` its
+     3px left border; the idle row carries that border transparent, so nothing
+     moves sideways when a row becomes active. */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.93 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.205 0 0);
+  /* Derived once here rather than restated per theme, so they follow whichever
+     rail is in force: the quiet ink and the hover wash are mixes of the RAIL's
+     own foreground toward the RAIL's own ground. Nothing on the rail may borrow
+     the page's muted ink - a dark rail under a light page would render it
+     unreadable. */
+  --sidebar-muted-foreground: color-mix(in oklab, var(--sidebar-foreground) 62%, var(--sidebar));
+  --sidebar-wash: color-mix(in oklab, var(--sidebar-foreground) 10%, var(--sidebar));
   /* The semantic set: what a state MEANS, before any component picks a colour
-     for it. Four words, and every palette below states all four, so a "loaded"
-     dot is that palette's green rather than a green imported into it. THE FOUR
-     HUE FAMILIES ARE THE SAME IN EVERY PALETTE - a palette moves their lightness
+     for it. Four words, and every theme below states all four, so a "loaded"
+     dot is that theme's green rather than a green imported into it. THE FOUR
+     HUE FAMILIES ARE THE SAME IN EVERY THEME - a theme moves their lightness
      and chroma to suit its ground, never their family, because green means
      healthy and amber means look-at-this on every screen heim has.
 
@@ -56,8 +84,8 @@
      chroma: a code block sits inside a chat turn, and a rainbow would make the
      one actionable hue on the page stop meaning "act here". Each role is its own
      hue family, so a keyword can never be mistaken for a string, and none of
-     them spends the identity blue. Comment and punctuation carry the palette's
-     own cast - here none, because heim's default palette is achromatic. */
+     them spends the identity blue. Comment and punctuation carry the theme's
+     own cast - here none, because heim's default theme is achromatic. */
   --code-keyword: oklch(0.46 0.15 300);
   --code-operator: oklch(0.48 0.08 25);
   --code-string: oklch(0.45 0.12 150);
@@ -90,6 +118,14 @@
   --border: oklch(0.3 0.006 265);
   --input: oklch(0.32 0.006 265);
   --ring: oklch(0.55 0.02 265);
+  --sidebar: oklch(0.2 0.006 265);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.62 0.19 260);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.29 0.05 260);
+  --sidebar-accent-foreground: oklch(0.88 0.08 260);
+  --sidebar-border: oklch(0.3 0.006 265);
+  --sidebar-ring: oklch(0.62 0.19 260);
   --good: oklch(0.72 0.16 155);
   --critical: oklch(0.7 0.16 25);
   --warning: oklch(0.75 0.13 75);
@@ -128,8 +164,21 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* The rail's own family (see the block at the top): a solid ground, a solid
+     active fill, a border colour for the active row's left edge, and the two
+     derived tones the idle and hover states are painted from. */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
+  --color-sidebar-wash: var(--sidebar-wash);
   /* The semantic set gets utilities (bg-good, text-warning, border-critical/40,
-     …) so a component says what a thing MEANS and the palette decides the hue.
+     …) so a component says what a thing MEANS and the theme decides the hue.
      The `--code-*` tokens deliberately get none: they are spent by the `.hljs-*`
      rules alone, and a utility would invite a component to paint prose with a
      syntax colour. */
@@ -288,7 +337,7 @@ select {
 }
 
 /* --------------------------------------------------------------------------
-   Named themes (palette only - geometry is NOT a theme axis; see --radius).
+   Named themes (colour only - geometry is NOT a theme axis; see --radius).
    Ported from the dhis2w-fhir-serve frontend so the two apps read as one
    family. Each theme is a light block plus a dark one carrying one class
    more, so it wins on specificity rather than source order - which makes
@@ -320,6 +369,14 @@ html[data-theme='indigo'] {
   --border: oklch(0.79 0.026 268);
   --input: oklch(0.77 0.028 268);
   --ring: oklch(0.48 0.19 285);
+  --sidebar: oklch(0.988 0.007 265);
+  --sidebar-foreground: oklch(0.16 0.045 275);
+  --sidebar-primary: oklch(0.47 0.19 288);
+  --sidebar-primary-foreground: oklch(0.99 0.006 288);
+  --sidebar-accent: oklch(0.928 0.042 288);
+  --sidebar-accent-foreground: oklch(0.33 0.15 288);
+  --sidebar-border: oklch(0.785 0.028 268);
+  --sidebar-ring: oklch(0.47 0.19 288);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.59 0.14 158);
   --critical: oklch(0.55 0.18 25);
@@ -358,6 +415,14 @@ html.dark[data-theme='indigo'] {
   --border: oklch(0.4 0.038 268);
   --input: oklch(0.45 0.038 268);
   --ring: oklch(0.74 0.16 285);
+  --sidebar: oklch(0.162 0.033 275);
+  --sidebar-foreground: oklch(0.94 0.018 280);
+  --sidebar-primary: oklch(0.74 0.15 288);
+  --sidebar-primary-foreground: oklch(0.15 0.03 275);
+  --sidebar-accent: oklch(0.28 0.07 288);
+  --sidebar-accent-foreground: oklch(0.87 0.09 288);
+  --sidebar-border: oklch(0.4 0.045 275);
+  --sidebar-ring: oklch(0.74 0.15 288);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.73 0.16 158);
   --critical: oklch(0.71 0.17 25);
@@ -396,6 +461,14 @@ html[data-theme='paper'] {
   --border: oklch(0.78 0.032 82);
   --input: oklch(0.76 0.034 82);
   --ring: oklch(0.45 0.12 250);
+  --sidebar: oklch(0.987 0.008 90);
+  --sidebar-foreground: oklch(0.235 0.022 60);
+  --sidebar-primary: oklch(0.42 0.115 255);
+  --sidebar-primary-foreground: oklch(0.985 0.006 90);
+  --sidebar-accent: oklch(0.93 0.026 250);
+  --sidebar-accent-foreground: oklch(0.33 0.09 252);
+  --sidebar-border: oklch(0.8 0.02 82);
+  --sidebar-ring: oklch(0.42 0.115 255);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.58 0.13 152);
   --critical: oklch(0.53 0.16 28);
@@ -434,6 +507,14 @@ html.dark[data-theme='paper'] {
   --border: oklch(0.41 0.024 70);
   --input: oklch(0.46 0.024 70);
   --ring: oklch(0.74 0.12 250);
+  --sidebar: oklch(0.192 0.013 72);
+  --sidebar-foreground: oklch(0.955 0.012 85);
+  --sidebar-primary: oklch(0.73 0.1 252);
+  --sidebar-primary-foreground: oklch(0.17 0.012 70);
+  --sidebar-accent: oklch(0.29 0.04 252);
+  --sidebar-accent-foreground: oklch(0.87 0.07 250);
+  --sidebar-border: oklch(0.415 0.022 75);
+  --sidebar-ring: oklch(0.73 0.1 252);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.73 0.15 152);
   --critical: oklch(0.71 0.15 28);
@@ -472,6 +553,14 @@ html[data-theme='contrast'] {
   --border: oklch(0.42 0 0);
   --input: oklch(0.34 0 0);
   --ring: oklch(0.4 0.19 255);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.09 0 0);
+  --sidebar-primary: oklch(0.49 0.21 262);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.93 0.03 262);
+  --sidebar-accent-foreground: oklch(0.32 0.13 262);
+  --sidebar-border: oklch(0.62 0 0);
+  --sidebar-ring: oklch(0.49 0.21 262);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.55 0.15 152);
   --critical: oklch(0.52 0.19 27);
@@ -510,6 +599,14 @@ html.dark[data-theme='contrast'] {
   --border: oklch(0.62 0 0);
   --input: oklch(0.68 0 0);
   --ring: oklch(0.8 0.16 255);
+  --sidebar: oklch(0.138 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.78 0.16 262);
+  --sidebar-primary-foreground: oklch(0.12 0 0);
+  --sidebar-accent: oklch(0.27 0.05 262);
+  --sidebar-accent-foreground: oklch(0.89 0.08 262);
+  --sidebar-border: oklch(0.52 0 0);
+  --sidebar-ring: oklch(0.78 0.16 262);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.75 0.17 152);
   --critical: oklch(0.73 0.17 27);
@@ -548,6 +645,14 @@ html[data-theme='terminal'] {
   --border: oklch(0.775 0.045 147);
   --input: oklch(0.755 0.05 147);
   --ring: oklch(0.45 0.15 148);
+  --sidebar: oklch(0.988 0.006 150);
+  --sidebar-foreground: oklch(0.18 0.032 150);
+  --sidebar-primary: oklch(0.4 0.11 148);
+  --sidebar-primary-foreground: oklch(0.985 0.006 150);
+  --sidebar-accent: oklch(0.92 0.035 148);
+  --sidebar-accent-foreground: oklch(0.3 0.09 148);
+  --sidebar-border: oklch(0.78 0.022 150);
+  --sidebar-ring: oklch(0.4 0.11 148);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.62 0.15 162);
   --critical: oklch(0.55 0.17 25);
@@ -586,6 +691,14 @@ html.dark[data-theme='terminal'] {
   --border: oklch(0.41 0.06 150);
   --input: oklch(0.46 0.065 150);
   --ring: oklch(0.8 0.2 148);
+  --sidebar: oklch(0.152 0.02 150);
+  --sidebar-foreground: oklch(0.93 0.045 150);
+  --sidebar-primary: oklch(0.78 0.17 148);
+  --sidebar-primary-foreground: oklch(0.14 0.02 150);
+  --sidebar-accent: oklch(0.27 0.05 148);
+  --sidebar-accent-foreground: oklch(0.86 0.12 148);
+  --sidebar-border: oklch(0.385 0.04 150);
+  --sidebar-ring: oklch(0.78 0.17 148);
   --destructive-foreground: oklch(0.98 0 0);
   --good: oklch(0.76 0.17 168);
   --critical: oklch(0.71 0.16 25);
@@ -622,12 +735,12 @@ html.dark[data-theme='terminal'] {
    TEN TOKENS, NOT FIFTY, AND THE GROUPING IS THE ARGUMENT. A reader needs to
    tell a name from a string from a comment at a glance; they do not need seven
    shades of name. So the roles collapse into ten hue families and the whole
-   block is legible in every palette, including the light ones - which is the
+   block is legible in every theme, including the light ones - which is the
    bug this replaced: a stock github-dark import painted these on a fixed dark
-   theme in all ten palette/mode combinations.
+   theme in all ten theme/mode combinations.
 
    `.hljs` itself is deliberately transparent: CodeBlock.tsx owns the surface,
-   so a block sits on the palette's own recessed ground rather than on a colour
+   so a block sits on the theme's own recessed ground rather than on a colour
    this file smuggles in under it. */
 
 .hljs {
