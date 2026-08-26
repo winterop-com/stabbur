@@ -143,10 +143,15 @@ class ChatApp(App[None]):
         self._reason_prog[id(box)] = box.collapsed
         self._reason_collapsed_pref = box.collapsed
 
+    @property
+    def _remote(self) -> "RemoteEndpoint | None":
+        """The attached remote server, or ``None`` when the session owns a local runtime."""
+        return self._endpoint if isinstance(self._endpoint, RemoteEndpoint) else None
+
     def _apply_model(self) -> None:
         """Set the per-model fields (name/format/target/base/sampling/context) from the current endpoint."""
         self._base = self._endpoint.base
-        remote = self._endpoint if isinstance(self._endpoint, RemoteEndpoint) else None
+        remote = self._remote
         model = self._model
         self._vision = False  # feed tool-returned images back only when the model can see them
         if model is not None:
@@ -186,7 +191,7 @@ class ChatApp(App[None]):
         # Prime the model list (for /model and its name completion) off the UI thread — the
         # local branch scans the library, which is slow on an external drive and would
         # otherwise block on the first `/model ` keystroke.
-        if isinstance(self._endpoint, RemoteEndpoint):
+        if self._remote is not None:
             self.run_worker(self._prime_remote_models(), group="models")
         else:
             self.run_worker(self._prime_library_models(), group="models")
@@ -222,7 +227,7 @@ class ChatApp(App[None]):
 
         api = Text(f"{self._base}/v1", style="grey42")
         api.append("   OpenAI-compatible", style="grey35")
-        if isinstance(self._endpoint, RemoteEndpoint):
+        if self._remote is not None:
             api.append("   attached (remote)", style="grey35")
 
         return Group(title, Text(), model, api)
@@ -286,7 +291,9 @@ class ChatApp(App[None]):
         if not turns:
             self.notify("Nothing to export yet.", severity="warning", timeout=2)
             return
-        dest = Path(path) if path else Path("chat.md")
+        # expanduser: the input is not a shell, so a habitually typed `~/notes.md` would
+        # otherwise mean a literal `./~` directory and fail with a puzzling OSError.
+        dest = Path(path).expanduser() if path else Path("chat.md")
         rendered = transcript.render_markdown(
             self._model_name,
             [
@@ -414,28 +421,38 @@ class ChatApp(App[None]):
         self.run_worker(self._pick_model(), group="models")
 
     async def _pick_model(self) -> None:
-        """Gather the switchable models, show the picker modal, and switch to the choice."""
-        if isinstance(self._endpoint, RemoteEndpoint):
+        """Gather the switchable models, show the picker modal, and switch to the choice.
+
+        The picker answers with a row *index*, not a name: the library can hold one model as
+        both GGUF and MLX, so only the row says which build was highlighted. Resolving the
+        index against the very list the rows were built from keeps the two in step.
+        """
+        if self._remote is not None:
             self._remote_models_cache = await asyncio.to_thread(self._fetch_remote_models)
             listed = self._remote_models_cache
             if not listed:
                 self._post(Text(f"couldn't list models at {self._base} — is the server running?", style="grey50"))
                 return
             rows = [(rid, "loaded" if is_loaded else "") for rid, is_loaded in listed]
-            current = self._model_target or self._model_name
+            selected = self._model_target or self._model_name
+            current = next((i for i, (rid, _) in enumerate(rows) if rid == selected), None)
             title = f"models · {len(rows)} on {self._base}"
-        else:
-            models = self._switchable_models()
-            if not models:
-                self._post(Text("No switchable models in the library.", style="grey50"))
-                return
-            rows = [(m.name, m.model_format.value) for m in models]
-            current = self._model_name
-            title = f"models · {len(rows)} in the library"
-        choice = await self.push_screen_wait(ModelPickerModal(rows, current, title))
-        if choice is None or choice == current:
+            choice = await self.push_screen_wait(ModelPickerModal(rows, current, title))
+            if choice is not None:
+                self._switch_remote_model(listed[choice][0])
             return
-        self.action_switch_model(choice)
+        models = self._switchable_models()
+        if not models:
+            self._post(Text("No switchable models in the library.", style="grey50"))
+            return
+        rows = [(m.name, m.model_format.value) for m in models]
+        # Mark the running build by path: two rows can share a name and only one is loaded.
+        running = self._model.path if self._model else None
+        current = next((i for i, m in enumerate(models) if m.path == running), None)
+        title = f"models · {len(rows)} in the library"
+        choice = await self.push_screen_wait(ModelPickerModal(rows, current, title))
+        if choice is not None:
+            self._switch_to(models[choice])
 
     def _switch_remote_model(self, name: str) -> None:
         """Point the session at another of the remote's models (matched against ``/v1/models``).
@@ -470,39 +487,67 @@ class ChatApp(App[None]):
         self._refresh_status()
         self._post(Text(f"switched to {match} — the server loads it on the next message", style="grey50"))
 
-    def action_switch_model(self, name: str) -> None:
-        """Switch the running model: swap the local runtime, or repoint a remote attach."""
+    def action_switch_model(self, name: str, model_format: str | None = None) -> None:
+        """Switch the running model by name: swap the local runtime, or repoint a remote attach."""
+        if self._remote is not None:
+            if self._busy:
+                self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
+                return
+            self._switch_remote_model(name)
+            return
+        want = name.strip().lower()
+        fmt = model_format.strip().lower() if model_format else None
+        matches = [
+            m
+            for m in self._switchable_models()
+            if want in (m.name.lower(), m.name.split("/")[-1].lower())
+            and (fmt is None or m.model_format.value.lower() == fmt)
+        ]
+        if not matches:
+            hint = f" in {model_format}" if fmt else ""
+            self._post(Text(f"no model matching {name!r}{hint} — /model to list", style="grey50"))
+            return
+        if len(matches) > 1:
+            # One name, several builds (the GGUF+MLX policy) — they run on different runtimes,
+            # so picking one silently would be a coin flip. Say so instead of guessing.
+            formats = ", ".join(sorted({m.model_format.value for m in matches}))
+            self._post(
+                Text(
+                    f"{matches[0].name} is in {len(matches)} formats ({formats}) — "
+                    f"/model to pick, or /model {name} <format>",
+                    style="grey50",
+                )
+            )
+            return
+        self._switch_to(matches[0])
+
+    def _switch_to(self, model: library_ops.LibraryModel) -> None:
+        """Load one specific library model — the exact build, format included."""
         if self._busy:
             self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
-            return
-        if isinstance(self._endpoint, RemoteEndpoint):
-            self._switch_remote_model(name)
             return
         if self._switching:
             self.notify("Already switching models.", severity="warning", timeout=2)
             return
-        want = name.strip().lower()
-        match = next(
-            (m for m in self._switchable_models() if want in (m.name.lower(), m.name.split("/")[-1].lower())),
-            None,
-        )
-        if match is None:
-            self._post(Text(f"no model matching {name!r} — /model to list", style="grey50"))
+        # Identity is the on-disk path, not the name: the same name in another format is a
+        # different build on a different runtime, and switching to it is a real switch.
+        if self._model is not None and model.path == self._model.path:
+            self._post(Text(f"already running {model.name} ({model.model_format.value})", style="grey50"))
             return
-        if match.name == self._model_name:
-            self._post(Text(f"already running {match.name}", style="grey50"))
-            return
-        self.run_worker(self._do_switch(match), group="switch")
+        self.run_worker(self._do_switch(model), group="switch")
 
     async def _do_switch(self, model: library_ops.LibraryModel) -> None:
         """Tear down the current runtime and load ``model`` (off the event loop), then rebind to it."""
         self._switching = True
         self._refresh_status()
-        self._post(Text(f"switching to {model.name} … (loading — this can take a moment)", style="grey50"))
+        # Name the format: switching between two builds of one name would otherwise read as a no-op.
+        label = f"{model.name} ({model.model_format.value})"
+        self._post(Text(f"switching to {label} … (loading — this can take a moment)", style="grey50"))
         try:
             new = await asyncio.to_thread(self._reserve, model)
         except Exception as exc:  # noqa: BLE001 - surface a failed load instead of hanging
             self._post(Text(f"switch failed: {exc}", style="red"))
+            await self._restore_previous()
             self._switching = False
             self._refresh_status()
             return
@@ -512,12 +557,31 @@ class ChatApp(App[None]):
         self.ctx_used = None  # new model, fresh context window
         self._switching = False
         self._refresh_status()
-        self._post(Text(f"switched to {model.name}", style="grey50"))
+        self._post(Text(f"switched to {label}", style="grey50"))
 
-    def _reserve(self, model: library_ops.LibraryModel) -> "runtime_mod.RuntimeProc":
-        """(worker thread) Stop the current runtime, then start + wait for the new one."""
-        assert isinstance(self._endpoint, runtime_mod.RuntimeProc)  # switching is blocked on remote attaches
-        runtime_mod.stop(self._endpoint)  # free memory before loading the next model
+    async def _restore_previous(self) -> None:
+        """Reload the model the session was on after a failed switch.
+
+        ``_reserve`` frees the old runtime *before* loading the new one (one model in memory at a
+        time), so a failed load leaves nothing behind ``self._base`` — the footer would still name
+        a model whose server is gone and every later message would die on a closed port. Put the
+        previous model back; if that fails too, say plainly that the session has no runtime.
+        """
+        previous = self._model
+        if previous is None:
+            return
+        self._post(Text(f"reloading {previous.name} …", style="grey50"))
+        try:
+            self._endpoint = await asyncio.to_thread(self._launch, previous)
+        except Exception as exc:  # noqa: BLE001 - a double failure still must not hang the session
+            self._post(Text(f"could not reload {previous.name}: {exc} — no model is running", style="red"))
+            return
+        self._apply_model()  # the reloaded runtime listens on a fresh port
+        self._post(Text(f"back on {previous.name}", style="grey50"))
+
+    @staticmethod
+    def _launch(model: library_ops.LibraryModel) -> "runtime_mod.RuntimeProc":
+        """(worker thread) Start a runtime for ``model`` and wait for it to answer."""
         new = runtime_mod.start(model)
         try:
             runtime_mod.wait_ready(new)
@@ -525,6 +589,12 @@ class ChatApp(App[None]):
             runtime_mod.stop(new)
             raise
         return new
+
+    def _reserve(self, model: library_ops.LibraryModel) -> "runtime_mod.RuntimeProc":
+        """(worker thread) Stop the current runtime, then start + wait for the new one."""
+        assert isinstance(self._endpoint, runtime_mod.RuntimeProc)  # switching is blocked on remote attaches
+        runtime_mod.stop(self._endpoint)  # free memory before loading the next model
+        return self._launch(model)
 
     def action_copy_reply(self) -> None:
         """Copy the last assistant reply to the clipboard (works over SSH via OSC 52)."""
@@ -552,7 +622,7 @@ class ChatApp(App[None]):
         if not text.startswith("/model ") or "\n" in text:
             return []
         partial = text[len("/model ") :].strip().lower()
-        if isinstance(self._endpoint, RemoteEndpoint):
+        if self._remote is not None:
             candidates = [(rid, "loaded" if is_loaded else "") for rid, is_loaded in (self._remote_models_cache or [])]
         else:
             candidates = [(m.name, m.model_format.value) for m in self._switchable_models()]
@@ -724,11 +794,12 @@ class ChatApp(App[None]):
             ("/mcp on|off <server>", "enable / disable a server's tools"),
             ("/mcp reconnect", "respawn the MCP servers"),
             ("/copy", "copy the last reply"),
-            ("/model [name]", "switch the running model (or pick from a list)"),
+            ("/model [name] [format]", "switch the running model (or pick from a list)"),
             ("/system [text]", "show or replace the system prompt (clear to drop; history kept)"),
             ("/export [file]", "save the transcript to markdown (chat.md)"),
             ("/export --thinking", "export and include each turn's thinking (folded)"),
             ("/set <param> <value>", "adjust sampling (temperature/top_p/top_k/min_p/repeat_penalty)"),
+            ("/set reasoning <level>", "thinking effort: off/low/medium/high/max (default resets)"),
             ("/clear", "clear the conversation"),
             ("/help", "this help"),
             ("/exit", "quit"),
@@ -763,7 +834,8 @@ class ChatApp(App[None]):
             self._run_command(text)
             return
         if self._switching:
-            self.query_one(ChatInput).text = ""
+            # Keep the text in the input: a load takes tens of seconds, and eating a prompt the
+            # user just typed is worse than making them press Enter again once the model is up.
             self.notify("Switching models — hold on.", severity="warning", timeout=2)
             return
         self.query_one(ChatInput).text = ""
@@ -795,8 +867,10 @@ class ChatApp(App[None]):
             self.action_copy_reply()
         elif name in ("export", "save"):
             want_thinking = any(p in ("--thinking", "-t") for p in parts[1:])
-            file_args = [p for p in parts[1:] if not p.startswith("-")]
-            self.action_export(file_args[0] if file_args else None, thinking=want_thinking)
+            # Everything that isn't a flag is the path — rejoined, because a filename can hold
+            # spaces and taking only the first word would silently export to the wrong file.
+            dest = " ".join(p for p in parts[1:] if not p.startswith("-"))
+            self.action_export(dest or None, thinking=want_thinking)
         elif name in ("set", "sampling"):
             if len(parts) >= 3:
                 self._set_sampling(parts[1], parts[2])
@@ -804,7 +878,8 @@ class ChatApp(App[None]):
                 self.action_show_sampling()
         elif name in ("model", "switch"):
             if len(parts) > 1:
-                self.action_switch_model(parts[1])
+                # `/model <name> <format>` narrows a name the library holds in several formats.
+                self.action_switch_model(parts[1], parts[2] if len(parts) > 2 else None)
             else:
                 self.action_show_models()
         elif name == "system":

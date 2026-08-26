@@ -411,7 +411,7 @@ async def test_remote_attach_switches_by_repointing_model_id(monkeypatch: pytest
                 break
             await pilot.pause()
         assert isinstance(app.screen, ModelPickerModal)
-        app.screen.dismiss("pub/Served-GGUF")  # what an arrow-key + Enter selection resolves to
+        app.screen.dismiss(0)  # row 0 — what an arrow-key + Enter selection resolves to
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app._model_name == "pub/Served-GGUF"  # the picked model became the session's
@@ -508,22 +508,220 @@ async def test_model_picker_tolerates_a_name_in_two_formats() -> None:
     # A library legitimately holds one model in several formats (keeping GGUF *and* MLX is the
     # documented default policy), so the picker's rows can repeat a name. Textual raises
     # DuplicateID when two options share an id, which crashed /model on exactly the libraries
-    # that policy encourages. Every row must survive, with unique ids that still carry the name.
+    # that policy encourages. Every row must survive, and Enter must answer with the row the
+    # user highlighted — the *index*, since the name alone can't tell the two builds apart.
     from textual.widgets import OptionList
 
     from heim.chat_tui._widgets import ModelPickerModal
 
     rows = [("pub/Foo", "gguf"), ("pub/Foo", "mlx"), ("pub/Bar", "gguf")]
+    picked: list[int | None] = []
     app = _app()
     async with app.run_test() as pilot:
-        app.push_screen(ModelPickerModal(rows, "pub/Foo", "models · 3"))
+        app.push_screen(ModelPickerModal(rows, 0, "models · 3"), picked.append)  # row 0 is running
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, ModelPickerModal)
         picker = screen.query_one(OptionList)
-        assert picker.option_count == 3  # no row dropped to dodge the id collision
+        assert picker.option_count == 3  # no row dropped, and compose didn't raise DuplicateID
+        assert picker.highlighted == 0  # opens on the running build
+        # Only that build wears the "running" dot — marking by name would light up both rows
+        # named pub/Foo and leave the user unable to tell which one is loaded.
+        marked = [i for i in range(3) if "●" in str(picker.get_option_at_index(i).prompt)]
+        assert marked == [0]
 
-        ids = [picker.get_option_at_index(i).id for i in range(3)]
-        assert len(set(ids)) == 3  # unique, or Textual would have raised on compose
-        # ...and each still resolves back to the model name the switch handler expects.
-        assert [str(i).split("#")[0] for i in ids] == ["pub/Foo", "pub/Foo", "pub/Bar"]
+        # Arrow down onto the MLX build of the *same* name, then Enter.
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert picked == [1]  # the second row, not "whichever row is named pub/Foo"
+
+
+async def test_picking_another_format_of_the_running_model_actually_switches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The picker used to answer with the row's *name*, so choosing the MLX build of a model
+    # already running as GGUF read as "you picked what you're on" and did nothing at all — on
+    # exactly the libraries heim's keep-GGUF-and-MLX policy produces. The row's identity (its
+    # index) must survive the round trip, and the two builds run on different runtimes.
+    from heim.chat_tui._widgets import ModelPickerModal
+
+    app = _app()
+    gguf = app._model
+    assert gguf is not None
+    mlx = LibraryModel(
+        name="pub/Foo-GGUF",  # same name, different build
+        model_format=ModelFormat.mlx,
+        path=Path("/lib/mlx/pub/Foo-GGUF"),
+        load_target=Path("/lib/mlx/pub/Foo-GGUF"),
+    )
+    monkeypatch.setattr(chat_tui.app.library_ops, "scan", lambda: [gguf, mlx])
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", lambda rt: None)
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "wait_ready", lambda rt, timeout=None: None)
+    monkeypatch.setattr(
+        chat_tui.app.runtime_mod, "start", lambda m: _fake_runtime(m, base="http://127.0.0.1:5555", port=5555)
+    )
+
+    async with app.run_test() as pilot:
+        app.action_show_models()
+        for _ in range(40):
+            await pilot.pause()
+            if isinstance(app.screen, ModelPickerModal):
+                break
+        assert isinstance(app.screen, ModelPickerModal)
+        app.screen.dismiss(1)  # the MLX row (arrow-down from the pre-marked GGUF row, then Enter)
+        for _ in range(200):
+            await pilot.pause()
+            if app._model is not None and app._model.model_format is ModelFormat.mlx:
+                break
+
+    assert app._model is not None
+    assert app._model.model_format is ModelFormat.mlx  # the highlighted build loaded, not the first namesake
+    assert app._model_format == "mlx"
+    assert app._base == "http://127.0.0.1:5555"
+
+
+async def test_model_by_name_refuses_an_ambiguous_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `/model <name>` can't choose between two builds of one name, and guessing would silently
+    # start the wrong runtime. It says so; `/model <name> <format>` narrows it.
+    from textual.widgets import Static
+
+    app = _app()
+    gguf = app._model
+    assert gguf is not None
+    mlx = LibraryModel(
+        name="pub/Foo-GGUF",
+        model_format=ModelFormat.mlx,
+        path=Path("/lib/mlx/pub/Foo-GGUF"),
+        load_target=Path("/lib/mlx/pub/Foo-GGUF"),
+    )
+    bar = LibraryModel(
+        name="pub/Bar-GGUF",
+        model_format=ModelFormat.gguf,
+        path=Path("/lib/gguf/pub/Bar-GGUF"),
+        load_target=Path("/lib/gguf/pub/Bar-GGUF/model.gguf"),
+    )
+    monkeypatch.setattr(chat_tui.app.library_ops, "scan", lambda: [gguf, mlx, bar])
+    started: list[str] = []
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", lambda rt: None)
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "wait_ready", lambda rt, timeout=None: None)
+
+    def start(model: LibraryModel) -> runtime.RuntimeProc:
+        started.append(model.model_format.value)
+        return _fake_runtime(model, base="http://127.0.0.1:5555", port=5555)
+
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "start", start)
+
+    async with app.run_test() as pilot:
+        app._run_command("/model Foo-GGUF")
+        await pilot.pause()
+        assert started == []  # no coin-flip load
+        notes = [w for w in app.query(Static) if "2 formats" in str(w.render())]
+        assert len(notes) == 1 and "gguf, mlx" in str(notes[0].render())
+
+        app._run_command("/model Foo-GGUF mlx")  # narrowed: this one loads
+        for _ in range(200):
+            await pilot.pause()
+            if not app._switching and started:
+                break
+
+    assert started == ["mlx"]
+
+
+async def test_a_failed_switch_reloads_the_model_it_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Switching frees the running model before loading the next one, so a load that fails used
+    # to leave the session pointed at a port nothing listens on — the footer still named the old
+    # model while every later message died on a closed connection. The previous model comes back.
+    from textual.widgets import Static
+
+    app = _app()
+    model_a = app._model
+    assert model_a is not None
+    model_b = LibraryModel(
+        name="pub/Bar-GGUF",
+        model_format=ModelFormat.gguf,
+        path=Path("/lib/gguf/pub/Bar-GGUF"),
+        load_target=Path("/lib/gguf/pub/Bar-GGUF/model.gguf"),
+    )
+    monkeypatch.setattr(chat_tui.app.library_ops, "scan", lambda: [model_a, model_b])
+    stopped: list[str] = []
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "stop", lambda rt: stopped.append(rt.model.name))
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "wait_ready", lambda rt, timeout=None: None)
+
+    def start(model: LibraryModel) -> Any:
+        if model.name == "pub/Bar-GGUF":
+            raise RuntimeError("llama-server: failed to allocate")
+        return _fake_runtime(model, base="http://127.0.0.1:7777", port=7777)
+
+    monkeypatch.setattr(chat_tui.app.runtime_mod, "start", start)
+
+    async with app.run_test() as pilot:
+        app.action_switch_model("Bar-GGUF")
+        for _ in range(200):
+            await pilot.pause()
+            if not app._switching:
+                break
+
+        assert stopped == ["pub/Foo-GGUF"]  # the old runtime was freed to make room
+        assert app._model is model_a  # still the model the session was on...
+        assert app._base == "http://127.0.0.1:7777"  # ...but behind a live runtime again
+        posted = " ".join(str(w.render()) for w in app.query(Static))
+        assert "switch failed" in posted and "back on pub/Foo-GGUF" in posted
+
+
+async def test_a_prompt_typed_during_a_switch_is_not_eaten() -> None:
+    # A model load takes tens of seconds; pressing Enter into it used to clear the input and
+    # drop the prompt with only a toast. The text stays put so Enter works once the model is up.
+    app = _app()
+    async with app.run_test() as pilot:
+        app._switching = True
+        app.query_one(chat_tui.ChatInput).text = "a long, carefully written prompt"
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.query_one(chat_tui.ChatInput).text == "a long, carefully written prompt"
+        assert app.messages == []  # and nothing was sent to the model being swapped out
+
+
+async def test_palette_lists_the_remotes_models_on_an_attach(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A remote attach can only move between the ids the server serves, so the Ctrl+P palette must
+    # offer those — not local library models it would refuse ("does not serve") — and it must not
+    # scan the library at all: that blocks the UI on a drive this session never touches.
+    from heim.chat_tui._widgets import _HeimCommands
+
+    def _boom() -> list[LibraryModel]:
+        raise AssertionError("a remote attach must not scan the local library")
+
+    monkeypatch.setattr(chat_tui.app.library_ops, "scan", _boom)
+    monkeypatch.setattr(
+        chat_tui.ChatApp, "_fetch_remote_models", lambda self: [("served-a", True), ("served-b", False)]
+    )
+    app = _remote_app()
+    app._endpoint.model_name = "served-a"  # type: ignore[union-attr]
+    app._apply_model()
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        provider = _HeimCommands(app.screen)
+        titles = [title for title, _help, _callback in provider._commands()]
+
+    assert "Switch model: served-b" in titles  # the other model the server holds
+    assert "Switch model: served-a" not in titles  # not the one already selected
+    assert not any(t.startswith("Switch model: pub/") for t in titles)  # no local library rows
+
+
+async def test_export_path_expands_home_and_keeps_spaces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The chat input is not a shell: `~` was taken literally (a `./~` directory, so the write
+    # failed), and a path with spaces was truncated at the first word by the command split.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    app = _app()
+    async with app.run_test() as pilot:
+        app.messages.append({"role": "user", "content": "hi"})
+        app.messages.append({"role": "assistant", "content": "hello"})
+        app._run_command("/export ~/My Chat.md")
+        await pilot.pause()
+
+    written = tmp_path / "My Chat.md"
+    assert written.exists()  # under $HOME, under the full name
+    assert "hello" in written.read_text(encoding="utf-8")
