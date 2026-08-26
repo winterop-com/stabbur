@@ -110,6 +110,10 @@ Issues = "https://github.com/winterop-com/stabbur/issues"
 
 [project.scripts]
 stabbur = "stabbur.cli:main"
+# Short form for the thing typed dozens of times a day. Both names run the same app; `sb` is
+# free on PATH and claims no Homebrew formula, and a user who dislikes a two-letter command can
+# simply ignore it rather than have it shadow something of theirs.
+sb = "stabbur.cli:main"
 # Vendored MCP tool servers — stabbur spawns these by console-script name (see
 # `stabbur.tools._bin_dir`/`_mcp_env`); it never imports them. Each points at the
 # vendored subpackage's re-exported `main`.

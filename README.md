@@ -14,6 +14,8 @@ them into a single library (browse via a **Typer CLI** or a **browser chat UI**)
 and runs them from there. The library lives under one configurable root you point
 at an external drive (e.g. a 5TB drive).
 
+**Short form.** Every command is also available as `sb` — `sb chat`, `sb serve`, `sb library ls`.
+
 **The name.** A *stabbur* is the Norwegian storehouse — raised on pillars, off the ground and
 out of the damp, where a household kept what it had gathered and wanted to keep. That is what this
 is: your models, pulled in from wherever they came from and kept somewhere of your own, on your own
