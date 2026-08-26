@@ -155,6 +155,11 @@ jobs:
           VERSION="${{ steps.version.outputs.value }}"
           export STABBUR_LIBRARY_ROOT="$(mktemp -d)"
           uvx --from "stabbur==${VERSION}" stabbur serve --ui --port 8933 &
+          server=$!
+          # Stop it however this step ends. Left running, the server outlives the step and uv's
+          # post-job cache prune fails against the live process - the job then reports failure
+          # even when every check above passed.
+          trap 'kill "${server}" 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do
             sleep 2
             code=$(curl -s -o /tmp/root.html -w '%{http_code}' "http://127.0.0.1:8933/" || true)
@@ -166,3 +171,5 @@ jobs:
           grep -qi '<div id="root"' /tmp/root.html \
             || { echo "::error::/ returned 200 but not the SPA shell"; exit 1; }
           echo "browser UI served from the published wheel"
+          kill "${server}" 2>/dev/null || true
+          wait "${server}" 2>/dev/null || true
