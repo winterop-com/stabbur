@@ -121,7 +121,7 @@ function GroupChildren({ rows }: { rows: HealthCheck[] }) {
   return (
     <>
       {rows.map((c) => (
-        <li key={c.name} className="flex items-start gap-2.5 px-3 py-2">
+        <li key={c.name} className="flex cursor-default items-start gap-2.5 px-3 py-2 transition-colors hover:bg-accent/50">
           <CheckLine check={c} dot={c.status} />
         </li>
       ))}
@@ -243,7 +243,7 @@ export function HealthMenu({ health }: { health: DoctorReport | null }) {
                 {flyout ? <FlyoutGroup node={node} /> : <InlineGroup node={node} />}
               </li>
             ) : (
-              <li key={node.check.name} className="flex items-start gap-2.5 px-3 py-2">
+              <li key={node.check.name} className="flex cursor-default items-start gap-2.5 px-3 py-2 transition-colors hover:bg-accent/50">
                 <CheckLine check={node.check} dot={node.check.status} />
               </li>
             ),
