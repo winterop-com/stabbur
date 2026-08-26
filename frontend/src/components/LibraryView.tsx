@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ViewBand } from "@/components/ViewBand";
+import { usePublishViewTitle } from "@/lib/view-title";
 import { cn, formatBytes } from "@/lib/utils";
 
 /** Format a context length in tokens as a compact label (262144 -> "256K"). */
@@ -125,7 +125,7 @@ function TagDialog({
 
         {unused.length > 0 && (
           <div>
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Existing tags
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -179,7 +179,7 @@ function TagRow({
           return (
             <span
               key={t}
-              className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", s.className)}
+              className={cn("rounded-full border px-2 py-0.5 text-xs", s.className)}
               style={s.style}
             >
               {s.icon && <span className="mr-0.5">{s.icon}</span>}
@@ -187,8 +187,8 @@ function TagRow({
             </span>
           );
         })}
-        <span className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-primary/50 hover:text-foreground">
-          <Plus className="h-2.5 w-2.5" />
+        <span className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground">
+          <Plus className="h-3 w-3" />
           {tags.length ? "edit" : "tag"}
         </span>
       </button>
@@ -238,17 +238,17 @@ function ModelDetailsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
           {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
           {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
           {model.audio && <CapChip icon={AudioLines} label="audio" className="text-good-ink" />}
           {model.tags.map((t) => (
-            <span key={t} className="rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-[10px]">
+            <span key={t} className="rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs">
               {t}
             </span>
           ))}
         </div>
-        {info?.path && <div className="break-all text-[11px] text-muted-foreground">{info.path}</div>}
+        {info?.path && <div className="break-all text-xs text-muted-foreground">{info.path}</div>}
 
         <div className="max-h-[70vh] min-h-[40vh] overflow-y-auto rounded-lg border border-border bg-muted/20 p-4 text-sm">
           {loading ? (
@@ -294,7 +294,7 @@ function ModelCard({
   return (
     <div
       className={cn(
-        "relative flex flex-col rounded-xl border p-3 transition-colors",
+        "relative flex flex-col rounded-xl border p-4 transition-colors",
         loading && "border-primary/50 ring-2 ring-primary/30",
         active
           ? "border-primary/60 bg-primary/5"
@@ -310,7 +310,7 @@ function ModelCard({
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
-            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+            "rounded border px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
             FORMAT_ACCENT[model.model_format] ?? FALLBACK_ACCENT,
           )}
         >
@@ -322,9 +322,9 @@ function ModelCard({
       <div className="mt-2 break-words text-sm font-medium leading-snug" title={model.name}>
         {shortName(model.name)}
       </div>
-      {pub && <div className="truncate text-[11px] text-muted-foreground">{pub}</div>}
+      {pub && <div className="truncate text-xs text-muted-foreground">{pub}</div>}
 
-      <div className="mt-2 flex items-center gap-2.5 text-[11px] text-muted-foreground">
+      <div className="mt-2 flex items-center gap-2.5 text-xs text-muted-foreground">
         {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
         {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
         {model.audio && <CapChip icon={AudioLines} label="audio" className="text-good-ink" />}
@@ -344,7 +344,7 @@ function ModelCard({
         <button
           type="button"
           onClick={() => setDetailsOpen(true)}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
         >
           <Info className="h-3.5 w-3.5" /> Details
         </button>
@@ -448,6 +448,16 @@ export function LibraryView({
 
   const totalHuman = useMemo(() => formatBytes(filtered.reduce((sum, m) => sum + m.size_bytes, 0)), [filtered]);
 
+  // What the top bar reads while the Library is on screen. Tag-filter aware, so the bar answers
+  // "how much of it am I looking at" rather than restating a constant.
+  usePublishViewTitle(
+    "library",
+    "Library",
+    models.length === 0
+      ? null
+      : `${filtered.length}${filtered.length !== models.length ? ` / ${models.length}` : ""} models · ${totalHuman}`,
+  );
+
   const grouped = useMemo(() => {
     const by: Record<string, LibModel[]> = {};
     for (const m of filtered) (by[m.model_format] ??= []).push(m);
@@ -457,20 +467,6 @@ export function LibraryView({
 
   return (
     <>
-      {/* The heading this view used to render inline, lifted out of the scroll container into the
-          band it shares with Voice — so it stays put while the grid moves, and the two data views
-          are titled the same way. The chip is the same summary it always carried. */}
-      <ViewBand
-        title="Library"
-        chip={
-          models.length > 0 ? (
-            <>
-              {filtered.length}
-              {filtered.length !== models.length && ` / ${models.length}`} models · {totalHuman}
-            </>
-          ) : undefined
-        }
-      />
       <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
         {allTags.length > 0 && (
@@ -487,7 +483,7 @@ export function LibraryView({
                   aria-pressed={on}
                   style={s.style}
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[11px] transition-all",
+                    "rounded-full border px-2 py-0.5 text-xs transition-all",
                     s.className,
                     on ? "font-medium ring-1 ring-inset ring-current" : "opacity-70 hover:opacity-100",
                   )}
@@ -501,7 +497,7 @@ export function LibraryView({
               <button
                 type="button"
                 onClick={() => setActiveTags(new Set())}
-                className="ml-1 text-[11px] text-muted-foreground hover:text-foreground"
+                className="ml-1 text-xs text-muted-foreground hover:text-foreground"
               >
                 clear
               </button>
@@ -518,16 +514,11 @@ export function LibraryView({
             {/* Chat models (LLMs) — loadable, taggable. */}
             <section>
               <div className="mb-3">
-                <div className="flex items-baseline gap-2">
-                  <h2 className="text-sm font-semibold tracking-tight">Chat</h2>
-                  <span className="text-[11px] text-muted-foreground">
-                    {/* Count + size both track the tag filter, so they never disagree (F-13). */}
-                    {filtered.length} model{filtered.length === 1 ? "" : "s"}
-                    {filtered.length !== models.length && ` of ${models.length}`}
-                    {filtered.length > 0 && ` · ${totalHuman}`}
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
+                {/* No count beside this heading: the top bar's chip is the same figure, filter and
+                    all, and two copies of one number is one number wearing two costumes. The Voice
+                    heading below keeps its own, because the bar says nothing about voice models. */}
+                <h2 className="text-sm font-semibold tracking-tight">Chat</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
                   Language models you talk to — text in and out. Some also read images or audio, or call tools.
                 </p>
               </div>
@@ -551,8 +542,8 @@ export function LibraryView({
                   {grouped.map(([fmt, models]) => (
                     <section key={fmt}>
                       <div className="mb-2 flex items-center gap-2">
-                        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{fmt}</span>
-                        <span className="text-[11px] text-muted-foreground">{models.length}</span>
+                        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{fmt}</span>
+                        <span className="text-xs text-muted-foreground">{models.length}</span>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {models.map((m) => (
@@ -582,11 +573,11 @@ export function LibraryView({
                 <div className="mb-3">
                   <div className="flex items-baseline gap-2">
                     <h2 className="text-sm font-semibold tracking-tight">Voice</h2>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {voiceModels.length} model{voiceModels.length === 1 ? "" : "s"}
                     </span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Audio in/out, not chat — <span className="font-medium">TTS</span> speaks text,{" "}
                     <span className="font-medium">STT</span> transcribes speech. Use them in the Voice studio.
                   </p>
@@ -595,10 +586,10 @@ export function LibraryView({
                   {voiceGroups.map(([kind, list]) => (
                     <section key={kind}>
                       <div className="mb-2 flex items-center gap-2">
-                        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           {kind}
                         </span>
-                        <span className="text-[11px] text-muted-foreground">{list.length}</span>
+                        <span className="text-xs text-muted-foreground">{list.length}</span>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {list.map((m) => (
@@ -613,7 +604,7 @@ export function LibraryView({
           </div>
         )}
         {locked && (
-          <p className="mt-4 text-[11px] text-muted-foreground">
+          <p className="mt-4 text-sm text-muted-foreground">
             The server is locked to a single model; switching is disabled.
           </p>
         )}

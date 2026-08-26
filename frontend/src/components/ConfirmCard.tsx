@@ -30,14 +30,17 @@ export function ConfirmCard({
   const outcome =
     confirm.reason === "timeout" ? "Auto-denied (timed out)." : confirm.approved ? "Approved." : "Denied.";
   return (
+    // A decision the reader has to read before making, so the card is prose-sized; only the args
+    // digest inside it stays at the annotation size, because that is a machine string being quoted
+    // rather than a sentence.
     <div
       data-testid="chat-confirm"
-      className="w-full rounded-md border border-warning/50 bg-warning/10 px-2.5 py-2 text-xs"
+      className="w-full rounded-md border border-warning/50 bg-warning/10 px-3 py-2.5 text-sm"
     >
       <div className="flex items-center gap-1.5 font-medium text-foreground">
-        <ShieldAlert className="h-3.5 w-3.5 text-warning-ink" /> Confirm action
+        <ShieldAlert className="h-4 w-4 text-warning-ink" /> Confirm action
       </div>
-      <div className="mt-1 break-all font-mono text-muted-foreground">
+      <div className="mt-1.5 break-all font-mono text-xs text-muted-foreground">
         <span className="font-medium text-foreground">{confirm.tool}</span>
         {args ? `(${args})` : null}
       </div>

@@ -57,6 +57,14 @@ install-web:
 	@$(UV) sync --extra benchmark --extra web
 	@$(UV) run playwright install chromium
 
+# The SPA's half of the gate. `oxlint` (frontend/.oxlintrc.json) covers the JS/TS; it cannot see
+# inside a className, so the UI conventions get their own check — see scripts/check_ui_classes.py
+# and docs/ui-conventions.md. Both are read-only, so `lint` and `check` share them.
+#
+# `bun install --frozen-lockfile` rides along for the same reason `uv run` auto-syncs: the linter
+# has to be present for the gate to mean anything, and a frozen install touches no tracked file.
+FRONTEND_LINT = cd frontend && bun install --frozen-lockfile >/dev/null && bun run lint
+
 lint:
 	@echo ">>> Running linter"
 	@$(UV) run ruff format .
@@ -64,6 +72,9 @@ lint:
 	@echo ">>> Running type checker"
 	@$(MYPY)
 	@$(UV) run pyright
+	@echo ">>> Linting the browser UI (oxlint + UI conventions)"
+	@$(FRONTEND_LINT)
+	@$(UV) run python scripts/check_ui_classes.py
 
 check:
 	@echo ">>> Checking formatting and lint (no changes)"
@@ -72,6 +83,9 @@ check:
 	@echo ">>> Running type checker"
 	@$(MYPY)
 	@$(UV) run pyright
+	@echo ">>> Linting the browser UI (oxlint + UI conventions)"
+	@$(FRONTEND_LINT)
+	@$(UV) run python scripts/check_ui_classes.py
 	@echo ">>> Running tests (excluding slow)"
 	@$(UV) run pytest -q -m "not slow"
 

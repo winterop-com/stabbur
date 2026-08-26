@@ -35,8 +35,8 @@ import { Composer } from "@/components/Composer";
 import { HealthMenu } from "@/components/HealthMenu";
 import { IconRail } from "@/components/IconRail";
 import { useIsMobile } from "@/lib/use-mobile";
+import { ViewTitleProvider, useViewTitleState } from "@/lib/view-title";
 import type { TagRegistry } from "@/lib/tags";
-import { LoadedModelBadge } from "@/components/LoadedModelBadge";
 import { MessageItem } from "@/components/MessageItem";
 import { ModelSelector } from "@/components/ModelSelector";
 import { TargetSelector } from "@/components/TargetSelector";
@@ -79,20 +79,37 @@ type View = "chat" | "library" | "voice";
 /** The resizable panels, in group order. Matches each `<Panel id>` (and so `data-panel-id`). */
 type PanelId = "sidebar" | "main" | "chat-settings";
 
+// CHROME IS A WIDTH, NEVER A SHARE OF THE DISPLAY — and the percentages in this file are only ever
+// a width re-expressed for a library that speaks in shares of the panel group. A rail sized at 18%
+// is 230px on a 1280px screen and 461px on a 2560px one, so on a big monitor every frame around the
+// text grows while the text does not: the app reads as though it had been zoomed out, which is
+// exactly the complaint. `groupWidth` (measured below) is what converts one to the other.
+//
+// The sidebar's own numbers. The default matches the sibling app's fixed ~240px rail; the bounds
+// are a drag range around it, not a layout constraint — a rail wider than ~420px is a reader's
+// choice, not a design.
+const SIDEBAR_DEFAULT_PX = 240;
+const SIDEBAR_MIN_PX = 180;
+const SIDEBAR_MAX_PX = 420;
 // How wide the chat settings rail has to be to be worth having. Below this its sliders lose their
 // track and "Max response tokens" wraps to three lines — at which point an overlay that covers the
-// chat is strictly better than a rail that ruins it.
-const CHAT_SETTINGS_MIN_PX = 320;
-// And the width below which it stops being a rail at all. The panels are sized as *percentages* of
-// the group, so a fixed 18% shrinks with the window (176px on a 1024px iPad, 141px on an 834px one)
-// — a px floor alone would just eat the chat instead. So: 48px of icon rail + 320px of settings +
-// ~560px of chat is ~930px, rounded up to Tailwind's lg so the chat keeps a comfortable 656px. This
+// chat is strictly better than a rail that ruins it. Raised from 320 when the panel's prose went to
+// `text-sm`: 320px of rail held 11px sentences, and a slider description at 14px wants the extra
+// 40px or it runs to four lines under every knob.
+const CHAT_SETTINGS_MIN_PX = 360;
+// And the width below which it stops being a rail at all. 48px of icon rail + 360px of settings +
+// ~560px of chat is ~968px, rounded up to Tailwind's lg so the chat keeps a comfortable 616px. This
 // is about narrow, not about phones: a desktop window snapped to half a screen lands here too.
 const CHAT_SETTINGS_RAIL_MIN_VIEWPORT = 1024;
 // ...which makes this the narrowest panel group the rail is ever laid out in: the breakpoint less
 // the collapsed sidebar's icon rail (`w-12`). Never derive the floor from anything narrower — see
-// `chatSettingsMin`. 320 of 976 is 32.8%, comfortably under the rail's 40% maximum.
+// `chatSettingsMin`. 360 of 976 is 36.9%, still under the rail's 40% maximum.
 const NARROWEST_RAIL_GROUP = CHAT_SETTINGS_RAIL_MIN_VIEWPORT - 48;
+
+/** One panel's pixel intent as the percentage of `group` the library needs, clamped to sane bounds. */
+function pctOfGroup(px: number, group: number): number {
+  return Math.min(100, Math.max(0, (px / group) * 100));
+}
 
 /** A programmatic collapse/expand in flight — see `beginRailAnim` for why the content is pinned. */
 type RailAnim = {
@@ -268,6 +285,14 @@ export function App() {
       setRailAnim(null);
     }
   }, []);
+  // The sidebar's width in PIXELS — the thing the reader actually chose, and the only form of it
+  // that survives a window resize (see SIDEBAR_DEFAULT_PX). The panel's percentage is derived from
+  // this on every group resize; this is never derived from the panel's percentage, because the
+  // group's resize and the panel's re-layout don't land in the same frame and reading the
+  // percentage mid-flight would record the scaled width and bake the zoom right back in.
+  const [sidebarPx, setSidebarPx] = useState(SIDEBAR_DEFAULT_PX);
+  /** The group width `sidebarPx` was last expressed against — see `onSidebarResize` for why. */
+  const heldAtGroup = useRef(0);
   const onHandleDragging = useCallback((isDragging: boolean) => {
     setDragging(isDragging);
     if (isDragging) setRailAnim(null); // a drag tracks the cursor 1:1 — nothing may be pinned
@@ -301,6 +326,51 @@ export function App() {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  // The sidebar's bounds, as the percentages *this* group makes them. Before the group has been
+  // measured these fall back to the old fixed shares rather than to 0 — a minSize/maxSize of zero
+  // for one frame would crush the panel and the library would never give the width back.
+  const groupMeasured = groupWidth > 0;
+  const sidebarMin = groupMeasured ? pctOfGroup(SIDEBAR_MIN_PX, groupWidth) : 12;
+  // Never more than half the group: at 834px SIDEBAR_MAX_PX alone would let a drag take 50%+ of the
+  // window for a list of chat titles, and a maxSize the current size exceeds is what leaks a wrong
+  // width back on the way up.
+  const sidebarMax = groupMeasured ? pctOfGroup(Math.min(SIDEBAR_MAX_PX, groupWidth / 2), groupWidth) : 32;
+  // HOLD THE RAIL AT ITS WIDTH as the window changes — this is the whole fix. `defaultSize` alone
+  // cannot do it: it is read once at mount, `autoSaveId` restores a *percentage* over the top of
+  // it, and either way a percentage re-scales with every resize. So the width is re-expressed
+  // imperatively whenever the group changes. Idempotent by construction (resize(p) makes the panel
+  // exactly `sidebarPx` wide again), skipped mid-drag so the handle tracks the cursor 1:1, and
+  // skipped while collapsed — on mobile and behind the icon rail the panel is at zero and
+  // resizing it would expand it.
+  useEffect(() => {
+    const p = leftPanel.current;
+    if (!p || !groupMeasured || dragging || isMobile || !sidebarOpen || p.isCollapsed()) return;
+    heldAtGroup.current = groupWidth;
+    const want = Math.min(Math.max(sidebarPx, SIDEBAR_MIN_PX), SIDEBAR_MAX_PX, groupWidth / 2);
+    p.resize(pctOfGroup(want, groupWidth));
+  }, [groupWidth, groupMeasured, sidebarPx, dragging, isMobile, sidebarOpen]);
+  /**
+   * Record a size the READER chose — a handle drag, or the keyboard resize the handle offers as a
+   * `separator`. Both arrive here, so this is the one place a new width is learned.
+   *
+   * THREE THINGS MUST NOT BE LEARNED FROM, and each is a way the zoom crept back in:
+   *
+   * - A percentage the WINDOW changed the meaning of. `heldAtGroup` is the group width this rail was
+   *   last expressed against, so a callback that arrives before the effect above has caught up with
+   *   a resize is dropped — the effect is about to set the right size anyway. (Its own `resize()`
+   *   passes the guard and re-records the identical width, which is a no-op.)
+   * - A collapse, which reports 0. Collapsing is not choosing a narrow rail.
+   * - The expand restore. The library reinstates the *percentage* it collapsed from, which at a
+   *   different window size is a different width; `sidebarOpen` is still false in this callback's
+   *   closure at that moment, so it is dropped and the effect re-applies the real width instead.
+   */
+  const onSidebarResize = useCallback(
+    (pct: number) => {
+      if (!sidebarOpen || pct <= 0 || groupWidth <= 0 || heldAtGroup.current !== groupWidth) return;
+      setSidebarPx((pct / 100) * groupWidth);
+    },
+    [groupWidth, sidebarOpen],
+  );
   // Where the main panel starts, which is exactly how wide the rail column is right now: the icon
   // rail's 48px while collapsed, the sidebar's own width (drag-resized or not) while expanded, plus
   // the handle between them. The status bar's Settings segment matches it, so the bar's divider
@@ -567,6 +637,14 @@ export function App() {
     [conversations, activeId],
   );
   const messages = activeConv?.messages ?? [];
+  // What the one top bar reads on the left. Chat answers for itself — the conversation's own name is
+  // real information the bar showed nowhere, and "New chat" is the honest answer before there is
+  // one. Library and Voice publish theirs (lib/view-title), and a record from a surface that is no
+  // longer on screen is ignored rather than raced against.
+  const [publishedTitle, publishViewTitle] = useViewTitleState();
+  const published = publishedTitle?.view === view ? publishedTitle : null;
+  const headerTitle = view === "chat" ? (activeConv?.title ?? "New chat") : (published?.title ?? "");
+  const headerChip = view === "chat" ? null : (published?.chip ?? null);
   // True only when the conversation on screen is the one streaming — drives the cursor and the
   // composer's Stop, so neither bleeds onto a different chat the user switched to (F-7).
   const activeStreaming = isStreaming && streamingConvId === activeId;
@@ -1164,6 +1242,7 @@ export function App() {
         loadingName={loadingName}
         onPick={pick}
         onEject={eject}
+        onShowLibrary={showLibrary}
       />
       {/* Multi-target projects only ([[assistants]]): pick which instance this turn routes to.
           Single-target/generic servers render nothing here (zero change to the existing app). */}
@@ -1202,7 +1281,7 @@ export function App() {
 
   // Shown above the composer when a better audio model is available for the attachment.
   const nudgeEl = audioNudge && (
-    <div className="mx-auto mb-2 flex w-full max-w-4xl items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-[12px]">
+    <div className="mx-auto mb-2 flex w-full max-w-4xl items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm">
       <span className="text-muted-foreground">
         {status!.model!.split("/").pop()} handles audio, but{" "}
         <span className="font-medium text-foreground">{audioNudge.name.split("/").pop()}</span> is built for speech.
@@ -1350,9 +1429,13 @@ export function App() {
           order={1}
           collapsible
           collapsedSize={0}
+          // A seed for the one frame before the group has been measured (and for a first run with
+          // no saved layout). The width that actually holds is applied by the effect above — see
+          // SIDEBAR_DEFAULT_PX for why a share of the window is the wrong unit for chrome.
           defaultSize={18}
-          minSize={12}
-          maxSize={32}
+          minSize={sidebarMin}
+          maxSize={sidebarMax}
+          onResize={onSidebarResize}
           onCollapse={() => setSidebarOpen(false)}
           onExpand={() => setSidebarOpen(true)}
           className={cn("min-w-0", railTransition)}
@@ -1387,22 +1470,40 @@ export function App() {
 
         <Panel id="main" order={2} minSize={30} className={cn("flex min-w-0 flex-col", railTransition)}>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col" style={pinned("main")}>
-          {/* top bar */}
-          <header className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
-            {/* Collapsed-sidebar actions (open + new chat) live in the persistent
-                IconRail on the far left, so the top bar stays clean. */}
-            <div className="flex items-center gap-1" />
-            <div className="flex items-center gap-1.5">
-              {/* The chat/LLM runtime badge belongs to the Chat surface only — it's
-                  irrelevant on Library/Voice (voice models don't use the runtime). */}
-              {view === "chat" && (
-                <LoadedModelBadge
-                  status={status}
-                  loadingName={loadingName}
-                  onEject={eject}
-                  onShowLibrary={showLibrary}
-                />
+          {/* THE TOP BAR, AND THERE IS ONLY ONE. It used to be this strip with an empty div on the
+              left, and then a second titled band drawn *inside* Library and Voice immediately below
+              it — so on a wide display the app's top edge was a blank 48px band with the real
+              heading under it, and the chat had no title anywhere but the sidebar. The title now
+              lives here on every surface: the conversation's own name on Chat, and whatever the data
+              views publish (see lib/view-title). Same fault the status bar had, same fix.
+
+              THE BAR LOOKS THE SAME ON EVERY SURFACE. The band it replaced was tinted, which was
+              right for a strip that only two views wore — it marked them as dense data views against
+              the transcript. As the app's ONE top bar it is chrome, and chrome that changes colour
+              when you navigate reads as an inconsistency rather than as a distinction. So: title
+              everywhere, one ground everywhere, and the hairline is what separates it from the
+              content instead of a wash. */}
+          <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+            {/* Collapsed-sidebar actions (open + new chat) live in the persistent IconRail on the
+                far left, so this side carries only the title. It truncates rather than wrapping or
+                pushing: at 390px the controls opposite are the half a thumb can act on. */}
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <h1 className="min-w-0 truncate text-sm font-semibold tracking-tight">{headerTitle}</h1>
+              {/* Gone below `sm`, where the title and the controls have already taken the row. */}
+              {headerChip !== null && (
+                <span className="hidden shrink-0 rounded-full border border-border bg-background/60 px-2 py-0.5 text-xs tabular-nums text-muted-foreground sm:inline">
+                  {headerChip}
+                </span>
               )}
+            </div>
+            {/* WHICH MODEL IS LOADED IS NOT SAID HERE. It used to be, in a pill beside these
+                controls, while the composer's own picker said it again three inches below — one
+                fact in two places, which is the same fault as the two stacked bars and the empty
+                left half of this bar. The composer wins it outright: the model governs the NEXT
+                message, so it belongs beside the box that message is typed into, the composer is
+                pinned so it is on screen just as persistently, and the picker is a superset of
+                what the pill offered (it also chooses a model and filters by capability). */}
+            <div className="flex shrink-0 items-center gap-1.5">
               {/* Export, theme, and the rest live in the palette (⌘K) rather than as a row
                   of icons here; this button is the discoverable way in. */}
               <Tooltip>
@@ -1415,7 +1516,7 @@ export function App() {
                     className="gap-1.5 px-2 text-muted-foreground"
                   >
                     <Search className="h-3.5 w-3.5" />
-                    <kbd className="font-sans text-[11px] tracking-wide">⌘K</kbd>
+                    <kbd className="font-sans text-xs tracking-wide">⌘K</kbd>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Command palette</TooltipContent>
@@ -1458,6 +1559,7 @@ export function App() {
           )}
 
           {view === "library" ? (
+            <ViewTitleProvider publish={publishViewTitle}>
             <LibraryView
               library={library}
               loaded={libraryLoaded}
@@ -1469,8 +1571,11 @@ export function App() {
               onSetTags={setTags}
               tagRegistry={tagRegistry}
             />
+            </ViewTitleProvider>
           ) : view === "voice" ? (
-            <VoiceView />
+            <ViewTitleProvider publish={publishViewTitle}>
+              <VoiceView />
+            </ViewTitleProvider>
           ) : (
           <>
           {(error || status?.error) && (
@@ -1482,7 +1587,7 @@ export function App() {
                     <summary className="cursor-pointer">
                       {friendlyRuntimeError(status.error) ?? "The model runtime stopped unexpectedly."}
                     </summary>
-                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] opacity-80">
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs opacity-80">
                       {status.error}
                     </pre>
                   </details>
@@ -1563,7 +1668,7 @@ export function App() {
                     onAdd={addAttachments}
                     onRemove={removeAttachment}
                   />
-                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                  <p className="mt-2 text-center text-sm text-muted-foreground">
                     heim runs your model locally. Responses may be inaccurate.
                   </p>
                 </div>
@@ -1604,13 +1709,7 @@ export function App() {
         </Panel>
         </PanelGroup>
       </div>
-      <StatusBar
-        status={status}
-        library={library}
-        tools={tools}
-        width={railWidth}
-        onOpenSettings={openSettings}
-      />
+      <StatusBar status={status} width={railWidth} onOpenSettings={openSettings} />
       </div>
     </TooltipProvider>
   );

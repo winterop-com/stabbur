@@ -28,7 +28,7 @@ import { AudioScrubber } from "@/components/ui/waveform";
 import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import { audioPeaks } from "@/lib/audio";
 import { startRecording, type Recording } from "@/lib/recorder";
-import { ViewBand } from "@/components/ViewBand";
+import { usePublishViewTitle } from "@/lib/view-title";
 import { cn } from "@/lib/utils";
 
 /** Output formats offered in the playground (WAV always; the rest need ffmpeg). */
@@ -190,7 +190,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
   // Reference clip (upload or recording): stash it as base64 and auto-fill its transcript with
   // Whisper (editable) so you don't hand-type it like the mlx-audio CLI needs.
-  const useClip = async (blob: Blob, name: string) => {
+  const adoptClip = async (blob: Blob, name: string) => {
     setRefB64(await toBase64(blob));
     setRefName(name);
     setRefBusy(true);
@@ -203,7 +203,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       setRefBusy(false);
     }
   };
-  const onPickClip = (file: File) => void useClip(file, file.name);
+  const onPickClip = (file: File) => void adoptClip(file, file.name);
 
   // Record your own voice as the reference clip. Uses the shared VAD recorder, so it
   // auto-stops after a short silence (or click Stop).
@@ -218,7 +218,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     setCloneStream(null);
     try {
       const wavUrl = await rec.stop();
-      await useClip(await (await fetch(wavUrl)).blob(), "recording.wav");
+      await adoptClip(await (await fetch(wavUrl)).blob(), "recording.wav");
     } catch (e) {
       setError(e instanceof Error ? e.message : "recording failed"); // decode/permission error — surface it
     }
@@ -293,7 +293,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-[11px] text-muted-foreground">
+        <label className="text-sm text-muted-foreground">
           Model
           <select
             aria-label="Voice model"
@@ -310,7 +310,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         </label>
 
         {isKokoro && kokoroVoices.length > 0 && (
-          <label className="text-[11px] text-muted-foreground">
+          <label className="text-sm text-muted-foreground">
             Voice
             <select
               aria-label="Kokoro voice"
@@ -330,7 +330,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
         {/* A model's own named voices (e.g. prompt clips bundled with a cloneable model). */}
         {!isKokoro && (model?.voices?.length ?? 0) > 0 && (
-          <label className="text-[11px] text-muted-foreground">
+          <label className="text-sm text-muted-foreground">
             Voice
             <select
               aria-label="Model voice"
@@ -347,7 +347,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           </label>
         )}
 
-        <label className="text-[11px] text-muted-foreground">
+        <label className="text-sm text-muted-foreground">
           Format
           <select
             aria-label="Output format"
@@ -363,7 +363,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
           Speed
           <input
             type="range"
@@ -379,7 +379,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         </label>
 
         {model?.seeded && (
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <span>Seed</span>
             <Input
               aria-label="Seed"
@@ -403,7 +403,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
       {isDialogue && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             Tip: keep cues mid-line — a trailing one (e.g. ending on "(laughs)") gets clipped.
           </span>
           {NONVERBALS.map((n) => (
@@ -411,7 +411,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
               key={n}
               type="button"
               onClick={() => insertCue(n)}
-              className="rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary/50 hover:text-foreground"
+              className="rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground"
             >
               {n}
             </button>
@@ -431,7 +431,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
 
       {model?.cloneable && (
         <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Wand2 className="h-3.5 w-3.5" /> Clone a voice (optional)
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -465,7 +465,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
                   setRefB64(null);
                   setRefName("");
                 }}
-                className="text-[11px] text-muted-foreground hover:text-destructive"
+                className="text-xs text-muted-foreground hover:text-destructive"
               >
                 clear
               </button>
@@ -482,7 +482,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           )}
           {refB64 && (
             <div className="mt-2">
-              <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <div className="mb-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                 {refBusy ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" /> Transcribing the clip with Whisper…
@@ -564,7 +564,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
                 className="w-full"
               />
             </div>
-            <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+            <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
               {fmt(cur)} / {fmt(dur)}
             </span>
             <div className="flex shrink-0 items-center gap-1.5">
@@ -686,7 +686,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
       <div className="mb-3 flex items-center gap-2">
         <Mic className="h-4 w-4 text-info" />
         <h3 className="text-sm font-semibold">Speech to text</h3>
-        <span className="text-[11px] text-muted-foreground">{model?.display_name}</span>
+        <span className="text-xs text-muted-foreground">{model?.display_name}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50">
@@ -760,11 +760,12 @@ export function VoiceView() {
   const ttsModels = useMemo(() => models.filter((m) => m.kind === "tts"), [models]);
   const sttModels = useMemo(() => models.filter((m) => m.kind === "stt"), [models]);
 
+  // The top bar's line while Voice is on screen — see lib/view-title for why it is published
+  // rather than drawn here.
+  usePublishViewTitle("voice", "Voice", models.length > 0 ? `${models.length} models` : null);
+
   return (
     <>
-      {/* Same band as the Library, for the same reason: the heading belongs above the scroll, not
-          inside it, and the two data views should be titled identically. */}
-      <ViewBand title="Voice" chip={models.length > 0 ? `${models.length} models` : undefined} />
       <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
         {!loaded ? (
@@ -779,7 +780,7 @@ export function VoiceView() {
           <div className="space-y-6">
             <SpeakPanel ttsModels={ttsModels} kokoroVoices={kokoroVoices} />
             <TranscribePanel sttModels={sttModels} />
-            <p className="pt-1 text-[11px] text-muted-foreground">
+            <p className="pt-1 text-sm text-muted-foreground">
               Browse every voice model in the{" "}
               <a href="#/library" className="font-medium text-primary hover:underline">
                 Library

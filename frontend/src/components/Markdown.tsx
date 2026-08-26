@@ -76,7 +76,7 @@ export const Markdown = memo(function Markdown({
   );
 
   return (
-    <div className="prose-chat text-[0.95rem] text-foreground">
+    <div className="prose-chat text-base text-foreground">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={allowHtml ? rehypePluginsHtml : rehypePlugins}

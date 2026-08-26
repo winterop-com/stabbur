@@ -50,8 +50,8 @@ function Section({ title, description, children }: { title: string; description?
   return (
     <section className="border-t border-border px-4 py-4 first:border-t-0">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-      {description && <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>}
-      <div className="mt-2.5">{children}</div>
+      {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+      <div className="mt-3">{children}</div>
     </section>
   );
 }
@@ -84,7 +84,7 @@ function FieldLabel({
             <button
               type="button"
               onClick={onReset}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <RotateCcw className="h-3 w-3" />
               Reset
@@ -93,7 +93,7 @@ function FieldLabel({
           <TooltipContent>{inherited ? `Back to ${inherited}` : "Back to the default"}</TooltipContent>
         </Tooltip>
       ) : (
-        inherited && <span className="truncate text-[11px] text-muted-foreground">{inherited}</span>
+        inherited && <span className="truncate text-xs text-muted-foreground">{inherited}</span>
       )}
     </div>
   );
@@ -160,7 +160,7 @@ function SamplingSlider({
           {effective != null ? fmt(effective) : "—"}
         </span>
       </div>
-      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{description}</p>
+      <p className="mt-1.5 text-sm leading-snug text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -206,7 +206,7 @@ function McpSettings({
         <div key={s.env} className="min-w-0">
           {s.type === "boolean" ? (
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate text-[11px] font-medium" title={`${s.env} — ${s.description}`}>
+              <span className="min-w-0 truncate text-sm font-medium" title={`${s.env} — ${s.description}`}>
                 {s.label}
               </span>
               <Switch
@@ -219,7 +219,7 @@ function McpSettings({
           ) : (
             <>
               <div className="mb-0.5 flex items-baseline justify-between gap-2">
-                <span className="min-w-0 truncate text-[11px] font-medium" title={`${s.env} — ${s.description}`}>
+                <span className="min-w-0 truncate text-sm font-medium" title={`${s.env} — ${s.description}`}>
                   {s.label}
                 </span>
                 {/* Clearing the field is the "back to the default" path, so it needs to be findable
@@ -228,9 +228,9 @@ function McpSettings({
                   <button
                     type="button"
                     onClick={() => commit(s, "")}
-                    className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                    className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                   >
-                    <RotateCcw className="h-2.5 w-2.5" />
+                    <RotateCcw className="h-3 w-3" />
                     Reset
                   </button>
                 )}
@@ -254,14 +254,14 @@ function McpSettings({
                       return next;
                     });
                 }}
-                className="h-7 bg-background/60 font-mono text-[11px]"
+                className="h-8 bg-background/60 font-mono text-xs"
               />
             </>
           )}
         </div>
       ))}
       {locked && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {server.scope === "project"
             ? "Set by this project's .mcp.json — edit it there."
             : "Switch it on to change these."}
@@ -413,7 +413,7 @@ export function ChatSettingsPanel({
       <div className="flex items-center justify-between px-4 py-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold tracking-tight">Chat settings</div>
-          <div className="truncate text-[11px] text-muted-foreground">
+          <div className="truncate text-xs text-muted-foreground">
             {activeId ? "This conversation" : "New chat"}
           </div>
         </div>
@@ -485,10 +485,10 @@ export function ChatSettingsPanel({
           />
           {status?.default_system_prompt && (
             <div className="mt-2 rounded-md border border-border bg-background/40 p-2">
-              <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">
                 Project default (heim.toml){settings.systemPrompt === null ? " · in use" : ""}
               </div>
-              <p className="line-clamp-3 text-[11px] text-muted-foreground" title={status.default_system_prompt}>
+              <p className="line-clamp-3 text-sm text-muted-foreground" title={status.default_system_prompt}>
                 {status.default_system_prompt}
               </p>
             </div>
@@ -552,7 +552,7 @@ export function ChatSettingsPanel({
                 for after temperature hasn't fixed it — folded away so the tab stays readable in a
                 narrow side panel, with the summary naming them so they're findable. */}
             <details className="rounded-md border border-border bg-background/40">
-              <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <summary className="cursor-pointer select-none px-2.5 py-2 text-sm text-muted-foreground">
                 More sampling · top-k, min-p, repeat penalty
               </summary>
               <div className="flex flex-col gap-3.5 border-t border-border px-2.5 py-2.5">
@@ -615,7 +615,7 @@ export function ChatSettingsPanel({
                 <option value="high">High · up to 8,192 tokens</option>
                 <option value="max">Max · unlimited</option>
               </select>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 How long a thinking model may reason before answering.
               </p>
             </div>
@@ -688,7 +688,7 @@ export function ChatSettingsPanel({
                     )}
                   </>
                 )}
-                <p className={cn("text-[11px] text-muted-foreground", !contextInert && "mt-1.5")}>
+                <p className={cn("text-sm text-muted-foreground", !contextInert && "mt-1.5")}>
                   {isRemote
                     ? "The upstream server decides this model's context."
                     : isMlx
@@ -752,7 +752,7 @@ export function ChatSettingsPanel({
                     type="button"
                     onClick={() => onChange({ ...settings, ttsSpeed: v })}
                     className={cn(
-                      "rounded-md px-2 py-1 text-[11px] tabular-nums transition-colors",
+                      "rounded-md px-2.5 py-1 text-xs tabular-nums transition-colors",
                       active
                         ? "bg-primary/15 font-medium text-primary"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -770,7 +770,7 @@ export function ChatSettingsPanel({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium">Parse PDF as image</div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="mt-0.5 text-sm text-muted-foreground">
                 Render pages instead of extracting text — keeps tables, charts, and layout.
                 {!visionModel && " Falls back to text: this model can't see images."}
               </div>
@@ -795,7 +795,7 @@ export function ChatSettingsPanel({
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">Enable tools</div>
-                  <div className="truncate text-[11px] text-muted-foreground">
+                  <div className="mt-0.5 truncate text-sm text-muted-foreground">
                     {tools.length === 0
                       ? "Nothing attached — switch a server on below"
                       : settings.useTools
@@ -824,9 +824,9 @@ export function ChatSettingsPanel({
               description="What heim can run. Switching one on starts it for every chat on this machine."
             >
               {servers === null ? (
-                <p className="text-[11px] text-muted-foreground">Loading…</p>
+                <p className="text-sm text-muted-foreground">Loading…</p>
               ) : rows.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">This server reports no MCP servers.</p>
+                <p className="text-sm text-muted-foreground">This server reports no MCP servers.</p>
               ) : (
                 <div className="flex flex-col gap-1">
                   {rows.map(({ name, server, list }) => {
@@ -845,31 +845,31 @@ export function ChatSettingsPanel({
                             <div className="flex items-center gap-1.5">
                               <span className="truncate text-sm font-medium">{name}</span>
                               {list.length > 0 && (
-                                <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] tabular-nums text-muted-foreground">
+                                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground">
                                   {list.length} tools
                                 </span>
                               )}
                               {server?.scope === "project" && (
-                                <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] text-muted-foreground">
+                                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                                   .mcp.json
                                 </span>
                               )}
                             </div>
                             {(server?.description || !server) && (
-                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                              <p className="mt-1 text-sm text-muted-foreground">
                                 {server?.description || "Configured by this project's .mcp.json."}
                               </p>
                             )}
                             {/* Why this row has no switch, or why its switch didn't do what it looks
                                 like it did. Only one of these ever shows at a time. */}
                             {server && !server.installed ? (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
+                              <p className="mt-1 text-sm text-muted-foreground">
                                 Not installed{server.setup ? ` — ${server.setup}` : "."}
                               </p>
                             ) : note ? (
                               <p
                                 className={cn(
-                                  "mt-1 flex items-start gap-1 text-[11px]",
+                                  "mt-1 flex items-start gap-1 text-sm",
                                   note.tone === "warn" ? "text-warning-ink" : "text-destructive",
                                 )}
                               >
@@ -881,7 +881,7 @@ export function ChatSettingsPanel({
                                 <span>{note.text}</span>
                               </p>
                             ) : server?.enabled === false && list.length > 0 ? (
-                              <p className="mt-1 flex items-start gap-1 text-[11px] text-warning-ink">
+                              <p className="mt-1 flex items-start gap-1 text-sm text-warning-ink">
                                 <RotateCw className="mt-px h-3 w-3 shrink-0" />
                                 <span>Off, but still running — its tools detach when heim serve restarts.</span>
                               </p>
@@ -889,13 +889,13 @@ export function ChatSettingsPanel({
                               // The confusing case: the row switch is visibly on, so the model
                               // declining a job this server could do reads as a bug. It is the
                               // per-chat switch below that is off — say so where the eye already is.
-                              <p className="mt-1 text-[11px] text-muted-foreground">
+                              <p className="mt-1 text-sm text-muted-foreground">
                                 Running, but off for this chat — switch it on below to let this chat call it.
                               </p>
                             ) : (
                               server?.enabled === true &&
                               list.length === 0 && (
-                                <p className="mt-1 text-[11px] text-muted-foreground">On, but it attached no tools.</p>
+                                <p className="mt-1 text-sm text-muted-foreground">On, but it attached no tools.</p>
                               )
                             )}
                           </div>
@@ -918,7 +918,7 @@ export function ChatSettingsPanel({
 
                         {settings.useTools && list.length > 0 && (
                           <details className="border-t border-border">
-                            <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                            <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-2.5 py-2 text-sm text-muted-foreground">
                               <span className="min-w-0 flex-1 truncate">Tools in this chat</span>
                               <span className="shrink-0 tabular-nums">
                                 {on}/{list.length}
@@ -933,14 +933,14 @@ export function ChatSettingsPanel({
                                 />
                               </span>
                             </summary>
-                            <div className="flex flex-col gap-1 border-t border-border px-2.5 py-1.5">
+                            <div className="flex flex-col gap-1.5 border-t border-border px-2.5 py-2">
                               {/* Off at the server level means these can't fire, so they read (and
                                   behave) as inert rather than showing an on switch that does nothing. */}
                               {list.map((t) => (
                                 <div key={t.name} className="flex items-center justify-between gap-2">
                                   <span
                                     className={cn(
-                                      "min-w-0 flex-1 truncate text-[11px]",
+                                      "min-w-0 flex-1 truncate text-sm",
                                       !allowed && "text-muted-foreground",
                                     )}
                                     title={t.description || t.tool}

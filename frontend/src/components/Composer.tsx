@@ -271,7 +271,7 @@ export function Composer({
                     {att.name}
                   </span>
                   {att.pages != null && (
-                    <span className="block text-[10px] text-muted-foreground">
+                    <span className="block text-xs text-muted-foreground">
                       PDF · {att.pages} {att.pages === 1 ? "page" : "pages"}
                     </span>
                   )}
@@ -309,7 +309,7 @@ export function Composer({
             centerAlign
             className="h-10 flex-1 gap-1 rounded-lg bg-transparent p-0 [&>div]:bg-destructive"
           />
-          <span className="shrink-0 text-[11px]">{dictState === "recording" ? "Dictating…" : "Recording…"}</span>
+          <span className="shrink-0 text-sm">{dictState === "recording" ? "Dictating…" : "Recording…"}</span>
         </div>
       )}
 
@@ -338,7 +338,7 @@ export function Composer({
           }}
           rows={1}
           placeholder={ready ? "Message heim…" : "Select a model to start"}
-          className="max-h-[200px] w-full resize-none bg-transparent text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
+          className="max-h-[200px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>
       <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
@@ -442,7 +442,7 @@ export function Composer({
           </Button>
         )}
       </div>
-      {hint && <div className="-mt-1 px-4 pb-2 text-[11px] text-muted-foreground">{hint}</div>}
+      {hint && <div className="-mt-1 px-4 pb-2 text-sm text-muted-foreground">{hint}</div>}
     </div>
   );
 }

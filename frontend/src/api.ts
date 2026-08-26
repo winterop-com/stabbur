@@ -116,6 +116,10 @@ export interface HealthCheck {
   status: CheckStatus;
   detail: string;
   hint: string | null;
+  /** The `name` of the check this one nests under, when it is a detail of another one (an MCP
+   *  server under the tools row). OPTIONAL on purpose: a heim older than the field sends none, and
+   *  HealthMenu then renders every row flat rather than losing the ones it can't place. */
+  group?: string | null;
 }
 
 /** The full system-health report. */

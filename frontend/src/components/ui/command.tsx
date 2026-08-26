@@ -24,12 +24,16 @@ function CommandDialog({
   onOpenChange,
   title,
   description,
+  filter,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
+  /** How well a row's `value` answers the search, 0 to 1. See `lib/palette`; cmdk's default is a
+   *  fuzzy subsequence match, which over a mix of sentences and machine ids ranks almost at random. */
+  filter?: (value: string, search: string) => number;
   children: React.ReactNode;
 }) {
   return (
@@ -39,8 +43,8 @@ function CommandDialog({
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
         <Command
-          // Search every row's own text, so "gem" finds a model and "voice" finds the page.
-          className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-group-heading]]:text-muted-foreground"
+          filter={filter}
+          className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-group-heading]]:text-muted-foreground"
         >
           {children}
         </Command>
@@ -108,7 +112,7 @@ CommandItem.displayName = "CommandItem";
 
 /** A right-aligned hint (a shortcut, or what a row will do). */
 function CommandShortcut({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
-  return <span className={cn("ml-auto text-[11px] tracking-wide text-muted-foreground", className)} {...props} />;
+  return <span className={cn("ml-auto text-xs tracking-wide text-muted-foreground", className)} {...props} />;
 }
 
 export { Command, CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandShortcut };

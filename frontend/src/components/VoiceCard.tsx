@@ -16,11 +16,11 @@ function shortName(name: string): string {
 /** A read-only reference card for one voice model (shown in the Library). */
 export function VoiceCard({ model }: { model: VoiceModelInfo }) {
   return (
-    <div className="flex flex-col rounded-xl border border-border p-3 transition-colors hover:border-primary/40">
+    <div className="flex flex-col rounded-xl border border-border p-4 transition-colors hover:border-primary/40">
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
-            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+            "rounded border px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
             // The two voice directions, kept apart by the semantic set rather
             // than by two hand-picked hues: speaking is the thing the chat
             // actually does (`good`), transcribing is a fact about the audio
@@ -35,37 +35,37 @@ export function VoiceCard({ model }: { model: VoiceModelInfo }) {
       <div className="mt-2 break-words text-sm font-medium leading-snug" title={model.name}>
         {model.display_name || shortName(model.name)}
       </div>
-      <div className="truncate text-[11px] text-muted-foreground">{BACKEND_LABEL[model.backend] ?? model.backend}</div>
+      <div className="truncate text-xs text-muted-foreground">{BACKEND_LABEL[model.backend] ?? model.backend}</div>
       {model.description && (
-        <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">{model.description}</p>
+        <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{model.description}</p>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {/* Two pills that used to share one amber and do not share a meaning:
             "not runnable yet" is a warning, "chat voice" is a fact about which
             voice this build speaks with. */}
         {!model.supported && (
-          <span className="rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-warning-ink">
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning-ink">
             not runnable yet
           </span>
         )}
         {model.chat_default && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-1.5 py-0.5 text-info">
-            <Sparkles className="h-2.5 w-2.5" /> chat voice
+          <span className="inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-info">
+            <Sparkles className="h-3 w-3" /> chat voice
           </span>
         )}
         {model.cloneable && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5">
-            <Wand2 className="h-2.5 w-2.5" /> clone
+          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+            <Wand2 className="h-3 w-3" /> clone
           </span>
         )}
         {model.multi_speaker && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5">
-            <Users className="h-2.5 w-2.5" /> dialogue
+          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+            <Users className="h-3 w-3" /> dialogue
           </span>
         )}
-        {model.seeded && <span className="rounded-full border border-border px-1.5 py-0.5">seeded</span>}
+        {model.seeded && <span className="rounded-full border border-border px-2 py-0.5">seeded</span>}
         {model.languages.length > 0 && (
-          <span className="rounded-full border border-border px-1.5 py-0.5">{model.languages.join(" ")}</span>
+          <span className="rounded-full border border-border px-2 py-0.5">{model.languages.join(" ")}</span>
         )}
       </div>
     </div>

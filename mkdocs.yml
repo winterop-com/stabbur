@@ -62,6 +62,7 @@ nav:
       - Model catalog (validated): guides/model-catalog.md
       - Benchmark leaderboard: benchmarks.md
   - Architecture: architecture.md
+  - UI conventions: ui-conventions.md
 
 markdown_extensions:
   - admonition

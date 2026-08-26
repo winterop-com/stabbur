@@ -74,7 +74,7 @@ export function MessageItem({
           </div>
         )}
         {message.content && (
-          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[0.95rem] leading-relaxed text-foreground">
+          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-base leading-relaxed text-foreground">
             {message.content}
           </div>
         )}
@@ -148,7 +148,7 @@ export function MessageItem({
            Ticks live while streaming (estimated from deltas) and settles on the runtime's own
            count when the turn ends. */
         <div
-          className="mt-1 flex items-center gap-2.5 text-[11px] tabular-nums text-muted-foreground"
+          className="mt-1.5 flex items-center gap-2.5 text-xs tabular-nums text-muted-foreground"
           title={`${message.stats.promptTokens.toLocaleString()} prompt + ${message.stats.completionTokens.toLocaleString()} completion tokens\n${message.stats.ttftSeconds.toFixed(2)}s to first token · rate measured after it`}
         >
           <span className="inline-flex items-center gap-1">

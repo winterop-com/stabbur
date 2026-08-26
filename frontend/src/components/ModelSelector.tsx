@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AudioLines, Check, ChevronDown, Eye, Loader2, Power, Tag, Wrench } from "lucide-react";
+import { AudioLines, Boxes, Check, ChevronDown, Eye, Loader2, Lock, Power, Tag, Wrench } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -87,12 +87,17 @@ export function ModelSelector({
   loadingName,
   onPick,
   onEject,
+  onShowLibrary,
 }: {
   status: Status | null;
   library: LibModel[];
   loadingName: string | null;
   onPick: (name: string) => void;
   onEject: () => void;
+  /** The way to the Library from here. Inherited from the top-bar badge this replaced, which
+   *  carried the only route out of an empty runtime; losing it with the badge would have been a
+   *  dead end on the one screen where the reader has nothing to pick from. */
+  onShowLibrary: () => void;
 }) {
   // Capability filters: when a chip is on, only models with that capability show.
   const [filters, setFilters] = useState({ tools: false, vision: false, audio: false });
@@ -124,15 +129,28 @@ export function ModelSelector({
   }, [library, filters, tagFilters]);
 
   const locked = status?.locked ?? false;
-  // Locked (a project assistant, or --model): there's nothing to select, and the top-bar
-  // badge already shows the bound model — so drop the composer's model control entirely.
-  if (locked) return null;
   const busy = loadingName != null || status?.state === "loading";
   const label = loadingName
     ? shortName(loadingName)
     : status?.model
       ? shortName(status.model)
       : "Select a model";
+
+  // Locked (a project assistant, or `--model`): there is nothing to select, so the control states
+  // the binding instead of offering it. It used to render NOTHING here, on the grounds that the
+  // top bar's pill said which model was bound — with that pill gone, returning null would have
+  // left a locked run with no statement of its own model anywhere on screen.
+  if (locked) {
+    return (
+      <span
+        className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground"
+        title={status?.model ?? undefined}
+      >
+        <Lock className="h-3.5 w-3.5" />
+        <span className="max-w-[22rem] truncate">{label}</span>
+      </span>
+    );
+  }
 
   return (
     <DropdownMenu>
@@ -164,7 +182,7 @@ export function ModelSelector({
         {/* Capability filter chips */}
         {library.length > 0 && (
           <div className="mb-1 flex items-center gap-1 border-b border-border px-2 pb-2 pt-1">
-            <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">Filter</span>
+            <span className="mr-1 text-xs uppercase tracking-wide text-muted-foreground">Filter</span>
             {(
               [
                 ["tools", Wrench, "Tools"],
@@ -178,7 +196,7 @@ export function ModelSelector({
                 onClick={() => toggleFilter(key)}
                 aria-pressed={filters[key]}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
                   filters[key]
                     ? "border-primary bg-primary/10 text-foreground"
                     : "border-border text-muted-foreground hover:bg-accent",
@@ -193,7 +211,7 @@ export function ModelSelector({
         {/* Tag filter chips (only when the library has tags) */}
         {allTags.length > 0 && (
           <div className="mb-1 flex flex-wrap items-center gap-1 border-b border-border px-2 pb-2">
-            <span className="mr-1 flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span className="mr-1 flex items-center gap-1 text-xs uppercase tracking-wide text-muted-foreground">
               <Tag className="h-3 w-3" />
               Tags
             </span>
@@ -206,7 +224,7 @@ export function ModelSelector({
                   onClick={() => toggleTag(t)}
                   aria-pressed={on}
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[11px] transition-all",
+                    "rounded-full border px-2 py-0.5 text-xs transition-all",
                     tagColor(t),
                     on ? "font-medium ring-1 ring-inset ring-current" : "opacity-70 hover:opacity-100",
                   )}
@@ -226,7 +244,7 @@ export function ModelSelector({
         {grouped.map(([fmt, models], gi) => (
           <div key={fmt}>
             {gi > 0 && <DropdownMenuSeparator />}
-            <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {fmt}
             </div>
             {models.map((m) => {
@@ -237,7 +255,7 @@ export function ModelSelector({
                     <DropdownMenuItem onSelect={() => onPick(m.name)}>
                       <span className="flex-1 truncate">{shortName(m.name)}</span>
                       <CapabilityIcons tools={m.tools} vision={m.vision} audio={m.audio} />
-                      <span className="ml-2 w-16 shrink-0 text-right text-[11px] text-muted-foreground">
+                      <span className="ml-2 w-16 shrink-0 text-right text-xs text-muted-foreground">
                         {m.size_human}
                       </span>
                       {/* Fixed slot so the size column aligns whether or not a row is active. */}
@@ -254,16 +272,21 @@ export function ModelSelector({
             })}
           </div>
         ))}
+        <DropdownMenuSeparator />
         {status?.model && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onEject} className="text-muted-foreground">
-              <Power className="mr-2 h-3.5 w-3.5" />
-              Eject model
-              <span className="ml-auto truncate text-[11px]">{shortName(status.model)}</span>
-            </DropdownMenuItem>
-          </>
+          <DropdownMenuItem onSelect={onEject} className="text-muted-foreground">
+            <Power className="mr-2 h-3.5 w-3.5" />
+            Eject model
+            <span className="ml-auto truncate text-xs">{shortName(status.model)}</span>
+          </DropdownMenuItem>
         )}
+        {/* Always offered, and last: a reader whose library is empty, or who wants a model card,
+            a tag or a size before choosing, needs a way out of a menu that can otherwise say only
+            "No models in the library." */}
+        <DropdownMenuItem onSelect={onShowLibrary} className="text-muted-foreground">
+          <Boxes className="mr-2 h-3.5 w-3.5" />
+          Browse the library
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

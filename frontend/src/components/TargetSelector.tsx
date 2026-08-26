@@ -57,7 +57,7 @@ export function TargetSelector({
       </Tooltip>
 
       <DropdownMenuContent align="start" collisionPadding={12} className="w-[22rem]">
-        <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Target
         </div>
         {targets.map((t) => {
@@ -68,7 +68,7 @@ export function TargetSelector({
                 <DropdownMenuItem onSelect={() => onSelect(t.id)}>
                   <span className="flex-1 truncate">{targetLabel(t)}</span>
                   {t.readonly && (
-                    <span className="ml-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
                       <Lock className="h-3 w-3" />
                       read-only
                     </span>

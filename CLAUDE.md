@@ -48,6 +48,10 @@ else has a home — put detail there, not here:
   `ModelRef` identity + per-item scan fault isolation, serving/`ServerManager`/proxy,
   the one-parser-one-writer `heim.toml`, the import-time HF-cache side effect, the
   process supervisor (group kill, pidfile, orphan sweep) and per-library `flock`.
+- **`docs/ui-conventions.md`** — the browser UI's rules: the three-size type scale by role
+  (no hand-written pixel sizes), what each colour variable means (including the `-ink` fill/text
+  split), the shared row/chip/section recipes, and what the two gate checks can and cannot catch.
+  Read it before touching `frontend/`.
 - **`ROADMAP.md`** — forward-looking plans (north-star DHIS2 assistant, phased build
   order, open issues). Update it when plans change.
 - **`CHROME.md`** — the Chrome/browser-extension design (side-panel client, `/api/chat`
@@ -205,3 +209,6 @@ Non-obvious landmines that aren't self-evident from the code:
 
 - `make check` is the CI gate (read-only, also run in `.github/workflows/ci.yml`); `make lint`
   mutates locally. Run `make lint` and `make test` before committing.
+- The gate covers the **SPA** too: `oxlint` (`frontend/.oxlintrc.json`, via `bun run lint`) for its
+  JS/TS, and `scripts/check_ui_classes.py` for the class conventions a JS linter cannot see inside
+  a `className`. Both need `bun`; the Makefile does a frozen install itself.

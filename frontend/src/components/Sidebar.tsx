@@ -71,7 +71,7 @@ function NavItem({
         {/* The subtitle takes its own colour from nothing: it inherits the row's, at 75%, so it
             stays a step quieter than the title in the idle, hover and active states alike rather
             than being pinned to one ink that only reads against one of them. */}
-        {subtitle && <span className="mt-0.5 block truncate text-[11px] leading-tight opacity-75">{subtitle}</span>}
+        {subtitle && <span className="mt-0.5 block truncate text-xs leading-tight opacity-75">{subtitle}</span>}
       </span>
     </button>
   );
@@ -204,7 +204,7 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-sidebar-muted-foreground">
+        <div className="px-2 py-1.5 text-xs font-medium uppercase tracking-wide text-sidebar-muted-foreground">
           Recents
         </div>
         {filtered.length === 0 && (

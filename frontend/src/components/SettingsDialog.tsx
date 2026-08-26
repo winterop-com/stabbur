@@ -123,12 +123,12 @@ function AppearancePane({
               onClick={() => onChooseTheme(t.name)}
               aria-pressed={theme === t.name}
               className={cn(
-                "rounded-md px-2 py-1.5 text-left transition-colors",
+                "rounded-md px-2 py-2 text-left transition-colors",
                 theme === t.name ? "bg-primary/15 text-primary" : "hover:bg-accent hover:text-foreground",
               )}
             >
-              <span className="text-xs font-medium">{t.label}</span>
-              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{t.hint}</span>
+              <span className="text-sm font-medium">{t.label}</span>
+              <span className="mt-0.5 block text-sm leading-snug text-muted-foreground">{t.hint}</span>
             </button>
           ))}
         </div>
@@ -254,7 +254,7 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
             </dd>
           </div>
         </dl>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-sm text-muted-foreground">
           Edit these in the project's <code className="font-mono">heim.toml</code>; machine defaults come from{" "}
           <code className="font-mono">heim config set</code>.
         </p>
@@ -284,7 +284,7 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
             )}
 
             <div className="mt-4">
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Model card
               </div>
               {/* The card is the one unbounded thing in here, and the pane it sits in already
@@ -394,7 +394,7 @@ export function SettingsDialog({
             </button>
           ))}
           {/* Only where the pane has vertical room to spare — the stacked layout is a single row. */}
-          <p className="mt-auto hidden px-2 text-[11px] leading-snug text-muted-foreground md:block">
+          <p className="mt-auto hidden px-2 text-sm leading-snug text-muted-foreground md:block">
             System prompt, sampling, context and tools are per conversation — they live in the chat's
             own settings panel.
           </p>
