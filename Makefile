@@ -65,6 +65,14 @@ install-web:
 # has to be present for the gate to mean anything, and a frozen install touches no tracked file.
 FRONTEND_LINT = cd frontend && bun install --frozen-lockfile >/dev/null && bun run lint
 
+# The SPA's unit tests (vitest, node environment). Deliberately narrow: nothing renders, and the
+# one module under test is lib/history — the chat history's IndexedDB store, which is the only
+# place in the SPA holding something a user cannot get back if it goes wrong.
+FRONTEND_TEST = cd frontend && bun run test
+# tsc is the only thing that catches a type error: vite strips types without checking them,
+# and oxlint cannot see them either. Without this the gate passes on code CI then rejects.
+FRONTEND_TYPECHECK = cd frontend && bunx tsc --noEmit
+
 lint:
 	@echo ">>> Running linter"
 	@$(UV) run ruff format .
@@ -75,6 +83,10 @@ lint:
 	@echo ">>> Linting the browser UI (oxlint + UI conventions)"
 	@$(FRONTEND_LINT)
 	@$(UV) run python scripts/check_ui_classes.py
+	@echo ">>> Type-checking the browser UI (tsc)"
+	@$(FRONTEND_TYPECHECK)
+	@echo ">>> Testing the browser UI (vitest)"
+	@$(FRONTEND_TEST)
 
 check:
 	@echo ">>> Checking formatting and lint (no changes)"
@@ -86,6 +98,10 @@ check:
 	@echo ">>> Linting the browser UI (oxlint + UI conventions)"
 	@$(FRONTEND_LINT)
 	@$(UV) run python scripts/check_ui_classes.py
+	@echo ">>> Type-checking the browser UI (tsc)"
+	@$(FRONTEND_TYPECHECK)
+	@echo ">>> Testing the browser UI (vitest)"
+	@$(FRONTEND_TEST)
 	@echo ">>> Running tests (excluding slow)"
 	@$(UV) run pytest -q -m "not slow"
 

@@ -4,6 +4,7 @@ import { AudioLines, Moon, Palette, Server, Sun } from "lucide-react";
 import { getModelInfo, type LibModel, type ModelInfo, type Status, type Voice } from "@/api";
 import { Markdown } from "@/components/Markdown";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { historySpace, type HistorySpace } from "@/lib/history";
 import { THEMES, type Mode, type Theme } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -195,10 +196,27 @@ function VoicePane({
   );
 }
 
+/** A byte count as the shortest sentence that is still true. */
+function bytes(n: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = n;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 /**
- * Server: the two read-only blocks — what the project's `heim.toml` contributes, and what the
- * runtime currently holds. The model card is fetched here rather than by the dialog, so it is
- * only read when someone actually opens this category (the pane mounts with the selection).
+ * Server: the read-only blocks — what the project's `heim.toml` contributes, what the runtime
+ * currently holds, and where this browser is keeping the chat history. The last of those is a
+ * browser fact rather than a server one, but it belongs to the same question the others answer
+ * ("what is this session actually running against"), and it is read-only in the same way.
+ *
+ * The model card is fetched here rather than by the dialog, so it is only read when someone
+ * actually opens this category (the pane mounts with the selection); the storage figures are read
+ * the same way, and for the same reason.
  */
 function ServerPane({ status, library }: { status: Status | null; library: LibModel[] }) {
   const modelName = status?.model ?? null;
@@ -206,6 +224,15 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
 
   const [info, setInfo] = useState<ModelInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
+  const [space, setSpace] = useState<HistorySpace | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void historySpace().then((s) => !cancelled && setSpace(s));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!modelName) {
@@ -302,6 +329,43 @@ function ServerPane({ status, library }: { status: Status | null; library: LibMo
           </>
         ) : (
           <p className="text-xs text-muted-foreground">No model loaded.</p>
+        )}
+      </Section>
+
+      {/* WHETHER THE BROWSER WILL KEEP IT is the fact worth stating, not the byte count. heim's
+          premise is that your data is on your machine, and an unkept IndexedDB store is a bucket
+          the browser may reclaim under disk pressure without asking — so the refusal case gets a
+          sentence saying exactly that, rather than a reassuring chip either way. */}
+      <Section title="Chat history" description="Where this browser keeps your conversations.">
+        <dl className="space-y-2 text-sm">
+          <div className="flex gap-3">
+            <dt className="w-28 shrink-0 text-muted-foreground">Stored in</dt>
+            <dd className="min-w-0">This browser (IndexedDB), on this machine.</dd>
+          </div>
+          <div className="flex gap-3">
+            <dt className="w-28 shrink-0 text-muted-foreground">Using</dt>
+            <dd className="min-w-0 tabular-nums">
+              {space?.usage != null ? (
+                <>
+                  {bytes(space.usage)}
+                  {space.quota != null && <span className="text-muted-foreground"> of {bytes(space.quota)}</span>}
+                </>
+              ) : (
+                <span className="text-muted-foreground">not reported by this browser</span>
+              )}
+            </dd>
+          </div>
+        </dl>
+        {space?.persistence === "best-effort" && (
+          <p className="mt-2 text-sm text-warning-ink">
+            This browser refused to mark the storage persistent, so it may clear your chat history
+            if the disk fills up. Export anything you want to keep.
+          </p>
+        )}
+        {space?.persistence === "persistent" && (
+          <p className="mt-2 text-sm text-muted-foreground">
+            Marked persistent: the browser won't clear it on its own.
+          </p>
         )}
       </Section>
     </>

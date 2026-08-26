@@ -47,16 +47,8 @@ import { CommandPalette, opensPalette } from "@/components/CommandPalette";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
-import {
-  DEFAULT_SETTINGS,
-  baselineServers,
-  deriveTitle,
-  loadConversations,
-  saveConversations,
-  serverScopes,
-  uid,
-  type Settings,
-} from "@/lib/store";
+import { DEFAULT_SETTINGS, baselineServers, deriveTitle, serverScopes, uid, type Settings } from "@/lib/store";
+import { loadConversations, saveConversations } from "@/lib/history";
 import { useMcpServers } from "@/lib/useMcpServers";
 import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
@@ -75,6 +67,21 @@ function conversationIdFromHash(): string | null {
 /** Which primary surface to show: the chat, the model library grid, or the voice studio.
  *  Settings is deliberately absent — it is a dialog over whichever surface you are on. */
 type View = "chat" | "library" | "voice";
+
+/** How far the history has got. The store is IndexedDB, so this is a real state the app renders in,
+ *  not a formality: "loading" is what stops an empty first paint being read — or SAVED — as
+ *  "no history", and "unavailable" is a store that could not be read, where the only safe thing to
+ *  do is keep working and write nothing over it. Only "ready" persists. */
+type HistoryState = "loading" | "ready" | "unavailable";
+
+// Persistence is debounced, with a ceiling. A stream rebuilds the active conversation on every
+// token, and writing each of those straight through would be a transaction per token. So a change
+// schedules a flush this far out...
+const SAVE_DEBOUNCE_MS = 300;
+// ...but never further out than this from the FIRST unsaved change, because a stream produces a
+// change every few milliseconds and a plain debounce would keep pushing the write past the end of
+// a long answer. Between them: prompt when idle, at least twice a second while generating.
+const SAVE_MAX_DEFER_MS = 2000;
 
 /** The resizable panels, in group order. Matches each `<Panel id>` (and so `data-panel-id`). */
 type PanelId = "sidebar" | "main" | "chat-settings";
@@ -187,14 +194,12 @@ export function App() {
   const [loadingName, setLoadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // App state.
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
-  const [activeId, setActiveId] = useState<string | null>(() => {
-    const convs = loadConversations();
-    const fromUrl = conversationIdFromHash();
-    if (fromUrl && convs.some((c) => c.id === fromUrl)) return fromUrl; // deep link survives reload
-    return convs.length ? [...convs].sort((a, b) => b.updatedAt - a.updatedAt)[0].id : null;
-  });
+  // App state. The history is READ ASYNCHRONOUSLY (IndexedDB), so unlike every other initialiser
+  // here these two start empty and are filled by the effect below. `historyState` is what keeps
+  // that honest — see the type, and the two effects that gate on it.
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [historyState, setHistoryState] = useState<HistoryState>("loading");
   // Settings live per-conversation (see activeSettings below). This holds the
   // draft used before a conversation exists (the empty state); it seeds the first
   // conversation on send, then resets — so nothing carries between chats.
@@ -462,20 +467,83 @@ export function App() {
   const abortRef = useRef<AbortController | null>(null);
 
   // --- persistence ---
-  // Surface a save failure instead of silently losing chats: a large pasted image/audio can
-  // blow the ~5 MB localStorage quota. "degraded" means the transcript persisted but inline
-  // media won't survive a reload; "failed" means nothing saved.
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
+
+  // THE READ. One shot, on mount. Everything about it is arranged around the fact that the app is
+  // already on screen and usable before it lands.
   useEffect(() => {
-    const result = saveConversations(conversations);
-    setStorageWarning(
-      result === "degraded"
-        ? "Storage is full — your chats are saved, but attached images/audio won't survive a reload. Delete old conversations to free space."
-        : result === "failed"
-          ? "Storage is full — new messages can't be saved and will be lost on reload. Delete old conversations to free space."
+    let cancelled = false;
+    void loadConversations().then((res) => {
+      if (cancelled) return;
+      if (!res.ok) {
+        // The store could not be read. Not the same as "there is nothing" — so the app keeps
+        // working and writes NOTHING, rather than saving a fresh empty history over the top of
+        // one that is sitting there unreadable.
+        setHistoryState("unavailable");
+        setStorageWarning(
+          "This browser won't let heim open its chat storage, so nothing from this session will be saved.",
+        );
+        return;
+      }
+      // A chat the user started before the read landed is live state and must survive it: merge,
+      // and let it keep the head of the list rather than replacing it wholesale.
+      setConversations((live) => {
+        const started = new Set(live.map((c) => c.id));
+        return [...live, ...res.conversations.filter((c) => !started.has(c.id))];
+      });
+      setActiveId((current) => {
+        if (current) return current; // already in a chat: don't yank the surface out from under it
+        // The deep link resolves HERE rather than at mount, because at mount there was nothing to
+        // resolve it against. The hash still says what the app was opened with because the effect
+        // that rewrites it is gated on this same state — see below.
+        const fromUrl = conversationIdFromHash();
+        if (fromUrl && res.conversations.some((c) => c.id === fromUrl)) return fromUrl;
+        const newest = [...res.conversations].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        return newest ? newest.id : null;
+      });
+      setHistoryState("ready");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // THE WRITE. Debounced with a ceiling (see SAVE_DEBOUNCE_MS / SAVE_MAX_DEFER_MS) and gated on
+  // "ready", which is the whole defence against the empty-state race: until the read has finished
+  // there is nothing here worth writing, and what IS here is an empty list that would erase
+  // everything. The store writes only the rows that changed, so a flush mid-stream is one small
+  // message row, not the transcript.
+  const latestConversations = useRef(conversations);
+  latestConversations.current = conversations;
+  const saveDeadline = useRef(0);
+  const flushHistory = useCallback(() => {
+    saveDeadline.current = 0;
+    void saveConversations(latestConversations.current).then((result) =>
+      setStorageWarning(
+        result === "failed"
+          ? "Chat storage couldn't be written — recent messages may not survive a reload."
           : null,
+      ),
     );
-  }, [conversations]);
+  }, []);
+  useEffect(() => {
+    if (historyState !== "ready") return;
+    if (saveDeadline.current === 0) saveDeadline.current = Date.now() + SAVE_MAX_DEFER_MS;
+    const wait = Math.max(0, Math.min(SAVE_DEBOUNCE_MS, saveDeadline.current - Date.now()));
+    const timer = setTimeout(flushHistory, wait);
+    return () => clearTimeout(timer);
+  }, [conversations, historyState, flushHistory]);
+  // A tab being hidden or closed must not take the debounce window's worth of messages with it.
+  // visibilitychange is the one lifecycle event that fires reliably on a real close, and an
+  // IndexedDB write started here is allowed to finish.
+  useEffect(() => {
+    if (historyState !== "ready") return;
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") flushHistory();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => document.removeEventListener("visibilitychange", onHidden);
+  }, [historyState, flushHistory]);
 
   // --- URL routing: reflect the active conversation's id in the hash (#/c/<id>)
   // so a reload / bookmark / back-button lands on the same chat. ---
@@ -484,10 +552,15 @@ export function App() {
   const hashTarget =
     view === "library" ? "#/library" : view === "voice" ? "#/voice" : activeId ? `#/c/${activeId}` : "";
   useEffect(() => {
+    // NOT WHILE THE HISTORY IS STILL LOADING. `activeId` is null until the read lands, so a chat
+    // deep link would map to an empty `hashTarget` and this would replaceState the #/c/<id> away
+    // before there was anything to match it against — the app would come up on a new chat and the
+    // link would be gone from the URL bar. The read resolves it; this takes over afterwards.
+    if (historyState === "loading") return;
     if (window.location.hash === hashTarget) return;
     if (hashTarget) window.location.hash = hashTarget;
     else history.replaceState(null, "", window.location.pathname + window.location.search);
-  }, [hashTarget]);
+  }, [hashTarget, historyState]);
   // The hashchange handler is mount-only, so read the latest conversations (and the hash the app
   // state currently maps to) via refs rather than a stale closure.
   const conversationsRef = useRef(conversations);
@@ -1353,6 +1426,7 @@ export function App() {
           <div className="absolute inset-y-0 left-0 w-[82%] max-w-xs shadow-2xl">
             <Sidebar
               conversations={conversations}
+              loading={historyState === "loading"}
               activeId={activeId}
               view={view}
               onNew={() => {
@@ -1445,6 +1519,7 @@ export function App() {
           <div className="h-full" style={pinned("sidebar")}>
           <Sidebar
             conversations={conversations}
+            loading={historyState === "loading"}
             activeId={activeId}
             view={view}
             onNew={startNewChat}

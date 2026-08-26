@@ -326,7 +326,7 @@ density from consistent padding, not from small type.
 
 ## What is enforced
 
-Two checks, both in `make check` (the CI gate). Be clear about which does what:
+Three checks, all in `make check` (the CI gate). Be clear about which does what:
 
 **`oxlint`** (`frontend/.oxlintrc.json`, run by `bun run lint`) lints **JS and
 TypeScript** — hook rules, unused code, `no-explicit-any`, `eqeqeq`, correctness.
@@ -348,13 +348,21 @@ or `text-xs`, whether a fill token was used as text, whether a new chip matched 
 recipe, whether a fact ended up stated twice — those are review, and this document
 is what review reads.
 
-**heim's frontend has no test runner.** The sibling has vitest (`"test": "vitest
-run"`); heim has nothing, so the palette's ranking — the one part of this page that
-is a pure function with an assertable answer — is verified by hand in a browser
-rather than by a test. `lib/palette.ts` is deliberately React-free so that adding
-vitest is all it would take; the cases worth pinning are `swit`/`switch`/`dark`/
-`light` surfacing the mode toggle first, `phosphor` still finding Terminal, and a
-model id neither answering an unrelated query nor failing to answer its own prefix.
+**`vitest`** (`frontend/vitest.config.ts`, run by `bun run test`) is the third, and
+it is deliberately narrow. It covers one module: `lib/history`, the chat history's
+IndexedDB store. That is the only place in the SPA holding something a reader
+cannot get back if it goes wrong — a transcript with its attachments — and it was
+added when history moved off localStorage, because a migration between two storage
+engines is exactly the change a browser click-through cannot prove. It renders
+nothing (`environment: "node"`, `fake-indexeddb` for the store), so no DOM testing
+library is in the tree.
+
+The obvious second candidate is **the palette's ranking** (`lib/palette.ts`), the
+one part of this page that is a pure function with an assertable answer: it is
+verified by hand in a browser today, and the runner it needs is now here. The cases
+worth pinning are `swit`/`switch`/`dark`/`light` surfacing the mode toggle first,
+`phosphor` still finding Terminal, and a model id neither answering an unrelated
+query nor failing to answer its own prefix.
 
 ### Not yet swept
 

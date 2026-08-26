@@ -88,6 +88,7 @@ function NavItem({
  */
 export function Sidebar({
   conversations,
+  loading = false,
   activeId,
   view,
   onNew,
@@ -101,6 +102,9 @@ export function Sidebar({
   onCollapse,
 }: {
   conversations: Conversation[];
+  /** The history is still being read (IndexedDB). An empty list means "not yet", not "none" — and
+   *  the difference matters here, because this column is where a reader looks to find out. */
+  loading?: boolean;
   activeId: string | null;
   view: "chat" | "library" | "voice";
   onNew: () => void;
@@ -209,7 +213,7 @@ export function Sidebar({
         </div>
         {filtered.length === 0 && (
           <div className="px-2 py-2 text-xs text-sidebar-muted-foreground">
-            {conversations.length === 0 ? "No conversations yet." : "No matches."}
+            {loading ? "Loading history…" : conversations.length === 0 ? "No conversations yet." : "No matches."}
           </div>
         )}
         {filtered.map((c) => {

@@ -71,7 +71,6 @@ export interface ChatMessage {
   stats?: GenerationStats; // token accounting + wall time for a finished assistant turn
   error?: boolean;
   model?: string; // the model that produced this turn (assistant turns), for export fidelity
-  mediaDropped?: number; // inline attachments stripped to fit the storage quota (see saveConversations)
 }
 
 /** A persisted conversation. Settings are per-conversation, not global, so each

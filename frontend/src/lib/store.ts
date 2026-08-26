@@ -1,11 +1,12 @@
-// localStorage-backed persistence for conversations and appearance. Settings (system
-// prompt, sampling, tools, context length) are stored *per conversation* — each
-// chat owns its own, so a new chat starts from DEFAULT_SETTINGS and one chat's
-// settings never leak into the next.
+// The per-conversation settings shape, and the localStorage-backed appearance preferences.
+// Settings (system prompt, sampling, tools, context length) are stored *per conversation* — each
+// chat owns its own, so a new chat starts from DEFAULT_SETTINGS and one chat's settings never leak
+// into the next; `normalizeSettings` is how a stored one is read back.
+//
+// The history itself is NOT here. Conversations and their messages live in IndexedDB (lib/history)
+// because a chat carries its attachments inline and localStorage's ~5 MB could not hold them. What
+// stays under localStorage is what belongs there: small, per-machine, per-browser preferences.
 
-import type { Conversation } from "@/lib/types";
-
-const CONVERSATIONS_KEY = "heim.conversations";
 // The two appearance axes, named the way the screen names them: the THEME is the named
 // colour set, the MODE is light/dark. `heim.theme` held light/dark before that alignment,
 // so a browser that used heim then still has "dark" under this key — which is why
@@ -135,63 +136,6 @@ export function normalizeSettings(parsed: Partial<Settings> | undefined | null):
       typeof parsed.ttsSpeed === "number" && parsed.ttsSpeed >= 0.25 && parsed.ttsSpeed <= 2 ? parsed.ttsSpeed : null,
     pdfAsImage: typeof parsed.pdfAsImage === "boolean" ? parsed.pdfAsImage : false,
   };
-}
-
-export function loadConversations(): Conversation[] {
-  try {
-    const raw = localStorage.getItem(CONVERSATIONS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Conversation[];
-    if (!Array.isArray(parsed)) return [];
-    // Back-fill settings for conversations saved before they were per-conversation, and drop any
-    // still-pending confirmations: they belong to a stream that no longer exists (a reload mid-stream),
-    // so their Approve/Deny buttons would post an id the server already dropped. Resolved notes stay.
-    return parsed.map((c) => ({
-      ...c,
-      settings: normalizeSettings(c.settings),
-      messages: c.messages.map((m) =>
-        m.confirms ? { ...m, confirms: m.confirms.filter((cf) => cf.status !== "pending") } : m,
-      ),
-    }));
-  } catch {
-    return [];
-  }
-}
-
-/** Outcome of a persistence attempt, so the UI can warn instead of silently losing data.
- *  "ok" = fully saved; "degraded" = quota hit, saved without inline media (attachments won't
- *  survive a reload, but the transcript + older chats did); "failed" = nothing could be saved. */
-export type SaveResult = "ok" | "degraded" | "failed";
-
-/** Drop inline image/audio data URLs (the multi-MB base64 that blows the ~5 MB quota) while
- *  keeping the text transcript and a marker so the message still renders sensibly on reload. */
-function stripInlineMedia(convs: Conversation[]): Conversation[] {
-  return convs.map((c) => ({
-    ...c,
-    messages: c.messages.map((m) =>
-      m.images || m.audios
-        ? { ...m, images: undefined, audios: undefined, mediaDropped: (m.images?.length ?? 0) + (m.audios?.length ?? 0) }
-        : m,
-    ),
-  }));
-}
-
-export function saveConversations(convs: Conversation[]): SaveResult {
-  try {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
-    return "ok";
-  } catch {
-    // Quota exceeded (usually one pasted image/audio data URL). Rather than lose every
-    // conversation silently, retry with inline media stripped so the transcript and older
-    // chats still persist — and report "degraded" so the UI can tell the user attachments
-    // won't survive a reload.
-    try {
-      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(stripInlineMedia(convs)));
-      return "degraded";
-    } catch {
-      return "failed";
-    }
-  }
 }
 
 /** The mode: light or dark, the ground every theme below is designed for both of. */
