@@ -50,6 +50,7 @@ import { StatusBar } from "@/components/StatusBar";
 import { DEFAULT_SETTINGS, baselineServers, deriveTitle, serverScopes, uid, type Settings } from "@/lib/store";
 import { loadConversations, saveConversations } from "@/lib/history";
 import { applyModelTitle, requestConversationTitle } from "@/lib/title";
+import { greetingFor } from "@/lib/greeting";
 import { useMcpServers } from "@/lib/useMcpServers";
 import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
@@ -1365,6 +1366,16 @@ export function App() {
 
   // Controls docked in the composer are "what am I talking to" (model + routing target).
   // Everything that shapes *how* it answers lives in the per-chat settings panel.
+  // Held stable per conversation: a line that re-rolled on every render would be the most
+  // distracting possible version of this. libraryLoaded gates the count so it is never a guess.
+  const greeting = useMemo(
+    () =>
+      greetingFor(
+        { models: libraryLoaded ? library.length : undefined, upstream: status ? (status.upstream ?? null) : undefined },
+        activeId ?? "new",
+      ),
+    [libraryLoaded, library.length, status, activeId],
+  );
   const disabledSet = useMemo(() => new Set(settings.disabledTools), [settings.disabledTools]);
   const composerControls = (
     <>
@@ -1734,7 +1745,7 @@ export function App() {
             // Empty state: centered greeting + composer.
             <div className="flex flex-1 flex-col items-center justify-center px-4">
               <h1 className="mb-8 text-2xl font-semibold tracking-tight">
-                {ready ? "What can I help with?" : "Select a model to start"}
+                {ready ? greeting : "Select a model to start"}
               </h1>
               <div className="w-full max-w-4xl">
                 {nudgeEl}
