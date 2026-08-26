@@ -22,7 +22,7 @@ from pathlib import Path
 # never requires a global install). Apple Silicon only; there are no MLX wheels elsewhere.
 _MLX_HINT = (
     "Install the MLX runtimes (Apple Silicon only): in a heim checkout "
-    "`uv sync --extra mlx`; for an installed heim `uv tool install --force -e \".[mlx]\"` "
+    '`uv sync --extra mlx`; for an installed heim `uv tool install --force -e ".[mlx]"` '
     "from the checkout."
 )
 
