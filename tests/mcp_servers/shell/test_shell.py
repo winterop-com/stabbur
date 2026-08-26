@@ -89,8 +89,12 @@ async def test_timeout_returns_partial_output(monkeypatch: pytest.MonkeyPatch) -
     # A command that prints then hangs (ping without -c, tail -f, ...) is stopped at the timeout
     # and returns what it printed, flagged — not an empty error.
     monkeypatch.setenv("HEIM_SHELL_UNRESTRICTED", "1")  # need a shell to `sleep`
-    monkeypatch.setattr(app, "_TIMEOUT", 0.5)
-    out = await _call("run", command="printf 'ONE\\nTWO\\n'; sleep 5")
+    # The deadline has to cover *starting a shell*, not just the printf: this asserts on partial
+    # output, so a timeout that can fire before bash is scheduled makes the test fail on a busy
+    # machine rather than on a broken timeout. Do not shorten it to make the suite faster — 0.5s
+    # was flaky under parallel load. The sleep only has to outlast it.
+    monkeypatch.setattr(app, "_TIMEOUT", 2.0)
+    out = await _call("run", command="printf 'ONE\\nTWO\\n'; sleep 30")
     assert out["timed_out"] is True and out["exit_code"] is None
     assert "ONE" in out["stdout"] and "TWO" in out["stdout"]
     assert "bounded" in out.get("note", "")
