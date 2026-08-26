@@ -1,0 +1,123 @@
+name: Publish to PyPI
+
+# Triggers:
+#   - push of a `v*.*.*` tag (e.g. `v0.3.0`) — builds and publishes the `stabbur` wheel + sdist.
+#   - manual dispatch.
+#
+# Authentication uses PyPI Trusted Publishing (OIDC) — no API tokens. Configure once on PyPI at
+# https://pypi.org/manage/account/publishing/ (a "pending publisher" until the project exists):
+#   PyPI project: stabbur
+#   Owner: winterop-com   Repository: stabbur
+#   Workflow filename: pypi-publish.yml   Environment: pypi
+#
+# stabbur is a SINGLE self-contained distribution: the bundled MCP tool servers are vendored into the
+# `stabbur` package (src/stabbur/mcp_servers/*, src/stabbur/benchmark), so there are no `stabbur-*` runtime deps
+# to publish alongside it.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+# Least-privilege default; the publish job overrides with the id-token: write it needs for OIDC.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build stabbur
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Build wheel + sdist
+        run: uv build --package stabbur
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/stabbur
+    permissions:
+      # Trusted Publishing: PyPI verifies the OIDC token and accepts the upload without an API key.
+      id-token: write
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: List built artifacts
+        run: ls -lah dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          # Idempotent re-runs: skip anything already on PyPI so a re-triggered tag doesn't error.
+          skip-existing: true
+          # No password — trusted publishing handles auth via the OIDC token minted above.
+
+  verify:
+    name: Verify stabbur from PyPI
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Compute version from tag
+        id: version
+        run: echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for stabbur on the PyPI simple index
+        # uv resolves against the simple index, which lags the JSON endpoint by seconds, so poll
+        # until the version appears. (PEP 625 filename normalization is a no-op for "stabbur" —
+        # no separators to fold — so the name goes into the pattern below as-is.)
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          for i in $(seq 1 36); do
+            if curl -fsSL "https://pypi.org/simple/stabbur/" \
+              | grep -qE "stabbur-${VERSION}(\.tar\.gz|-[^ \"<>]*\.whl)"; then
+              echo "stabbur ${VERSION} on simple index (attempt ${i})"; break
+            fi
+            if [ "${i}" = "36" ]; then
+              echo "::error::stabbur ${VERSION} did not appear on the PyPI simple index within 180s"; exit 1
+            fi
+            echo "attempt ${i}/36: not yet, sleeping 5s"; sleep 5
+          done
+
+      - name: Smoke-test the published wheel
+        # Install stabbur from PyPI into a throwaway env and run the CLI. Retry while the resolver-visible
+        # index catches up to the simple index the wait step polled.
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          for attempt in $(seq 1 12); do
+            if uvx --refresh --from "stabbur==${VERSION}" stabbur --help > /dev/null; then
+              echo "stabbur ${VERSION} installs and runs"; exit 0
+            fi
+            echo "attempt ${attempt}/12 failed, sleeping 5s"; sleep 5
+          done
+          echo "::error::stabbur ${VERSION} never installed from PyPI"; exit 1

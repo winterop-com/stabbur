@@ -61,8 +61,8 @@ export function IconRail({
       {item("New chat", <SquarePen className="h-4 w-4" />, onNew, view === "chat")}
       {item("Library", <Boxes className="h-4 w-4" />, onShowLibrary, view === "library")}
       {voiceEnabled && item("Voice", <AudioLines className="h-4 w-4" />, onShowVoice, view === "voice")}
-      {/* A tiny horizontal wordmark at the foot — it fits the narrow rail (unlike the full
-          "Stabbur Studio") and keeps the brand present while collapsed. Settings is not here: the
+      {/* A tiny horizontal wordmark at the foot — it fits the narrow rail and keeps the brand
+          present while collapsed, matching the expanded sidebar. Settings is not here: the
           status bar's left segment shrinks to this rail's width and carries the gear itself, so
           putting one here too would stack two gears in the same corner. */}
       <div className="mt-auto flex flex-col items-center gap-1">

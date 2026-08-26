@@ -1,14 +1,18 @@
-<img src="docs/assets/logo.png" alt="stabbur" width="180" align="right">
+<!-- Absolute URLs: this README is the PyPI long description, and PyPI does not rewrite
+     relative paths - a repo-relative src renders as a broken image on the project page. -->
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/winterop-com/stabbur/main/docs/assets/logo.png" alt="stabbur" width="200">
 
 # stabbur
 
 [![CI](https://github.com/winterop-com/stabbur/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/stabbur/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-in--repo-2b7489)](docs/)
+[![PyPI](https://img.shields.io/pypi/v/stabbur)](https://pypi.org/project/stabbur/)
 [![Python](https://img.shields.io/badge/python-3.13-3776ab)](https://www.python.org/)
 [![Packaging](https://img.shields.io/badge/install-uv-6340ac)](https://docs.astral.sh/uv/)
-[![License](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
+[![License](https://img.shields.io/badge/license-proprietary-lightgrey)](https://github.com/winterop-com/stabbur/blob/main/LICENSE)
 
-**Documentation: [`docs/`](docs/)** — browse in-repo, or run `make docs` to serve the full site locally.
+</div>
 
 A tool for building and keeping a **full local library of LLM models**. It
 discovers models from **Hugging Face**, **Ollama**, and **LM Studio**, pulls
@@ -28,7 +32,7 @@ box, rather than in someone else's cloud.
 > reference and evaluation; running it requires a written license — contact
 > <morten@winterop.com>. Install is from source with `uv` (there is no `pip install stabbur`).
 
-![stabbur web UI](docs/assets/web-ui.png)
+![stabbur web UI](https://raw.githubusercontent.com/winterop-com/stabbur/main/docs/assets/web-ui.png)
 
 ## Layout
 

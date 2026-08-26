@@ -145,10 +145,8 @@ export function Sidebar({
     // against exactly this ground, so the rail has to actually be it for them to land as designed.
     <aside className="flex h-full w-full min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-3 py-3">
-        <span className="px-1 text-sm font-semibold tracking-tight">
-          <span className="md:hidden">Stabbur</span>
-          <span className="hidden md:inline">Stabbur Studio</span>
-        </span>
+        {/* Lowercase, as the brand is spelled everywhere else: CLI, README, composer placeholder. */}
+        <span className="px-1 text-sm font-semibold tracking-tight">stabbur</span>
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
