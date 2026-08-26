@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PanelRightClose, RotateCcw, RotateCw, SlidersHorizontal, TriangleAlert, Wrench } from "lucide-react";
 
 import {
-  getMcpServers,
   getModelInfo,
-  setMcpServer,
-  setMcpServerEnv,
   type LibModel,
   type McpServerInfo,
   type McpSetting,
-  type McpUpdateResult,
   type ModelInfo,
+  type ModelSampling,
   type Status,
   type ToolInfo,
   type Voice,
@@ -21,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ReasoningLevel, Settings } from "@/lib/store";
+import type { McpServersState } from "@/lib/useMcpServers";
 import { cn } from "@/lib/utils";
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
@@ -97,6 +95,72 @@ function FieldLabel({
       ) : (
         inherited && <span className="truncate text-[11px] text-muted-foreground">{inherited}</span>
       )}
+    </div>
+  );
+}
+
+/**
+ * One sampling parameter as a slider, with a plain-language line saying what moving it does.
+ *
+ * ``value === null`` means this chat has chosen nothing, and the slider then sits on ``fallback`` —
+ * the value the server will actually use (the model's own recommendation where it ships one, else
+ * heim's default). The panel never invents a number: when the server can't tell us the default
+ * (a backend older than ``status.default_sampling``), the readout says "default" and the knob just
+ * parks mid-range, so nothing on screen claims to be a value that is being sent.
+ */
+function SamplingSlider({
+  id,
+  label,
+  description,
+  value,
+  fallback,
+  min,
+  max,
+  step,
+  onChange,
+  onReset,
+}: {
+  id: string;
+  label: string;
+  description: string;
+  value: number | null;
+  fallback: number | null;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  onReset: () => void;
+}) {
+  const effective = value ?? fallback;
+  const fmt = (n: number) => (step >= 1 ? String(Math.round(n)) : String(Number(n.toFixed(2))));
+  // A model may recommend a value outside the range we'd otherwise offer (a 1.5 temperature, a
+  // top-k of 200): widen the track rather than silently clamping the knob to a lie.
+  const hi = Math.max(max, effective ?? max);
+  return (
+    <div>
+      <FieldLabel
+        label={label}
+        htmlFor={id}
+        overridden={value != null}
+        inherited={value != null ? (fallback != null ? `default ${fmt(fallback)}` : "the default") : "default"}
+        onReset={onReset}
+      />
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          type="range"
+          min={min}
+          max={hi}
+          step={step}
+          value={effective ?? (min + hi) / 2}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-primary"
+        />
+        <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+          {effective != null ? fmt(effective) : "—"}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -227,10 +291,11 @@ export function ChatSettingsPanel({
   defaultSpeed,
   tools,
   disabled,
+  allowedServers,
+  mcp,
   onToggleUse,
   onToggleTool,
   onToggleServer,
-  onToolsChanged,
   tab,
   onTabChange,
 }: {
@@ -248,11 +313,14 @@ export function ChatSettingsPanel({
   defaultSpeed: number;
   tools: ToolInfo[];
   disabled: Set<string>;
+  /** Servers this conversation may call — its own allow-list, or the resolved baseline. */
+  allowedServers: Set<string>;
+  /** The machine-wide server catalogue, owned by the app (the send path needs it too). */
+  mcp: McpServersState;
   onToggleUse: (on: boolean) => void;
   onToggleTool: (name: string, enabled: boolean) => void;
-  onToggleServer: (names: string[], enabled: boolean) => void;
-  /** Re-read /api/tools: a server switched on attaches its tools live, so the list is stale. */
-  onToolsChanged: () => void;
+  /** Add/remove one server from *this chat's* allow-list (never starts or stops it). */
+  onToggleServer: (name: string, enabled: boolean) => void;
   /** Which tab is showing. Owned by the app so a "manage tools" affordance elsewhere can
    *  open this panel *on* the Tools tab instead of dropping the user on Parameters. */
   tab: "parameters" | "tools";
@@ -274,8 +342,6 @@ export function ChatSettingsPanel({
 
   // Local text state for the numeric inputs so partial edits (e.g. "0.") aren't clobbered.
   const [maxTokens, setMaxTokens] = useState(settings.maxTokens != null ? String(settings.maxTokens) : "");
-  const [temperature, setTemperature] = useState(settings.temperature != null ? String(settings.temperature) : "");
-  const [topP, setTopP] = useState(settings.topP != null ? String(settings.topP) : "");
   const [context, setContext] = useState(settings.contextLength != null ? String(settings.contextLength) : "");
   const [customCtx, setCustomCtx] = useState(false);
 
@@ -283,8 +349,6 @@ export function ChatSettingsPanel({
   // Keyed on activeId only, so a keystroke doesn't clobber an in-progress partial edit.
   useEffect(() => {
     setMaxTokens(settings.maxTokens != null ? String(settings.maxTokens) : "");
-    setTemperature(settings.temperature != null ? String(settings.temperature) : "");
-    setTopP(settings.topP != null ? String(settings.topP) : "");
     setContext(settings.contextLength != null ? String(settings.contextLength) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
@@ -304,77 +368,20 @@ export function ChatSettingsPanel({
     };
   }, [modelName]);
 
-  // The effective default per field: the model's own recommendation when it ships one, else
-  // heim's documented default. The server resolves the same way, so these are the real values.
-  const rec = info?.sampling ?? null;
-  const num = (v: number | null | undefined, fallback: number) => String(v ?? fallback);
-  const defTemperature = num(rec?.temperature, 0.8);
-  const defTopP = num(rec?.top_p, 0.95);
+  // The effective default per field: the model's own recommendation when it ships one, else heim's
+  // own defaults *as the server reports them* (/api/status). Both numbers come from the server, so
+  // a control shows the value that will really be sent rather than a copy here that can drift.
+  const rec: ModelSampling | null = info?.sampling ?? status?.default_sampling ?? null;
   const defMaxTokens = status?.default_max_tokens ? String(status.default_max_tokens) : "unlimited";
 
-  const enabledCount = tools.filter((t) => !disabled.has(t.name)).length;
+  // Two filters, in the order the wire applies them: a tool counts only if its server is on this
+  // chat's allow-list *and* the tool itself wasn't switched off inside that server.
+  const enabledCount = tools.filter((t) => allowedServers.has(t.server) && !disabled.has(t.name)).length;
 
-  // --- the MCP server catalogue (what heim *could* run), independent of what's attached ---
-  const [servers, setServers] = useState<McpServerInfo[] | null>(null); // null = still loading
-  const [pending, setPending] = useState<string | null>(null);
-  // The last toggle outcome per server, kept only for this panel session: the server tells us
-  // whether the change actually took effect, and that answer is the whole point of the control.
-  const [notes, setNotes] = useState<Record<string, { tone: "warn" | "error"; text: string }>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    getMcpServers()
-      .then((s) => !cancelled && setServers(s))
-      .catch(() => !cancelled && setServers([])); // an older backend has no route; show the attached tools only
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /**
-   * Run one change against a server and render *what actually happened*. Shared by the on/off
-   * switch and the settings fields because the honest-outcome contract is the same for both: the
-   * response carries the refreshed row (an enable the project vetoes comes back still disabled) and
-   * says whether the change is live, needs a restart, or failed outright.
-   */
-  const changeMcpServer = useCallback(
-    async (name: string, run: () => Promise<McpUpdateResult>, retools: boolean) => {
-      setPending(name);
-      setNotes((n) => {
-        const next = { ...n };
-        delete next[name];
-        return next;
-      });
-      try {
-        const res = await run();
-        setServers((list) => (list ?? []).map((s) => (s.name === res.server.name ? res.server : s)));
-        if (retools && res.applied) onToolsChanged(); // its tools are attached (or gone) right now
-        if (res.restart_required)
-          setNotes((n) => ({
-            ...n,
-            [name]: { tone: "warn", text: res.detail || "restart heim serve for this to take effect" },
-          }));
-        else if (!res.applied)
-          setNotes((n) => ({ ...n, [name]: { tone: "error", text: res.detail || "the change did not take effect" } }));
-      } catch (e) {
-        setNotes((n) => ({ ...n, [name]: { tone: "error", text: e instanceof Error ? e.message : String(e) } }));
-      } finally {
-        setPending(null);
-      }
-    },
-    [onToolsChanged],
-  );
-
-  const toggleMcpServer = useCallback(
-    (name: string, on: boolean) => void changeMcpServer(name, () => setMcpServer(name, on), true),
-    [changeMcpServer],
-  );
-
-  const saveMcpEnv = useCallback(
-    // Settings never change the tool list — only which files/hosts those tools reach — so no re-read.
-    (name: string, env: Record<string, string>) => void changeMcpServer(name, () => setMcpServerEnv(name, env), false),
-    [changeMcpServer],
-  );
+  // The MCP server catalogue (what heim *could* run), independent of what's attached. Owned by the
+  // app, not this panel: a chat's baseline allow-list is derived from each server's scope, so the
+  // send path needs the same list whether or not this panel was ever opened.
+  const { servers, pending, notes, toggle: toggleMcpServer, saveEnv: saveMcpEnv } = mcp;
 
   /**
    * One row per server: the whole bundled catalogue, plus any server that is attached without
@@ -506,58 +513,78 @@ export function ChatSettingsPanel({
               />
             </div>
 
-            <div>
-              <FieldLabel
-                label="Temperature"
-                htmlFor="p-temperature"
-                overridden={settings.temperature != null}
-                inherited={defTemperature}
-                onReset={() => {
-                  setTemperature("");
-                  onChange({ ...settings, temperature: null });
-                }}
-              />
-              <Input
-                id="p-temperature"
-                type="number"
-                step={0.1}
-                min={0}
-                value={temperature}
-                onChange={(e) => {
-                  setTemperature(e.target.value);
-                  onChange({ ...settings, temperature: parseNum(e.target.value, { min: 0 }) });
-                }}
-                placeholder={defTemperature}
-                className="h-8 bg-background/60"
-              />
-            </div>
+            <SamplingSlider
+              id="p-temperature"
+              label="Temperature"
+              description="How adventurous the wording is. Low (0.2) stays focused and repeats itself; high (1.2+) is more varied and creative, and more likely to wander or invent."
+              value={settings.temperature}
+              fallback={rec?.temperature ?? null}
+              min={0}
+              max={2}
+              step={0.05}
+              onChange={(v) => onChange({ ...settings, temperature: v })}
+              onReset={() => onChange({ ...settings, temperature: null })}
+            />
 
-            <div>
-              <FieldLabel
-                label="Top P"
-                htmlFor="p-top-p"
-                overridden={settings.topP != null}
-                inherited={defTopP}
-                onReset={() => {
-                  setTopP("");
-                  onChange({ ...settings, topP: null });
-                }}
-              />
-              <Input
-                id="p-top-p"
-                type="number"
-                step={0.05}
-                min={0}
-                max={1}
-                value={topP}
-                onChange={(e) => {
-                  setTopP(e.target.value);
-                  onChange({ ...settings, topP: parseNum(e.target.value, { min: 0 }) });
-                }}
-                placeholder={defTopP}
-                className="h-8 bg-background/60"
-              />
-            </div>
+            <SamplingSlider
+              id="p-top-p"
+              label="Top P"
+              description="Considers only the likeliest words that together make up this share of the probability. 1.0 keeps every option; lower trims the unlikely tail."
+              value={settings.topP}
+              fallback={rec?.top_p ?? null}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(v) => onChange({ ...settings, topP: v })}
+              onReset={() => onChange({ ...settings, topP: null })}
+            />
+
+            {/* The three below are real knobs the runtime honours, but they are the ones you reach
+                for after temperature hasn't fixed it — folded away so the tab stays readable in a
+                narrow side panel, with the summary naming them so they're findable. */}
+            <details className="rounded-md border border-border bg-background/40">
+              <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                More sampling · top-k, min-p, repeat penalty
+              </summary>
+              <div className="flex flex-col gap-3.5 border-t border-border px-2.5 py-2.5">
+                <SamplingSlider
+                  id="p-top-k"
+                  label="Top K"
+                  description="Never look past this many candidate words per step. Lower is safer and blander; 0 turns the cut-off off entirely."
+                  value={settings.topK}
+                  fallback={rec?.top_k ?? null}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(v) => onChange({ ...settings, topK: v })}
+                  onReset={() => onChange({ ...settings, topK: null })}
+                />
+                <SamplingSlider
+                  id="p-min-p"
+                  label="Min P"
+                  description="Drops any word less likely than this fraction of the best one. A gentler Top P: higher cuts more, 0 cuts nothing."
+                  value={settings.minP}
+                  fallback={rec?.min_p ?? null}
+                  min={0}
+                  max={0.5}
+                  step={0.01}
+                  onChange={(v) => onChange({ ...settings, minP: v })}
+                  onReset={() => onChange({ ...settings, minP: null })}
+                />
+                <SamplingSlider
+                  id="p-repeat-penalty"
+                  label="Repeat penalty"
+                  description="Discourages words it has already used. 1.0 is off; a little above curbs models that fall into loops, too much makes them dodge words they need."
+                  value={settings.repeatPenalty}
+                  fallback={rec?.repeat_penalty ?? null}
+                  min={1}
+                  max={1.5}
+                  step={0.01}
+                  onChange={(v) => onChange({ ...settings, repeatPenalty: v })}
+                  onReset={() => onChange({ ...settings, repeatPenalty: null })}
+                />
+              </div>
+            </details>
 
             <div>
               <FieldLabel
@@ -752,7 +779,10 @@ export function ChatSettingsPanel({
 
         {tab === "tools" && (
           <>
-            <Section title="Tools" description="MCP tools this chat may call. New tools default on.">
+            <Section
+              title="Tools"
+              description="MCP tools this chat may call. A new chat starts with the project's own servers; anything else you switch on here applies to this conversation only."
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">Enable tools</div>
@@ -776,7 +806,10 @@ export function ChatSettingsPanel({
             {/* The catalogue: every server heim ships, most of them off. Two switches with two
                 different scopes live here, so they are deliberately kept apart — the row switch
                 starts/stops the *server* for every chat on this machine (it writes mcp.json),
-                while the switches inside "Tools in this chat" are this conversation's denylist. */}
+                while the switch on "Tools in this chat" says whether *this* conversation may call
+                it. That second one is an allow-list, and it starts from the baseline rather than
+                "everything running": switching a server on for one question must not leave it
+                live in every chat you open afterwards. */}
             <Section
               title="MCP servers"
               description="What heim can run. Switching one on starts it for every chat on this machine."
@@ -788,8 +821,10 @@ export function ChatSettingsPanel({
               ) : (
                 <div className="flex flex-col gap-1">
                   {rows.map(({ name, server, list }) => {
-                    const names = list.map((t) => t.name);
-                    const on = names.filter((n) => !disabled.has(n)).length;
+                    // This chat's two layers: the server has to be allowed at all, and then each of
+                    // its tools can still be switched off inside it.
+                    const allowed = allowedServers.has(name);
+                    const on = allowed ? list.filter((t) => !disabled.has(t.name)).length : 0;
                     const note = notes[name];
                     // No switch for a server heim can't start (an uninstalled extra) or doesn't own
                     // (an external .mcp.json entry) — a control that cannot work is worse than none.
@@ -876,20 +911,29 @@ export function ChatSettingsPanel({
                                   also open/close the <details> it sits in. */}
                               <span className="shrink-0" onClick={(e) => e.preventDefault()}>
                                 <Switch
-                                  checked={on > 0}
-                                  onCheckedChange={(enabled) => onToggleServer(names, enabled)}
+                                  checked={allowed}
+                                  onCheckedChange={(enabled) => onToggleServer(name, enabled)}
                                   aria-label={`Use ${name} tools in this chat`}
                                 />
                               </span>
                             </summary>
                             <div className="flex flex-col gap-1 border-t border-border px-2.5 py-1.5">
+                              {/* Off at the server level means these can't fire, so they read (and
+                                  behave) as inert rather than showing an on switch that does nothing. */}
                               {list.map((t) => (
                                 <div key={t.name} className="flex items-center justify-between gap-2">
-                                  <span className="min-w-0 flex-1 truncate text-[11px]" title={t.description || t.tool}>
+                                  <span
+                                    className={cn(
+                                      "min-w-0 flex-1 truncate text-[11px]",
+                                      !allowed && "text-muted-foreground",
+                                    )}
+                                    title={t.description || t.tool}
+                                  >
                                     {t.tool}
                                   </span>
                                   <Switch
-                                    checked={!disabled.has(t.name)}
+                                    checked={allowed && !disabled.has(t.name)}
+                                    disabled={!allowed}
                                     onCheckedChange={(enabled) => onToggleTool(t.name, enabled)}
                                     aria-label={t.tool}
                                   />

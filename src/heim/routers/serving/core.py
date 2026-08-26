@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from heim import capabilities, cards, doctor, mcp_catalog
 from heim import library as library_ops
@@ -38,6 +38,11 @@ class ServerStatus(BaseModel):
     voice_enabled: bool = True  # the project's [voice] enabled; false hides the Voice surface (text-only assistant)
     runtime_load_timeout: int = 600  # seconds a load may take, so the UI polls as long as the runtime does
     default_max_tokens: int = 4096  # the cap applied when a request omits max_tokens (0 = unbounded)
+    # Heim's own sampling defaults — what a model that recommends nothing of its own runs under.
+    # Reported so a settings UI can show the value actually in force for an untouched control
+    # without keeping a second copy of the numbers (they drift); a *loaded* model's own
+    # recommendation is the better answer where there is one, and comes from /api/model.
+    default_sampling: ModelSampling = Field(default_factory=sampling.defaults)
 
 
 class LibraryModelInfo(BaseModel):

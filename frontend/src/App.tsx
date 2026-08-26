@@ -47,12 +47,15 @@ import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
 import {
   DEFAULT_SETTINGS,
+  baselineServers,
   deriveTitle,
   loadConversations,
   saveConversations,
+  serverScopes,
   uid,
   type Settings,
 } from "@/lib/store";
+import { useMcpServers } from "@/lib/useMcpServers";
 import type { Attachment, ChatMessage, Conversation, PendingConfirm, ToolMarker } from "@/lib/types";
 import { exportConversationMarkdown, exportConversationPdf } from "@/lib/export";
 import { useTheme } from "@/lib/useTheme";
@@ -103,6 +106,10 @@ export function App() {
       .then(setTools)
       .catch(() => {});
   }, []);
+  // The MCP server catalogue lives here, not in the settings panel: a chat's tool allow-list falls
+  // back to a baseline derived from each server's scope, and the send path below needs that answer
+  // whether or not the panel was ever opened. One instance, one fetch, one optimistic update path.
+  const mcp = useMcpServers(refreshTools);
   // Multi-target project registry ([[assistants]]): a picker shows only with >= 2 targets, and the
   // chosen id rides every chat turn as `target` (the server routes per turn, spawning a target's
   // bridge lazily on first use). Empty for generic/single-target servers -> no picker, no `target`.
@@ -409,6 +416,22 @@ export function App() {
     [activeId],
   );
 
+  // Every server this UI knows of, with the scope that decides whether a fresh chat may call it.
+  // While the catalogue is still in flight (mount) every attached server reads as external, which
+  // resolves to the baseline-on side — a sub-second window that errs toward the old behavior rather
+  // than stripping a project's own tools off its first turn.
+  const knownServers = useMemo(
+    () => serverScopes(mcp.servers ?? [], tools.map((t) => t.server)),
+    [mcp.servers, tools],
+  );
+  // Which servers *this* conversation may call: its own allow-list once the user has chosen, else
+  // the baseline. Not a denylist — a server switched on here is switched on for the machine, so
+  // "everything running" would silently carry into every chat opened afterwards.
+  const allowedServers = useMemo(
+    () => new Set(settings.enabledServers ?? baselineServers(knownServers)),
+    [settings.enabledServers, knownServers],
+  );
+
   // --- model load: POST then poll /api/status until ready ---
   const pick = useCallback(
     async (name: string, nCtx?: number | null) => {
@@ -618,16 +641,22 @@ export function App() {
       };
 
       try {
-        // Allow-list = attached tools minus the user's denylist (sent only when
-        // something is off, so the default keeps every tool available).
+        // The allow-list, always explicit: the tools of the servers this chat may call, minus the
+        // ones switched off inside them. Sent even when it is empty (the server reads `[]` as "no
+        // tools"), because omitting it means *all* attached tools — which is how a server started
+        // for one question ended up live in every later chat.
         const disabled = new Set(settings.disabledTools);
-        const someOff = tools.some((t) => disabled.has(t.name));
-        const enabledTools = someOff ? tools.filter((t) => !disabled.has(t.name)).map((t) => t.name) : undefined;
+        const enabledTools = tools
+          .filter((t) => allowedServers.has(t.server) && !disabled.has(t.name))
+          .map((t) => t.name);
 
         for await (const evt of streamChat(wire, ctrl.signal, {
           maxTokens: settings.maxTokens ?? undefined,
           temperature: settings.temperature ?? undefined,
           topP: settings.topP ?? undefined,
+          topK: settings.topK ?? undefined,
+          minP: settings.minP ?? undefined,
+          repeatPenalty: settings.repeatPenalty ?? undefined,
           useTools: settings.useTools,
           enabledTools,
           systemPrompt: settings.systemPrompt,
@@ -753,7 +782,7 @@ export function App() {
         abortRef.current = null;
       }
     },
-    [settings, tools, upsertConv, targets, targetId, reconcileTargetsFromServer],
+    [settings, tools, allowedServers, upsertConv, targets, targetId, reconcileTargetsFromServer],
   );
 
   // --- send a new user turn ---
@@ -917,13 +946,16 @@ export function App() {
     },
     [settings, updateSettings],
   );
+  // Per-chat allow-list, not the machine-wide switch: the first toggle materialises the baseline
+  // into an explicit list, so a server that appears later can't silently join this conversation.
   const toggleServer = useCallback(
-    (names: string[], enabled: boolean) => {
-      const set = new Set(settings.disabledTools);
-      for (const n of names) (enabled ? set.delete(n) : set.add(n));
-      updateSettings({ ...settings, disabledTools: [...set] });
+    (name: string, enabled: boolean) => {
+      const set = new Set(settings.enabledServers ?? baselineServers(knownServers));
+      if (enabled) set.add(name);
+      else set.delete(name);
+      updateSettings({ ...settings, enabledServers: [...set] });
     },
-    [settings, updateSettings],
+    [settings, knownServers, updateSettings],
   );
   const setUseTools = useCallback(
     (on: boolean) => updateSettings({ ...settings, useTools: on }),
@@ -1354,10 +1386,11 @@ export function App() {
               defaultSpeed={ttsSpeed}
               tools={tools}
               disabled={disabledSet}
+              allowedServers={allowedServers}
+              mcp={mcp}
               onToggleUse={setUseTools}
               onToggleTool={toggleTool}
               onToggleServer={toggleServer}
-              onToolsChanged={refreshTools}
               tab={chatSettingsTab}
               onTabChange={setChatSettingsTab}
             />

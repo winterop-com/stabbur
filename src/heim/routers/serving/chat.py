@@ -64,8 +64,16 @@ class ChatRequest(BaseModel):
 
     messages: list[dict[str, Any]]
     max_tokens: int | None = None
+    # Sampling. ``None`` means "whatever the model recommends" (heim.runtime.sampling), never a
+    # hardcoded value here — the resolution happens once, below, so every field falls back the
+    # same way. top_k / min_p / repeat_penalty are OpenAI *extensions* llama.cpp and the MLX
+    # servers accept; heim already sent the recommended values, this just lets a client override
+    # them like the other three.
     temperature: float | None = None
     top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    repeat_penalty: float | None = None
     use_tools: bool = True  # off → don't attach MCP tools (for non-tool-trained models)
     enabled_tools: list[str] | None = None  # None → all tools; else only these namespaced names
     # Registry target id this turn routes to (narrows tools to that target's servers + shared, and
@@ -231,6 +239,9 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                 model_field = str(model_target) if model_target else None
             eff_temperature = req.temperature if req.temperature is not None else rec.temperature
             eff_top_p = req.top_p if req.top_p is not None else rec.top_p
+            eff_top_k = req.top_k if req.top_k is not None else rec.top_k
+            eff_min_p = req.min_p if req.min_p is not None else rec.min_p
+            eff_repeat_penalty = req.repeat_penalty if req.repeat_penalty is not None else rec.repeat_penalty
             # A client that omits max_tokens gets the configured default cap so a small model
             # can't run away on a hard tool question and never emit a final answer; <= 0 disables it.
             default_cap = request.app.state.settings.default_max_tokens
@@ -251,9 +262,9 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         on_usage=on_usage,
                         temperature=eff_temperature,
                         top_p=eff_top_p,
-                        top_k=rec.top_k,
-                        min_p=rec.min_p,
-                        repeat_penalty=rec.repeat_penalty,
+                        top_k=eff_top_k,
+                        min_p=eff_min_p,
+                        repeat_penalty=eff_repeat_penalty,
                         # mlx-vlm requires the OpenAI ``model`` field match what it loaded (the
                         # launch path); a remote router selects by it; harmless for llama-server
                         # and mlx-lm, which ignore it.

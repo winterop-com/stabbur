@@ -15,6 +15,7 @@ from heim.config import Settings
 from heim.library import LibraryModel
 from heim.models import ModelFormat
 from heim.routers import serving
+from heim.runtime import sampling
 
 
 @pytest.fixture
@@ -449,6 +450,85 @@ async def test_api_chat_use_tools_flag_drops_tools(
         assert seen["names"] == ["today"]  # tools attached
     finally:
         app.dependency_overrides.clear()
+
+
+async def test_api_chat_enabled_tools_allowlist_is_explicit(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The wire contract the web UI's per-chat allow-list rides on: an absent enabled_tools means
+    # every attached tool, an explicit list narrows to it, and `[]` really is "no tools" — not an
+    # empty-means-unset shorthand, which is what let a server switched on for one chat stay
+    # callable in every later one.
+    from heim.tools import MCPToolset
+
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    ts = MCPToolset()
+    ts.schemas = [
+        {"type": "function", "function": {"name": "datetime__today"}},
+        {"type": "function", "function": {"name": "files__read"}},
+    ]
+    app.state.toolset = ts
+    seen: dict[str, list[str]] = {}
+
+    async def fake_run(base: str, messages: list[dict[str, Any]], toolset: MCPToolset, *a: Any, **_: Any) -> str:
+        seen["names"] = toolset.names
+        return ""
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    body: dict[str, Any] = {"messages": [{"role": "user", "content": "hi"}]}
+    try:
+        await client.post("/api/chat", json=body)
+        assert seen["names"] == ["datetime__today", "files__read"]  # absent → all attached
+        await client.post("/api/chat", json={**body, "enabled_tools": ["datetime__today"]})
+        assert seen["names"] == ["datetime__today"]  # narrowed to the chat's servers
+        await client.post("/api/chat", json={**body, "enabled_tools": []})
+        assert seen["names"] == []  # explicitly nothing
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_api_chat_sampling_parameters_override_recommendations(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # top_k / min_p / repeat_penalty are settable per request like temperature/top_p, and fall back
+    # to the model's recommendation (here heim's defaults — /models/x ships no generation_config)
+    # when omitted, so a UI control that isn't touched changes nothing.
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    seen: dict[str, Any] = {}
+
+    async def fake_run(base: str, messages: list[dict[str, Any]], *a: Any, **kwargs: Any) -> str:
+        seen.update(kwargs)
+        return ""
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    body: dict[str, Any] = {"messages": [{"role": "user", "content": "hi"}]}
+    try:
+        await client.post("/api/chat", json=body)
+        assert (seen["temperature"], seen["top_p"]) == (sampling.DEFAULT_TEMPERATURE, sampling.DEFAULT_TOP_P)
+        assert (seen["top_k"], seen["min_p"], seen["repeat_penalty"]) == (
+            sampling.DEFAULT_TOP_K,
+            sampling.DEFAULT_MIN_P,
+            sampling.DEFAULT_REPEAT_PENALTY,
+        )
+        await client.post("/api/chat", json={**body, "top_k": 5, "min_p": 0.2, "repeat_penalty": 1.0})
+        assert (seen["top_k"], seen["min_p"], seen["repeat_penalty"]) == (5, 0.2, 1.0)
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_status_reports_heim_sampling_defaults(client: AsyncClient) -> None:
+    # The settings UI labels an untouched slider with the value actually in force, so /api/status
+    # carries heim's own defaults rather than the frontend keeping a copy that can drift.
+    body = (await client.get("/api/status")).json()
+    assert body["default_sampling"] == sampling.defaults().model_dump()
 
 
 async def test_api_chat_system_prompt_precedence(

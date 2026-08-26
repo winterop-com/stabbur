@@ -14,10 +14,21 @@ export interface Settings {
   // a string = override. Kept distinct so a project's prompt applies by default.
   systemPrompt: string | null;
   maxTokens: number | null;
+  /** Sampling overrides for this chat; null = the value the model (or heim) recommends, which the
+   *  server resolves — the panel only ever *shows* that number, it never sends one it made up. */
   temperature: number | null;
   topP: number | null;
+  topK: number | null;
+  minP: number | null;
+  repeatPenalty: number | null;
   useTools: boolean;
-  /** Namespaced tool names the user switched off (denylist; new tools default on). */
+  /** MCP servers this chat may call (allowlist of server names); null = the baseline.
+   *  An allowlist rather than a denylist because switching a server on is machine-wide and
+   *  persistent — without this, starting one for a single question left it live in every
+   *  later chat. `null` defers to `baselineServers()` so a chat created before a server
+   *  existed does not silently gain it. */
+  enabledServers: string[] | null;
+  /** Namespaced tool names the user switched off, within an allowed server (denylist). */
   disabledTools: string[];
   /** Preferred context window (tokens) applied when a model is loaded; null = runtime default. */
   contextLength: number | null;
@@ -41,7 +52,11 @@ export const DEFAULT_SETTINGS: Settings = {
   maxTokens: null,
   temperature: null,
   topP: null,
+  topK: null,
+  minP: null,
+  repeatPenalty: null,
   useTools: true,
+  enabledServers: null, // the baseline; an explicit list only once the user chooses
   disabledTools: [],
   contextLength: null,
   reasoning: null,
@@ -49,6 +64,40 @@ export const DEFAULT_SETTINGS: Settings = {
   ttsSpeed: null,
   pdfAsImage: false, // text is cheaper and works on every model; images are the opt-in
 };
+
+/** Server names a chat starts with when it has made no choice of its own.
+
+ *  A machine-wide switch says which servers *run*; this says which a new conversation may
+ *  *call*. Everything the user switched on for one question would otherwise stay live in every
+ *  later chat. `datetime` is the safe baseline (heim seeds it, and it reaches nothing), and a
+ *  project's own servers are included because a project assistant exists to use them — starting
+ *  its chats with its tools off would break the thing the project is for.
+ */
+export function baselineServers(servers: { name: string; scope: string | null }[]): string[] {
+  return servers.filter((s) => s.name === "datetime" || s.scope === "project").map((s) => s.name);
+}
+
+/** Every server the UI knows of, each with the scope `baselineServers` judges it by.
+ *
+ *  Two sources, because neither is the whole picture: the catalogue (/api/mcp/servers) is exactly
+ *  the set heim ships — the only set the machine-wide switch can start, and the only one carrying a
+ *  resolved scope — while the attached tools (/api/tools) also cover servers heim doesn't ship and
+ *  therefore can't list. An attached server missing from the catalogue was written into a config
+ *  file by hand, which the panel already labels as this project's `.mcp.json`, so it is treated as
+ *  project scope here for the same reason: a project's own tools are what its chats are for. (The
+ *  one case that mislabels is a third-party server hand-added to the *global* mcp.json — it starts
+ *  on in new chats where a bundled global server would not.)
+ */
+export function serverScopes(
+  catalogue: { name: string; scope: string | null }[],
+  attached: string[],
+): { name: string; scope: string | null }[] {
+  const known = new Set(catalogue.map((s) => s.name));
+  return [
+    ...catalogue.map((s) => ({ name: s.name, scope: s.scope })),
+    ...[...new Set(attached)].filter((name) => !known.has(name)).map((name) => ({ name, scope: "project" })),
+  ];
+}
 
 export function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -62,7 +111,13 @@ export function normalizeSettings(parsed: Partial<Settings> | undefined | null):
     maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : null,
     temperature: typeof parsed.temperature === "number" ? parsed.temperature : null,
     topP: typeof parsed.topP === "number" ? parsed.topP : null,
+    topK: typeof parsed.topK === "number" ? parsed.topK : null,
+    minP: typeof parsed.minP === "number" ? parsed.minP : null,
+    repeatPenalty: typeof parsed.repeatPenalty === "number" ? parsed.repeatPenalty : null,
     useTools: typeof parsed.useTools === "boolean" ? parsed.useTools : true,
+    enabledServers: Array.isArray(parsed.enabledServers)
+      ? parsed.enabledServers.filter((n): n is string => typeof n === "string")
+      : null,
     disabledTools: Array.isArray(parsed.disabledTools)
       ? parsed.disabledTools.filter((t): t is string => typeof t === "string")
       : [],

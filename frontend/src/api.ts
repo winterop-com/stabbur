@@ -67,6 +67,10 @@ export interface Status {
   voice_enabled: boolean; // the project's [voice] enabled; false hides the Voice surface (text-only assistant)
   runtime_load_timeout: number; // seconds a load may take; the UI polls at least this long
   default_max_tokens?: number; // cap applied when a request omits max_tokens (0 = unbounded)
+  // Heim's own sampling defaults — the values in force for a model that recommends none of its
+  // own, so the settings panel can label an untouched control without a second copy of the
+  // numbers. Optional: a backend older than the field simply doesn't send it.
+  default_sampling?: ModelSampling;
 }
 
 export interface LibModel {
@@ -129,8 +133,12 @@ export interface ChatOptions {
   maxTokens?: number;
   temperature?: number;
   topP?: number;
+  /** Sampling extensions llama.cpp / mlx accept; omit to run the model's recommended value. */
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
   useTools?: boolean;
-  /** Allow-list of namespaced tool names; undefined → all attached tools. */
+  /** Allow-list of namespaced tool names; undefined → all attached tools, `[]` → none. */
   enabledTools?: string[];
   /** Authoritative system prompt ("" = none); null/undefined → server's project default. */
   systemPrompt?: string | null;
@@ -458,6 +466,9 @@ export async function* streamChat(
     max_tokens?: number;
     temperature?: number;
     top_p?: number;
+    top_k?: number;
+    min_p?: number;
+    repeat_penalty?: number;
     use_tools: boolean;
     enabled_tools?: string[];
     system_prompt?: string;
@@ -468,6 +479,11 @@ export async function* streamChat(
   if (options.maxTokens != null) body.max_tokens = options.maxTokens;
   if (options.temperature != null) body.temperature = options.temperature;
   if (options.topP != null) body.top_p = options.topP;
+  if (options.topK != null) body.top_k = options.topK;
+  if (options.minP != null) body.min_p = options.minP;
+  if (options.repeatPenalty != null) body.repeat_penalty = options.repeatPenalty;
+  // An empty list is meaningful (this chat may call *no* tools), so test for null/undefined, not
+  // truthiness — `[]` narrows the toolset to nothing, while omitting the field means "all of them".
   if (options.enabledTools != null) body.enabled_tools = options.enabledTools;
   if (options.systemPrompt != null) body.system_prompt = options.systemPrompt; // null → omit (use project default)
   if (options.reasoning != null) body.reasoning = options.reasoning; // null → omit (model default)

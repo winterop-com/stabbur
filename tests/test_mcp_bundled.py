@@ -295,6 +295,18 @@ async def test_get_lists_bundled_servers_with_state(client: AsyncClient) -> None
     assert all(e["enabled"] is False for e in body)
 
 
+async def test_get_reports_the_scope_that_switched_each_server_on(isolated: Path, client: AsyncClient) -> None:
+    # `scope` is not decoration: a new chat's tool allow-list starts from the baseline of the
+    # servers a *project* switched on (its assistant exists to use them) plus datetime, so a
+    # project-scoped server has to be distinguishable over the wire from a machine-global one.
+    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
+    mcpservers.add(McpServer(name="git", command="heim-mcp-git"), glob=True)
+    rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
+    assert rows["files"]["scope"] == "project"
+    assert rows["git"]["scope"] == "global"
+    assert rows["datetime"]["scope"] is None  # off: nothing switched it on
+
+
 async def test_enable_persists_and_attaches_live(app: FastAPI, client: AsyncClient) -> None:
     bridge, _ = _bridge()
     app.state.mcp_bridge = bridge  # lifespan doesn't run under ASGITransport
