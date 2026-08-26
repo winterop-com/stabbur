@@ -282,6 +282,11 @@ def _mcp_checks(
     use) are otherwise invisible until spawned: each still-pending prefix gets an informational row so the
     report discloses the whole configured surface, not just what is live. A pending prefix whose earlier
     spawn attempt failed is already covered by the error rows, so it's not double-listed here.
+
+    Every row here is a **child** of the ``Tools (MCP)`` summary check (``group``), so a consumer nests
+    them under it instead of listing them as its siblings. That also lets the rows be named for the server
+    alone: the old ``MCP: datetime`` prefix existed only to say which family a flat row belonged to, and
+    under a parent that already says "Tools (MCP)" it's noise repeated once per server.
     """
     if toolset is None:
         return []
@@ -291,17 +296,20 @@ def _mcp_checks(
         server = schema["function"]["name"].split("__")[0]
         counts[server] = counts.get(server, 0) + 1
     for server, n in counts.items():
-        checks.append(doctor.Check(name=f"MCP: {server}", status=doctor.CheckStatus.ok, detail=f"{n} tool(s)"))
+        checks.append(
+            doctor.Check(name=server, status=doctor.CheckStatus.ok, detail=f"{n} tool(s)", group=doctor.MCP_GROUP)
+        )
     error_labels = {label for label, _ in toolset.errors}
     for label, reason in toolset.errors:
         hint = mcp_catalog.optional_hint(label)
         checks.append(
             doctor.Check(
-                name=f"MCP: {label}",
+                name=label,
                 # A known-optional server that isn't installed is a warning (fixable), not a hard fail.
                 status=doctor.CheckStatus.warn if hint else doctor.CheckStatus.fail,
                 detail=reason,
                 hint=hint,
+                group=doctor.MCP_GROUP,
             )
         )
     if bridge is not None:
@@ -315,9 +323,10 @@ def _mcp_checks(
             suffix = f" (target {', '.join(owners)})" if owners else ""
             checks.append(
                 doctor.Check(
-                    name=f"MCP: {prefix}",
+                    name=prefix,
                     status=doctor.CheckStatus.ok,
                     detail=f"deferred - spawns on first use{suffix}",
+                    group=doctor.MCP_GROUP,
                 )
             )
     return checks
@@ -325,19 +334,29 @@ def _mcp_checks(
 
 @router.get("/api/doctor")
 def doctor_report(settings: ConfDep, request: Request) -> doctor.DoctorReport:
-    """System health: runtime binaries, library, the current project, and its MCP servers.
+    """System health: runtime binaries, the backend, library, the current project, and its MCP servers.
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     Mirrors the ``heim doctor`` CLI so the UI can show the same status. The MCP section reports both the
     **live** servers (tool counts / failures) and any **deferred** ones — a non-primary scoped target's
     servers that spawn on first use — so a lazily-pending server is disclosed here before it's ever used.
+    Those rows are children of the ``Tools (MCP)`` check (see ``Check.group``).
     """
     report = doctor.run_checks(settings)
     state = request.app.state
     toolset: MCPToolset | None = getattr(state, "toolset", None)
     bridge: MCPBridge | None = getattr(state, "mcp_bridge", None)
     routing: TargetRouting | None = getattr(state, "target_routing", None)
-    return doctor.DoctorReport(checks=[*report.checks, *_mcp_checks(toolset, bridge, routing)])
+    mcp_rows = _mcp_checks(toolset, bridge, routing)
+    checks = [*report.checks, *mcp_rows]
+    # This server's live toolset can hold servers the CWD's mcp.json doesn't (a --mcp layered on at
+    # launch, another target's own servers), so check_project may not have emitted the parent those
+    # rows nest under. Never leave a child orphaned by a missing group: synthesize the summary row.
+    if mcp_rows and not any(c.name == doctor.MCP_GROUP for c in checks):
+        names = ", ".join(c.name for c in mcp_rows)
+        parent = doctor.Check(name=doctor.MCP_GROUP, status=doctor.CheckStatus.ok, detail=f"{len(mcp_rows)} ({names})")
+        checks.insert(len(report.checks), parent)
+    return doctor.DoctorReport(checks=checks)
 
 
 @router.get("/api/tools")

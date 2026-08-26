@@ -372,10 +372,12 @@ async def test_doctor_discloses_deferred_lazy_server(
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # keep the doctor's library scan trivial
     _lazy_two_target(app)  # play41 pending on the bridge, not spawned
     rows = {c["name"]: c for c in (await client.get("/api/doctor")).json()["checks"]}
-    assert "MCP: play41" in rows
-    assert rows["MCP: play41"]["status"] == "ok"
-    assert "deferred - spawns on first use" in rows["MCP: play41"]["detail"]
-    assert "play41" in rows["MCP: play41"]["detail"]  # names the owning target
+    assert "play41" in rows
+    assert rows["play41"]["status"] == "ok"
+    assert rows["play41"]["group"] == "Tools (MCP)"  # nests under the summary row, not beside it
+    assert "Tools (MCP)" in rows  # ...and that parent is in the payload, so it is never orphaned
+    assert "deferred - spawns on first use" in rows["play41"]["detail"]
+    assert "play41" in rows["play41"]["detail"]  # names the owning target
 
 
 def test_mcp_checks_failed_deferred_not_double_listed() -> None:
@@ -393,10 +395,11 @@ def test_mcp_checks_failed_deferred_not_double_listed() -> None:
     bridge._pending = {"play41": McpServer(name="play41", command="x")}  # stays pending (retryable)
     routing = tools.TargetRouting(explicit={"play41": {"play41"}})
     checks = core._mcp_checks(toolset, bridge, routing)
-    play41 = [c for c in checks if c.name == "MCP: play41"]
+    play41 = [c for c in checks if c.name == "play41"]
     assert len(play41) == 1  # the failure row only — no duplicate deferred row
     assert play41[0].status is core.doctor.CheckStatus.fail
     assert play41[0].detail == "boom"
+    assert play41[0].group == "Tools (MCP)"
 
 
 # --- compat routes still target the primary -----------------------------------------------------------

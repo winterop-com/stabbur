@@ -38,17 +38,21 @@ def _print_doctor_table(report: doctor.DoctorReport) -> None:
         detail = check.detail
         if check.hint:
             detail += f"\n[dim]{check.hint}[/]"
-        table.add_row(f"[{color}]{label}[/]", check.name, detail)
+        # A grouped row belongs under its parent, not beside it (Check.group). The table has no
+        # tree, so indent the name — the terminal's version of the nesting the web UI renders.
+        name = f"  {check.name}" if check.group else check.name
+        table.add_row(f"[{color}]{label}[/]", name, detail)
     console.print(table)
 
 
 @app.command("doctor")
 def doctor_() -> None:  # doctor_ to avoid shadowing the imported doctor module
-    """Check system health: runtimes, library, and the current project.
+    """Check system health: runtimes, backend, library, and the current project.
 
     A quick pre-flight: are the runtime binaries heim spawns installed, is the
-    library reachable and non-empty, and does the project (if any) point at a
-    model that's present. Exits non-zero if any check fails.
+    backend up (a remote `/v1` when HEIM_UPSTREAM is set, else local runtimes),
+    is the library reachable and non-empty, and does the project (if any) point
+    at a model that's present. Exits non-zero if any check fails.
     """
     report = doctor.run_checks()
     _print_doctor_table(report)

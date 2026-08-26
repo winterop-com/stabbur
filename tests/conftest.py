@@ -34,3 +34,8 @@ os.environ.setdefault("HEIM_LIBRARY_ROOT", tempfile.mkdtemp(prefix="heim-test-li
 # which would leak a default_model / library_root into tests and make them non-hermetic. Tests
 # that exercise the machine config set XDG_CONFIG_HOME to their own tmp_path.
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="heim-test-config-")
+
+# Drop any upstream the developer exports. ``doctor.check_upstream`` probes ``settings.upstream``
+# over the network, so a ``HEIM_UPSTREAM`` in the environment would turn a hermetic doctor test
+# into a live call against whatever box that names (and fail on a checkout that can't reach it).
+os.environ.pop("HEIM_UPSTREAM", None)

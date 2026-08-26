@@ -186,6 +186,38 @@ class UpstreamModel(BaseModel):
     audio: bool = False
 
 
+def parse_model_listing(data: object) -> list[UpstreamModel]:
+    """Parse an OpenAI-style ``GET /v1/models`` body into :class:`UpstreamModel` rows.
+
+    Module-level rather than a method so anything that probes an upstream reads its listing the
+    same way the serving path does — notably ``heim doctor``'s backend check, which must never
+    disagree with the model picker about what the remote serves.
+
+    Rows that aren't objects with a string ``id`` are skipped, not fatal: a listing with one odd
+    entry still tells us about the rest. An unparseable *body* is the caller's problem to report.
+    """
+    rows = data.get("data") if isinstance(data, dict) else None
+    out: list[UpstreamModel] = []
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            continue
+        status = row.get("status")
+        arch = row.get("architecture")
+        modalities = arch.get("input_modalities") if isinstance(arch, dict) else None
+        mods = [m for m in modalities if isinstance(m, str)] if isinstance(modalities, list) else []
+        out.append(
+            UpstreamModel(
+                name=row["id"],
+                loaded=isinstance(status, dict) and status.get("value") == "loaded",
+                vision="image" in mods,
+                audio="audio" in mods,
+            )
+        )
+    return out
+
+
 class UpstreamManager:
     """Front a remote OpenAI-compatible ``/v1`` instead of spawning local runtimes.
 
@@ -262,24 +294,7 @@ class UpstreamManager:
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeError(f"upstream {self._upstream} unreachable: {exc}") from exc
-        rows = data.get("data") if isinstance(data, dict) else None
-        out: list[UpstreamModel] = []
-        if isinstance(rows, list):
-            for row in rows:
-                if not isinstance(row, dict) or not isinstance(row.get("id"), str):
-                    continue
-                status = row.get("status")
-                arch = row.get("architecture")
-                modalities = arch.get("input_modalities") if isinstance(arch, dict) else None
-                mods = [m for m in modalities if isinstance(m, str)] if isinstance(modalities, list) else []
-                out.append(
-                    UpstreamModel(
-                        name=row["id"],
-                        loaded=isinstance(status, dict) and status.get("value") == "loaded",
-                        vision="image" in mods,
-                        audio="audio" in mods,
-                    )
-                )
+        out = parse_model_listing(data)
         self._models, self._models_at = out, now
         return list(out)
 

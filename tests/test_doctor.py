@@ -1,7 +1,10 @@
 """Tests for the `heim doctor` health checks."""
 
+import socket
 from pathlib import Path
+from typing import Any
 
+import httpx
 import pytest
 
 from heim import doctor, library
@@ -123,6 +126,167 @@ def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.
     config.get_settings.cache_clear()
     assert doctor.check_project(_settings(tmp_path)) == []
     config.get_settings.cache_clear()
+
+
+_UPSTREAM_LISTING = {
+    "data": [
+        {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
+        {"id": "qwen3-coder", "status": {"value": "loaded"}},
+    ]
+}
+
+
+class _FakeResponse:
+    """A stubbed httpx response: no network in the doctor tests, ever."""
+
+    def __init__(self, payload: object, *, status_code: int = 200, content_type: str = "application/json") -> None:
+        self._payload = payload
+        self.status_code = status_code
+        self.headers = {"content-type": content_type}
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"{self.status_code}",
+                request=httpx.Request("GET", "http://up:1234/v1/models"),
+                response=httpx.Response(self.status_code),
+            )
+
+    def json(self) -> object:
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+def _stub_get(monkeypatch: pytest.MonkeyPatch, result: object) -> list[str]:
+    """Point `doctor.httpx.get` at ``result`` (a response, or an exception to raise); record URLs."""
+    urls: list[str] = []
+
+    def _get(url: str, timeout: object = None) -> Any:
+        urls.append(url)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    monkeypatch.setattr(doctor.httpx, "get", _get)
+    return urls
+
+
+def _chained(exc: httpx.HTTPError, cause: BaseException) -> httpx.HTTPError:
+    """Mimic how httpx surfaces a transport error: the real OSError hangs off the chain."""
+    exc.__cause__ = cause
+    return exc
+
+
+def _backend(settings: Settings) -> doctor.Check:
+    checks = doctor.check_upstream(settings)
+    assert len(checks) == 1  # exactly one row, in both modes
+    return checks[0]
+
+
+def test_backend_row_says_local_when_no_upstream(tmp_path: Path) -> None:
+    # No probe, but not silence either: the health menu must still answer "what is this talking to".
+    row = _backend(_settings(tmp_path))
+    assert row.name == "Backend"
+    assert row.status is doctor.CheckStatus.ok
+    assert "Local runtime" in row.detail  # same words as the SPA status bar
+
+
+def test_backend_reachable_upstream_reports_what_it_serves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    urls = _stub_get(monkeypatch, _FakeResponse(_UPSTREAM_LISTING))
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234/v1/"))
+    assert row.status is doctor.CheckStatus.ok
+    assert urls == ["http://up:1234/v1/models"]  # trailing /v1 normalized, not doubled
+    assert row.detail == "Upstream up:1234 - reachable, 2 models, loaded: qwen3-coder"
+    assert row.hint is None
+
+
+def test_backend_upstream_without_a_loaded_model_is_still_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Only llama-server router mode reports per-model `loaded`; its absence is not a fault.
+    _stub_get(monkeypatch, _FakeResponse({"data": [{"id": "some-model"}]}))
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert row.status is doctor.CheckStatus.ok
+    assert row.detail == "Upstream up:1234 - reachable, 1 model (none reported loaded)"
+
+
+def test_backend_upstream_serving_nothing_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_get(monkeypatch, _FakeResponse({"data": []}))
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert row.status is doctor.CheckStatus.warn  # answering is not the same as being usable
+    assert "serves no models" in row.detail
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected"),
+    [
+        # The four failure modes must read differently: they send the user to different places.
+        (_chained(httpx.ConnectError("boom"), socket.gaierror(8, "nodename nor servname")), "does not resolve"),
+        (_chained(httpx.ConnectError("boom"), ConnectionRefusedError(61, "Connection refused")), "refused"),
+        (httpx.ReadTimeout("timed out"), "no answer within 5s"),
+        (httpx.ConnectError("something else entirely"), "connection failed"),
+    ],
+)
+def test_backend_unreachable_upstream_fails_with_the_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raised: Exception, expected: str
+) -> None:
+    _stub_get(monkeypatch, raised)
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert row.status is doctor.CheckStatus.fail
+    assert row.detail.startswith("Upstream up:1234 - ")
+    assert expected in row.detail
+    assert row.hint is not None and "http://up:1234" in row.hint  # names the URL to go and look at
+
+
+def test_backend_non_json_answer_names_the_content_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Something is listening, it just isn't an OpenAI /v1 - a proxy error page, a login screen.
+    _stub_get(monkeypatch, _FakeResponse(ValueError("no json"), content_type="text/html"))
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert row.status is doctor.CheckStatus.fail
+    assert "text/html" in row.detail and "not an OpenAI model listing" in row.detail
+
+
+def test_backend_http_error_status_reports_the_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_get(monkeypatch, _FakeResponse({}, status_code=404))
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert row.status is doctor.CheckStatus.fail
+    assert "HTTP 404" in row.detail
+
+
+def test_backend_probe_never_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A doctor run reports a failed check; it does not traceback, whatever the transport does.
+    _stub_get(monkeypatch, RuntimeError("something nobody predicted"))
+    row = _backend(Settings(library_root=tmp_path, upstream="http://up:1234"))
+    assert row.status is doctor.CheckStatus.fail
+    assert "probe failed" in row.detail
+
+
+def test_checks_are_top_level_unless_grouped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `group` is opt-in: adding it must leave every existing check a flat, top-level row.
+    monkeypatch.setattr(library, "scan", lambda: [])
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    assert all(c.group is None for c in doctor.run_checks(_settings(tmp_path)).checks)
+
+
+def test_mcp_children_nest_under_the_tools_summary() -> None:
+    # The hierarchy travels in the payload: children name their parent instead of the UI parsing
+    # a "MCP: " prefix back into a tree (which breaks the moment a check is renamed).
+    from contextlib import AsyncExitStack
+
+    from heim import tools
+    from heim.routers.serving import core
+
+    toolset = tools.MCPToolset()
+    toolset.schemas.append({"type": "function", "function": {"name": "datetime__now", "parameters": {}}})
+    rows = core._mcp_checks(toolset, tools.MCPBridge(toolset, AsyncExitStack()))
+    assert [(c.name, c.group) for c in rows] == [("datetime", doctor.MCP_GROUP)]  # no "MCP: " prefix
+
+
+def test_backend_row_is_part_of_the_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(library, "scan", lambda: [])
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    names = [c.name for c in doctor.run_checks(_settings(tmp_path)).checks]
+    assert names.count("Backend") == 1
+    assert names.index("Backend") > names.index("Platform")
 
 
 def test_check_project_shows_machine_default_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
