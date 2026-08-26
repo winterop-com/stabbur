@@ -39,6 +39,15 @@ export interface AttachedFile {
 }
 
 /** One message in a conversation. Assistant turns may carry tool markers. */
+/** What a finished turn cost: the runtime's token counts plus measured wall time. */
+export interface GenerationStats {
+  promptTokens: number;
+  completionTokens: number;
+  seconds: number;
+  /** Completion tokens per second over the whole turn (tool time included). */
+  tokensPerSecond: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
@@ -49,6 +58,7 @@ export interface ChatMessage {
   reasoning?: string; // reasoning-model thinking (shown collapsed)
   tools?: ToolMarker[];
   confirms?: PendingConfirm[]; // per-action write confirmations awaiting (or reflecting) a decision
+  stats?: GenerationStats; // token accounting + wall time for a finished assistant turn
   error?: boolean;
   model?: string; // the model that produced this turn (assistant turns), for export fidelity
   mediaDropped?: number; // inline attachments stripped to fit the storage quota (see saveConversations)

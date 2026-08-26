@@ -149,6 +149,7 @@ export interface ChatOptions {
 export type ChatEvent =
   | { type: "token"; text: string }
   | { type: "reasoning"; text: string }
+  | { type: "usage"; promptTokens: number; completionTokens: number }
   | { type: "tool"; kind: "call" | "result"; detail: string }
   | { type: "confirm"; id: string; tool: string; args: Record<string, unknown> }
   | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }
@@ -462,6 +463,11 @@ function parseEvent(evt: unknown): ChatEvent | null {
       return { type: "token", text: typeof e.text === "string" ? e.text : "" };
     case "reasoning":
       return { type: "reasoning", text: typeof e.text === "string" ? e.text : "" };
+    case "usage": {
+      const u = (e.usage ?? {}) as Record<string, unknown>;
+      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+      return { type: "usage", promptTokens: n(u.prompt_tokens), completionTokens: n(u.completion_tokens) };
+    }
     case "tool":
       return {
         type: "tool",

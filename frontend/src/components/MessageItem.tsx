@@ -1,4 +1,4 @@
-import { FileText, RefreshCw } from "lucide-react";
+import { Clock, FileText, Gauge, Hash, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -134,6 +134,29 @@ export function MessageItem({
           !hasTools && !hasConfirms && <span className="text-sm text-muted-foreground">…</span>
         )}
       </div>
+
+      {message.stats && (
+        /* What the turn costs, LM Studio / llama.cpp style: tokens, wall time, and the rate.
+           Ticks live while streaming (estimated from deltas) and settles on the runtime's own
+           count when the turn ends. */
+        <div
+          className="mt-1 flex items-center gap-2.5 text-[11px] tabular-nums text-muted-foreground"
+          title={`${message.stats.promptTokens.toLocaleString()} prompt + ${message.stats.completionTokens.toLocaleString()} completion tokens`}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Hash className="h-3 w-3" />
+            {message.stats.completionTokens.toLocaleString()} tokens
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {message.stats.seconds < 10 ? `${message.stats.seconds.toFixed(1)}s` : `${Math.round(message.stats.seconds)}s`}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Gauge className="h-3 w-3" />
+            {message.stats.tokensPerSecond.toFixed(1)} t/s
+          </span>
+        </div>
+      )}
 
       {/* Always visible, not hover-gated: Listen is a control you reach for while reading (and
           can run for many seconds), so it must not vanish when the pointer moves away. */}

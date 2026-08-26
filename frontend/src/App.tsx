@@ -559,6 +559,32 @@ export function App() {
         content: buildContent(m.content, m.images, m.audios, m.files),
       }));
 
+      // Token accounting for this turn. The runtime reports authoritative usage only at the
+      // end of each round, so tick a live estimate from streamed deltas (llama.cpp emits one
+      // token per delta) and correct it with the real numbers when they land.
+      const startedAt = Date.now();
+      let promptTokens = 0;
+      let usageCompletion = 0; // authoritative, summed across rounds
+      let deltas = 0; // live estimate: streamed content + reasoning chunks
+      const statsFor = (tokens: number) => {
+        const seconds = (Date.now() - startedAt) / 1000;
+        return {
+          promptTokens,
+          completionTokens: tokens,
+          seconds,
+          tokensPerSecond: seconds > 0 ? tokens / seconds : 0,
+        };
+      };
+      const stampStats = () => {
+        const tokens = usageCompletion || deltas;
+        if (!tokens) return;
+        const stats = statsFor(tokens);
+        upsertConv(convId, (c) => ({
+          ...c,
+          messages: c.messages.map((m) => (m.id === assistantId ? { ...m, stats } : m)),
+        }));
+      };
+
       try {
         // Allow-list = attached tools minus the user's denylist (sent only when
         // something is off, so the default keeps every tool available).
@@ -579,19 +605,23 @@ export function App() {
           target: targets.length >= 2 ? (targetId ?? undefined) : undefined,
         })) {
           if (evt.type === "token") {
+            deltas += 1;
+            const live = statsFor(usageCompletion + deltas);
             upsertConv(convId, (c) => ({
               ...c,
               updatedAt: Date.now(),
               messages: c.messages.map((m) =>
-                m.id === assistantId ? { ...m, content: m.content + evt.text } : m,
+                m.id === assistantId ? { ...m, content: m.content + evt.text, stats: live } : m,
               ),
             }));
           } else if (evt.type === "reasoning") {
+            deltas += 1;
+            const live = statsFor(usageCompletion + deltas);
             upsertConv(convId, (c) => ({
               ...c,
               updatedAt: Date.now(),
               messages: c.messages.map((m) =>
-                m.id === assistantId ? { ...m, reasoning: (m.reasoning ?? "") + evt.text } : m,
+                m.id === assistantId ? { ...m, reasoning: (m.reasoning ?? "") + evt.text, stats: live } : m,
               ),
             }));
           } else if (evt.type === "tool") {
@@ -645,7 +675,12 @@ export function App() {
                   : m,
               ),
             }));
+          } else if (evt.type === "usage") {
+            promptTokens = Math.max(promptTokens, evt.promptTokens);
+            usageCompletion += evt.completionTokens;
+            deltas = 0; // that round is now counted authoritatively; keep estimating the next
           } else if (evt.type === "done") {
+            stampStats();
             break;
           }
         }

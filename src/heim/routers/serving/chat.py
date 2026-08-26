@@ -171,6 +171,13 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         async def on_reasoning(text: str) -> None:
             await queue.put({"type": "reasoning", "text": text})
 
+        def on_usage(usage: dict[str, Any]) -> None:
+            # Sync sink (the agent calls it inline) — put_nowait, and drop it if the client is
+            # too slow to drain: token accounting is a nicety, never worth stalling the stream.
+            # One event per round, so a tool-using turn reports each round's usage.
+            with suppress(asyncio.QueueFull):
+                queue.put_nowait({"type": "usage", "usage": usage})
+
         async def on_confirm(name: str, args: dict[str, Any]) -> bool:
             # Mint an unguessable id, register a future, and stream a "confirm" event; the client
             # resolves it via POST /api/chat/confirm. Fail-safe: a timeout (or a cancelled stream)
@@ -241,6 +248,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         on_event,
                         on_token,
                         on_reasoning=on_reasoning,
+                        on_usage=on_usage,
                         temperature=eff_temperature,
                         top_p=eff_top_p,
                         top_k=rec.top_k,
