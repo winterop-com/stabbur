@@ -878,3 +878,42 @@ def test_serve_refuses_a_busy_port_instead_of_moving(monkeypatch: pytest.MonkeyP
     assert result.exit_code == 1, result.output
     assert "already in use" in result.output
     assert "--port" in result.output  # tells the user how to move it
+
+
+def test_chat_save_writes_the_exchange(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `-p --save` records the one-shot exchange in the same Markdown the TUI's /export writes,
+    # so a scripted run leaves a transcript without a second tool.
+    from heim import capabilities, runtime
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(runtime, "generate", lambda *a, **k: "the answer")
+    dest = tmp_path / "chat.md"
+
+    result = runner.invoke(
+        cli.app,
+        ["chat", "pub/X", "-p", "hi there", "--no-tools", "--raw", "--save", str(dest)],
+    )
+    assert result.exit_code == 0, result.output
+    saved = dest.read_text(encoding="utf-8")
+    assert "# Chat — pub/X" in saved
+    assert "hi there" in saved and "the answer" in saved
+
+
+def test_chat_save_failure_does_not_fail_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The answer already reached stdout, so an unwritable --save path must be reported and
+    # otherwise ignored — a scripted pipeline should not die over its logging.
+    from heim import capabilities, runtime
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(runtime, "generate", lambda *a, **k: "the answer")
+
+    unwritable = tmp_path / "missing-dir" / "chat.md"  # parent does not exist
+    result = runner.invoke(
+        cli.app,
+        ["chat", "pub/X", "-p", "hi", "--no-tools", "--raw", "--save", str(unwritable)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "the answer" in result.output  # the reply still came through
+    assert "--save failed" in result.output

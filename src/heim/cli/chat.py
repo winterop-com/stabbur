@@ -119,6 +119,10 @@ def chat(
         bool,
         typer.Option("--raw", help="With -p, never render markdown; print raw text even to a terminal."),
     ] = False,
+    save: Annotated[
+        Path | None,
+        typer.Option("--save", help="With -p, also write the exchange to a Markdown file."),
+    ] = None,
     allow_writes: Annotated[
         bool,
         typer.Option(
@@ -251,9 +255,10 @@ def chat(
                 _render_markdown(reply)
             else:
                 print(reply)  # noqa: T201
+            _save_transcript(save, model, remote_model_id, system_prompt, prompt, reply)
         else:
             assert model is not None or remote_model_id is not None
-            _chat_with_tools(
+            reply = _chat_with_tools(
                 model,
                 mcp_servers,
                 prompt,
@@ -269,9 +274,47 @@ def chat(
                 target_id=resolved_target_id,
                 model_id=remote_model_id,
             )
+            # This branch also serves the interactive TUI (prompt is None there), which owns
+            # its own transcript via /export — only the one-shot has an exchange to save.
+            if prompt is not None:
+                _save_transcript(save, model, remote_model_id, system_prompt, prompt, reply)
     except (RuntimeError, httpx.HTTPError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
+
+
+def _save_transcript(
+    dest: Path | None,
+    model: "library_ops.LibraryModel | None",
+    remote_model_id: str | None,
+    system_prompt: str,
+    prompt: str,
+    reply: str,
+) -> None:
+    """Write a one-shot exchange to ``dest`` as Markdown (no-op when ``--save`` was omitted).
+
+    Uses the same renderer as the TUI's ``/export`` so a saved transcript reads identically
+    whichever surface produced it. Thinking is not included: the one-shot path has no
+    reasoning channel to capture it from.
+    """
+    if dest is None:
+        return
+    from heim import transcript  # noqa: PLC0415 - keeps the import off the interactive path
+
+    name = model.name if model is not None else (remote_model_id or "unknown model")
+    turns = [transcript.TranscriptTurn(role="system", text=system_prompt)] if system_prompt else []
+    turns += [
+        transcript.TranscriptTurn(role="user", text=prompt),
+        transcript.TranscriptTurn(role="assistant", text=reply),
+    ]
+    try:
+        dest.write_text(transcript.render_markdown(name, turns), encoding="utf-8")
+    except OSError as exc:
+        # The answer already reached stdout, so a failed save must not fail the run — say so
+        # on stderr and let the pipeline continue.
+        typer.secho(f"--save failed: {exc}", fg=typer.colors.RED, err=True)
+        return
+    typer.secho(f"saved transcript → {dest}", fg=typer.colors.BRIGHT_BLACK, err=True)
 
 
 def _isatty() -> bool:
@@ -500,7 +543,7 @@ def _chat_with_tools(
     target_routing: "mcp_tools.TargetRouting | None" = None,
     target_id: str | None = None,
     model_id: str | None = None,
-) -> None:
+) -> str:
     """Serve the model, then chat: the Textual TUI interactively, or ``-p`` scripted.
 
     With ``prompt`` set (``-p``) this streams a single answer to stdout (tools still
@@ -589,9 +632,9 @@ def _chat_with_tools(
     def on_token(text: str) -> None:
         _first_output()
         _separate()
-        if render:
-            answer_parts.append(text)  # buffered; rendered as markdown once the reply completes
-        else:
+        # Always accumulate: --save needs the finished answer even while it streams to stdout.
+        answer_parts.append(text)
+        if not render:
             print(text, end="", flush=True)  # noqa: T201
 
     def on_reasoning(text: str) -> None:
@@ -641,7 +684,7 @@ def _chat_with_tools(
     # Attach to a running heim serve for the one-shot path: reuse its loaded model, no spawn/stop.
     if base_url is not None and prompt is not None:
         asyncio.run(_run_oneshot(base_url))
-        return
+        return "".join(answer_parts)
 
     assert model is not None  # a model-id-only chat is always a remote one-shot, handled above
     rt = runtime.load(model)  # start the runtime (with a load spinner); caller/TUI owns stop()
@@ -650,7 +693,7 @@ def _chat_with_tools(
             asyncio.run(_run_oneshot(rt.base))
         finally:
             runtime.stop(rt)
-        return
+        return "".join(answer_parts)
     # Interactive: hand the runtime to the full-screen Textual chat (imported lazily so
     # `heim library ls` and friends don't pay textual's import cost). The TUI owns the runtime
     # from here — it can switch models — and stops it on exit.
@@ -664,3 +707,4 @@ def _chat_with_tools(
         audios=audios or [],
         max_tokens=max_tokens,
     )
+    return ""  # interactive session: the TUI owns its own transcript (/export)

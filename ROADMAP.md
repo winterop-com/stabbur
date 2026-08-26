@@ -125,12 +125,10 @@ not blocked on it — the extension already executes script in the tab. Open wor
 
 ## Other open ideas
 
-- **Chat export.** Still open: PDF export in the TUI (the web UI has it) and a non-interactive
-  `heim chat --save` for the `-p` one-shot path.
+- **Chat export.** Still open: PDF export in the TUI (the web UI has it, via the browser's
+  own print pipeline — the TUI has no equivalent, so this needs a real renderer decision).
 - **Rich tags — the last mile.** A color-picker / `heim library tag --color`, and a curated
   default tag set seeded from `docs/guides/models.md`.
-- **More MCP servers** — a git server on the `heim-mcp-*` template (dependency-light,
-  stdio-only, `pydantic-settings` config, sandbox/allowlist anything that executes or fetches).
 - **Want-list drive rebuild.** A `--verify`/repair pass that re-pulls only models failing
   `heim library verify --deep`.
 

@@ -17,7 +17,7 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, Static, TextArea
 
-from heim import agent, attach, capabilities, project
+from heim import agent, attach, capabilities, project, transcript
 from heim import library as library_ops
 from heim import runtime as runtime_mod
 from heim import tools as mcp_tools
@@ -287,21 +287,20 @@ class ChatApp(App[None]):
             self.notify("Nothing to export yet.", severity="warning", timeout=2)
             return
         dest = Path(path) if path else Path("chat.md")
-        lines = [f"# Chat — {self._model_name}", ""]
-        for m in self.messages:
-            role, text = m.get("role"), self._content_text(m.get("content"))
-            if not text.strip():
-                continue
-            heading = {"system": "System prompt", "user": "You", "assistant": "Assistant"}.get(str(role))
-            if not heading:
-                continue
-            lines += [f"## {heading}", ""]
-            reason = self._reasonings.get(id(m), "").strip() if thinking and role == "assistant" else ""
-            if reason:
-                lines += ["<details>", "<summary>Thinking</summary>", "", reason, "", "</details>", ""]
-            lines += [text, ""]
+        rendered = transcript.render_markdown(
+            self._model_name,
+            [
+                transcript.TranscriptTurn(
+                    role=str(m.get("role")),
+                    text=self._content_text(m.get("content")),
+                    reasoning=self._reasonings.get(id(m), ""),
+                )
+                for m in self.messages
+            ],
+            thinking=thinking,
+        )
         try:
-            dest.write_text("\n".join(lines), encoding="utf-8")
+            dest.write_text(rendered, encoding="utf-8")
         except OSError as exc:
             self.notify(f"Export failed: {exc}", severity="error", timeout=3)
             return
