@@ -4,6 +4,9 @@
 loaded model, plus `/v1/audio/*` for speech, and — with `--ui` — the browser
 single-page app (React/Vite + Tailwind).
 
+To call that API from your own code rather than the browser, see
+[Using heim's API](api.md).
+
 ![heim web UI](../assets/web-ui.png)
 
 ## The model landscape
