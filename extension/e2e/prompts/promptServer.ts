@@ -6,8 +6,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const REPO_ROOT = "/Users/morteoh/dev/local/heim";
+// Derived, not hardcoded: this was an absolute path to one machine's checkout, which broke the
+// moment the repo moved (it pointed at a directory that no longer existed) and could never work
+// for anyone else. This file sits at <repo>/extension/e2e/<dir>/, so the root is three up.
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const DEFAULT_LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/heim/library");
 export const DEFAULT_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
 export const PROMPT_PORT = Number(process.env.HEIM_PROMPT_PORT ?? 4611);

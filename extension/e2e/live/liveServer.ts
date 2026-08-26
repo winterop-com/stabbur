@@ -16,8 +16,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const REPO_ROOT = "/Users/morteoh/dev/local/heim";
+// Derived, not hardcoded: this was an absolute path to one machine's checkout, which broke the
+// moment the repo moved (it pointed at a directory that no longer existed) and could never work
+// for anyone else. This file sits at <repo>/extension/e2e/<dir>/, so the root is three up.
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const LIBRARY_ROOT = path.join(process.env.HOME ?? "", ".local/share/heim/library");
 export const LIVE_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF";
 export const LIVE_PORT = 4599;
