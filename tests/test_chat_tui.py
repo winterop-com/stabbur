@@ -502,3 +502,28 @@ async def test_set_reasoning_levels_and_reset() -> None:
         assert app._reasoning == "high"  # unknown level: unchanged, just a note
         app._run_command("/set reasoning default")
         assert app._reasoning is None
+
+
+async def test_model_picker_tolerates_a_name_in_two_formats() -> None:
+    # A library legitimately holds one model in several formats (keeping GGUF *and* MLX is the
+    # documented default policy), so the picker's rows can repeat a name. Textual raises
+    # DuplicateID when two options share an id, which crashed /model on exactly the libraries
+    # that policy encourages. Every row must survive, with unique ids that still carry the name.
+    from textual.widgets import OptionList
+
+    from heim.chat_tui._widgets import ModelPickerModal
+
+    rows = [("pub/Foo", "gguf"), ("pub/Foo", "mlx"), ("pub/Bar", "gguf")]
+    app = _app()
+    async with app.run_test() as pilot:
+        app.push_screen(ModelPickerModal(rows, "pub/Foo", "models · 3"))
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, ModelPickerModal)
+        picker = screen.query_one(OptionList)
+        assert picker.option_count == 3  # no row dropped to dodge the id collision
+
+        ids = [picker.get_option_at_index(i).id for i in range(3)]
+        assert len(set(ids)) == 3  # unique, or Textual would have raised on compose
+        # ...and each still resolves back to the model name the switch handler expects.
+        assert [str(i).split("#")[0] for i in ids] == ["pub/Foo", "pub/Foo", "pub/Bar"]
