@@ -547,6 +547,23 @@ class MCPBridge:
         """
         return _server_prefix(server.name, [server.command, *server.args]) in self.toolset.prefixes()
 
+    def update_server(self, server: "McpServer") -> bool:
+        """Re-queue a *pending* server so a config change (new env) applies without a restart.
+
+        Returns whether the change is in effect. Spawning is lazy, so the common case for a settings
+        edit is a server that is configured but not yet started: its queued spec still carries the env
+        read at startup, and swapping it is enough for the next first-use spawn to get the new one.
+        An **already-attached** subprocess is a different story — a running process cannot be re-env'd —
+        so that answers False and the caller must say "restart", never report a silent success. A server
+        that is neither live nor pending has nothing to update, which is trivially applied.
+        """
+        prefix = _server_prefix(server.name, [server.command, *server.args])
+        if prefix in self.toolset.prefixes():
+            return False
+        if prefix in self._pending:
+            self._pending[prefix] = server
+        return True
+
     async def add_server(self, server: "McpServer") -> tuple[bool, str]:
         """Attach a newly-configured server to the live toolset — an *enable* that needs no restart.
 

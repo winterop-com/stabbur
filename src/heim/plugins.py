@@ -19,7 +19,9 @@ from typing import TYPE_CHECKING, Protocol
 
 import typer
 from pluginkit import ExtensionPoint, PluginManager
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from heim.models import McpSetting
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -82,13 +84,20 @@ class PluginContext(Protocol):
 
 
 class McpServer(BaseModel):
-    """An MCP tool server a plugin advertises: how to spawn it and what it offers."""
+    """An MCP tool server a plugin advertises: how to spawn it, what it offers, what it reads."""
 
     model_config = ConfigDict(frozen=True)
 
     name: str  # tool namespace / display name, e.g. "datetime"
     command: str  # spawn command, e.g. "heim-mcp-datetime"
     description: str = ""
+    settings: list[McpSetting] = Field(default_factory=list)
+    """The environment variables this server understands, declared by the server itself.
+
+    A server that reads env is otherwise a black box — the description can say "a configured
+    workspace root" but nothing can say *which*. Declaring them lets heim show the value in force
+    and offer an edit, instead of sending the user to hand-edit ``mcp.json``.
+    """
 
 
 class Specs:
@@ -102,12 +111,17 @@ class Specs:
 
     @staticmethod
     @extension_point
-    def mcp_servers() -> list[dict[str, str]]:
-        """Advertise MCP servers this package ships — dicts of name/command/description.
+    def mcp_servers() -> list[dict[str, object]]:
+        """Advertise MCP servers this package ships — dicts of name/command/description/settings.
 
         Advertise-only: no command, no ``PluginContext``. Plain dicts (not ``McpServer``)
         so a plugin needn't import heim. Lets heim discover/validate ``--mcp`` targets and
         populate tool pickers instead of hardcoding them.
+
+        ``settings`` is optional and JSON-shaped all the way down — a list of
+        ``{"env", "label", "description", "type", "default"}`` dicts (see :class:`heim.models.McpSetting`)
+        naming the environment variables the server reads. The values stay plain strings/dicts for the
+        same reason the entry itself does: a plugin declares what it understands without importing heim.
         """
         raise NotImplementedError
 
@@ -136,7 +150,9 @@ def command_groups(pm: PluginManager, context: PluginContext) -> list[tuple[str,
 
 def advertised_servers(pm: PluginManager) -> list[McpServer]:
     """Every MCP server advertised by the loaded plugins, sorted by name."""
-    servers = [McpServer(**entry) for group in pm.caller(Specs.mcp_servers)() for entry in group]
+    # model_validate, not **entry: an advertisement is plain JSON-shaped data (its `settings` are
+    # dicts, not McpSetting instances), so it is parsed the way any untrusted payload is.
+    servers = [McpServer.model_validate(entry) for group in pm.caller(Specs.mcp_servers)() for entry in group]
     return sorted(servers, key=lambda s: s.name)
 
 

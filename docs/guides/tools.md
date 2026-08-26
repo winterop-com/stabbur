@@ -95,6 +95,32 @@ One heavier first-party server is **optional**:
 }
 ```
 
+### Settings, without editing JSON
+
+Several of these servers read environment variables that decide **what they can reach** —
+`HEIM_FILES_ROOT` is the only directory the assistant can browse, `HEIM_MCP_HTTP_ALLOWLIST` the
+only hosts it can fetch. Each server declares those variables, so the Tools panel in
+`heim serve --ui` shows the value **actually in force** on the server's card (an unset
+`HEIM_FILES_ROOT` resolves to the directory `heim serve` was launched in — worth checking before
+wondering why the assistant answered about the wrong project) and lets you change it there.
+
+The edit is written to the machine-global `~/.config/heim/mcp.json` as an `env` entry on the
+server, exactly as if you had typed it:
+
+```json
+{
+  "mcpServers": {
+    "files": { "command": "heim-mcp-files", "env": { "HEIM_FILES_ROOT": "/Users/me/dev" } }
+  }
+}
+```
+
+Two caveats the panel states rather than hides: a server has to be **switched on** before it can be
+configured (its settings live in that entry), and a server that is **already running** keeps the
+environment it was started with — the change is saved but needs a `heim serve` restart. A server
+switched on by a project's own `.mcp.json` is edited there; heim never rewrites a project file from
+the web UI.
+
 ## DHIS2
 
 The DHIS2 MCP comes in three sizes — **match it to the model's context + tool

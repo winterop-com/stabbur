@@ -107,6 +107,93 @@ def test_disable_of_a_project_scoped_server_refuses(isolated: Path) -> None:
         mcp_catalog.set_enabled("files", False)
 
 
+# --- declared settings: the value in force, and writing one back ------------------------------------
+
+
+def test_bundled_reports_the_effective_root_of_an_unconfigured_server(isolated: Path) -> None:
+    # The bug this exists for: nothing configured, so `files` is rooted at wherever heim serve runs —
+    # true, invisible, and the reason "what are my directories in ~/dev" answered about the checkout.
+    root = next(s for s in _settings(isolated, "files") if s.env == "HEIM_FILES_ROOT")
+    assert root.type == "path" and root.default == "."
+    assert root.effective == str(isolated.resolve())  # absolute: the answer a user can act on
+    assert Path(root.effective).is_absolute()
+
+
+def test_bundled_reports_a_configured_value_over_the_default(isolated: Path, tmp_path: Path) -> None:
+    mcpservers.add(McpServer(name="files", command="heim-mcp-files", env={"HEIM_FILES_ROOT": str(tmp_path)}), glob=True)
+    entry = next(e for e in mcp_catalog.bundled() if e.name == "files")
+    assert entry.env == {"HEIM_FILES_ROOT": str(tmp_path)}  # what is written down
+    root = next(s for s in entry.settings if s.env == "HEIM_FILES_ROOT")
+    assert root.effective == str(tmp_path)  # ...and what is in force
+
+
+def test_booleans_are_always_canonical(isolated: Path) -> None:
+    # "" is a startup error for a bool field, so a boolean is never blank in either direction.
+    mcpservers.add(McpServer(name="files", command="heim-mcp-files", env={"HEIM_FILES_WRITABLE": "1"}), glob=True)
+    assert next(s for s in _settings(isolated, "files") if s.env == "HEIM_FILES_WRITABLE").effective == "true"
+    entry = mcp_catalog.set_env("files", {"HEIM_FILES_WRITABLE": ""})
+    assert entry.env["HEIM_FILES_WRITABLE"] == "false"
+
+
+def test_set_env_persists_expanding_a_tilde(isolated: Path) -> None:
+    mcp_catalog.set_enabled("files", True)
+    entry = mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": "~/dev"})
+    # Nothing between mcp.json and the spawned process expands ~, so a literal "~/dev" would sandbox
+    # the assistant to a directory named "~" — the one thing that must not survive the write.
+    assert entry.env["HEIM_FILES_ROOT"] == str(Path.home() / "dev")
+    data = json.loads(mcpservers.global_path().read_text())
+    assert data["mcpServers"]["files"] == {
+        "command": "heim-mcp-files",
+        "env": {"HEIM_FILES_ROOT": str(Path.home() / "dev")},
+    }
+
+
+def test_set_env_clears_a_value_back_to_the_default(isolated: Path, tmp_path: Path) -> None:
+    mcp_catalog.set_enabled("files", True)
+    mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": str(tmp_path)})
+    entry = mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": ""})
+    assert entry.env == {}  # cleared, not written as an empty string
+    assert next(s for s in entry.settings if s.env == "HEIM_FILES_ROOT").effective == str(isolated.resolve())
+
+
+def test_set_env_rejects_an_undeclared_variable(isolated: Path) -> None:
+    # The allow-list: a request can never inject arbitrary env (PATH, LD_PRELOAD) into a spawned server.
+    mcp_catalog.set_enabled("files", True)
+    with pytest.raises(mcp_catalog.UnknownSetting, match="LD_PRELOAD"):
+        mcp_catalog.set_env("files", {"LD_PRELOAD": "/tmp/evil.so"})
+    assert mcpservers.read_global()[0].env == {}  # and nothing was written
+
+
+def test_set_env_refuses_a_switched_off_server(isolated: Path) -> None:
+    # Its settings live in the mcp.json entry, so writing them would create it — i.e. switch it on.
+    with pytest.raises(mcp_catalog.NotConfigured):
+        mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": "/tmp"})
+    assert mcpservers.read_global() == []
+
+
+def test_set_env_refuses_a_project_scoped_server(isolated: Path) -> None:
+    mcpservers.add(McpServer(name="files", command="heim-mcp-files"), glob=False, project_dir=isolated)
+    with pytest.raises(mcp_catalog.ProjectScoped, match=".mcp.json"):
+        mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": "/tmp"})
+
+
+def test_re_enabling_keeps_configured_settings(isolated: Path, tmp_path: Path) -> None:
+    # set_enabled re-writes the entry; it must carry the env through or a stray toggle silently
+    # resets the root the user configured.
+    mcp_catalog.set_enabled("files", True)
+    mcp_catalog.set_env("files", {"HEIM_FILES_ROOT": str(tmp_path)})
+    assert mcp_catalog.set_enabled("files", True).env == {"HEIM_FILES_ROOT": str(tmp_path)}
+
+
+def test_a_server_with_no_env_declares_nothing(isolated: Path) -> None:
+    assert _settings(isolated, "datetime") == []  # no knobs invented for a server that reads none
+
+
+def _settings(project_dir: Path, name: str) -> list[Any]:
+    """The declared settings of one bundled server, with their effective values."""
+    return list(next(e for e in mcp_catalog.bundled(project_dir) if e.name == name).settings)
+
+
 # --- mcp_catalog.seed_global_defaults: the fresh-machine default ------------------------------------
 
 
@@ -272,6 +359,68 @@ async def test_enable_blocked_by_a_project_disable_marker(isolated: Path, client
     assert body["server"]["enabled"] is False
     assert body["applied"] is False and body["restart_required"] is False
     assert "disables" in body["detail"]
+
+
+# --- /api/mcp/servers: the settings half ------------------------------------------------------------
+
+
+async def test_get_carries_declared_settings_with_effective_values(isolated: Path, client: AsyncClient) -> None:
+    body = (await client.get("/api/mcp/servers")).json()
+    files = next(e for e in body if e["name"] == "files")
+    assert files["env"] == {}  # nothing persisted...
+    root = next(s for s in files["settings"] if s["env"] == "HEIM_FILES_ROOT")
+    # ...yet the card can still say exactly which directory the assistant can browse.
+    assert root["label"] and root["type"] == "path" and root["effective"] == str(isolated.resolve())
+
+
+async def test_env_change_on_a_pending_server_applies_without_a_restart(app: FastAPI, client: AsyncClient) -> None:
+    bridge, _ = _bridge()
+    app.state.mcp_bridge = bridge
+    server = McpServer(name="files", command="heim-mcp-files")
+    mcpservers.add(server, glob=True)
+    bridge._pending["files"] = server  # configured at startup, queued for a lazy first-use spawn
+    r = await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_ROOT": "/tmp"}})
+    body = r.json()
+    assert body["applied"] is True and body["restart_required"] is False
+    assert bridge._pending["files"].env == {"HEIM_FILES_ROOT": "/tmp"}  # the queued spawn got the new env
+    assert body["server"]["settings"][0]["effective"] == "/tmp"
+
+
+async def test_env_change_on_a_running_server_requires_a_restart(app: FastAPI, client: AsyncClient) -> None:
+    bridge, _ = _bridge()
+    app.state.mcp_bridge = bridge
+    await client.post("/api/mcp/servers/files", json={"enabled": True})  # attaches live
+    body = (await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_ROOT": "/tmp"}})).json()
+    # A running process cannot be handed a new environment; say so rather than report a success.
+    assert body["applied"] is False and body["restart_required"] is True
+    assert "restart" in body["detail"]
+    assert body["server"]["env"] == {"HEIM_FILES_ROOT": "/tmp"}  # the write itself did land
+
+
+async def test_env_change_without_a_bridge_applies(client: AsyncClient) -> None:
+    # No bridge = no MCP subprocess in this process at all, so the persisted value is the whole truth.
+    await client.post("/api/mcp/servers/files", json={"enabled": True})
+    body = (await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_WRITABLE": "true"}})).json()
+    assert body["applied"] is True and body["restart_required"] is False
+
+
+async def test_undeclared_env_is_400(client: AsyncClient) -> None:
+    await client.post("/api/mcp/servers/files", json={"enabled": True})
+    r = await client.post("/api/mcp/servers/files", json={"env": {"PATH": "/tmp"}})
+    assert r.status_code == 400 and "PATH" in r.json()["detail"]
+
+
+async def test_env_on_a_switched_off_server_is_409(client: AsyncClient) -> None:
+    r = await client.post("/api/mcp/servers/files", json={"env": {"HEIM_FILES_ROOT": "/tmp"}})
+    assert r.status_code == 409 and "switch" in r.json()["detail"]
+
+
+async def test_env_on_an_unknown_server_is_404(client: AsyncClient) -> None:
+    assert (await client.post("/api/mcp/servers/rm-rf", json={"env": {"X": "1"}})).status_code == 404
+
+
+async def test_an_empty_change_is_400(client: AsyncClient) -> None:
+    assert (await client.post("/api/mcp/servers/files", json={})).status_code == 400
 
 
 async def test_toggle_is_covered_by_the_cross_site_guard(client: AsyncClient) -> None:

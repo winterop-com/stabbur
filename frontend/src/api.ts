@@ -200,15 +200,39 @@ export interface McpServerInfo {
   scope: "global" | "project" | null;
   installed: boolean;
   setup: string;
+  /** Env persisted in the mcp.json entry that resolves this server — usually `{}`. */
+  env: Record<string, string>;
+  settings: McpSetting[];
 }
 
 /**
- * The outcome of a toggle, which is deliberately not just "ok". Enabling attaches the server live
+ * One environment variable a bundled server understands, as declared by the server itself, plus the
+ * value in force. `effective` is the point of the whole thing: a server's env decides what it can
+ * reach (`HEIM_FILES_ROOT` is the *only* directory the assistant can browse), but an unset default
+ * like "." is invisible from outside the process — so the card can only say "a configured workspace
+ * root" while the user wonders why they got a listing of the heim checkout. `effective` is the
+ * configured value when there is one, else the resolved default (a path resolved absolute against
+ * the directory `heim serve` runs in). Every value is a string: that is all a spawned process gets.
+ * `boolean` settings are always exactly "true" / "false".
+ */
+export interface McpSetting {
+  env: string;
+  label: string;
+  description: string;
+  type: "text" | "path" | "boolean";
+  default: string;
+  effective: string;
+}
+
+/**
+ * The outcome of a change, which is deliberately not just "ok". Enabling attaches the server live
  * (`applied: true`, tools callable next turn); disabling persists but cannot detach an already-
  * spawned subprocess, so it answers `applied: false, restart_required: true`; a failed spawn is
- * `applied: false` with the reason in `detail`. Callers must render this, never a blanket success.
+ * `applied: false` with the reason in `detail`. A settings change is the same story — a running
+ * subprocess can't be handed a new environment, so it needs a restart, while a server that hasn't
+ * spawned yet picks it up. Callers must render this, never a blanket success.
  */
-export interface McpToggleResult {
+export interface McpUpdateResult {
   server: McpServerInfo;
   applied: boolean;
   restart_required: boolean;
@@ -218,21 +242,31 @@ export interface McpToggleResult {
 /** Every bundled MCP server with its resolved on/off state (the Tools panel's catalogue). */
 export const getMcpServers = () => apiFetch("/api/mcp/servers").then(json<McpServerInfo[]>);
 
-/** Switch one bundled MCP server on/off (machine-global). Returns what actually happened. */
-export async function setMcpServer(name: string, enabled: boolean): Promise<McpToggleResult> {
+/** POST one change to a bundled server, surfacing the server's own refusal message. */
+async function postMcpServer(name: string, body: Record<string, unknown>): Promise<McpUpdateResult> {
   const res = await apiFetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    // 409 (a project .mcp.json owns this server) carries the file to edit in `detail` — the one
-    // thing that makes the refusal actionable, so surface it rather than the bare status.
+    // The refusals carry the fix in `detail` — which file owns this server (409), that it must be
+    // switched on first (409), which variable it doesn't have (400) — and that is the only part
+    // that makes them actionable, so surface it rather than the bare status.
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
   }
-  return json<McpToggleResult>(res);
+  return json<McpUpdateResult>(res);
 }
+
+/** Switch one bundled MCP server on/off (machine-global). Returns what actually happened. */
+export const setMcpServer = (name: string, enabled: boolean) => postMcpServer(name, { enabled });
+
+/**
+ * Set declared env settings on one bundled MCP server, persisted to the same machine-global
+ * mcp.json. Only variables the server declares are accepted; `""` clears one back to its default.
+ */
+export const setMcpServerEnv = (name: string, env: Record<string, string>) => postMcpServer(name, { env });
 
 /**
  * One assistant target in a multi-target project registry ([[assistants]]), as sanitized by

@@ -19,13 +19,27 @@ class WebPlugin:
     """Advertises the web reader server to heim's plugin manager."""
 
     @extension
-    def mcp_servers(self) -> list[dict[str, str]]:
-        """Advertise ``heim-mcp-web`` (read a web page -> readable Markdown)."""
+    def mcp_servers(self) -> list[dict[str, object]]:
+        """Advertise ``heim-mcp-web`` (read a web page -> readable Markdown).
+
+        Only the private-host gate is declared: it is the one setting that changes *what the server
+        may reach*, and the one a user hits deliberately (reading an internal wiki). The rendering
+        knobs (timeouts, thresholds, char cap) tune one fetch and are noise in a settings panel.
+        """
         return [
             {
                 "name": "web",
                 "command": "heim-mcp-web",
                 "description": "Read a web page in a headless browser and return its main content as Markdown.",
+                "settings": [
+                    {
+                        "env": "HEIM_WEB_ALLOW_PRIVATE",
+                        "label": "Allow private hosts",
+                        "description": "Read internal / localhost pages, which the SSRF guard otherwise refuses.",
+                        "type": "boolean",
+                        "default": "false",
+                    }
+                ],
             }
         ]
 

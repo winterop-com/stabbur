@@ -15,13 +15,27 @@ class SearchPlugin:
     """Advertises the search server to heim's plugin manager."""
 
     @extension
-    def mcp_servers(self) -> list[dict[str, str]]:
-        """Advertise ``heim-mcp-search`` (web search -> titled results)."""
+    def mcp_servers(self) -> list[dict[str, object]]:
+        """Advertise ``heim-mcp-search`` (web search -> titled results).
+
+        The backend only. The two API keys are deliberately **not** declared: a declared setting is
+        read back by ``GET /api/mcp/servers`` and rendered in a panel, which is the wrong home for a
+        secret — keys stay in ``mcp.json`` (or the environment), where a user puts them once.
+        """
         return [
             {
                 "name": "search",
                 "command": "heim-mcp-search",
                 "description": "Search the web and return titled results (title, URL, snippet).",
+                "settings": [
+                    {
+                        "env": "HEIM_SEARCH_BACKEND",
+                        "label": "Backend",
+                        "description": "auto, duckduckgo, brave, or exa. auto picks a keyed backend, else duckduckgo.",
+                        "type": "text",
+                        "default": "auto",
+                    }
+                ],
             }
         ]
 

@@ -15,13 +15,26 @@ class GitPlugin:
     """Advertises the git server to heim's plugin manager."""
 
     @extension
-    def mcp_servers(self) -> list[dict[str, str]]:
-        """Advertise ``heim-mcp-git`` (read-only git inspection sandboxed to one repo)."""
+    def mcp_servers(self) -> list[dict[str, object]]:
+        """Advertise ``heim-mcp-git`` (read-only git inspection sandboxed to one repo).
+
+        Only the repo root is declared. ``HEIM_GIT_ALLOW_WRITE`` is a reserved gate — no mutating
+        tool ships yet — so offering a switch for it would be a control that does nothing.
+        """
         return [
             {
                 "name": "git",
                 "command": "heim-mcp-git",
                 "description": "Read-only git inspection (status, log, diff, show, blame) sandboxed to one repo.",
+                "settings": [
+                    {
+                        "env": "HEIM_GIT_REPO_ROOT",
+                        "label": "Repository",
+                        "description": "The one work tree every git command runs in (git -C <root>).",
+                        "type": "path",
+                        "default": ".",
+                    }
+                ],
             }
         ]
 

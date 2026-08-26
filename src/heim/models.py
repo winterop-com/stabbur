@@ -137,6 +137,45 @@ class CuratedMcp(BaseModel):
     setup: str = ""  # one-line hint when the server needs config (a profile, path, key, Node, …)
 
 
+class McpSettingKind(StrEnum):
+    """What kind of value a setting holds — the whole of what a client needs to pick a control."""
+
+    text = "text"
+    """Free text (a host allowlist, a backend name)."""
+
+    path = "path"
+    """A filesystem location; ``effective`` is absolute, so a client can show where it points."""
+
+    boolean = "boolean"
+    """An on/off flag; ``default`` and ``effective`` are always ``"true"`` / ``"false"``."""
+
+
+class McpSetting(BaseModel):
+    """One environment variable a bundled MCP server understands, and what it is set to right now.
+
+    A server's behaviour hangs on its env (``HEIM_FILES_ROOT`` decides the *only* directory the
+    assistant can see), yet nothing outside the server's own source said so — leaving "a configured
+    workspace root" as the only answer a UI could give, and hand-editing ``mcp.json`` as the only way
+    to change it. A server declares these alongside its command (see :meth:`heim.plugins.Specs.mcp_servers`)
+    and :func:`heim.mcp_catalog.bundled` fills in :attr:`effective`.
+
+    Every value is a **string** because that is the only thing a spawned process can be handed —
+    ``default`` and ``effective`` are what would literally be in the child's environment.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    env: str  # the variable itself, e.g. "HEIM_FILES_ROOT"
+    label: str  # short human name for the control, e.g. "Workspace root"
+    description: str = ""  # one line: what it changes, and what happens when it is unset
+    type: McpSettingKind = McpSettingKind.text
+    default: str = ""  # what the server falls back to when the variable is unset
+    effective: str = ""
+    """What is actually in force: the configured value, else the *resolved* default — a relative
+    path default resolved against the directory ``heim serve`` runs in, since "``.``" is precisely
+    the answer that leaves a user guessing which directory the assistant can browse."""
+
+
 class BundledMcp(BaseModel):
     """One first-party MCP server heim ships, plus whether it is currently switched on.
 
@@ -155,6 +194,13 @@ class BundledMcp(BaseModel):
     scope: str | None = None  # "global" | "project": which file switches it on (None when off)
     installed: bool = True  # False = an optional first-party server whose extra isn't installed yet
     setup: str = ""  # install hint, only when `installed` is False
+    env: dict[str, str] = Field(default_factory=dict)
+    """The env persisted for this server in the ``mcp.json`` entry that resolves it — usually empty
+    (an entry is just a command until someone configures it). Configured vs *effective* is the whole
+    distinction :class:`McpSetting` exists to draw: this is what is written down, `settings` is what
+    is in force."""
+
+    settings: list[McpSetting] = Field(default_factory=list)  # the env knobs it declares, each with its value
 
 
 class ProjectTemplate(BaseModel):

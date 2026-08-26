@@ -14,14 +14,21 @@ the plugins' own advertisements, so there is no second hardcoded list) with thei
 state, and :func:`set_enabled` flips one by writing the machine-global ``mcp.json`` — the same file
 ``heim mcp add --global`` writes, so enabling from the web UI and from the CLI stay one source of
 truth. :func:`seed_global_defaults` is the fresh-machine seed behind :data:`DEFAULT_ENABLED`.
+
+:func:`bundled` also resolves each server's declared **settings** (:class:`heim.models.McpSetting`) to
+the value actually in force, and :func:`set_env` writes one back. That closes a real gap: a server's
+env decides what it can reach — ``HEIM_FILES_ROOT`` is the whole of what the assistant can browse —
+yet an unset default like ``.`` is invisible from outside the process, so "a configured workspace
+root" was the only thing a UI could say and hand-editing JSON the only way to change it.
 """
 
+import os
 import shlex
 from pathlib import Path
 
 from heim import mcpservers
 from heim.mcpservers import McpServer
-from heim.models import BundledMcp, CuratedMcp
+from heim.models import BundledMcp, CuratedMcp, McpSetting, McpSettingKind
 
 # DHIS2 leads (heim's north star); the rest are general tools. Commands with placeholders
 # (a path, a profile) are meant to be edited — the `setup` note says what.
@@ -86,6 +93,24 @@ class UnknownServer(LookupError):
     """A toggle named a server heim doesn't bundle — surfaced as a 404, not a traceback."""
 
 
+class UnknownSetting(LookupError):
+    """An env write named a variable the server never declared — surfaced as a 400, not a write.
+
+    The settings API is an allow-list over what a server *says* it reads, for the same reason the
+    toggle is one over the shipped set: an arbitrary ``{"env": {...}}`` would otherwise let a request
+    inject any environment variable into a spawned subprocess (``PATH``, ``LD_PRELOAD``, a proxy).
+    """
+
+
+class NotConfigured(RuntimeError):
+    """An env write for a server with no ``mcp.json`` entry to hold it — i.e. one that is switched off.
+
+    Settings live *inside* the server's entry, so writing them for a disabled server would create that
+    entry — which is exactly what "enabled" means, silently switching the server on as a side effect of
+    typing in a text field. Refused instead: switch it on, then configure it.
+    """
+
+
 class ProjectScoped(RuntimeError):
     """A disable that can't be honored globally: the project's own ``.mcp.json`` switches it on.
 
@@ -106,9 +131,52 @@ def to_server(entry: BundledMcp) -> McpServer:
     Bundled servers are plain console scripts (``heim-mcp-datetime``), never the ``env VAR=val …``
     prefixed commands the external catalog carries — so a bare :func:`shlex.split` is the whole
     parse here (the CLI's ``_to_mcp_server`` keeps the env-prefix handling for catalog entries).
+
+    Carries the entry's ``env`` through, so re-writing a server (a re-enable, a settings change)
+    never silently drops the configuration already in its ``mcp.json`` entry.
     """
     argv = shlex.split(entry.command)
-    return McpServer(name=entry.name, command=argv[0], args=argv[1:])
+    return McpServer(name=entry.name, command=argv[0], args=argv[1:], env=dict(entry.env))
+
+
+# What pydantic-settings accepts as a true boolean env value; anything else it treats as false (or
+# rejects). Writes are canonicalized to "true"/"false", so this only has to forgive a hand-edited file.
+_TRUTHY = frozenset({"1", "true", "t", "yes", "y", "on"})
+
+
+def _canonical(setting: McpSetting, value: str) -> str:
+    """One env value as it should be *written*: a shape the server will actually parse.
+
+    Booleans become ``"true"`` / ``"false"`` (an empty string is a startup error for a bool field,
+    never "unset"), and a path gets its ``~`` expanded — nothing between ``mcp.json`` and the spawned
+    process does that, so a literal ``~/dev`` would become a directory named ``~``. A relative path is
+    left relative: ``.`` deliberately means "wherever heim runs", and resolving it at write time would
+    freeze that in a file that outlives the shell it was typed in.
+    """
+    if setting.type is McpSettingKind.boolean:
+        return "true" if value.strip().lower() in _TRUTHY else "false"
+    if setting.type is McpSettingKind.path:
+        return str(Path(value.strip()).expanduser()) if value.strip() else ""
+    return value.strip()
+
+
+def _effective(setting: McpSetting, env: dict[str, str]) -> McpSetting:
+    """``setting`` with :attr:`~heim.models.McpSetting.effective` filled in from the configured ``env``.
+
+    The configured value when there is one, else the default — then *resolved*, which is the point:
+    a ``files`` root of ``.`` is a true answer that tells a user nothing, while
+    ``/Users/me/dev/some-repo`` is the one that explains why the assistant listed those directories.
+    Resolution is against ``heim serve``'s own working directory because that is what the spawned
+    child inherits.
+    """
+    raw = env.get(setting.env) or setting.default
+    if setting.type is McpSettingKind.boolean:
+        return setting.model_copy(update={"effective": "true" if raw.strip().lower() in _TRUTHY else "false"})
+    if setting.type is McpSettingKind.path and raw:
+        # abspath, not resolve(): normalizes and absolutizes without following symlinks, so the value
+        # shown is the one the user set (/Volumes/T9/…), not its physical target.
+        return setting.model_copy(update={"effective": os.path.abspath(Path(raw).expanduser())})
+    return setting.model_copy(update={"effective": raw})
 
 
 def bundled(project_dir: Path | None = None) -> list[BundledMcp]:
@@ -123,7 +191,7 @@ def bundled(project_dir: Path | None = None) -> list[BundledMcp]:
     """
     from heim import plugins  # noqa: PLC0415 - drags in typer/pluginkit; kept off module load
 
-    resolved = {s.name for s in mcpservers.resolve(project_dir)}
+    resolved = {s.name: s for s in mcpservers.resolve(project_dir)}
     in_project = {s.name for s in mcpservers.read_project(project_dir)}
     advertised = plugins.advertised_servers(plugins.manager())
     out = [
@@ -134,6 +202,11 @@ def bundled(project_dir: Path | None = None) -> list[BundledMcp]:
             enabled=s.name in resolved,
             # A name in both files resolves to the project's entry, so that's the file that owns it.
             scope=("project" if s.name in in_project else "global") if s.name in resolved else None,
+            # The env of the entry that actually resolves it — the project's when a project overrides.
+            env=dict(resolved[s.name].env) if s.name in resolved else {},
+            # Filled in even when the server is off: "where is files rooted" is a question a user asks
+            # *before* switching it on, and answering it is half of why the declaration exists.
+            settings=[_effective(spec, resolved[s.name].env if s.name in resolved else {}) for spec in s.settings],
         )
         for s in advertised
     ]
@@ -178,6 +251,49 @@ def set_enabled(name: str, enabled: bool, project_dir: Path | None = None) -> Bu
     refreshed = next((s for s in bundled(project_dir) if s.name == name), None)
     # bundled() is stable across the write (the shipped set doesn't change), so this can't be None —
     # but fall back to the pre-write entry rather than asserting, so a toggle never 500s on a race.
+    return refreshed if refreshed is not None else entry
+
+
+def set_env(name: str, values: dict[str, str], project_dir: Path | None = None) -> BundledMcp:
+    """Set (or clear) declared env values on a bundled server's global ``mcp.json`` entry.
+
+    The edit-without-JSON half of the settings feature, and the same one-writer discipline as
+    :func:`set_enabled`: it merges into the existing entry and re-writes it through
+    :func:`heim.mcpservers.add`, so a value set from the web UI is the same file, shape, and
+    precedence a hand-edit would produce. An **empty value clears the variable** rather than writing
+    an empty string — that is the "back to the default" affordance. A boolean is the exception: it is
+    always written explicitly (``"true"``/``"false"``), because an empty string is a startup error for
+    a bool field, not an absent one.
+
+    Refuses rather than doing something surprising: :class:`UnknownSetting` for a variable the server
+    never declared (the allow-list — no arbitrary env into a spawned process), :class:`NotConfigured`
+    for a server that is switched off (its settings would have nowhere to live but a new entry, which
+    would switch it on), and :class:`ProjectScoped` when the project's own ``.mcp.json`` owns the
+    server, since a global write would be silently overridden by it.
+
+    Like :func:`set_enabled`, this only changes what heim *would* spawn — a running subprocess keeps
+    the environment it started with (see :meth:`heim.tools.MCPBridge.update_server`).
+    """
+    entry = next((s for s in bundled(project_dir) if s.name == name), None)
+    if entry is None:
+        raise UnknownServer(name)
+    declared = {s.env: s for s in entry.settings}
+    unknown = sorted(set(values) - set(declared))
+    if unknown:
+        raise UnknownSetting(f"{name!r} has no setting {unknown[0]!r}")
+    if entry.scope == "project":
+        raise ProjectScoped(str(mcpservers.project_path(project_dir)))
+    if not entry.enabled:
+        raise NotConfigured(name)
+    env = dict(entry.env)
+    for var, value in values.items():
+        canonical = _canonical(declared[var], value)
+        if canonical:
+            env[var] = canonical
+        else:
+            env.pop(var, None)
+    mcpservers.add(to_server(entry.model_copy(update={"env": env})), glob=True)
+    refreshed = next((s for s in bundled(project_dir) if s.name == name), None)
     return refreshed if refreshed is not None else entry
 
 

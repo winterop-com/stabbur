@@ -5,8 +5,11 @@ import {
   getMcpServers,
   getModelInfo,
   setMcpServer,
+  setMcpServerEnv,
   type LibModel,
   type McpServerInfo,
+  type McpSetting,
+  type McpUpdateResult,
   type ModelInfo,
   type Status,
   type ToolInfo,
@@ -93,6 +96,112 @@ function FieldLabel({
         </Tooltip>
       ) : (
         inherited && <span className="truncate text-[11px] text-muted-foreground">{inherited}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What one MCP server is configured to do — the env it declares, showing the value actually in
+ * force. A server's env is the whole of what it may reach ("Browse, read and search files under a
+ * configured workspace root" left *which* root unknowable, so an assistant asked about `~/dev`
+ * answered about wherever `heim serve` was launched). The effective value is therefore never
+ * hidden — it fills the field, or greys it as the placeholder when nothing is configured — while
+ * editing is gated to the case that can actually work: a server that is on and owned by the
+ * machine-global mcp.json, which is the only file heim writes from a web request.
+ *
+ * Saves on Enter or blur, and only when the text really changed, so tabbing through a card is not
+ * a write. Booleans save on the spot.
+ */
+function McpSettings({
+  server,
+  busy,
+  onSave,
+}: {
+  server: McpServerInfo;
+  busy: boolean;
+  onSave: (name: string, env: Record<string, string>) => void;
+}) {
+  // Only fields the user has touched; a saved field drops out and falls back to the refreshed row.
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const configured = (s: McpSetting) => server.env[s.env] ?? "";
+  const locked = !server.enabled || server.scope === "project";
+
+  const commit = (s: McpSetting, value: string) => {
+    setDraft((d) => {
+      const next = { ...d };
+      delete next[s.env];
+      return next;
+    });
+    if (value !== configured(s)) onSave(server.name, { [s.env]: value });
+  };
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border px-2.5 py-2">
+      {server.settings.map((s) => (
+        <div key={s.env} className="min-w-0">
+          {s.type === "boolean" ? (
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-[11px] font-medium" title={`${s.env} — ${s.description}`}>
+                {s.label}
+              </span>
+              <Switch
+                checked={s.effective === "true"}
+                disabled={busy || locked}
+                onCheckedChange={(on) => onSave(server.name, { [s.env]: on ? "true" : "false" })}
+                aria-label={s.label}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="mb-0.5 flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-[11px] font-medium" title={`${s.env} — ${s.description}`}>
+                  {s.label}
+                </span>
+                {/* Clearing the field is the "back to the default" path, so it needs to be findable
+                    without the user guessing that an empty string means "unset". */}
+                {configured(s) && !locked && (
+                  <button
+                    type="button"
+                    onClick={() => commit(s, "")}
+                    className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" />
+                    Reset
+                  </button>
+                )}
+              </div>
+              <Input
+                value={draft[s.env] ?? configured(s)}
+                disabled={busy || locked}
+                spellCheck={false}
+                // The effective value as the placeholder: unset is where the surprise lives, so the
+                // resolved answer ("/Users/me/dev/heim") has to be on screen without a click.
+                placeholder={s.effective || s.default}
+                title={s.effective}
+                onChange={(e) => setDraft((d) => ({ ...d, [s.env]: e.target.value }))}
+                onBlur={(e) => commit(s, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape")
+                    setDraft((d) => {
+                      const next = { ...d };
+                      delete next[s.env];
+                      return next;
+                    });
+                }}
+                className="h-7 bg-background/60 font-mono text-[11px]"
+              />
+            </>
+          )}
+        </div>
+      ))}
+      {locked && (
+        <p className="text-[11px] text-muted-foreground">
+          {server.scope === "project"
+            ? "Set by this project's .mcp.json — edit it there."
+            : "Switch it on to change these."}
+        </p>
       )}
     </div>
   );
@@ -222,8 +331,14 @@ export function ChatSettingsPanel({
     };
   }, []);
 
-  const toggleMcpServer = useCallback(
-    async (name: string, on: boolean) => {
+  /**
+   * Run one change against a server and render *what actually happened*. Shared by the on/off
+   * switch and the settings fields because the honest-outcome contract is the same for both: the
+   * response carries the refreshed row (an enable the project vetoes comes back still disabled) and
+   * says whether the change is live, needs a restart, or failed outright.
+   */
+  const changeMcpServer = useCallback(
+    async (name: string, run: () => Promise<McpUpdateResult>, retools: boolean) => {
       setPending(name);
       setNotes((n) => {
         const next = { ...n };
@@ -231,11 +346,9 @@ export function ChatSettingsPanel({
         return next;
       });
       try {
-        const res = await setMcpServer(name, on);
-        // The response carries the refreshed row, so trust it over the optimistic value —
-        // an enable the project vetoes comes back still disabled.
+        const res = await run();
         setServers((list) => (list ?? []).map((s) => (s.name === res.server.name ? res.server : s)));
-        if (res.applied) onToolsChanged(); // its tools are attached (or gone) right now
+        if (retools && res.applied) onToolsChanged(); // its tools are attached (or gone) right now
         if (res.restart_required)
           setNotes((n) => ({
             ...n,
@@ -250,6 +363,17 @@ export function ChatSettingsPanel({
       }
     },
     [onToolsChanged],
+  );
+
+  const toggleMcpServer = useCallback(
+    (name: string, on: boolean) => void changeMcpServer(name, () => setMcpServer(name, on), true),
+    [changeMcpServer],
+  );
+
+  const saveMcpEnv = useCallback(
+    // Settings never change the tool list — only which files/hosts those tools reach — so no re-read.
+    (name: string, env: Record<string, string>) => void changeMcpServer(name, () => setMcpServerEnv(name, env), false),
+    [changeMcpServer],
   );
 
   /**
@@ -728,11 +852,18 @@ export function ChatSettingsPanel({
                             <Switch
                               checked={server.enabled}
                               disabled={pending === name}
-                              onCheckedChange={(enabled) => void toggleMcpServer(name, enabled)}
+                              onCheckedChange={(enabled) => toggleMcpServer(name, enabled)}
                               aria-label={`Run the ${name} MCP server`}
                             />
                           )}
                         </div>
+
+                        {/* Above the per-chat tool list, because this is what the server *is*
+                            (which directory, which hosts) rather than which of its tools this
+                            conversation may call. */}
+                        {server && server.settings.length > 0 && (
+                          <McpSettings server={server} busy={pending === name} onSave={saveMcpEnv} />
+                        )}
 
                         {settings.useTools && list.length > 0 && (
                           <details className="border-t border-border">
