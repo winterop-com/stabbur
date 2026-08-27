@@ -48,7 +48,6 @@ def _mcp_env() -> dict[str, str]:
     return env
 
 
-_LEGACY_SERVER_PREFIX = "heim-mcp-"
 _SERVER_PREFIX = "stabbur-mcp-"
 
 
@@ -58,15 +57,7 @@ def _resolve_command(cmd: str) -> str:
     subprocess resolves a bare executable name against the *parent's* PATH, so putting stabbur's
     bin/ only in the child env isn't enough — resolve it here. A command already found on PATH
     (or absolute) is returned as-is; an unfound one is passed through unchanged.
-
-    A bundled server named by its previous console script is remapped first. An ``mcp.json`` is
-    written once and read for years, so an entry saying ``heim-mcp-datetime`` is config the user
-    already has rather than a mistake they made — and after the rename that executable is simply
-    gone, so the server dies on a bare ENOENT naming no cause. Only the bundled prefix is
-    remapped; a third-party command is passed through untouched.
     """
-    if cmd.startswith(_LEGACY_SERVER_PREFIX):
-        cmd = _SERVER_PREFIX + cmd[len(_LEGACY_SERVER_PREFIX) :]
     return shutil.which(cmd, path=os.environ.get("PATH", "") + os.pathsep + _bin_dir()) or cmd
 
 

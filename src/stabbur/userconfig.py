@@ -36,30 +36,11 @@ WRITABLE: dict[str, str] = {
 }
 
 
-LEGACY_CONFIG_DIRS = ("heim",)
-"""Config directory names earlier releases used, read when the current one does not exist yet.
-
-This directory holds ``library_root`` - where the model library actually is - so a rename that
-stopped looking at the old one would leave a working install unable to find its own drive, with
-nothing on screen explaining why. Writes always go to the current name.
-"""
-
-
 def config_dir() -> Path:
-    """Stabbur's XDG config dir (``$XDG_CONFIG_HOME/stabbur``, else ``~/.config/stabbur``).
-
-    Falls back to a previous release's directory while the current one does not exist, so an
-    upgrade keeps reading the settings it already had. The first write creates the new one.
-    """
+    """Stabbur's XDG config dir (``$XDG_CONFIG_HOME/stabbur``, else ``~/.config/stabbur``)."""
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base) if base else Path.home() / ".config"
-    current = root / "stabbur"
-    if current.is_dir():
-        return current
-    for legacy in LEGACY_CONFIG_DIRS:
-        if (root / legacy).is_dir():
-            return root / legacy
-    return current
+    return root / "stabbur"
 
 
 def config_path() -> Path:

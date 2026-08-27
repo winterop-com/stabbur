@@ -35,7 +35,7 @@ def test_pip_deps_from_mcp() -> None:
     assert scaffold.pip_deps_from_mcp(mcp) == ["dhis2w-mcp-bridge"]
 
 
-def test_render_pyproject_pins_heim_and_mcp_deps() -> None:
+def test_render_pyproject_pins_stabbur_and_mcp_deps() -> None:
     text = scaffold.render_pyproject(
         "My Project!", mcp=[("bridge", "uvx dhis2w-mcp-bridge")], mlx=True, extras=["voice"]
     )

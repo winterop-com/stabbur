@@ -33,7 +33,7 @@ ProblemType = Literal["code", "tool"]
 #: read suite both rely on that shape. Expected args never use this key, so the read suite's
 #: superset :func:`_args_match` is unaffected. Kept in sync with the same literal in
 #: ``stabbur.cli._app`` (a deliberate cross-package literal — stabbur must not import this package).
-RESULT_ARG_KEY = "__heim_tool_result__"
+RESULT_ARG_KEY = "__stabbur_tool_result__"
 
 
 # --- suite / result models -------------------------------------------------

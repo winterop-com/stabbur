@@ -24,7 +24,7 @@ def test_reads_generation_config(tmp_path: Path) -> None:
     assert s.repeat_penalty == 1.1  # repetition_penalty mapped to repeat_penalty
 
 
-def test_missing_config_gets_heim_defaults(tmp_path: Path) -> None:
+def test_missing_config_gets_stabbur_defaults(tmp_path: Path) -> None:
     # No generation_config (the common GGUF-quant case): every field falls back to stabbur's
     # own default, so the values are knowable (and showable) instead of depending on which
     # runtime happens to serve the model.
@@ -65,7 +65,7 @@ def test_absent_repeat_penalty_uses_default(tmp_path: Path) -> None:
     assert sampling.recommended(_mlx_model(model_dir)).repeat_penalty == sampling.DEFAULT_REPEAT_PENALTY
 
 
-def test_model_recommendation_wins_over_heim_defaults(tmp_path: Path) -> None:
+def test_model_recommendation_wins_over_stabbur_defaults(tmp_path: Path) -> None:
     # A model that ships its own values keeps them; only the fields it omits fall back.
     (tmp_path / "generation_config.json").write_text(json.dumps({"temperature": 0.2, "top_k": 100}))
     s = sampling.recommended(_mlx_model(tmp_path))

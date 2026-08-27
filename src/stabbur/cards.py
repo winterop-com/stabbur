@@ -18,27 +18,10 @@ from typing import Any
 SIDECAR_DIR = ".stabbur"
 """Name of the per-model sidecar directory (what a new pull writes)."""
 
-LEGACY_SIDECAR_DIRS = (".heim",)
-"""Sidecar names earlier releases wrote, still read so an existing library keeps working.
-
-A library drive outlives the tool that filled it: the sidecar holds where a model came from and
-its card, so a rename that quietly stopped finding them would strip provenance from every model
-already on the drive and report nothing. New writes use `SIDECAR_DIR`; `sidecar_dir` finds either.
-"""
-
 
 def sidecar_dir(model_dir: Path) -> Path:
-    """The sidecar directory to read for ``model_dir``: the current name, else a legacy one.
-
-    Returns the current name when neither exists, so callers that create it write the new layout.
-    """
-    current = model_dir / SIDECAR_DIR
-    if current.is_dir():
-        return current
-    for legacy in LEGACY_SIDECAR_DIRS:
-        if (model_dir / legacy).is_dir():
-            return model_dir / legacy
-    return current
+    """The sidecar directory for ``model_dir``."""
+    return model_dir / SIDECAR_DIR
 
 
 _CARD_CANDIDATES = ("README.md", "model_card.md", "MODEL_CARD.md", "modelcard.md")

@@ -33,20 +33,11 @@ from pydantic import (
 )
 
 _DEFAULT_PATH = Path("stabbur.toml")
-_LEGACY_PATHS = (Path("heim.toml"),)
-"""Manifest names earlier releases wrote. A project file is committed to somebody's repo, so a
-rename that stopped reading it would silently drop their model, prompt and tools."""
 
 
 def _manifest_path(base: Path = Path()) -> Path:
-    """The manifest to read under ``base``: the current name, else a legacy one it can still parse."""
-    current = base / _DEFAULT_PATH
-    if current.is_file():
-        return current
-    for legacy in _LEGACY_PATHS:
-        if (base / legacy).is_file():
-            return base / legacy
-    return current
+    """The manifest to read under ``base``."""
+    return base / _DEFAULT_PATH
 
 
 _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+\Z")

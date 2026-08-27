@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import BaseModel
 
-from stabbur import __version__ as heim_version
+from stabbur import __version__ as stabbur_version
 from stabbur import host, mcpservers, runtime, server
 from stabbur import library as library_ops
 from stabbur import project as project_ops
@@ -110,7 +110,7 @@ class DoctorReport(BaseModel):
     # Which stabbur produced this report. Not a check - there is no failing version - but it belongs
     # with the answer to "what is this stabbur", and it is the only way to tell a stale browser bundle
     # from a current one without reading package metadata by hand.
-    version: str = heim_version
+    version: str = stabbur_version
 
     @property
     def status(self) -> CheckStatus:

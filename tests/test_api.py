@@ -530,7 +530,7 @@ async def test_api_chat_sampling_parameters_override_recommendations(
         app.dependency_overrides.clear()
 
 
-async def test_status_reports_heim_sampling_defaults(client: AsyncClient) -> None:
+async def test_status_reports_stabbur_sampling_defaults(client: AsyncClient) -> None:
     # The settings UI labels an untouched slider with the value actually in force, so /api/status
     # carries stabbur's own defaults rather than the frontend keeping a copy that can drift.
     body = (await client.get("/api/status")).json()

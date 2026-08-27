@@ -111,7 +111,7 @@ per machine — no shell edits — is the **machine config**:
 
 ```bash
 sb config set library-root /path/to/your/library   # -> ~/.config/stabbur/config.toml
-sb config set model lmstudio-community/gemma-4-12B-it-QAT-GGUF   # default model outside a project
+sb config set model publisher/some-model-GGUF   # default model outside a project
 ```
 
 A **project** can instead pin its own library + model in **`stabbur.toml`** (run
