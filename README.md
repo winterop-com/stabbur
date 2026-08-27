@@ -196,6 +196,10 @@ Precedence (high → low): CLI flags, `STABBUR_*` env vars, `stabbur.toml`, `.en
 
 ## Develop
 
+Work on a `<type>/<short-description>` branch and land it through a pull request — `main` is
+public and published from (a tag on it ships to PyPI, and this README is the PyPI project page),
+so nothing goes straight there.
+
 ```bash
 make lint    # ruff format + check, mypy, pyright (mutates)
 make check   # same, read-only (CI gate) + tests
