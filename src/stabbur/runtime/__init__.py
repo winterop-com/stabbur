@@ -94,6 +94,23 @@ def runnable_error(model: LibraryModel) -> str | None:
     return None
 
 
+def runtime_binary(model: LibraryModel) -> str | None:
+    """The runtime executable that would be spawned for ``model``, or ``None`` if there is none.
+
+    The one place that answers "what does running this need" without spawning anything, so a
+    health check can cross-check a library against the binaries actually installed instead of
+    calling every model in it runnable. ``None`` means stabbur cannot run the model at all
+    (:func:`runnable_error` says why) — a different state from "runnable, but the binary is
+    missing", which is a real binary name whose lookup fails.
+    """
+    if runnable_error(model) is not None:
+        return None
+    try:
+        return build_command(model, "127.0.0.1", 0)[0]
+    except ValueError:
+        return None
+
+
 def _early_exit_error(cmd: list[str], code: int | None, log_path: Path | None, port: int) -> RuntimeError:
     """Build a RuntimeError explaining why the runtime exited during startup.
 

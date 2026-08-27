@@ -99,10 +99,20 @@ def test_check_library_offline_drive_warns(tmp_path: Path, monkeypatch: pytest.M
     assert models.status is doctor.CheckStatus.warn  # empty
 
 
+def _library_model(tmp_path: Path, name: str, fmt: ModelFormat) -> library.LibraryModel:
+    return library.LibraryModel(name=name, model_format=fmt, path=tmp_path, load_target=tmp_path)
+
+
+def _installed(monkeypatch: pytest.MonkeyPatch, *binaries: str) -> None:
+    """Pretend exactly ``binaries`` are on this machine (the doctor's view of the runtimes)."""
+    monkeypatch.setattr(doctor.runtime, "resolve_binary", lambda b: f"/usr/bin/{b}" if b in binaries else None)
+
+
 def test_check_library_counts_by_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def _model(name: str, fmt: ModelFormat) -> library.LibraryModel:
-        return library.LibraryModel(name=name, model_format=fmt, path=tmp_path, load_target=tmp_path)
+        return _library_model(tmp_path, name, fmt)
 
+    _installed(monkeypatch, "llama-server", "mlx_lm.server", "mlx_vlm.server")
     monkeypatch.setattr(
         library,
         "scan",
@@ -111,6 +121,58 @@ def test_check_library_counts_by_format(tmp_path: Path, monkeypatch: pytest.Monk
     models = next(c for c in doctor.check_library(_settings(tmp_path)) if c.name == "Runnable models")
     assert models.status is doctor.CheckStatus.ok
     assert "2 gguf" in models.detail and "1 mlx" in models.detail
+
+
+def test_runnable_models_excludes_formats_whose_runtime_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A model stabbur cannot start is not a runnable model.
+
+    An MLX-only library on a machine with no mlx_lm.server used to report "1 (1 mlx)" and exit 0,
+    and `stabbur chat` then died on "'mlx_lm.server' not found on PATH" — the pre-flight passing a
+    failure it was there to catch.
+    """
+    _installed(monkeypatch, "llama-server")  # MLX runtimes absent
+    monkeypatch.setattr(library, "scan", lambda: [_library_model(tmp_path, "a", ModelFormat.mlx)])
+    models = next(c for c in doctor.check_library(_settings(tmp_path)) if c.name == "Runnable models")
+    assert models.status is doctor.CheckStatus.warn
+    assert models.detail.startswith("0 of 1")
+    assert models.hint and "mlx_lm.server" in models.hint
+
+
+def test_runnable_models_counts_the_ones_that_can_run_and_flags_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _installed(monkeypatch, "llama-server")
+    monkeypatch.setattr(
+        library,
+        "scan",
+        lambda: [_library_model(tmp_path, "a", ModelFormat.gguf), _library_model(tmp_path, "b", ModelFormat.mlx)],
+    )
+    models = next(c for c in doctor.check_library(_settings(tmp_path)) if c.name == "Runnable models")
+    assert models.status is doctor.CheckStatus.warn  # not everything in the library can run here
+    assert models.detail == "1 of 2 (1 gguf)"
+
+
+def test_default_model_warns_when_its_runtime_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Present in the library is not the same as startable; the row must mirror what chat will say."""
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Some-MLX"))
+    monkeypatch.setattr(library, "find", lambda *_a, **_k: [_library_model(tmp_path, "pub/Some-MLX", ModelFormat.mlx)])
+    _installed(monkeypatch, "llama-server")
+    check = next(c for c in doctor.check_model(_settings(tmp_path)) if c.name == doctor.MODEL_ROW)
+    assert check.status is doctor.CheckStatus.warn
+    assert "mlx_lm.server" in check.detail
+
+
+def test_default_model_is_ok_when_its_runtime_is_installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Some-GGUF"))
+    monkeypatch.setattr(
+        library, "find", lambda *_a, **_k: [_library_model(tmp_path, "pub/Some-GGUF", ModelFormat.gguf)]
+    )
+    _installed(monkeypatch, "llama-server")
+    check = next(c for c in doctor.check_model(_settings(tmp_path)) if c.name == doctor.MODEL_ROW)
+    assert check.status is doctor.CheckStatus.ok
+    assert "isn't installed" not in check.detail
 
 
 def test_check_model_missing_from_library_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -349,7 +411,9 @@ def test_check_model_shows_machine_default_model(tmp_path: Path, monkeypatch: py
     from stabbur import config, library
 
     monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
-    monkeypatch.setattr(library, "find", lambda *_a, **_k: [object()])  # resolves in the library
+    # A real model: the row now also asks which runtime it needs, so a stand-in object won't do.
+    monkeypatch.setattr(library, "find", lambda *_a, **_k: [_library_model(tmp_path, "pub/Def", ModelFormat.gguf)])
+    _installed(monkeypatch, "llama-server")
     cfg = tmp_path / "stabbur" / "config.toml"
     cfg.parent.mkdir(parents=True)
     cfg.write_text('default_model = "pub/Def"\n')
