@@ -165,11 +165,13 @@ class _StubToolset:
 
 
 def _staged_stream() -> Any:
-    rounds = iter([("", [{"id": "1", "name": "srv__write", "args": "{}"}], None), ("done", [], None)])
+    rounds = iter(
+        [("", [{"id": "1", "name": "srv__write", "args": "{}"}], None, "tool_calls"), ("done", [], None, "stop")]
+    )
 
     async def staged(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
         return next(rounds)
 
     return staged

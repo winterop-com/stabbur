@@ -28,9 +28,9 @@ def _capture(bodies: list[dict[str, Any]]) -> Any:
 
     async def staged(
         http: Any, base_url: str, body: dict[str, Any], on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
         bodies.append(body)
-        return ("done", [], None)
+        return ("done", [], None, "stop")
 
     return staged
 

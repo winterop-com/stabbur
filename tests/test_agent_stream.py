@@ -62,7 +62,7 @@ async def test_tool_call_args_split_across_deltas_and_chunks() -> None:
     body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
     # Tiny chunks so lines land mid-frame across reads.
     async with _client(_chop(body, 9)) as http:
-        content, calls, usage = await agent._stream_turn(http, "http://runtime", {}, None)
+        content, calls, usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
 
     assert content == ""
     assert usage is None
@@ -86,7 +86,7 @@ async def test_two_parallel_tool_calls_ordered_by_index() -> None:
     ]
     body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
     async with _client(_chop(body, 13)) as http:
-        _content, calls, _usage = await agent._stream_turn(http, "http://runtime", {}, None)
+        _content, calls, _usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
 
     assert [c["id"] for c in calls] == ["a", "b"]  # ordered by index
     assert [c["name"] for c in calls] == ["first", "second"]
@@ -103,7 +103,7 @@ async def test_include_usage_final_chunk_with_empty_choices() -> None:
     ]
     body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
     async with _client(_chop(body, 17)) as http:
-        content, calls, usage = await agent._stream_turn(http, "http://runtime", {}, None)
+        content, calls, usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
 
     assert content == "hi"
     assert calls == []
@@ -124,7 +124,9 @@ async def test_reasoning_content_routed_separately_from_content() -> None:
     ]
     body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
     async with _client(_chop(body, 11)) as http:
-        content, _calls, _usage = await agent._stream_turn(http, "http://runtime", {}, tokens.append, thoughts.append)
+        content, _calls, _usage, _finish = await agent._stream_turn(
+            http, "http://runtime", {}, tokens.append, thoughts.append
+        )
 
     assert content == "The answer is 42"
     assert "".join(tokens) == "The answer is 42"  # content deltas -> on_token
@@ -149,7 +151,7 @@ async def test_done_terminates_and_non_data_lines_skipped() -> None:
         b'data: {"choices":[{"delta":{"content":" IGNORED"}}]}\n'
     )
     async with _client(_chop(body, 5)) as http:
-        content, calls, usage = await agent._stream_turn(http, "http://runtime", {}, None)
+        content, calls, usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
 
     assert content == "one two"  # frames after [DONE] are not consumed
     assert calls == []
@@ -167,3 +169,100 @@ async def test_http_error_raises_with_body_detail() -> None:
     message = str(excinfo.value)
     assert "runtime returned 400" in message
     assert "context window" in message  # the real cause is surfaced, not swallowed
+
+
+async def test_finish_reason_is_carried_out_of_the_stream() -> None:
+    # A reply the runtime cut at max_tokens looks exactly like a complete one from the frames
+    # alone — and when the whole budget went to reasoning_content, exactly like an empty one.
+    # finish_reason is the only thing that separates them, so the parser must not drop it.
+    frames = [
+        '{"choices":[{"delta":{"reasoning_content":"thinking and thinking"},"finish_reason":null}]}',
+        '{"choices":[{"delta":{},"finish_reason":"length"}]}',
+    ]
+    body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
+    async with _client(_chop(body, 15)) as http:
+        content, calls, _usage, finish = await agent._stream_turn(http, "http://runtime", {}, None)
+
+    assert content == ""  # not one content delta: the visible reply is empty
+    assert calls == []
+    assert finish == "length"  # ...and this is what says it was cut off rather than answered
+
+
+async def test_tool_call_deltas_without_index_still_accumulate() -> None:
+    # OpenAI identifies which call a delta continues with `index`; a compatible server that omits
+    # it used to raise KeyError and kill the whole stream. The first delta names the call, the
+    # rest are arguments-only fragments of it.
+    frames = [
+        '{"choices":[{"delta":{"tool_calls":[{"id":"call_1","function":{"name":"get_weather","arguments":""}}]}}]}',
+        '{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\\"city\\": "}}]}}]}',
+        '{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"\\"Oslo\\"}"}}]}}]}',
+    ]
+    body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
+    async with _client(_chop(body, 21)) as http:
+        _content, calls, _usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
+
+    assert len(calls) == 1  # one call, not three fragments
+    assert calls[0]["id"] == "call_1"
+    assert calls[0]["name"] == "get_weather"
+    assert json.loads(calls[0]["args"]) == {"city": "Oslo"}
+
+
+async def test_parallel_calls_without_ids_get_distinct_ones() -> None:
+    # A server that streams no `id` left every call with `tool_call_id: ""`, so two calls in one
+    # round produced two indistinguishable tool answers — a model cannot match either to what it
+    # asked for, and nothing about the exchange looks broken.
+    frames = [
+        '{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"read","arguments":"{}"}}]}}]}',
+        '{"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"name":"write","arguments":"{}"}}]}}]}',
+    ]
+    body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
+    async with _client(_chop(body, 19)) as http:
+        _content, calls, _usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
+
+    ids = [c["id"] for c in calls]
+    assert [c["name"] for c in calls] == ["read", "write"]
+    assert all(ids)  # every call is named
+    assert len(set(ids)) == 2  # ...and no two calls share a name
+
+
+async def test_a_minted_id_never_shadows_one_the_server_sent() -> None:
+    # Mixed: one call arrives with an id, the other without. The minted id must not collide with
+    # the real one, or the model's two tool answers would again be indistinguishable.
+    collision = f"{agent._SYNTHETIC_ID}0"
+    frames = [
+        '{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"read","arguments":"{}"}}]}}]}',
+        '{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"'
+        + collision
+        + '","function":{"name":"write","arguments":"{}"}}]}}]}',
+    ]
+    body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
+    async with _client(_chop(body, 23)) as http:
+        _content, calls, _usage, _finish = await agent._stream_turn(http, "http://runtime", {}, None)
+
+    ids = [c["id"] for c in calls]
+    assert ids[1] == collision  # the server's own id is kept verbatim
+    assert len(set(ids)) == 2
+
+
+async def test_malformed_frames_are_skipped_rather_than_fatal() -> None:
+    # Every one of these used to be an unhandled exception mid-generation: a frame that is not
+    # JSON, a chunk that is not an object, choices of the wrong shape, a delta that is not a
+    # mapping, and a tool_calls entry that is not one either. A bad frame costs its own delta.
+    frames = [
+        "not json at all",
+        "[1, 2, 3]",
+        '{"choices":"nope"}',
+        '{"choices":[]}',
+        '{"choices":[{"delta":"nope"}]}',
+        '{"choices":[{"delta":{"tool_calls":["nope",{}]}}]}',
+        '{"choices":[{"delta":{"content":"still here"},"finish_reason":"stop"}]}',
+    ]
+    body = "".join(f"data: {f}\n\n" for f in frames).encode() + b"data: [DONE]\n\n"
+    tokens: list[str] = []
+    async with _client(_chop(body, 12)) as http:
+        content, calls, _usage, finish = await agent._stream_turn(http, "http://runtime", {}, tokens.append)
+
+    assert content == "still here"  # the stream survived every malformed frame before it
+    assert tokens == ["still here"]
+    assert calls == []  # and no phantom call was conjured from the empty tool_calls entry
+    assert finish == "stop"
