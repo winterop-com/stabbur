@@ -174,6 +174,13 @@ not blocked on it — the extension already executes script in the tab. Open wor
   is the pattern (encrypt before IndexedDB; threat model is a lost device). The storage module
   is a single read/write seam with whole-record boundaries and no plaintext index, so the
   encrypt/decrypt pair has one place to go. Never by default.
+- **The TUI has no turn stats.** The web UI reports what a turn cost — tokens, wall time and
+  tokens/sec (`MessageItem.tsx`, fed by the agent loop's `on_usage` sink) — and the Textual chat
+  shows none of it. The data is already there: `agent.run` takes `on_usage` and the runtimes
+  return a final usage chunk when asked (`stream_options.include_usage`), so this is a display
+  gap in `chat_tui/`, not a plumbing one. Decide where it goes in a full-screen TUI — a footer
+  segment is the obvious slot, but it competes with the existing status line.
+
 - **Chat export.** Still open: PDF export in the TUI (the web UI has it, via the browser's
   own print pipeline — the TUI has no equivalent, so this needs a real renderer decision).
 - **Rich tags — the last mile.** Assigning a tag a color/icon ships as `stabbur library tag-style`;
