@@ -1171,3 +1171,29 @@ def test_install_to_ollama_says_the_model_lacks_a_gguf_build(monkeypatch: pytest
     assert "not in the library" not in result.output
     assert "no GGUF build" in result.output
     assert "mlx" in result.output and "--to lmstudio" in result.output
+
+
+def test_doctor_table_does_not_let_rich_eat_an_install_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The MLX hint's own command contains `[mlx]`, which Rich reads as a style tag and swallows —
+    # doctor and setup printed `uv tool install --force -e "."`, a command that installs stabbur
+    # without the MLX extra, in the very row that exists to fix a missing MLX runtime.
+    from stabbur import doctor as doctor_mod
+    from stabbur import host
+    from stabbur.cli import health
+
+    monkeypatch.setattr(health.console, "width", 300)  # one line per row, so nothing wraps mid-hint
+    report = doctor_mod.DoctorReport(
+        checks=[
+            doctor_mod.Check(
+                name="MLX text (mlx-lm)",
+                status=doctor_mod.CheckStatus.warn,
+                detail="'mlx_lm.server' not found",
+                hint=host.install_hints()["mlx_lm.server"],
+            )
+        ]
+    )
+    health._print_doctor_table(report)
+    out = capsys.readouterr().out
+    assert '".[mlx]"' in out  # the extra survives, so the printed command actually installs it
