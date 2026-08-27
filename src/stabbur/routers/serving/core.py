@@ -212,8 +212,23 @@ def _picker_rows(listings: list[BackendListing]) -> list[LibraryModelInfo]:
     return out
 
 
+def _locked_rows(rows: list[LibraryModelInfo], manager: Backends, settings: Settings) -> list[LibraryModelInfo]:
+    """Narrow a listing to the one model a locked server serves.
+
+    A locked server (``serve --model``) refuses to load anything else, so enumerating the rest
+    of the library tells a client only what is on the machine — a listing of every model name
+    on the drive, handed to whoever can reach the port. The picker is hidden in locked mode
+    anyway; the one row keeps the UI able to name what it is talking to.
+    """
+    if settings.serve_model is None:
+        return rows
+    current = manager.current
+    name = current.name if current is not None else settings.serve_model
+    return [r for r in rows if r.name == name]
+
+
 @router.get("/api/library")
-async def library(manager: ManagerDep) -> list[LibraryModelInfo]:
+async def library(manager: ManagerDep, settings: ConfDep) -> list[LibraryModelInfo]:
     """List what the UI's picker can load, merged across every declared backend.
 
     Each row names the backend it came from, so the picker can group by origin and form a
@@ -221,13 +236,16 @@ async def library(manager: ManagerDep) -> list[LibraryModelInfo]:
     ``error`` set (``model_format`` ``unavailable``) instead of failing the request: one
     unreachable host must not cost the user the models on the healthy ones.
 
+    In locked mode the listing is narrowed to the locked model (:func:`_locked_rows`).
+
     Async (``def`` before) because the probes now have to run **concurrently** — serially, a
     slow host would add its whole timeout to every listing. Nothing blocking runs on the loop:
     ``Backends.listings`` puts each probe in a worker thread and this handler puts the row
     mapping (GGUF header reads, tags.json) in one more.
     """
     listings = await manager.listings()
-    return await asyncio.to_thread(_picker_rows, listings)
+    rows = await asyncio.to_thread(_picker_rows, listings)
+    return _locked_rows(rows, manager, settings)
 
 
 class TagUpdate(BaseModel):

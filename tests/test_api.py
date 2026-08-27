@@ -1414,3 +1414,137 @@ async def test_v1_completions_still_refuse_when_nothing_is_loaded(app: FastAPI, 
         assert r.json()["detail"] == "No model loaded"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_openapi_operation_ids_are_unique() -> None:
+    # One `api_route(methods=["GET", "POST"])` gives both methods a single operation id, which is a
+    # duplicate in the schema: a startup UserWarning, and a generated client silently missing one.
+    schema = create_app(Settings(serve_model=None)).openapi()
+    ids = [op.get("operationId") for path in schema["paths"].values() for op in path.values()]
+    assert len(ids) == len(set(ids))
+
+
+async def test_locked_library_lists_only_the_locked_model(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A locked server refuses to load anything else, so enumerating the rest of the library tells
+    # a caller only what is on the machine. Locked mode answers with the one row it can serve.
+    def _model(name: str) -> LibraryModel:
+        return LibraryModel(
+            name=name, model_format=ModelFormat.gguf, path=Path(f"/tmp/{name}"), load_target=Path(f"/tmp/{name}")
+        )
+
+    monkeypatch.setattr(library_ops, "scan", lambda: [_model("some-model"), _model("other-model")])
+    assert len((await client.get("/api/library")).json()) == 2  # unlocked: the whole library
+    app.dependency_overrides[serving.get_conf] = lambda: Settings(serve_model="some-model")
+    try:
+        body = (await client.get("/api/library")).json()
+        assert [m["name"] for m in body] == ["some-model"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --- side-effectful reads (the cross-site guard's GET exemption) -------------------------------
+
+
+async def test_cross_site_verify_get_is_blocked(client: AsyncClient) -> None:
+    # GET /api/assistants/{id}?verify=1 spawns the target's MCP servers and runs its verify tool.
+    # The guard exempts GETs as reads, so a drive-by <img src> from any page fired those side
+    # effects. A GET that *runs* something is guarded exactly like a POST.
+    headers = {"sec-fetch-site": "cross-site", "origin": "https://evil.example"}
+    blocked = await client.get("/api/assistants/anything", params={"verify": 1}, headers=headers)
+    assert blocked.status_code == 403
+    assert (await client.get("/api/assistant", params={"verify": 1}, headers=headers)).status_code == 403
+
+
+async def test_cross_site_plain_assistant_read_is_not_blocked(client: AsyncClient) -> None:
+    # Only the side-effectful shape is guarded: the plain metadata read stays a read (404 here
+    # because no project is loaded — the point is that it isn't a 403).
+    headers = {"sec-fetch-site": "cross-site", "origin": "https://evil.example"}
+    assert (await client.get("/api/assistants/anything", headers=headers)).status_code == 404
+    assert (await client.get("/api/assistants", headers=headers)).status_code == 200
+    assert (await client.get("/api/assistant", params={"verify": 0}, headers=headers)).status_code == 404
+
+
+async def test_same_origin_verify_get_still_works(app: FastAPI, client: AsyncClient) -> None:
+    # The guard is about cross-site callers; the served SPA and non-browser clients are unaffected.
+    app.state.assistant = _dhis2_assistant()
+    app.state.toolset = _FakeToolset(names=["dhis2__dhis2_cli"], result={"ok": True})
+    r = await client.get("/api/assistant", params={"verify": 1}, headers={"sec-fetch-site": "same-origin"})
+    assert r.status_code == 200 and r.json()["verified"]["ok"] is True
+
+
+async def test_post_verify_routes_run_the_probe(app: FastAPI, client: AsyncClient) -> None:
+    # The POST form is the same probe under a method that admits it runs something.
+    app.state.assistant = _dhis2_assistant()
+    fake = _FakeToolset(names=["dhis2__dhis2_cli"], result={"ok": True, "server": "play42"})
+    app.state.toolset = fake
+    body = (await client.post("/api/assistant/verify")).json()
+    assert body["verified"]["data"] == {"ok": True, "server": "play42"}
+    assert fake.calls == 1
+    # The per-target route shares the one per-id cache, so it doesn't re-probe within the TTL.
+    app.state.registry = _one_target_registry(app.state.assistant)
+    assert (await client.post("/api/assistants/play42/verify")).json()["verified"]["ok"] is True
+    assert fake.calls == 1
+    assert (await client.post("/api/assistants/nope/verify")).status_code == 404
+
+
+def _one_target_registry(info: Any) -> Any:
+    """A registry holding just ``info`` (its id is the slug of its name), for the per-target routes."""
+    from stabbur.targets import AssistantRegistry
+
+    return AssistantRegistry(targets=[info])
+
+
+def test_capture_redacts_before_truncating() -> None:
+    # A secret straddling the 16KB cut used to keep its leading half: the output was capped first,
+    # so the redaction pass had only a fragment to match and left it in the response.
+    from stabbur.routers.serving.assistant import _MAX_OUTPUT, _capture
+
+    secret = "s3cret-token-value"
+    raw = b"x" * (_MAX_OUTPUT - 5) + secret.encode() + b" tail"
+    out = _capture(raw, (secret, None))
+    assert secret not in out
+    assert secret[:5] not in out  # not even the prefix that straddled the cut
+    assert "***" in out and out.endswith("... [truncated]")
+
+
+async def test_bind_invalidates_a_verify_that_is_still_in_flight(app: FastAPI, client: AsyncClient) -> None:
+    # bind's invalidate() and the verify cache write used to take DIFFERENT locks, so a probe that
+    # started before the bind could write its (pre-bind) outcome afterwards and pin it for the full
+    # 60s TTL — the panel then reported "not bound" for a minute after a successful bind.
+    import asyncio
+    import sys
+
+    from stabbur.project import AssistantInfo
+
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class _SlowToolset:
+        names = ["dhis2__dhis2_cli"]
+
+        async def call_structured(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            entered.set()
+            await release.wait()
+            return {"bound": False}  # the STALE, pre-bind answer
+
+    info = AssistantInfo.model_validate(
+        {
+            "name": "play42",
+            "base_url": "https://demo/x",
+            "verify": {"tool": "dhis2__dhis2_cli", "args": {}, "timeout": 5.0},
+            "bind": {"modes": {"pat": {"command": [sys.executable, "-c", ""], "secret_env": "PAT"}}},
+        }
+    )
+    app.state.assistant = info
+    app.state.toolset = _SlowToolset()
+
+    verifying = asyncio.create_task(client.get("/api/assistant", params={"verify": 1}))
+    await asyncio.wait_for(entered.wait(), timeout=5)  # the probe holds the target's verify lock
+    binding = asyncio.create_task(client.post("/api/assistant/bind", json={"mode": "pat", "secret": "tok"}))
+    await asyncio.sleep(0.05)  # let the bind run its command and reach the invalidate
+    release.set()
+    assert (await asyncio.wait_for(binding, timeout=10)).json()["ok"] is True
+    assert (await asyncio.wait_for(verifying, timeout=10)).json()["verified"]["data"] == {"bound": False}
+    # The stale outcome must not be cached: the next ?verify=1 re-probes against the new credential.
+    assert app.state.assistant_verified_by_id.get("play42") is None
