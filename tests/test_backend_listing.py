@@ -19,7 +19,7 @@ from stabbur.models import ModelFormat
 from stabbur.server import UpstreamManager, UpstreamModel
 
 LOCAL = BackendSpec(name="local")
-MSAI = BackendSpec(name="msai", url="http://msai:1234/v1")
+MSAI = BackendSpec(name="gpu-box", url="http://gpu-box:8080/v1")
 BOX = BackendSpec(name="box", url="http://box:9000")
 
 
@@ -66,7 +66,7 @@ async def test_library_merges_every_backend_and_names_each_row(tmp_path: Path, m
     _stub_upstreams(
         monkeypatch,
         {
-            "http://msai:1234": [UpstreamModel(name="gemma-4-12b", loaded=True, vision=True)],
+            "http://gpu-box:8080": [UpstreamModel(name="gemma-4-12b", loaded=True, vision=True)],
             "http://box:9000": [UpstreamModel(name="qwen3-coder")],
         },
     )
@@ -77,7 +77,7 @@ async def test_library_merges_every_backend_and_names_each_row(tmp_path: Path, m
     # picker groups by. Two hosts serving the same model name are only tellable apart by it.
     assert [(r["name"], r["backend"]) for r in rows] == [
         ("pub/Local-GGUF", "local"),
-        ("gemma-4-12b", "msai"),
+        ("gemma-4-12b", "gpu-box"),
         ("qwen3-coder", "box"),
     ]
     assert rows[0]["model_format"] == "gguf"  # the local rows keep their real format and size
@@ -94,18 +94,18 @@ async def test_a_down_backend_becomes_a_row_and_the_rest_still_list(
     _stub_upstreams(
         monkeypatch,
         {
-            "http://msai:1234": RuntimeError("upstream http://msai:1234 unreachable: [Errno 61] refused"),
+            "http://gpu-box:8080": RuntimeError("upstream http://gpu-box:8080 unreachable: [Errno 61] refused"),
             "http://box:9000": [UpstreamModel(name="qwen3-coder")],
         },
     )
 
     rows = await _library(_app([LOCAL, MSAI, BOX]))
 
-    assert [r["name"] for r in rows] == ["pub/Local-GGUF", "msai", "qwen3-coder"]
+    assert [r["name"] for r in rows] == ["pub/Local-GGUF", "gpu-box", "qwen3-coder"]
     dead = rows[1]
-    assert dead["backend"] == "msai" and dead["model_format"] == "unavailable"
+    assert dead["backend"] == "gpu-box" and dead["model_format"] == "unavailable"
     assert "refused" in dead["error"]
-    assert [r["error"] for r in rows if r["name"] != "msai"] == [None, None]
+    assert [r["error"] for r in rows if r["name"] != "gpu-box"] == [None, None]
 
 
 async def test_a_hung_backend_costs_the_listing_a_timeout_not_the_response(
@@ -117,7 +117,7 @@ async def test_a_hung_backend_costs_the_listing_a_timeout_not_the_response(
     monkeypatch.setattr(library_ops, "scan", lambda: [_library_model(tmp_path, "pub/Local-GGUF")])
     monkeypatch.setattr(backends, "PROBE_TIMEOUT", 0.3)
     hung = threading.Event()
-    _stub_upstreams(monkeypatch, {"http://msai:1234": hung, "http://box:9000": [UpstreamModel(name="qwen3-coder")]})
+    _stub_upstreams(monkeypatch, {"http://gpu-box:8080": hung, "http://box:9000": [UpstreamModel(name="qwen3-coder")]})
     try:
         started = time.monotonic()
         rows = await _library(_app([LOCAL, MSAI, BOX]))
@@ -125,7 +125,7 @@ async def test_a_hung_backend_costs_the_listing_a_timeout_not_the_response(
 
         assert elapsed < 2.0, f"the hung backend stalled the response ({elapsed:.2f}s)"
         assert not hung.is_set(), "the probe finished, so this proved nothing about the timeout"
-        assert [r["name"] for r in rows] == ["pub/Local-GGUF", "msai", "qwen3-coder"]
+        assert [r["name"] for r in rows] == ["pub/Local-GGUF", "gpu-box", "qwen3-coder"]
         assert rows[1]["error"] == "did not answer within 0.3s"
     finally:
         hung.set()
@@ -157,18 +157,18 @@ def test_declare_starts_pointed_at_the_named_backend_not_the_first() -> None:
 
     `declared_backends` lists the library FIRST because that is how a picker should read.
     `declare` defaults to the first spec. Wire those together with no explicit active and
-    `serve --upstream msai` starts pointed at the library - the flag silently stops meaning
+    `serve --upstream gpu-box` starts pointed at the library - the flag silently stops meaning
     what it says. Pinned because it is a wrong-answer failure, not a crash.
     """
-    specs = [BackendSpec(name="local"), BackendSpec(name="msai", url="http://msai:1234/v1")]
+    specs = [BackendSpec(name="local"), BackendSpec(name="gpu-box", url="http://gpu-box:8080/v1")]
 
     assert declare(specs).name == "local"  # default: first declared
-    assert declare(specs, active="msai").name == "msai"  # what --upstream must produce
+    assert declare(specs, active="gpu-box").name == "gpu-box"  # what --upstream must produce
 
 
 def test_declare_refuses_an_active_backend_that_was_not_declared() -> None:
     # A typo here would otherwise pick the first backend silently, which is the same
     # wrong-answer failure one layer up.
-    specs = [BackendSpec(name="local"), BackendSpec(name="msai", url="http://msai:1234/v1")]
+    specs = [BackendSpec(name="local"), BackendSpec(name="gpu-box", url="http://gpu-box:8080/v1")]
     with pytest.raises(ValueError, match="was not declared"):
         declare(specs, active="msia")

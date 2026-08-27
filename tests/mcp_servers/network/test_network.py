@@ -68,11 +68,11 @@ async def test_tailscale_status_trims_self_and_peers(monkeypatch: pytest.MonkeyP
     fake = {
         "BackendState": "Running",
         "TailscaleIPs": ["100.64.0.1"],
-        "MagicDNSSuffix": "tail1234.ts.net",
+        "MagicDNSSuffix": "tailnet.ts.net",
         "CurrentTailnet": {"Name": "example.ts.net"},
         "Self": {
-            "HostName": "msai",
-            "DNSName": "msai.tail1234.ts.net.",
+            "HostName": "gpu-box",
+            "DNSName": "gpu-box.tailnet.ts.net.",
             "TailscaleIPs": ["100.64.0.1"],
             "OS": "linux",
             "Online": True,
@@ -82,10 +82,10 @@ async def test_tailscale_status_trims_self_and_peers(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(app, "_tailscale_json", lambda: fake)
     status = await _call("tailscale_status")
     assert status["backend_state"] == "Running" and status["tailnet"] == "example.ts.net"
-    assert status["self"]["hostname"] == "msai" and status["self"]["dns_name"] == "msai.tail1234.ts.net"
+    assert status["self"]["hostname"] == "gpu-box" and status["self"]["dns_name"] == "gpu-box.tailnet.ts.net"
     assert [p["hostname"] for p in status["peers"]] == ["laptop"]
     assert await _call("tailscale_ip") == ["100.64.0.1"]
-    assert await _call("tailscale_host") == "msai.tail1234.ts.net"  # full MagicDNS FQDN, trailing dot stripped
+    assert await _call("tailscale_host") == "gpu-box.tailnet.ts.net"  # full MagicDNS FQDN, trailing dot stripped
 
 
 async def test_tailscale_errors_when_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:

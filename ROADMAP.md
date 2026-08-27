@@ -81,7 +81,7 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
 
 ## Remote model host (llama-server router on another box)
 
-Day-to-day models are served by a LAN box (`msai:1234`, llama-server in router mode); the CLI,
+Day-to-day models are served by a LAN box (`gpu-box:8080`, llama-server in router mode); the CLI,
 TUI, and `stabbur serve --upstream` all front it. Open threads:
 
 - **Remote model metadata.** Cards/tags/`n_ctx` are library concepts — a remote model shows
@@ -146,7 +146,7 @@ Open decisions, in the order they block things:
 
 - **Decided: both.** `[[backends]]` tables (project `stabbur.toml` and the machine config, layered
   by the usual `Settings` precedence) plus a repeatable `--upstream`, whose name is derived from the
-  host's first label (`http://msai:1234/v1` -> `msai`; IP literals keep every digit). The local
+  host's first label (`http://gpu-box:8080/v1` -> `gpu-box`; IP literals keep every digit). The local
   library is implicit whenever a library is *configured* — not merely when `STABBUR_LIBRARY_ROOT`
   is set, since a project's own `libraries = [...]` configures one too — and is named `local`,
   because the qualifier lands in committed `model@local` references and must not vary per machine.
@@ -157,7 +157,7 @@ Open decisions, in the order they block things:
   `@shared`-style opt-in token is the follow-up.
 
   Note `[[backends]]` in `stabbur.toml` puts a machine-specific URL in the file whose point is
-  being portable. The machine config is the honest home for a host like `msai`; the project file
+  being portable. The machine config is the honest home for a host like `gpu-box`; the project file
   is right only when a team shares the host. It should not go in the `project init` scaffold.
 - **Decided: "loaded" stays singular** — one model this stabbur is currently pointed at.
   Backends may independently hold things resident (a remote router always does); stabbur tracks

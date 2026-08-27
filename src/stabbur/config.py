@@ -350,14 +350,14 @@ def _normalize_backend_url(url: str) -> str:
 
     Mirrors :meth:`stabbur.server.UpstreamManager.__init__` (routes append their own ``/v1``
     paths), repeated rather than shared because config sits below both the server and the CLI and
-    must not import either. Normalizing at declaration time is what makes ``http://msai:1234`` and
-    ``http://msai:1234/v1`` one backend instead of two that would then collide on their name.
+    must not import either. Normalizing at declaration time is what makes ``http://gpu-box:8080`` and
+    ``http://gpu-box:8080/v1`` one backend instead of two that would then collide on their name.
     """
     return url.strip().rstrip("/").removesuffix("/v1").rstrip("/")
 
 
 def derive_backend_name(url: str) -> str:
-    """Derive a backend name from a URL's host — ``http://msai:1234/v1`` becomes ``msai``.
+    """Derive a backend name from a URL's host — ``http://gpu-box:8080/v1`` becomes ``gpu-box``.
 
     ``--upstream`` carries no name (that is the whole reason ``[[backends]]`` exists), so one is
     derived from the host: its first label, which is what a person calls the box —

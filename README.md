@@ -127,8 +127,8 @@ OpenAI-compatible `/v1` — a `llama-server` in router mode on a workstation, an
 server, anything that speaks the protocol:
 
 ```bash
-sb serve --ui --upstream http://msai:1234/v1   # web UI here, models there
-sb chat --server http://msai:1234/v1           # same, from the terminal
+sb serve --ui --upstream http://gpu-box:8080/v1   # web UI here, models there
+sb chat --server http://gpu-box:8080/v1           # same, from the terminal
 ```
 
 The agent loop, tools, confirm gate, chat history, and UI all run locally; only generation
@@ -137,7 +137,7 @@ evicts it — useful when the far end holds one model at a time.
 
 **Several at once.** `--upstream` is repeatable, and your local library is listed alongside the
 remotes, so the picker shows everything you can reach from one place. Names are derived from the
-host (`http://msai:1234/v1` becomes `msai`); declare them yourself with `[[backends]]` in the
+host (`http://gpu-box:8080/v1` becomes `gpu-box`); declare them yourself with `[[backends]]` in the
 machine config when you want your own. A backend that is unreachable shows as one row saying so
 rather than failing the whole list.
 

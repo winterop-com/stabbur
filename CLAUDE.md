@@ -208,6 +208,17 @@ Non-obvious landmines that aren't self-evident from the code:
 
 ## Dev workflow
 
+- **Never leak anything from this machine or network.** No real hostnames, no MagicDNS or
+  tailnet names, no private IPs, no model names off the drive, no paths under `$HOME`, no user
+  names — not in code, comments, tests, fixtures, docs, screenshots, commit messages, PR bodies
+  or release notes. All of those are public: the README *is* the PyPI project page, and a release
+  note is announced. Use placeholders that are obviously placeholders — `gpu-box`, `lab-rig`,
+  `example.com`, `some-remote-model`. When a real value is needed to reproduce something, it
+  belongs in the conversation, never in a commit.
+
+  This has gone wrong three times: a private model name baked into the docs screenshot, and a
+  LAN host plus a real MagicDNS name spread across the README, roadmap, source comments, tests
+  and a published release note. Grep before publishing anything outward-facing.
 - **Branch and PR, never straight to `main`.** Every change goes on a `<type>/<short-description>`
   branch and lands through a pull request — including one-line fixes and docs. `main` is public and
   published from: a tag on it publishes to PyPI, and its README is the PyPI project page, so a
