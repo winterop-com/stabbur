@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from stabbur import backends, config, mcp_catalog, mcpservers, project, runtime
+from stabbur import backends, config, mcp_catalog, mcpservers, pageactions, project, runtime
 from stabbur import library as library_ops
 from stabbur import tools as mcp_tools
 from stabbur.backends import Backends
@@ -259,6 +259,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # (user approve/decline) or auto-denied on timeout; mutated only on the event loop.
     pending_confirmations: dict[str, asyncio.Future[bool]] = {}
     app.state.pending_confirmations = pending_confirmations
+    # Pending browser-executed page actions for /api/chat, keyed the same way and for the same
+    # reason: the agent loop blocks on one of these futures while the client runs the action in the
+    # user's tab, and POST /api/chat/page-action resolves it (or a timeout / a cancelled stream
+    # resolves it as a failure). Mutated only on the event loop.
+    pending_page_actions: dict[str, asyncio.Future[pageactions.PageActionResult]] = {}
+    app.state.pending_page_actions = pending_page_actions
 
     if settings.cors_origins:
         app.add_middleware(

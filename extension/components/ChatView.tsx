@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Send, ShieldAlert, Square } from "lucide-react";
-import { confirmAction, streamChat, type Msg, type Role } from "@/api";
+import { FileText, MousePointerClick, Send, ShieldAlert, Square } from "lucide-react";
+import { confirmAction, reportPageAction, streamChat, type Msg, type Role } from "@/api";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/Markdown";
 import { ToolMarkerChip } from "@/components/ToolMarkerChip";
+import { knownPageActions, type PageActionOutcome } from "../lib/pageActions";
 
 // Per-backend transcript keys (`${STORAGE_PREFIX}${backendId}`); the bare legacy key
 // held the single pre-multi-backend transcript and is adopted once, then removed.
@@ -27,6 +28,17 @@ interface PendingConfirm {
   reason?: "user" | "timeout";
 }
 
+/** A browser-executed page action the model asked for (WEBMCP.md 5b), and how it went. Purely a
+ *  display record — the outcome has already been POSTed by the time `status` leaves "running".
+ *  Transient, never persisted. */
+interface PageActionMarker {
+  id: string;
+  action: string;
+  status: "running" | "ok" | "failed";
+  /** Why it failed — an unknown action, no page access, the wrong tab. Empty on success. */
+  error?: string;
+}
+
 interface ChatMessage {
   role: Role;
   content: string;
@@ -40,6 +52,8 @@ interface ChatMessage {
   tools?: ToolEvent[];
   /** Transient per-action confirmations awaiting (or reflecting) a decision (not persisted). */
   confirms?: PendingConfirm[];
+  /** Transient page actions run in the user's tab this turn (not persisted). */
+  pageActions?: PageActionMarker[];
 }
 
 /** One-line, clipped rendering of a confirmation's args (mirrors the tool-chip digest style). */
@@ -69,6 +83,10 @@ interface ChatViewProps {
   getContextBlock: () => Promise<{ text: string | null; pageMissing: boolean }>;
   /** FIRST await of a Send with page context on: request host access on the click gesture. */
   onEnsurePageAccess: () => Promise<void>;
+  /** Execute one page action the model asked for. The panel owns which tab that may be (WEBMCP.md
+   *  5b rule 3), so this takes only the action name — deliberately no tab, no target. Must resolve
+   *  to an outcome rather than throwing: the server is blocking the turn on the answer. */
+  runPageAction: (action: string) => Promise<PageActionOutcome>;
 }
 
 function loadStored(storageKey: string): ChatMessage[] {
@@ -162,6 +180,30 @@ function ConfirmCard({
   );
 }
 
+/** One line saying what the assistant did in the tab, and — when it could not — why. A failure is
+ *  shown as plainly as a success: the model is told the same thing, so the user should see it. */
+function PageActionChip({ marker }: { marker: PageActionMarker }) {
+  const failed = marker.status === "failed";
+  return (
+    <div
+      data-testid="page-action-chip"
+      data-status={marker.status}
+      className={cn(
+        "flex w-full items-start gap-1.5 rounded-md border px-2 py-1 text-xs",
+        failed
+          ? "border-[var(--destructive)]/50 bg-[var(--destructive)]/10 text-[var(--destructive)]"
+          : "border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]",
+      )}
+    >
+      <MousePointerClick className="mt-0.5 h-3 w-3 shrink-0" />
+      <span className="min-w-0 break-words">
+        <span className="font-mono">{marker.action}</span>{" "}
+        {marker.status === "running" ? "running in your tab…" : failed ? `failed — ${marker.error}` : "ran in your tab"}
+      </span>
+    </div>
+  );
+}
+
 // Memoized: patchLast preserves object identity for every message but the streaming one, so
 // earlier bubbles skip re-rendering on each token frame (a long transcript would otherwise
 // reconcile every bubble per token).
@@ -186,6 +228,14 @@ const MessageBubble = memo(function MessageBubble({
         <div className="w-full space-y-1">
           {message.tools.map((t, i) => (
             <ToolChip key={i} event={t} />
+          ))}
+        </div>
+      ) : null}
+
+      {message.pageActions?.length ? (
+        <div className="w-full space-y-1">
+          {message.pageActions.map((a) => (
+            <PageActionChip key={a.id} marker={a} />
           ))}
         </div>
       ) : null}
@@ -243,6 +293,7 @@ export function ChatView({
   onTogglePageText,
   getContextBlock,
   onEnsurePageAccess,
+  runPageAction,
 }: ChatViewProps) {
   // PanelApp keys this component by backendId, so a switch remounts it and this runs
   // fresh against the new backend's transcript key.
@@ -306,6 +357,44 @@ export function ChatView({
     });
   }, []);
 
+  /** Flip one page-action chip to its final state (found by id, wherever the turn left it). */
+  function settlePageAction(id: string, outcome: PageActionOutcome): void {
+    patchLast((m) => ({
+      ...m,
+      pageActions: m.pageActions?.map((a) =>
+        a.id === id ? { ...a, status: outcome.ok ? "ok" : "failed", error: outcome.ok ? undefined : outcome.error } : a,
+      ),
+    }));
+  }
+
+  /**
+   * Execute a `page_action` frame and report the outcome (WEBMCP.md 5b).
+   *
+   * Deliberately NOT awaited by the stream loop — a slow tab must not stall frame parsing, the
+   * same reason resolving a confirmation doesn't. The server is blocked on the POST either way.
+   *
+   * EVERY path here reports. A refusal, a missing host grant, a thrown injection: all of them
+   * POST `ok: false` with a reason, promptly. Silence would be indistinguishable from a slow tab
+   * until the server's fail-safe timeout fired, which costs the user that wait for nothing and
+   * tells the model less than the real reason would.
+   */
+  async function handlePageAction(id: string, action: string): Promise<void> {
+    let outcome: PageActionOutcome;
+    try {
+      outcome = await runPageAction(action);
+    } catch (err) {
+      outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    settlePageAction(id, outcome);
+    try {
+      await reportPageAction(id, outcome);
+    } catch (err) {
+      // The report itself failed (backend gone, id already timed out). Nothing left to retry —
+      // the server's fail-safe resolves the call — but the user should see why the turn stalled.
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function send(): Promise<void> {
     const text = input.trim();
     if (!text || streaming) return;
@@ -333,6 +422,10 @@ export function ChatView({
       for await (const evt of streamChat(toApiMessages(history), controller.signal, {
         useTools: true,
         target,
+        // Read off this build's own registry, never hardcoded: the server offers the model exactly
+        // the actions named here, so a declaration that drifted from what the executor implements
+        // would buy a guaranteed timeout instead of a capability.
+        pageActions: knownPageActions(),
       })) {
         switch (evt.type) {
           case "token":
@@ -343,6 +436,16 @@ export function ChatView({
             break;
           case "tool":
             patchLast((m) => ({ ...m, tools: [...(m.tools ?? []), { kind: evt.kind, detail: evt.detail }] }));
+            break;
+          case "page_action":
+            patchLast((m) => ({
+              ...m,
+              pageActions: [...(m.pageActions ?? []), { id: evt.id, action: evt.action, status: "running" }],
+            }));
+            // Fire-and-forget on purpose: see handlePageAction. `evt.args` is deliberately NOT
+            // passed on — page_read takes none, and the executor's contract is that arguments are
+            // typed per action, never forwarded blind.
+            void handlePageAction(evt.id, evt.action);
             break;
           case "confirm":
             patchLast((m) => ({
@@ -385,7 +488,14 @@ export function ChatView({
         if (last.role !== "assistant") return prev;
         const confirms = last.confirms?.filter((c) => c.status === "resolved");
         const patched: ChatMessage = { ...last, confirms: confirms?.length ? confirms : undefined };
-        const empty = patched.content === "" && !patched.reasoning && !patched.tools?.length && !patched.confirms?.length;
+        const empty =
+          patched.content === "" &&
+          !patched.reasoning &&
+          !patched.tools?.length &&
+          !patched.confirms?.length &&
+          // A page action the model ran is a thing that HAPPENED in the user's tab; a turn that
+          // did only that (a stream cut short after the read) must not vanish silently.
+          !patched.pageActions?.length;
         if (empty) return prev.slice(0, -1);
         const next = prev.slice();
         next[next.length - 1] = patched;

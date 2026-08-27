@@ -33,8 +33,19 @@ export type ChatFrame =
   | { type: "tool"; kind: "call" | "result"; detail: string }
   | { type: "confirm"; id: string; tool: string; args: Record<string, unknown> }
   | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }
+  | { type: "page_action"; id: string; action: string; args: Record<string, unknown> }
   | { type: "error"; detail: string }
   | { type: "done" };
+
+/** One recorded POST /api/chat/page-action, as the client sent it (WEBMCP.md 5b). */
+export interface PageActionCall {
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  /** The raw body, so a test can assert the exact wire shape rather than a re-parse of it. */
+  raw: string;
+}
 
 export interface MockState {
   /** Bearer token required on guarded routes; null = auth disabled. */
@@ -79,6 +90,12 @@ export interface MockState {
   confirmDeniedTail: ChatFrame[];
   /** Parsed bodies recorded for each POST /api/chat/confirm (newest last). */
   confirmCalls: { id: string; approve: boolean }[];
+  /** After a `page_action` frame the stream blocks until the client POSTs /api/chat/page-action
+   *  (or this many ms elapse, standing in for the server's fail-safe timeout), then continues with
+   *  the remaining frames — the emit/block/resume shape of the real channel. */
+  pageActionWaitMs: number;
+  /** Bodies recorded for each POST /api/chat/page-action (newest last). */
+  pageActionCalls: PageActionCall[];
   /** Response returned by POST /api/assistant(s)/{bind,unbind}. */
   bindResult: { ok: boolean; exit_code: number; stdout: string; stderr: string };
   /** Parsed bodies recorded for each bind/unbind call (newest last). `targetId` is set for the
@@ -108,6 +125,8 @@ function defaultState(): MockState {
     confirmApprovedTail: [],
     confirmDeniedTail: [],
     confirmCalls: [],
+    pageActionWaitMs: 8000,
+    pageActionCalls: [],
     bindResult: { ok: true, exit_code: 0, stdout: "", stderr: "" },
     bindCalls: [],
   };
@@ -353,6 +372,27 @@ export class StabburMock {
       return;
     }
 
+    // The page-action channel's resolving endpoint (WEBMCP.md 5b). Records the body verbatim so a
+    // test can assert the exact reported shape, then unblocks the paused stream.
+    if (path === "/api/chat/page-action" && method === "POST") {
+      const raw = await readBody(req);
+      let body: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown } = {};
+      try {
+        body = JSON.parse(raw) as typeof body;
+      } catch {
+        body = {};
+      }
+      this.state.pageActionCalls.push({
+        id: String(body.id ?? ""),
+        ok: body.ok === true,
+        result: body.result,
+        error: typeof body.error === "string" ? body.error : undefined,
+        raw,
+      });
+      this.json(res, 200, { ok: true });
+      return;
+    }
+
     // Non-API GET: serve a tiny stub HTML page (used for tab-match tests).
     if (method === "GET") {
       res.writeHead(200, { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" });
@@ -411,6 +451,12 @@ export class StabburMock {
         if (!clientGone && !res.destroyed) res.end();
         return;
       }
+      // A `page_action` frame pauses the stream the same way, but has no resolved-echo in the
+      // contract: the client answers, the agent loop resumes, and the REMAINING frames stream on.
+      if (frame.type === "page_action") {
+        await this.waitForPageAction(frame.id, this.state.pageActionWaitMs);
+        if (clientGone || res.destroyed) return;
+      }
       if (this.state.chatGapMs > 0) {
         await new Promise((r) => setTimeout(r, this.state.chatGapMs));
       }
@@ -424,6 +470,18 @@ export class StabburMock {
     while (Date.now() - start < timeoutMs) {
       const call = this.state.confirmCalls.find((c) => c.id === id);
       if (call) return call.approve;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return null;
+  }
+
+  /** Poll for a POST /api/chat/page-action matching `id`; returns it, or null on timeout (the
+   *  server's fail-safe, which resolves the call as a failure rather than hanging the turn). */
+  private async waitForPageAction(id: string, timeoutMs: number): Promise<PageActionCall | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const call = this.state.pageActionCalls.find((c) => c.id === id);
+      if (call) return call;
       await new Promise((r) => setTimeout(r, 20));
     }
     return null;
