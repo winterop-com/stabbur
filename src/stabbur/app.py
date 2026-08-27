@@ -214,8 +214,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # second one arrives, the change lands in Backends rather than in every serving route.
     # Every declared backend (the library plus any remotes), with ONE of them active — see
     # ROADMAP, "loaded stays singular". Which one is active cannot be "the first declared":
-    # the library is listed first because that reads best in a picker, and `--upstream msai`
-    # must still start pointed at msai or the flag silently stops meaning what it says.
+    # the library is listed first because that reads best in a picker, and `--upstream gpu-box`
+    # must still start pointed at gpu-box or the flag silently stops meaning what it says.
     specs = config.declared_backends(settings=settings)
     active = next((s.name for s in specs if s.url), None) if settings.upstream else None
     app.state.manager = backends.declare(specs, settings.runtime_port, active)

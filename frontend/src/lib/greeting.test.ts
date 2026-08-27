@@ -32,9 +32,9 @@ describe("greetingFor", () => {
 
   it("names the upstream host without its scheme, and says so only when there is one", () => {
     const remote = new Set(
-      Array.from({ length: 200 }, (_, i) => greetingFor({ upstream: "http://msai:1234" }, `c${i}`)),
+      Array.from({ length: 200 }, (_, i) => greetingFor({ upstream: "http://gpu-box:8080" }, `c${i}`)),
     );
-    expect([...remote].some((l) => l === "Running on msai:1234.")).toBe(true);
+    expect([...remote].some((l) => l === "Running on gpu-box:8080.")).toBe(true);
     for (const line of remote) expect(line).not.toMatch(/http/);
 
     const local = new Set(Array.from({ length: 200 }, (_, i) => greetingFor({ upstream: null }, `c${i}`)));

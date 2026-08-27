@@ -58,14 +58,14 @@ def test_a_configured_library_is_a_backend_on_its_own() -> None:
 def test_no_library_means_no_local_backend() -> None:
     # `serve --upstream` on a machine with no library is a supported setup (the models are all
     # remote): declaring a local backend there would promise a store that does not exist.
-    specs = declared_backends(["http://msai:1234"], settings=_settings(library_root=None))
-    assert specs == [BackendSpec(name="msai", url="http://msai:1234")]
+    specs = declared_backends(["http://gpu-box:8080"], settings=_settings(library_root=None))
+    assert specs == [BackendSpec(name="gpu-box", url="http://gpu-box:8080")]
 
 
 def test_local_leads_the_listing() -> None:
     # Listing order, not selection priority: the one backend that needs no network reads first.
-    specs = declared_backends(["http://msai:1234"], settings=_settings(library_root=Path("/tmp/lib")))
-    assert [s.name for s in specs] == [LOCAL_BACKEND_NAME, "msai"]
+    specs = declared_backends(["http://gpu-box:8080"], settings=_settings(library_root=Path("/tmp/lib")))
+    assert [s.name for s in specs] == [LOCAL_BACKEND_NAME, "gpu-box"]
 
 
 def test_an_entry_without_a_url_renames_the_local_library() -> None:
@@ -90,11 +90,11 @@ def test_entries_are_read_in_file_order_with_urls_normalized() -> None:
     specs = declared_backends(
         settings=_settings(
             library_root=None,
-            backends=[{"name": "msai", "url": "http://msai:1234/v1"}, {"name": "gpu", "url": "http://gpu:8080/"}],
+            backends=[{"name": "gpu-box", "url": "http://gpu-box:8080/v1"}, {"name": "gpu", "url": "http://gpu:8080/"}],
         )
     )
     assert specs == [
-        BackendSpec(name="msai", url="http://msai:1234"),
+        BackendSpec(name="gpu-box", url="http://gpu-box:8080"),
         BackendSpec(name="gpu", url="http://gpu:8080"),
     ]
 
@@ -102,12 +102,12 @@ def test_entries_are_read_in_file_order_with_urls_normalized() -> None:
 def test_a_project_toml_declares_backends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The whole point of `[[backends]]` in stabbur.toml: it is committed with the project, so
     # everyone who checks it out gets the same named backends.
-    (tmp_path / "stabbur.toml").write_text('[[backends]]\nname = "msai"\nurl = "http://msai:1234/v1"\n')
+    (tmp_path / "stabbur.toml").write_text('[[backends]]\nname = "gpu-box"\nurl = "http://gpu-box:8080/v1"\n')
     monkeypatch.chdir(tmp_path)
     config.get_settings.cache_clear()
     assert declared_backends() == [
         BackendSpec(name=LOCAL_BACKEND_NAME, url=None),
-        BackendSpec(name="msai", url="http://msai:1234"),
+        BackendSpec(name="gpu-box", url="http://gpu-box:8080"),
     ]
 
 
@@ -132,11 +132,11 @@ def test_a_project_replaces_the_machine_list_rather_than_adding_to_it(
     (cfg / "config.toml").write_text('[[backends]]\nname = "workstation"\nurl = "http://ws:8080"\n')
     project = tmp_path / "proj"
     project.mkdir()
-    (project / "stabbur.toml").write_text('[[backends]]\nname = "msai"\nurl = "http://msai:1234"\n')
+    (project / "stabbur.toml").write_text('[[backends]]\nname = "gpu-box"\nurl = "http://gpu-box:8080"\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.chdir(project)
     config.get_settings.cache_clear()
-    assert [s.name for s in declared_backends()] == [LOCAL_BACKEND_NAME, "msai"]
+    assert [s.name for s in declared_backends()] == [LOCAL_BACKEND_NAME, "gpu-box"]
 
 
 # --- --upstream, and its derived names ---------------------------------------
@@ -145,12 +145,12 @@ def test_a_project_replaces_the_machine_list_rather_than_adding_to_it(
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        ("http://msai:1234/v1", "msai"),
+        ("http://gpu-box:8080/v1", "gpu-box"),
         ("http://gpu-box.lan:8080", "gpu-box"),  # the first label is what a person calls the box
         ("https://Models.Example.COM/v1", "models"),  # hosts are case-insensitive; names are not
         ("http://127.0.0.1:9999", "127.0.0.1"),  # an IP keeps every digit: "127" names nothing
         ("http://[::1]:9999/v1", "::1"),
-        ("msai:1234", "msai"),  # a bare host:port, which urlparse would read as a scheme
+        ("gpu-box:8080", "gpu-box"),  # a bare host:port, which urlparse would read as a scheme
     ],
 )
 def test_upstream_names_come_from_the_host(url: str, expected: str) -> None:
@@ -161,35 +161,35 @@ def test_upstream_names_come_from_the_host(url: str, expected: str) -> None:
 def test_the_same_place_written_two_ways_is_one_backend() -> None:
     # Normalized before comparison, or `--upstream http://x` and `--upstream http://x/v1` would
     # be two backends fighting over one derived name.
-    specs = declared_backends(["http://msai:1234", "http://msai:1234/v1/"], settings=_settings(library_root=None))
-    assert specs == [BackendSpec(name="msai", url="http://msai:1234")]
+    specs = declared_backends(["http://gpu-box:8080", "http://gpu-box:8080/v1/"], settings=_settings(library_root=None))
+    assert specs == [BackendSpec(name="gpu-box", url="http://gpu-box:8080")]
 
 
 def test_an_already_declared_url_keeps_its_declared_name() -> None:
     # Naming a host the project already declares is a no-op, not a collision: the configured
     # name wins and the flag adds nothing.
     specs = declared_backends(
-        ["http://msai:1234/v1"],
-        settings=_settings(library_root=None, backends=[{"name": "the-box", "url": "http://msai:1234"}]),
+        ["http://gpu-box:8080/v1"],
+        settings=_settings(library_root=None, backends=[{"name": "the-box", "url": "http://gpu-box:8080"}]),
     )
-    assert specs == [BackendSpec(name="the-box", url="http://msai:1234")]
+    assert specs == [BackendSpec(name="the-box", url="http://gpu-box:8080")]
 
 
 def test_two_ports_on_one_host_collide_loudly() -> None:
-    # Both derive "msai". Never a silent pick, and never a silent drop: the message has to say
+    # Both derive "gpu-box". Never a silent pick, and never a silent drop: the message has to say
     # which two places clashed and how to fix it.
     with pytest.raises(BackendDeclarationError) as exc:
-        declared_backends(["http://msai:1234", "http://msai:5678"], settings=_settings(library_root=None))
-    assert "http://msai:1234" in str(exc.value)
-    assert "http://msai:5678" in str(exc.value)
+        declared_backends(["http://gpu-box:8080", "http://gpu-box:5678"], settings=_settings(library_root=None))
+    assert "http://gpu-box:8080" in str(exc.value)
+    assert "http://gpu-box:5678" in str(exc.value)
     assert "[[backends]]" in str(exc.value)
 
 
 def test_a_flag_name_may_collide_with_a_declared_one() -> None:
-    with pytest.raises(BackendDeclarationError, match="two backends are named 'msai'"):
+    with pytest.raises(BackendDeclarationError, match="two backends are named 'gpu-box'"):
         declared_backends(
-            ["http://msai:5678"],
-            settings=_settings(library_root=None, backends=[{"name": "msai", "url": "http://msai:1234"}]),
+            ["http://gpu-box:5678"],
+            settings=_settings(library_root=None, backends=[{"name": "gpu-box", "url": "http://gpu-box:8080"}]),
         )
 
 
@@ -203,13 +203,15 @@ def test_a_url_with_no_host_is_rejected() -> None:
 
 def test_the_legacy_upstream_setting_declares_one_backend() -> None:
     # STABBUR_UPSTREAM keeps working untouched, and now also has a name.
-    specs = declared_backends(settings=_settings(library_root=None, upstream="http://msai:1234"))
-    assert specs == [BackendSpec(name="msai", url="http://msai:1234")]
+    specs = declared_backends(settings=_settings(library_root=None, upstream="http://gpu-box:8080"))
+    assert specs == [BackendSpec(name="gpu-box", url="http://gpu-box:8080")]
 
 
 def test_a_flag_replaces_the_upstream_setting() -> None:
     # Two spellings of one switch (command line and environment), not two backends — the CLI wins.
-    specs = declared_backends(["http://gpu:8080"], settings=_settings(library_root=None, upstream="http://msai:1234"))
+    specs = declared_backends(
+        ["http://gpu:8080"], settings=_settings(library_root=None, upstream="http://gpu-box:8080")
+    )
     assert specs == [BackendSpec(name="gpu", url="http://gpu:8080")]
 
 
@@ -219,13 +221,13 @@ def test_a_flag_replaces_the_upstream_setting() -> None:
 @pytest.mark.parametrize(
     ("entry", "message"),
     [
-        ("http://msai:1234", "is not a table"),  # the list-of-strings people will try first
-        ({"url": "http://msai:1234"}, "has no name"),
-        ({"name": "", "url": "http://msai:1234"}, "has no name"),
-        ({"name": "msai", "ur1": "http://msai:1234"}, "unknown key"),
-        ({"name": "msai", "url": 8080}, "unusable url"),
-        ({"name": "ms@i", "url": "http://msai:1234"}, "may not contain"),
-        ({"name": "my box", "url": "http://msai:1234"}, "may not contain"),
+        ("http://gpu-box:8080", "is not a table"),  # the list-of-strings people will try first
+        ({"url": "http://gpu-box:8080"}, "has no name"),
+        ({"name": "", "url": "http://gpu-box:8080"}, "has no name"),
+        ({"name": "gpu-box", "ur1": "http://gpu-box:8080"}, "unknown key"),
+        ({"name": "gpu-box", "url": 8080}, "unusable url"),
+        ({"name": "ms@i", "url": "http://gpu-box:8080"}, "may not contain"),
+        ({"name": "my box", "url": "http://gpu-box:8080"}, "may not contain"),
     ],
 )
 def test_a_malformed_entry_is_reported_readably(entry: object, message: str) -> None:
@@ -241,11 +243,11 @@ def test_a_malformed_entry_does_not_break_every_command() -> None:
 
 
 def test_duplicate_names_are_rejected() -> None:
-    with pytest.raises(BackendDeclarationError, match="two backends are named 'msai'"):
+    with pytest.raises(BackendDeclarationError, match="two backends are named 'gpu-box'"):
         declared_backends(
             settings=_settings(
                 library_root=None,
-                backends=[{"name": "msai", "url": "http://a:1"}, {"name": "msai", "url": "http://b:2"}],
+                backends=[{"name": "gpu-box", "url": "http://a:1"}, {"name": "gpu-box", "url": "http://b:2"}],
             )
         )
 
@@ -266,33 +268,33 @@ def _no_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.usefixtures("_no_uvicorn", "serve_env")
 def test_one_upstream_serves_exactly_as_before() -> None:
     # The back-compat case: same env hand-off, same banner, no mention of backends.
-    result = runner.invoke(cli.app, ["serve", "--upstream", "http://msai:1234/v1"])
+    result = runner.invoke(cli.app, ["serve", "--upstream", "http://gpu-box:8080/v1"])
     assert result.exit_code == 0, result.output
-    assert os.environ["STABBUR_UPSTREAM"] == "http://msai:1234"
-    assert "Upstream: http://msai:1234" in result.output
+    assert os.environ["STABBUR_UPSTREAM"] == "http://gpu-box:8080"
+    assert "Upstream: http://gpu-box:8080" in result.output
     assert "Backends:" not in result.output
 
 
 @pytest.mark.usefixtures("_no_uvicorn", "serve_env")
 def test_several_upstreams_are_declared_and_handed_to_the_worker() -> None:
     result = runner.invoke(
-        cli.app, ["serve", "--upstream", "http://msai:1234/v1", "--upstream", "http://gpu-box.lan:8080"]
+        cli.app, ["serve", "--upstream", "http://gpu-box:8080/v1", "--upstream", "http://lab-rig.lan:8080"]
     )
     assert result.exit_code == 0, result.output
     assert json.loads(os.environ["STABBUR_BACKENDS"]) == [
         {"name": LOCAL_BACKEND_NAME, "url": None},
-        {"name": "msai", "url": "http://msai:1234"},
-        {"name": "gpu-box", "url": "http://gpu-box.lan:8080"},
+        {"name": "gpu-box", "url": "http://gpu-box:8080"},
+        {"name": "lab-rig", "url": "http://lab-rig.lan:8080"},
     ]
-    assert "msai" in result.output and "gpu-box" in result.output
+    assert "gpu-box" in result.output and "lab-rig" in result.output
     # Only the first is actually fronted today, and saying so is not optional.
-    assert os.environ["STABBUR_UPSTREAM"] == "http://msai:1234"
+    assert os.environ["STABBUR_UPSTREAM"] == "http://gpu-box:8080"
     assert "Serving the first upstream only" in result.output
 
 
 @pytest.mark.usefixtures("_no_uvicorn", "serve_env")
 def test_serve_refuses_upstreams_it_cannot_name_apart() -> None:
-    result = runner.invoke(cli.app, ["serve", "--upstream", "http://msai:1234", "--upstream", "http://msai:5678"])
+    result = runner.invoke(cli.app, ["serve", "--upstream", "http://gpu-box:8080", "--upstream", "http://gpu-box:5678"])
     assert result.exit_code == 1, result.output
     # Rich must not eat the `[[backends]]` the message tells the user to write.
     assert "[[backends]]" in result.output
@@ -302,11 +304,11 @@ def test_serve_refuses_upstreams_it_cannot_name_apart() -> None:
 def test_the_exported_backends_round_trip_into_settings() -> None:
     # STABBUR_BACKENDS is the serve->worker channel (it matters under --reload, where the worker
     # is a fresh process): what serve writes must be what the worker reads back.
-    runner.invoke(cli.app, ["serve", "--upstream", "http://msai:1234", "--upstream", "http://gpu:8080"])
+    runner.invoke(cli.app, ["serve", "--upstream", "http://gpu-box:8080", "--upstream", "http://gpu:8080"])
     config.get_settings.cache_clear()
     assert declared_backends() == [
         BackendSpec(name=LOCAL_BACKEND_NAME, url=None),
-        BackendSpec(name="msai", url="http://msai:1234"),
+        BackendSpec(name="gpu-box", url="http://gpu-box:8080"),
         BackendSpec(name="gpu", url="http://gpu:8080"),
     ]
 
@@ -322,10 +324,10 @@ def test_config_set_preserves_a_declared_backend(tmp_path: Path, monkeypatch: py
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     (tmp_path / "stabbur").mkdir()
     (tmp_path / "stabbur" / "config.toml").write_text(
-        'default_model = "a"\n\n[[backends]]\nname = "msai"\nurl = "http://msai:1234"\n'
+        'default_model = "a"\n\n[[backends]]\nname = "gpu-box"\nurl = "http://gpu-box:8080"\n'
     )
     userconfig.set_value("port", 8123)
     data = userconfig.read()
     assert data["port"] == 8123
     assert data["default_model"] == "a"
-    assert data["backends"] == [{"name": "msai", "url": "http://msai:1234"}]
+    assert data["backends"] == [{"name": "gpu-box", "url": "http://gpu-box:8080"}]

@@ -549,7 +549,7 @@ def test_chat_no_server_overrides_a_configured_server(monkeypatch: pytest.Monkey
     from stabbur import capabilities, runtime
     from stabbur.runtime import serve_registry
 
-    monkeypatch.setenv("STABBUR_CHAT_SERVER", "http://msai:1234")
+    monkeypatch.setenv("STABBUR_CHAT_SERVER", "http://gpu-box:8080")
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
     monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
@@ -596,7 +596,7 @@ def test_chat_empty_server_string_clears_a_configured_server(monkeypatch: pytest
     from stabbur import capabilities, runtime
     from stabbur.runtime import serve_registry
 
-    monkeypatch.setenv("STABBUR_CHAT_SERVER", "http://msai:1234")
+    monkeypatch.setenv("STABBUR_CHAT_SERVER", "http://gpu-box:8080")
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
     monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
@@ -870,11 +870,11 @@ def test_remote_model_id_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -
     listing = {
         "data": [
             {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
-            {"id": "qwen3.6-hauhaucs-q8", "status": {"value": "loaded"}},
+            {"id": "some-remote-model", "status": {"value": "loaded"}},
         ]
     }
     monkeypatch.setattr(chat_cli, "_probe_json", lambda url: listing)
-    assert chat_cli._remote_model_id("http://x", None) == "qwen3.6-hauhaucs-q8"
+    assert chat_cli._remote_model_id("http://x", None) == "some-remote-model"
 
 
 def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -889,14 +889,14 @@ def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatc
         return {
             "data": [
                 {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
-                {"id": "qwen3.6-hauhaucs-q8", "status": {"value": "loaded"}},
+                {"id": "some-remote-model", "status": {"value": "loaded"}},
             ]
         }
 
     monkeypatch.setattr(chat_cli, "_probe_json", fake_probe)
     endpoint = chat_cli._probe_remote("http://x", None, None)
-    assert endpoint.model_id == "qwen3.6-hauhaucs-q8"
-    assert endpoint.model_name == "qwen3.6-hauhaucs-q8"
+    assert endpoint.model_id == "some-remote-model"
+    assert endpoint.model_name == "some-remote-model"
 
 
 def test_config_set_port_pins_serve_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -199,14 +199,14 @@ def test_local_only_narrowing_names_the_member_that_was_called() -> None:
 # --- several declared, exactly one active -------------------------------------------------
 
 _LOCAL_ONLY = BackendSpec(name="local")
-_MSAI = BackendSpec(name="msai", url="http://msai:1234/v1")
+_MSAI = BackendSpec(name="gpu-box", url="http://gpu-box:8080/v1")
 _BOX = BackendSpec(name="box", url="http://box:9000")
 
 
 def test_declare_holds_every_spec_with_the_first_one_active() -> None:
     held = backends.declare([_LOCAL_ONLY, _MSAI, _BOX])
 
-    assert held.names == ("local", "msai", "box")  # declaration order is priority order
+    assert held.names == ("local", "gpu-box", "box")  # declaration order is priority order
     assert held.specs == (_LOCAL_ONLY, _MSAI, _BOX)
     assert held.name == "local"
     assert not held.is_upstream  # the scalar surface follows the ACTIVE backend, not the set
@@ -216,7 +216,7 @@ def test_declare_rejects_a_declaration_it_cannot_honour() -> None:
     with pytest.raises(ValueError, match="at least one"):
         backends.declare([])
     with pytest.raises(ValueError, match="duplicate backend name"):
-        backends.declare([_MSAI, BackendSpec(name="msai", url="http://other:1234")])
+        backends.declare([_MSAI, BackendSpec(name="gpu-box", url="http://other:1234")])
     # Two local backends would race for one runtime port and one library; several library
     # ROOTS are a thing, several local BACKENDS are not.
     with pytest.raises(ValueError, match="only one local backend"):
@@ -226,11 +226,11 @@ def test_declare_rejects_a_declaration_it_cannot_honour() -> None:
 def test_activate_moves_the_scalar_surface_and_nothing_else() -> None:
     held = backends.declare([_LOCAL_ONLY, _MSAI])
 
-    held.activate("msai")
-    assert held.name == "msai"
+    held.activate("gpu-box")
+    assert held.name == "gpu-box"
     assert held.is_upstream
-    assert held.base_url == "http://msai:1234"
-    assert held.names == ("local", "msai")  # the declared set is unchanged by activating
+    assert held.base_url == "http://gpu-box:8080"
+    assert held.names == ("local", "gpu-box")  # the declared set is unchanged by activating
 
     held.activate("local")
     assert not held.is_upstream
@@ -243,7 +243,7 @@ def test_build_names_the_single_backend_after_its_host() -> None:
     # The name is the qualifier in model@backend, and --upstream carries none — so it is
     # derived rather than left blank, or every row from a flag-declared backend would be
     # unqualifiable.
-    assert backends.build("http://msai:1234/v1").names == ("msai",)
+    assert backends.build("http://gpu-box:8080/v1").names == ("gpu-box",)
     assert backends.build(None).names == ("local",)
 
 
@@ -283,12 +283,12 @@ async def test_listings_merges_every_backend_in_declaration_order(
     monkeypatch.setattr(library_ops, "scan", lambda: [_model(tmp_path)])
     _stub_upstreams(
         monkeypatch,
-        {"http://msai:1234": _remote_rows("gemma-4-12b"), "http://box:9000": _remote_rows("qwen3-coder")},
+        {"http://gpu-box:8080": _remote_rows("gemma-4-12b"), "http://box:9000": _remote_rows("qwen3-coder")},
     )
 
     listings = await backends.declare([_LOCAL_ONLY, _MSAI, _BOX]).listings()
 
-    assert [listing.backend for listing in listings] == ["local", "msai", "box"]
+    assert [listing.backend for listing in listings] == ["local", "gpu-box", "box"]
     assert [listing.error for listing in listings] == [None, None, None]
     assert [[m.name for m in listing.models] for listing in listings] == [
         ["pub/Foo"],
@@ -299,7 +299,7 @@ async def test_listings_merges_every_backend_in_declaration_order(
     # ids — the union is the point, and flattening would have to invent the missing halves.
     assert isinstance(listings[0].models[0], LibraryModel)
     assert isinstance(listings[1].models[0], UpstreamModel)
-    assert listings[1].url == "http://msai:1234/v1"  # as declared, so a row maps back to config
+    assert listings[1].url == "http://gpu-box:8080/v1"  # as declared, so a row maps back to config
 
 
 async def test_a_dead_backend_degrades_to_a_row_and_the_healthy_ones_still_list(
@@ -309,14 +309,14 @@ async def test_a_dead_backend_degrades_to_a_row_and_the_healthy_ones_still_list(
     _stub_upstreams(
         monkeypatch,
         {
-            "http://msai:1234": RuntimeError("upstream http://msai:1234 unreachable: [Errno 61] refused"),
+            "http://gpu-box:8080": RuntimeError("upstream http://gpu-box:8080 unreachable: [Errno 61] refused"),
             "http://box:9000": _remote_rows("qwen3-coder"),
         },
     )
 
     listings = await backends.declare([_LOCAL_ONLY, _MSAI, _BOX]).listings()
 
-    assert [listing.backend for listing in listings] == ["local", "msai", "box"]
+    assert [listing.backend for listing in listings] == ["local", "gpu-box", "box"]
     assert listings[1].models == [] and "refused" in (listings[1].error or "")
     # The requirement that matters: the dead one costs its own rows and nothing else.
     assert [m.name for m in listings[0].models] == ["pub/Foo"]
@@ -328,7 +328,7 @@ async def test_an_unreachable_backend_is_bounded_by_its_own_timeout(monkeypatch:
     # fast and only the deadline ends the wait. The probe here is still running when the
     # assertions below hold — which is the point: the listing does not wait for it.
     hung = threading.Event()
-    _stub_upstreams(monkeypatch, {"http://msai:1234": hung, "http://box:9000": _remote_rows("qwen3-coder")})
+    _stub_upstreams(monkeypatch, {"http://gpu-box:8080": hung, "http://box:9000": _remote_rows("qwen3-coder")})
     try:
         started = time.monotonic()
         listings = await backends.declare([_MSAI, _BOX]).listings(timeout=0.2)
@@ -345,7 +345,7 @@ async def test_backends_are_probed_concurrently_not_one_after_another(monkeypatc
     # Serially these three cost 0.9s and every extra host adds its own latency to every
     # listing; concurrently they cost the slowest one. Measured rather than asserted about,
     # since "concurrent" is invisible in the returned value.
-    _stub_upstreams(monkeypatch, {"http://msai:1234": 0.3, "http://box:9000": 0.3, "http://third:9000": 0.3})
+    _stub_upstreams(monkeypatch, {"http://gpu-box:8080": 0.3, "http://box:9000": 0.3, "http://third:9000": 0.3})
 
     started = time.monotonic()
     await backends.declare([_MSAI, _BOX, BackendSpec(name="third", url="http://third:9000")]).listings()

@@ -116,7 +116,7 @@ def declare(specs: Sequence[BackendSpec], runtime_port: int | None = None, activ
 
     ``specs`` is in LISTING order, which is deliberately not selection order: the local library
     is listed first because that is how a picker should read, and it must not follow that a
-    plain ``serve --upstream msai`` starts pointed at the library. Whoever knows the intent
+    plain ``serve --upstream gpu-box`` starts pointed at the library. Whoever knows the intent
     passes ``active``; without it the first spec wins, which is right only when the caller has
     already put the intended one there.
 
@@ -227,8 +227,8 @@ class Backends:
     def activate(self, name: str) -> None:
         """Point the scalar surface (and so ``/v1``) at the named backend.
 
-        The hook qualified-id resolution pulls: ``load`` of ``gemma-4-12b@msai`` activates
-        ``msai`` and then loads on it. Deliberately does *not* stop the outgoing backend —
+        The hook qualified-id resolution pulls: ``load`` of ``gemma-4-12b@gpu-box`` activates
+        ``gpu-box`` and then loads on it. Deliberately does *not* stop the outgoing backend —
         a remote keeps whatever it holds regardless, and a local runtime is stopped by the
         load that replaces it (``ServerManager.load`` calls ``stop`` itself).
 
