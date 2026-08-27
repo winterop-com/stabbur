@@ -148,9 +148,23 @@ Open decisions, in the order they block things:
   place to put a name; `[[backends]]` in `stabbur.toml` (and the machine config) can carry
   `name`/`url`, with the local library an implicit backend whenever `STABBUR_LIBRARY_ROOT` is
   set. Probably both, the flag deriving a name from the host.
-- **Whether "loaded" stays singular.** One active backend at a time is the honest model — the
-  selected model implies its backend — and it keeps `/v1` proxying to exactly one place. The
-  alternative (several resident at once) buys fast switching and costs a coherent `/api/status`.
+- **Decided: "loaded" stays singular** — one model this stabbur is currently pointed at.
+  Backends may independently hold things resident (a remote router always does); stabbur tracks
+  one selection, `/api/status` keeps one answer, and `/v1` keeps one proxy target.
+
+  The case for plural was fast switching, and it largely does not exist. Remote "loading" is
+  only a *selection* — the remote holds what it holds regardless — so switching between remotes
+  is already free. And local is singular by construction: `ServerManager.load()` calls `stop()`
+  before spawning. Plural would therefore mean several llama-servers resident at once, which on
+  a machine where one model is a third of RAM is not fast switching but an OOM (observed:
+  loading two test models beside a resident one killed a running server).
+
+  Plural also costs `/v1` its transparency. It forwards to one `base_url` byte-for-byte today,
+  which is why any OpenAI client works unmodified; several live backends would mean parsing
+  every request body to route on `model`, and making the runtime reservation per-backend.
+
+  If fast local switching is ever the real want, the answer is llama-server's router mode
+  locally — built for it, and it manages the memory itself — not plural backends here.
 - **What a down backend does to the picker.** It must degrade to a row, never an empty list or
   a 502: the same per-item fault isolation the library scan already has. Needs a per-backend
   timeout and concurrent probing, or one slow host stalls every listing.
