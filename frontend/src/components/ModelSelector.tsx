@@ -413,7 +413,12 @@ export function ModelSelector({
                     <Tooltip key={m.name}>
                       <TooltipTrigger asChild>
                         <DropdownMenuItem onSelect={() => onPick(m.name)}>
-                          <span className="flex-1 truncate">{shortName(m.name)}</span>
+                          {/* The row truncates at whatever the menu is wide, and the tooltip that
+                              carries the full name only opens on hover — so a pointer told you and
+                              nothing else did. `title` is what a long name needs from the platform. */}
+                          <span className="flex-1 truncate" title={m.name}>
+                            {shortName(m.name)}
+                          </span>
                           {multi && <BackendBadge backend={m.backend} />}
                           <CapabilityIcons tools={m.tools} vision={m.vision} audio={m.audio} />
                           <span className="ml-2 w-16 shrink-0 text-right text-xs text-muted-foreground">

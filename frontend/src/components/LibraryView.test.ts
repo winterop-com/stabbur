@@ -17,6 +17,7 @@ import {
   libraryShape,
   needsBackendAxis,
   partitionLibrary,
+  stripFrontMatter,
 } from "@/components/LibraryView";
 
 /** A healthy model row. */
@@ -197,5 +198,30 @@ describe("defensive normalisation", () => {
     const legacy = { ...model("meta/llama-9b", "gguf"), backend: "" };
     expect(needsBackendAxis([legacy])).toBe(false);
     expect(backendSections([legacy])[0].backend).toBe("local");
+  });
+});
+
+describe("stripFrontMatter", () => {
+  // Hugging Face READMEs open with a `---`-fenced YAML block that Markdown has no notion of, so
+  // it rendered as the card's first paragraph: a wall of `key: value` above the description.
+  test("drops a leading YAML block", () => {
+    const card = "---\nlicense: apache-2.0\ntags:\n  - text-generation\n---\n\n# Model\n\nWhat it does.";
+    expect(stripFrontMatter(card)).toBe("\n# Model\n\nWhat it does.");
+  });
+
+  test("leaves a horizontal rule further down alone", () => {
+    // A `---` that is not the first thing in the file is a rule and means what it says.
+    const card = "# Model\n\nWhat it does.\n\n---\n\n## License";
+    expect(stripFrontMatter(card)).toBe(card);
+  });
+
+  test("leaves an unterminated fence alone", () => {
+    // Better a visible oddity than a card that silently renders as nothing.
+    const card = "---\nlicense: apache-2.0\n\n# Model";
+    expect(stripFrontMatter(card)).toBe(card);
+  });
+
+  test("a card with no front matter is returned unchanged", () => {
+    expect(stripFrontMatter("# Model\n\nWhat it does.")).toBe("# Model\n\nWhat it does.");
   });
 });

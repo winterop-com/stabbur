@@ -92,6 +92,22 @@ export interface LibModel {
   tools: boolean;
   context_length: number | null;
   tags: string[];
+  /** A backend has this model resident right now. STATE, NOT A TAG — it used to arrive as
+   *  `tags: ["loaded"]`, which put a word the server synthesised into the filter row and offered
+   *  it in the tag editor as something a person could persist. Optional: a backend older than the
+   *  field simply doesn't send it. */
+  loaded?: boolean;
+  /** How many independently loadable weights sit in the model's directory. Above one, `size_bytes`
+   *  is the sum of alternatives and a Load runs exactly one of them. Absent = one. */
+  weight_count?: number;
+}
+
+/** One weight file inside a model's directory (`role`: "loads" | "projector" | "vocoder" | ""). */
+export interface ModelFile {
+  name: string;
+  size_bytes: number;
+  size_human: string;
+  role: string;
 }
 
 /** Model-recommended sampling defaults (from generation_config.json). */
@@ -112,6 +128,8 @@ export interface ModelInfo {
   card: string | null;
   metadata: Record<string, unknown> | null;
   sampling: ModelSampling;
+  /** The weights on disk, largest first. Empty for a remote model, and absent on an older backend. */
+  files?: ModelFile[];
 }
 
 export type CheckStatus = "ok" | "warn" | "fail";
