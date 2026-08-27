@@ -81,7 +81,8 @@ async def test_library_merges_every_backend_and_names_each_row(tmp_path: Path, m
         ("qwen3-coder", "box"),
     ]
     assert rows[0]["model_format"] == "gguf"  # the local rows keep their real format and size
-    assert rows[1]["model_format"] == "remote" and rows[1]["vision"] and rows[1]["tags"] == ["loaded"]
+    assert rows[1]["model_format"] == "remote" and rows[1]["vision"] and rows[1]["loaded"]
+    assert rows[1]["tags"] == []  # what a backend is doing with a model is state, never a tag
     assert all(r["error"] is None for r in rows)
 
 

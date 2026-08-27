@@ -10,7 +10,8 @@ Worse, the unrecognised projector stayed in the weight list, where it can be loa
 import struct
 from pathlib import Path
 
-from stabbur.library._model import find_projector, pick_gguf
+from stabbur.library._model import find_projector, pick_gguf, weight_variants
+from stabbur.models import ModelFormat
 
 
 def _gguf(path: Path, arch: str, *, size: int = 0) -> Path:
@@ -68,3 +69,29 @@ def test_pick_gguf_keeps_an_oddly_named_projector_out_of_the_weights(tmp_path: P
     main, mmproj = pick_gguf(tmp_path)
     assert mmproj == proj
     assert main.name == "ultravox-Q4_K_M.gguf"
+
+
+def test_two_quants_in_one_directory_count_as_two_variants(tmp_path: Path) -> None:
+    # THE BUG THIS EXISTS FOR: a repo pulled at two quants scans as ONE model whose `size_bytes`
+    # is the sum of both files, so the browser advertised the pair's total for a Load that runs
+    # exactly one of them. Counting the variants is what lets a card say so.
+    _gguf(tmp_path / "model-Q4_K_M.gguf", "llama", size=500)
+    _gguf(tmp_path / "model-Q8_0.gguf", "llama", size=900)
+    _gguf(tmp_path / "mmproj-model-f16.gguf", "clip", size=50)
+    variants = weight_variants(tmp_path, ModelFormat.gguf)
+    assert [p.name for p in variants] == ["model-Q4_K_M.gguf", "model-Q8_0.gguf"]  # not the projector
+
+
+def test_a_split_model_is_one_variant_not_three(tmp_path: Path) -> None:
+    # The shards are pieces of one model, not alternatives to it: only the head stands for it.
+    for i in (1, 2, 3):
+        _gguf(tmp_path / f"model-0000{i}-of-00003.gguf", "llama", size=500)
+    assert [p.name for p in weight_variants(tmp_path, ModelFormat.gguf)] == ["model-00001-of-00003.gguf"]
+
+
+def test_a_safetensors_repo_has_no_variants_to_choose_between(tmp_path: Path) -> None:
+    # An MLX/safetensors repo is one model spread over shards; the whole directory loads, so
+    # there is nothing for a card to disambiguate and the count stays at one.
+    (tmp_path / "model-00001-of-00002.safetensors").write_bytes(b"x" * 10)
+    (tmp_path / "model-00002-of-00002.safetensors").write_bytes(b"x" * 10)
+    assert weight_variants(tmp_path, ModelFormat.safetensors) == []

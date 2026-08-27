@@ -88,6 +88,10 @@ class LoadedModel(BaseModel):
     name: str | None = None
     n_ctx: int | None = None  # context window it was loaded with (None = the runtime's own default)
     error: str | None = None  # why the runtime died, when nothing is loaded because it fell over
+    # Whether this server fronts a remote /v1 rather than spawning runtimes itself. The failure
+    # the ``error`` above records is a different event in each mode — a local process exited, or a
+    # remote never answered — and only one of them is fixed by picking a model again.
+    upstream: bool = False
 
 
 class BackendProbe(BaseModel):
@@ -403,14 +407,16 @@ def check_model(settings: Settings, *, loaded: LoadedModel | None = None, reside
         # so; an idle server is simply waiting to be asked and stays green — a health dot that turns
         # amber every time you open a fresh tab teaches people to ignore it.
         if loaded.error:
-            return [
-                Check(
-                    name=MODEL_ROW,
-                    status=CheckStatus.fail,
-                    detail=f"none loaded - {loaded.error}",
-                    hint="The runtime exited; pick a model again to restart it.",
-                )
-            ]
+            # The hint has to match the mode, because the two failures have nothing in common:
+            # locally a process stabbur spawned exited and picking again respawns it, while under
+            # --upstream nothing local ever ran and the fix is on the other host. Telling an
+            # upstream user to "restart the runtime" points them at a runtime that does not exist.
+            hint = (
+                "Nothing runs on this machine under --upstream; see the Backend row for the host that answers."
+                if loaded.upstream
+                else "The runtime exited; pick a model again to restart it."
+            )
+            return [Check(name=MODEL_ROW, status=CheckStatus.fail, detail=f"none loaded - {loaded.error}", hint=hint)]
         detail = "none loaded" + (f" (default: {default_model})" if default_model else "")
         return [Check(name=MODEL_ROW, status=CheckStatus.ok, detail=detail)]
 

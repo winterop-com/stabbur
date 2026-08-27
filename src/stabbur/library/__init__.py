@@ -9,7 +9,7 @@ also exposed (``library._scan`` etc.) so tests can reach the internal helpers th
 
 from stabbur.library import _manage, _model, _roots, _scan
 from stabbur.library._manage import MigrationAction, VerifyResult, apply_migration, plan_migration, remove, verify
-from stabbur.library._model import LibraryModel, ModelRef, pick_gguf
+from stabbur.library._model import LibraryModel, ModelRef, pick_gguf, weight_variants
 from stabbur.library._roots import SHARED_TOKEN, LibraryNotConfigured, configured, default_root, roots
 from stabbur.library._scan import find, find_copies, scan, tts_models
 
@@ -21,6 +21,7 @@ __all__ = [
     "LibraryModel",
     "ModelRef",
     "pick_gguf",
+    "weight_variants",
     "LibraryNotConfigured",
     "SHARED_TOKEN",
     "configured",

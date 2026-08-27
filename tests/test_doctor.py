@@ -204,6 +204,21 @@ def test_check_model_idle_server_is_not_a_warning(tmp_path: Path, monkeypatch: p
     dead = doctor.check_model(_settings(tmp_path), loaded=doctor.LoadedModel(error="exited with code 1"))[0]
     assert dead.status is doctor.CheckStatus.fail
     assert "exited with code 1" in dead.detail
+    assert dead.hint is not None and "restart it" in dead.hint
+
+
+def test_check_model_hint_does_not_offer_to_restart_a_runtime_that_never_ran(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Under --upstream nothing local ever started, so "the runtime exited; pick a model again to
+    # restart it" points at a process that does not exist and a fix that is not on this machine.
+    monkeypatch.setattr(doctor.project_ops, "load", lambda: None)
+    row = doctor.check_model(
+        _settings(tmp_path), loaded=doctor.LoadedModel(error="upstream http://gpu-box:1234 unreachable", upstream=True)
+    )[0]
+    assert row.status is doctor.CheckStatus.fail
+    assert row.hint is not None
+    assert "restart" not in row.hint and "Backend row" in row.hint
 
 
 def test_check_model_falls_back_to_the_upstreams_resident(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

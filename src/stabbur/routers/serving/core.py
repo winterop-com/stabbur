@@ -13,6 +13,7 @@ from stabbur import tags as tags_ops
 from stabbur.backends import BackendListing, Backends
 from stabbur.config import Settings
 from stabbur.library import LibraryModel
+from stabbur.models import _human_size
 from stabbur.routers.serving._base import (  # shared router + request deps
     ConfDep,
     LockDep,
@@ -87,6 +88,17 @@ class LibraryModelInfo(BaseModel):
     tools: bool = False
     context_length: int | None = None
     tags: list[str] = []
+    # STATE, NOT A TAG. A remote reporting a model resident used to be shipped as ``tags:
+    # ["loaded"]``, which put a word stabbur synthesised into the user's own tag vocabulary: it
+    # showed up in the filter row, the tag editor offered "+ loaded" as something to persist, and
+    # it took a colour from the hash palette like any hand-written label. A tag is what a person
+    # wrote on a model; this is what the backend is doing with it right now, so it is its own
+    # field and the UI renders it as a state chip.
+    loaded: bool = False
+    # How many independently loadable weights sit in this model's directory. Above one, ``size_bytes``
+    # is the sum of alternatives and a Load runs exactly one of them — see
+    # :func:`stabbur.library.weight_variants`. Always at least one for a row that names a model.
+    weight_count: int = 1
     error: str | None = None
 
 
@@ -138,9 +150,10 @@ def _remote_row(model: UpstreamModel, backend: str) -> LibraryModelInfo:
     """A picker row for one id a remote backend serves.
 
     Format ``remote`` and no size: the weights are on the other host, so there is nothing
-    truthful to report. The ``loaded`` tag marks what that remote has resident right now.
-    ``tools`` is left on unconditionally — stabbur's agent loop supplies the tools server-side,
-    so it is true regardless of what the remote says about itself.
+    truthful to report. ``loaded`` marks what that remote has resident right now — a *state*
+    field rather than a synthesised tag, so it can never be filtered on, edited or persisted as
+    though a person had written it. ``tools`` is left on unconditionally — stabbur's agent loop
+    supplies the tools server-side, so it is true regardless of what the remote says about itself.
     """
     return LibraryModelInfo(
         name=model.name,
@@ -151,7 +164,7 @@ def _remote_row(model: UpstreamModel, backend: str) -> LibraryModelInfo:
         vision=model.vision,
         audio=model.audio,
         tools=True,
-        tags=(["loaded"] if model.loaded else []),
+        loaded=model.loaded,
     )
 
 
@@ -177,6 +190,7 @@ def _local_row(model: LibraryModel, backend: str, tag_maps: dict[str, dict[str, 
         tools=caps.tools,
         context_length=caps.context_length,
         tags=tag_maps[key].get(model.name, []),  # tags come from the model's own library
+        weight_count=max(1, len(library_ops.weight_variants(model.path, model.model_format))),
     )
 
 
@@ -281,6 +295,22 @@ def tag_registry() -> dict[str, tags_ops.TagMeta]:
     return merged
 
 
+class ModelFileInfo(BaseModel):
+    """One weight file inside a model's directory.
+
+    ``role`` says what the file *is* rather than what it is called, because the name cannot be
+    trusted to: ``loads`` is the one a Load actually runs, ``projector`` and ``vocoder`` are
+    loaded alongside it, and an empty role is an alternative quant the reader could have had
+    instead. That distinction is the whole point of the listing — a directory holding two quants
+    reports the pair's bytes and runs one of them.
+    """
+
+    name: str
+    size_bytes: int
+    size_human: str
+    role: str = ""
+
+
 class ModelCardInfo(BaseModel):
     """A model's card + metadata for the UI's info panel."""
 
@@ -291,6 +321,9 @@ class ModelCardInfo(BaseModel):
     card: str | None = None
     metadata: dict[str, Any] | None = None
     sampling: ModelSampling = ModelSampling()  # model-recommended defaults (for UI placeholders)
+    # The weights on disk, largest first. Empty for a remote model (the files are on another host)
+    # and for a repo with nothing recognisable in it.
+    files: list[ModelFileInfo] = []
 
 
 @router.get("/api/model")
@@ -331,7 +364,45 @@ def model_info(name: str, manager: ManagerDep) -> ModelCardInfo:
         card=card_text,
         metadata=metadata,
         sampling=sampling.recommended(m),
+        files=_weight_files(m),
     )
+
+
+# Suffixes that are weights rather than configuration. A model directory also holds a tokenizer,
+# a config and stabbur's own sidecar; those are not what "how big is this and what will it run"
+# is asking about, so the listing leaves them out.
+_WEIGHT_SUFFIXES = (".gguf", ".safetensors", ".npz", ".bin")
+
+
+def _weight_files(model: LibraryModel) -> list[ModelFileInfo]:
+    """The model's weight files, largest first, with the one a Load runs marked.
+
+    Best-effort by design: a drive that unmounted between the scan and this call yields an empty
+    listing, never a 500 — the card and the metadata above it are still worth showing.
+    """
+    if not model.path.is_dir():
+        return []
+    named = {model.load_target: "loads", model.mmproj: "projector", model.vocoder: "vocoder"}
+    out: list[ModelFileInfo] = []
+    try:
+        candidates = [
+            p
+            for p in model.path.iterdir()
+            if p.is_file() and not p.name.startswith("._") and p.suffix.lower() in _WEIGHT_SUFFIXES
+        ]
+        for path in candidates:
+            size = path.stat().st_size
+            out.append(
+                ModelFileInfo(
+                    name=path.name,
+                    size_bytes=size,
+                    size_human=_human_size(size),
+                    role=named.get(path, ""),
+                )
+            )
+    except OSError:
+        return []
+    return sorted(out, key=lambda f: f.size_bytes, reverse=True)
 
 
 class ToolInfo(BaseModel):
@@ -447,8 +518,8 @@ def _loaded_model(manager: Backends) -> doctor.LoadedModel:
     """
     current = manager.current
     if current is None:
-        return doctor.LoadedModel(error=manager.last_error)
-    return doctor.LoadedModel(name=current.name, n_ctx=manager.n_ctx)
+        return doctor.LoadedModel(error=manager.last_error, upstream=manager.is_upstream)
+    return doctor.LoadedModel(name=current.name, n_ctx=manager.n_ctx, upstream=manager.is_upstream)
 
 
 @router.get("/api/doctor")
