@@ -1454,3 +1454,162 @@ def test_doctor_table_does_not_let_rich_eat_an_install_hint(
     health._print_doctor_table(report)
     out = capsys.readouterr().out
     assert '".[mlx]"' in out  # the extra survives, so the printed command actually installs it
+
+
+# --- `stabbur chat` with tools: which servers get spawned, and what a failure says --------------------
+
+
+class _StubToolset:
+    """Enough of an ``MCPToolset`` for a one-shot with a stubbed ``agent.run``."""
+
+    schemas: list[dict[str, object]] = []
+
+    def __init__(self, errors: list[tuple[str, str]] | None = None) -> None:
+        self.errors = errors or []
+
+    @property
+    def names(self) -> list[str]:
+        return []
+
+
+def _stub_chat_with_tools(
+    monkeypatch: pytest.MonkeyPatch, resolved: list[object], *, errors: list[tuple[str, str]] | None = None
+) -> dict[str, object]:
+    """Run ``chat -p`` against stubs and capture the server specs ``tools.connect`` was handed."""
+    import contextlib
+    from collections.abc import AsyncGenerator
+    from typing import Any
+
+    from stabbur import agent, capabilities, mcpservers, runtime, tools
+    from stabbur.runtime import serve_registry
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: list(resolved))
+    monkeypatch.setattr(runtime, "load", lambda _m: type("R", (), {"base": "http://runtime"})())
+    monkeypatch.setattr(runtime, "stop", lambda _rt: None)
+
+    @contextlib.asynccontextmanager
+    async def _connect(servers: Any) -> AsyncGenerator[_StubToolset, None]:
+        captured["servers"] = list(servers)
+        yield _StubToolset(errors)
+
+    async def _run(base: str, messages: Any, toolset: Any, max_tokens: Any, on_event: Any, on_token: Any, **kw: Any):
+        on_token("ok")  # the CLI's sink is sync (it prints); the loop calls it directly
+        return "ok"
+
+    monkeypatch.setattr(tools, "connect", _connect)
+    monkeypatch.setattr(agent, "run", _run)
+    return captured
+
+
+def test_chat_mcp_duplicate_of_a_configured_server_is_not_spawned_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `--mcp datetime` where .mcp.json already configures the identical server: one process, one
+    # namespace. Two copies gave the model the same tools under `datetime__*` and `datetime2__*`.
+    from stabbur.mcpservers import McpServer
+
+    configured = McpServer(name="datetime", command="stabbur-mcp-datetime")
+    captured = _stub_chat_with_tools(monkeypatch, [configured])
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--mcp", "datetime"])
+    assert result.exit_code == 0, result.output
+    assert captured["servers"] == [configured.to_spec()]
+
+
+def test_chat_mcp_extras_never_take_a_configured_server_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A --mcp that is genuinely different but slugs to the same prefix is appended, so the CONFIGURED
+    # server keeps the bare prefix that build_target_routing predicted for it. Ordered the other way
+    # round, the extra took `datetime` and --target scoped the target to the wrong server.
+    from stabbur import tools
+    from stabbur.mcpservers import McpServer
+
+    configured = McpServer(name="datetime", command="stabbur-mcp-datetime")
+    captured = _stub_chat_with_tools(monkeypatch, [configured])
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--mcp", "stabbur-mcp-datetime --utc"])
+    assert result.exit_code == 0, result.output
+    specs = captured["servers"]
+    assert isinstance(specs, list) and len(specs) == 2
+    assert specs[0] == configured.to_spec()  # configured first, extras after
+    prefixes = tools.assign_prefixes(specs)
+    assert prefixes == ["datetime", "datetime2"]
+    assert prefixes[0] == tools._prefix_by_name([configured])["datetime"]  # what --target routes on
+
+
+def test_chat_warns_about_an_mcp_command_that_does_not_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A typo'd --mcp used to produce a session with no tools, no message, and exit 0.
+    captured = _stub_chat_with_tools(monkeypatch, [])
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--mcp", "stabbur-not-a-real-server"])
+    assert result.exit_code == 0, result.output
+    assert "no such command" in result.output and "stabbur-not-a-real-server" in result.output
+    assert captured["servers"]  # still attempted, so connect() records the real failure too
+
+
+def test_chat_reports_a_server_that_failed_to_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    # connect() records per-server failures instead of raising; the one-shot has to say so (on stderr,
+    # so stdout stays exactly the answer) rather than answer as if the tools were never asked for.
+    _stub_chat_with_tools(monkeypatch, [], errors=[("bogus", "[Errno 2] no such file")])
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--mcp", "stabbur-mcp-datetime"])
+    assert result.exit_code == 0, result.output
+    assert "did not start" in result.output and "bogus" in result.output
+
+
+# --- `stabbur chat --image`: attachments are checked before anything is sent --------------------------
+
+
+def _stub_oneshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enough stubs for `chat -p --no-tools` to reach (and print) an answer."""
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities(vision=True))
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    monkeypatch.setattr(runtime, "generate", lambda *a, **k: "ok")
+
+
+def test_chat_image_must_exist(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _stub_oneshot(monkeypatch)
+    missing = tmp_path / "shot.png"
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "-i", str(missing)])
+    assert result.exit_code == 1
+    assert "image file not found" in result.output  # not "Vision not found", which is not a thing
+
+
+def test_chat_image_must_actually_be_an_image(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Unchecked, a non-image was base64'd into the request and the only symptom was the runtime's own
+    # HTTP error, naming an ephemeral internal port and saying nothing about the attachment.
+    _stub_oneshot(monkeypatch)
+    notes = tmp_path / "notes.png"
+    notes.write_text("this is not a png")
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "-i", str(notes)])
+    assert result.exit_code == 1
+    assert "not an image file" in result.output
+
+
+def test_chat_accepts_a_real_image(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _stub_oneshot(monkeypatch)
+    png = tmp_path / "shot.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "-i", str(png)])
+    assert result.exit_code == 0, result.output
+
+
+def test_clean_error_hides_the_internal_runtime_url() -> None:
+    # The runtime stabbur spawned answers on an ephemeral loopback port the user never chose; putting
+    # it in the error explains nothing ("413 Payload Too Large for url http://127.0.0.1:<port>/...").
+    import httpx
+
+    url = "http://127.0.0.1:51234/v1/chat/completions"
+    status = httpx.HTTPStatusError(
+        f"Client error '413 Payload Too Large' for url '{url}'",
+        request=httpx.Request("POST", url),
+        response=httpx.Response(413, request=httpx.Request("POST", url)),
+    )
+    message = cli.chat._clean_error(status)
+    assert "127.0.0.1" not in message and "too large" in message
+
+    # A non-HTTP failure keeps its own words, minus any loopback URL...
+    assert cli.chat._clean_error(RuntimeError(f"runtime exited, see {url}")) == "runtime exited, see"
+    # ...while a host the user typed is the whole point of the message and stays.
+    assert "gpu-box" in cli.chat._clean_error(RuntimeError("cannot reach http://gpu-box:1234/v1"))

@@ -331,3 +331,88 @@ async def test_connect_bridge_eager_all_spawns_everything(monkeypatch: Any) -> N
     async with tools.connect_bridge(resolved, routing, registry.ids[0], eager_all=True) as bridge:
         assert sorted(spawned) == ["play41", "play42"]  # STABBUR_EAGER_MCP -> nothing deferred
         assert bridge.pending_prefixes == set()
+
+
+# --- connect(): the same ownership + prefix discipline as _spawn_into --------------------------------
+
+
+async def test_connect_reaps_a_client_whose_tool_listing_fails(monkeypatch: Any) -> None:
+    # connect()'s mirror of the _spawn_into F-1 case: __aenter__ succeeds, list_tools raises. The
+    # client used to be entered on the SHARED stack before add(), leaving a live stdio subprocess for
+    # the whole session with no tools to show for it.
+    made: list[_TrackingClient] = []
+    _patch_client_factory(monkeypatch, made, lambda: _TrackingClient(["w"], fail_list=len(made) == 0))
+
+    async with tools.connect([("bad", ["x"]), ("good", ["y"])]) as toolset:
+        assert made[0].entered and made[0].exited  # the failed server's subprocess died immediately
+        assert toolset.errors == [("bad", "list_tools boom")]
+        assert toolset.names == ["good__w"]  # one bad server never takes down the rest
+        assert made[1].entered and not made[1].exited  # the good one is live for the session
+    assert made[1].exited  # ...and closed exactly once, by the shared stack
+
+
+async def test_connect_prefixes_do_not_shift_when_a_server_fails(monkeypatch: Any) -> None:
+    # Prefixes are assigned from the spec list, not counted as spawns succeed. Two servers slugging to
+    # "datetime": the second must stay "datetime2" even though the first never started, because that
+    # is what _prefix_by_name (and therefore --target routing) predicts for it.
+    made: list[_TrackingClient] = []
+    _patch_client_factory(monkeypatch, made, lambda: _TrackingClient(["now"], fail_list=len(made) == 0))
+
+    async with tools.connect([("datetime", ["x"]), ("datetime", ["y"])]) as toolset:
+        assert toolset.names == ["datetime2__now"]
+
+
+# --- the API paths race the lazy spawn (settings / disable) -----------------------------------------
+
+
+async def test_update_server_waits_out_an_inflight_spawn() -> None:
+    # TOCTOU: mid-spawn the prefix is not yet in prefixes() and still in _pending, so an unlocked
+    # update wrote into the dict entry the spawn was about to pop — reporting "applied" for a config
+    # change that was silently discarded. Under the lock the update lands *after* the spawn and
+    # answers False, which the route turns into "restart to apply the new settings".
+    bridge, _ = _bridge({"files": ["read"]}, delay=0.02)
+    routing = tools.TargetRouting(explicit={"files": {"files"}})
+    task = asyncio.create_task(bridge.ensure_target(routing, "files"))
+    await asyncio.sleep(0.005)  # the spawn is in flight, holding the lock
+    applied = await bridge.update_server(McpServer(name="files", command="x", env={"STABBUR_FILES_ROOT": "/tmp"}))
+    await task
+    assert applied is False  # the server is live now; a running process cannot be re-env'd
+    assert bridge.pending_prefixes == set()  # and nothing was written into a popped entry
+
+
+async def test_update_server_applies_to_a_pending_server() -> None:
+    bridge, _ = _bridge({"files": ["read"]})
+    server = McpServer(name="files", command="x", env={"STABBUR_FILES_ROOT": "/tmp"})
+    assert await bridge.update_server(server) is True
+    assert bridge._pending["files"].env == {"STABBUR_FILES_ROOT": "/tmp"}  # the queued spawn gets it
+
+
+async def test_remove_server_cancels_a_queued_spawn() -> None:
+    # A disable that only asked "is it live?" left the pending spec in place, so the server was still
+    # spawned on the next first-use — attaching the very tools that had just been switched off.
+    bridge, counts = _bridge({"files": ["read"]})
+    server = McpServer(name="files", command="x")
+    assert await bridge.remove_server(server) is True  # nothing of it is running: fully applied
+    assert bridge.pending_prefixes == set()
+    await bridge.ensure_target(tools.TargetRouting(explicit={"files": {"files"}}), "files")
+    assert counts == {}  # never spawned after the disable
+    assert bridge.toolset.names == []
+
+
+async def test_remove_server_reports_a_live_server_and_keeps_it() -> None:
+    bridge, _ = _bridge({"files": ["read"]})
+    server = McpServer(name="files", command="x")
+    await bridge.ensure_target(tools.TargetRouting(explicit={"files": {"files"}}), "files")
+    assert await bridge.remove_server(server) is False  # a running subprocess can't be detached
+    assert bridge.toolset.names == ["files__read"]  # honest: its tools stay until a restart
+
+
+async def test_remove_server_waits_out_an_inflight_spawn() -> None:
+    bridge, _ = _bridge({"files": ["read"]}, delay=0.02)
+    routing = tools.TargetRouting(explicit={"files": {"files"}})
+    task = asyncio.create_task(bridge.ensure_target(routing, "files"))
+    await asyncio.sleep(0.005)
+    removed = await bridge.remove_server(McpServer(name="files", command="x"))
+    await task
+    assert removed is False  # the spawn won the race -> reported as live, not silently "gone"
+    assert bridge.toolset.names == ["files__read"]

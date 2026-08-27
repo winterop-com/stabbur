@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 
 _NAME_STRIP = re.compile(r"^(stabbur-mcp-|mcp-server-|mcp-)")
 
+McpSpec = tuple[str | None, list[str]] | tuple[str | None, list[str], dict[str, str]]
+"""One server to spawn: ``(name, argv)`` or ``(name, argv, env)`` — what :func:`connect` takes."""
+
 
 def _bin_dir() -> str:
     """The running interpreter's directory — where stabbur's bundled ``stabbur-mcp-*`` scripts live.
@@ -59,6 +62,16 @@ def _resolve_command(cmd: str) -> str:
     (or absolute) is returned as-is; an unfound one is passed through unchanged.
     """
     return shutil.which(cmd, path=os.environ.get("PATH", "") + os.pathsep + _bin_dir()) or cmd
+
+
+def command_found(command: str) -> bool:
+    """Whether a spawn command resolves to an executable (stabbur's own bin/ searched too).
+
+    The cheap pre-flight behind the CLI's ``--mcp`` warning: a mistyped command is by far the most
+    common way a hand-passed server fails, and spotting it before the spawn lets the CLI say so on
+    stderr instead of leaving the session quietly toolless.
+    """
+    return shutil.which(command, path=os.environ.get("PATH", "") + os.pathsep + _bin_dir()) is not None
 
 
 def _slug(text: str) -> str:
@@ -308,21 +321,35 @@ class TargetRouting(BaseModel):
         return not self.explicit and not self.owns_all
 
 
+def assign_prefixes(specs: "Sequence[McpSpec]") -> list[str]:
+    """The tool prefix each spec gets, in order — the **one** place that decides namespacing.
+
+    A duplicate prefix is suffixed ``prefix2`` / ``prefix3`` (two *different* names can slug to the
+    same prefix — e.g. ``a-b`` and ``a_b``). :func:`connect` assigns from this rather than counting as
+    it spawns, so the assignment depends only on the spec *list*: a server that fails to start no
+    longer shifts the next same-prefix server onto the bare prefix, and :func:`_prefix_by_name` (which
+    routing is built from) predicts the live namespacing exactly instead of replaying a second copy of
+    this rule.
+    """
+    used: dict[str, int] = {}
+    out: list[str] = []
+    for spec in specs:
+        base = _server_prefix(spec[0], spec[1])
+        n = used.get(base, 0)
+        used[base] = n + 1
+        out.append(base if n == 0 else f"{base}{n + 1}")
+    return out
+
+
 def _prefix_by_name(resolved: "Sequence[McpServer]") -> dict[str, str]:
     """Map each resolved server's ``.mcp.json`` name to the tool prefix :func:`connect` gives it.
 
-    Replays connect's assignment in the same order: the slug of a duplicate prefix is suffixed
-    ``prefix2`` / ``prefix3`` (two *different* names can slug to the same prefix — e.g. ``a-b`` and
-    ``a_b`` — and connect disambiguates the second, so this must too). Precedent: ``cli/project.py``.
+    Straight through :func:`assign_prefixes`, so this is a *use* of connect's rule rather than a
+    second copy of it. Callers that prepend extra servers to the connect list (the CLI's ``--mcp``)
+    must append them **after** the resolved ones, or these prefixes are not the ones connect assigns.
+    Precedent: ``cli/project.py``.
     """
-    used: dict[str, int] = {}
-    mapping: dict[str, str] = {}
-    for server in resolved:
-        base = _server_prefix(server.name, [server.command, *server.args])
-        n = used.get(base, 0)
-        used[base] = n + 1
-        mapping[server.name] = base if n == 0 else f"{base}{n + 1}"
-    return mapping
+    return dict(zip([s.name for s in resolved], assign_prefixes([s.to_spec() for s in resolved]), strict=True))
 
 
 def build_target_routing(resolved: "Sequence[McpServer]", registry: "AssistantRegistry") -> TargetRouting:
@@ -371,25 +398,32 @@ def narrow_to_servers(toolset: MCPToolset, routing: TargetRouting, target_id: st
 
 
 @asynccontextmanager
-async def connect(
-    servers: Sequence[tuple[str | None, list[str]] | tuple[str | None, list[str], dict[str, str]]],
-) -> AsyncGenerator[MCPToolset, None]:
+async def connect(servers: Sequence[McpSpec]) -> AsyncGenerator[MCPToolset, None]:
     """Spawn one or more MCP servers over stdio and yield a merged, namespaced toolset.
 
     Each server is ``(name, command)`` or ``(name, command, env)``: tools are namespaced under
     the given ``name`` when set (the ``.mcp.json`` server key), else a prefix derived from the
     executable. ``name`` may be ``None`` for a bare command (e.g. CLI ``--mcp``). A server's
     ``env`` (from its ``.mcp.json`` entry) is merged over stabbur's base environment for it only.
+
+    Prefixes come from :func:`assign_prefixes` up front, so the namespace a server lands in is a
+    function of the spec list alone — a failed spawn can't shift the next same-prefix server onto the
+    bare prefix, and routing built from :func:`_prefix_by_name` names the same servers this does.
+
+    Ownership discipline mirrors :func:`_spawn_into` (the two are one spawn body in two shapes): the
+    client is entered on a **local** stack and handed to the shared one only after ``toolset.add``
+    (``list_tools``) succeeds, so a server whose handshake completes but whose tool listing fails has
+    its stdio subprocess reaped here instead of living on, unusable, until teardown.
     """
     toolset = MCPToolset()
-    used: dict[str, int] = {}  # disambiguate servers that derive the same prefix
     base_env = _mcp_env()  # stabbur's bin/ on PATH so bundled stabbur-mcp-* servers resolve
+    prefixes = assign_prefixes(servers)
     async with AsyncExitStack() as stack:
-        for spec in servers:
+        for spec, prefix in zip(servers, prefixes, strict=True):
             name, command = spec[0], spec[1]
             server_env = spec[2] if len(spec) > 2 else {}
             env = {**base_env, **server_env} if server_env else base_env
-            prefix = _server_prefix(name, command)
+            local_stack = AsyncExitStack()
             # One server failing to start (e.g. an uninstalled optional server, a bad command)
             # must not take down the others — skip it, record why, and keep going.
             try:
@@ -400,12 +434,13 @@ async def connect(
                 # Bound the MCP initialize handshake: fastmcp's default is None (wait forever), so a
                 # server that starts but never completes init would hang `serve` startup / the TUI
                 # mount indefinitely. 60s tolerates a cold `uvx`/`npx` first run; a hang is caught below.
-                client = await stack.enter_async_context(Client(transport, init_timeout=60))
-                n = used.get(prefix, 0)
-                used[prefix] = n + 1
-                await toolset.add(client, prefix if n == 0 else f"{prefix}{n + 1}")
+                client = await local_stack.enter_async_context(Client(transport, init_timeout=60))
+                await toolset.add(client, prefix)
             except Exception as exc:  # noqa: BLE001 - surface any spawn/connect failure without aborting the rest
+                await local_stack.aclose()  # kill a half-entered client's subprocess before moving on
                 toolset.errors.append((name or command[0], str(exc)))
+                continue
+            stack.push_async_callback(local_stack.pop_all().aclose)
         yield toolset
 
 
@@ -523,6 +558,21 @@ class MCPBridge:
         """Spawn ``server`` under ``prefix`` on the shared stack (indirection kept overridable for tests)."""
         return await _spawn_into(self._stack, self.toolset, prefix, server, is_closing=lambda: self._closing)
 
+    def _lock(self, prefix: str) -> asyncio.Lock:
+        """The per-prefix lock guarding *every* mutation of that prefix's spawn state.
+
+        Not only the single-flight spawn: an enable, a settings update, and a disable arriving from the
+        API while a lazy spawn is in flight all take this, so a change lands strictly before or after a
+        spawn. Without it, ``_pending[prefix]`` is a torn window — mid-spawn the prefix is not yet in
+        :meth:`MCPToolset.prefixes` *and* still in ``_pending``, so a writer would report "applied" into
+        a dict entry ``_ensure_one`` is about to pop.
+        """
+        lock = self._locks.get(prefix)
+        if lock is None:  # no await between the .get() and the set -> race-free on the single-threaded loop
+            lock = asyncio.Lock()
+            self._locks[prefix] = lock
+        return lock
+
     async def _ensure_one(self, prefix: str) -> None:
         """Spawn one pending ``prefix`` under its single-flight lock (a racing first-use waits, not respawns).
 
@@ -531,18 +581,23 @@ class MCPBridge:
         """
         if self._closing:  # teardown started -> don't begin a new spawn
             return
-        lock = self._locks.get(prefix)
-        if lock is None:  # no await between the .get() and the set -> race-free on the single-threaded loop
-            lock = asyncio.Lock()
-            self._locks[prefix] = lock
-        async with lock:
-            if self._closing:  # re-check: teardown may have begun while we waited for the lock
-                return
-            server = self._pending.get(prefix)
-            if server is None:  # a racing caller already spawned it (single-flight)
-                return
-            if await self._spawn(prefix, server):
-                self._pending.pop(prefix, None)  # live now; a failure stays pending so first-use retries
+        async with self._lock(prefix):
+            await self._spawn_locked(prefix)
+
+    async def _spawn_locked(self, prefix: str) -> None:
+        """Spawn one pending ``prefix``, assuming its lock is **already held** by the caller.
+
+        Split out of :meth:`_ensure_one` so the API paths (:meth:`add_server`) can mutate ``_pending``
+        and spawn in one uninterrupted critical section — ``asyncio.Lock`` is not reentrant, so they
+        cannot simply call :meth:`_ensure_one` while holding it.
+        """
+        if self._closing:  # re-check: teardown may have begun while we waited for the lock
+            return
+        server = self._pending.get(prefix)
+        if server is None:  # a racing caller already spawned it (single-flight)
+            return
+        if await self._spawn(prefix, server):
+            self._pending.pop(prefix, None)  # live now; a failure stays pending so first-use retries
 
     async def ensure(self, prefixes: Iterable[str]) -> None:
         """Spawn any not-yet-live servers among ``prefixes`` (already-live/unknown prefixes are no-ops)."""
@@ -550,16 +605,24 @@ class MCPBridge:
         if wanted:
             await asyncio.gather(*(self._ensure_one(p) for p in wanted))
 
+    def prefix_of(self, server: "McpServer") -> str:
+        """The tool prefix ``server`` spawns under — the namespacing convention stays in this module."""
+        return _server_prefix(server.name, [server.command, *server.args])
+
     def is_live(self, server: "McpServer") -> bool:
         """Whether ``server``'s tools are attached to the toolset **right now**.
 
-        Keyed by the same prefix :func:`_server_prefix` gives it at spawn time, so a caller (the
-        enable/disable API) can ask "is this already running?" without re-deriving the namespacing
-        convention — the one place that knows it stays in this module.
+        A lock-free read: true the instant a spawn finishes, but a spawn *in flight* still reads False.
+        Callers that act on the answer (the disable API) must use :meth:`remove_server`, which decides
+        under the prefix lock; this is for display and for tests.
         """
-        return _server_prefix(server.name, [server.command, *server.args]) in self.toolset.prefixes()
+        return self.prefix_of(server) in self.toolset.prefixes()
 
-    def update_server(self, server: "McpServer") -> bool:
+    def tool_count(self, server: "McpServer") -> int:
+        """How many of ``server``'s tools are attached right now (0 when it isn't live)."""
+        return len(self.toolset.names_for_prefixes({self.prefix_of(server)}))
+
+    async def update_server(self, server: "McpServer") -> bool:
         """Re-queue a *pending* server so a config change (new env) applies without a restart.
 
         Returns whether the change is in effect. Spawning is lazy, so the common case for a settings
@@ -568,13 +631,37 @@ class MCPBridge:
         An **already-attached** subprocess is a different story — a running process cannot be re-env'd —
         so that answers False and the caller must say "restart", never report a silent success. A server
         that is neither live nor pending has nothing to update, which is trivially applied.
+
+        Taken under the prefix lock (:meth:`_lock`), so it can't land in the window where a lazy spawn
+        has read ``_pending[prefix]`` but not yet popped it: the write would have been discarded a
+        moment later while the caller had already been told ``applied``.
         """
-        prefix = _server_prefix(server.name, [server.command, *server.args])
-        if prefix in self.toolset.prefixes():
-            return False
-        if prefix in self._pending:
-            self._pending[prefix] = server
-        return True
+        prefix = self.prefix_of(server)
+        async with self._lock(prefix):
+            if prefix in self.toolset.prefixes():
+                return False
+            if prefix in self._pending:
+                self._pending[prefix] = server
+            return True
+
+    async def remove_server(self, server: "McpServer") -> bool:
+        """Un-queue a switched-off server; report whether the disable is fully in effect.
+
+        Returns True when nothing of ``server`` is running here — the disable took effect completely.
+        Returns False when its subprocess is already attached: a running server cannot be detached, so
+        the caller must say "restart", never claim the tools are gone.
+
+        Dropping the *pending* entry is the half a plain "is it live?" check missed: a server queued for
+        a lazy first-use spawn would otherwise still be spawned — attaching the very tools that were just
+        switched off — long after the config said no. Under the prefix lock, so a spawn in flight is
+        waited out and reported as live rather than slipping in behind the answer.
+        """
+        prefix = self.prefix_of(server)
+        async with self._lock(prefix):
+            if prefix in self.toolset.prefixes():
+                return False
+            self._pending.pop(prefix, None)
+            return True
 
     async def add_server(self, server: "McpServer") -> tuple[bool, str]:
         """Attach a newly-configured server to the live toolset — an *enable* that needs no restart.
@@ -586,22 +673,28 @@ class MCPBridge:
         so the caller reports a real failure rather than a fake success. A failed spawn stays *pending*
         (the existing retry contract), so an owns-all target's next first-use tries again.
 
+        An enable **always attempts the spawn**, including for a prefix that is already pending. It used
+        to report ``deferred - spawns on first use`` there, which was true only for a target-scoped server
+        in a project: first use runs through :meth:`ensure_target`, which spawns nothing when routing is
+        empty — so in free-play (and for a prefix left pending by an earlier *failed* enable) "deferred"
+        meant never. The queued spec is replaced by the one just enabled, so the spawn also picks up any
+        settings written in the same call.
+
         Not routed: ``app.state.target_routing`` was computed at startup, so a server added later is owned
         by no target and therefore **shared** — visible to every target, which is what a machine-global
         toggle means. A per-target scoping change still needs a restart.
         """
-        prefix = _server_prefix(server.name, [server.command, *server.args])
-        if prefix in self.toolset.prefixes():
-            return True, "already attached"
-        if prefix in self._pending:
-            return True, "deferred - spawns on first use"
-        self._pending[prefix] = server
-        await self._ensure_one(prefix)
-        if prefix not in self._pending:  # _ensure_one clears it only on a successful spawn
-            return True, ""
-        label = server.name or server.command
-        reason = next((err for lbl, err in reversed(self.toolset.errors) if lbl == label), "could not start")
-        return False, reason
+        prefix = self.prefix_of(server)
+        async with self._lock(prefix):
+            if prefix in self.toolset.prefixes():
+                return True, "already attached"
+            self._pending[prefix] = server  # newest config wins over a deferred or previously-failed spec
+            await self._spawn_locked(prefix)
+            if prefix not in self._pending:  # cleared only on a successful spawn
+                return True, ""
+            label = server.name or server.command
+            reason = next((err for lbl, err in reversed(self.toolset.errors) if lbl == label), "could not start")
+            return False, reason
 
     async def ensure_target(self, routing: TargetRouting, target_id: str) -> None:
         """Spawn ``target_id``'s pending servers: its explicit set, or every pending one for owns-all.
