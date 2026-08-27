@@ -132,9 +132,6 @@ not blocked on it — the extension already executes script in the tab. Open wor
   is the pattern (encrypt before IndexedDB; threat model is a lost device). The storage module
   is a single read/write seam with whole-record boundaries and no plaintext index, so the
   encrypt/decrypt pair has one place to go. Never by default.
-- **Structured output.** No `response_format` or grammar support, so anything wanting a parseable
-  answer — classification, extraction — gets prose and a regex. The gap shows up the moment stabbur
-  is used as a service rather than a chat window (see `docs/guides/api.md`).
 - **Chat export.** Still open: PDF export in the TUI (the web UI has it, via the browser's
   own print pipeline — the TUI has no equivalent, so this needs a real renderer decision).
 - **Rich tags — the last mile.** Assigning a tag a color/icon ships as `stabbur library tag-style`;

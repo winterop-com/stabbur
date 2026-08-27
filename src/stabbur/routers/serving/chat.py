@@ -74,6 +74,11 @@ class ChatRequest(BaseModel):
     top_k: int | None = None
     min_p: float | None = None
     repeat_penalty: float | None = None
+    # Structured output: OpenAI's ``response_format``, passed to the runtime verbatim.
+    # ``{"type": "json_schema", ...}`` is the form that is actually enforced; llama-server
+    # silently IGNORES ``{"type": "json_object"}`` and answers in prose, so a caller asking
+    # for that gets told rather than discovering it from unparseable output.
+    response_format: dict[str, Any] | None = None
     use_tools: bool = True  # off → don't attach MCP tools (for non-tool-trained models)
     enabled_tools: list[str] | None = None  # None → all tools; else only these namespaced names
     # Registry target id this turn routes to (narrows tools to that target's servers + shared, and
@@ -105,6 +110,18 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     """
     if manager.current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
+    # Structured output and tools cannot both be had. llama-server compiles ONE grammar per
+    # request and rejects the pair outright with 400 "Failed to initialize samplers: failed to
+    # parse grammar" — a message that says nothing about which two features collided. Refuse it
+    # here instead, naming the fix, rather than relaying that upstream.
+    if req.response_format is not None and req.use_tools:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "response_format cannot be combined with tools (the runtime compiles one grammar "
+                'per request and rejects both). Send "use_tools": false for a structured answer.'
+            ),
+        )
     # use_tools off → empty toolset (non-tool-trained models otherwise regurgitate
     # the injected tool schema as text instead of calling tools).
     toolset: MCPToolset = (
@@ -273,6 +290,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         on_confirm=(on_confirm if policy != "none" else None),
                         confirm_policy=policy,
                         reasoning=req.reasoning,
+                        response_format=req.response_format,
                     )
                 except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                     await queue.put({"type": "error", "detail": str(exc)})

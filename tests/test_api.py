@@ -1244,3 +1244,57 @@ async def test_unconfigured_library_answers_with_its_hint_not_a_500(
     response = await client.get("/api/library")
     assert response.status_code == 503
     assert "STABBUR_LIBRARY_ROOT" in response.json()["detail"]
+
+
+async def test_api_chat_passes_response_format_to_the_runtime(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Structured output reaches the runtime verbatim. Only `json_schema` is actually enforced by
+    # llama-server; `json_object` is silently ignored there, which is why the docs say so rather
+    # than stabbur pretending to support it.
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    seen: list[dict[str, Any] | None] = []
+
+    async def fake_run(*a: Any, response_format: dict[str, Any] | None = None, **_: Any) -> str:
+        seen.append(response_format)
+        return "ok"
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    schema = {"type": "json_schema", "json_schema": {"name": "s", "schema": {"type": "object"}}}
+    try:
+        await client.post(
+            "/api/chat",
+            json={"messages": [{"role": "user", "content": "hi"}], "use_tools": False, "response_format": schema},
+        )
+        assert seen[-1] == schema
+        await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "use_tools": False})
+        assert seen[-1] is None  # absent unless asked for
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_api_chat_refuses_response_format_together_with_tools(app: FastAPI, client: AsyncClient) -> None:
+    # llama-server compiles one grammar per request and rejects the pair with
+    # 400 "failed to parse grammar" — a message naming neither feature. stabbur refuses first,
+    # and the message has to name the fix, or the caller is no better off than upstream.
+    class FakeManager:
+        current = type("M", (), {"load_target": Path("/models/x")})()
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    try:
+        r = await client.post(
+            "/api/chat",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "response_format": {"type": "json_schema", "json_schema": {"name": "s", "schema": {}}},
+            },
+        )
+        assert r.status_code == 400
+        assert "use_tools" in r.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()

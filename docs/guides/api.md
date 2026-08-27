@@ -74,6 +74,54 @@ Same model, same image. So for anything with a small expected answer:
 
 An empty string is not "no". Reading it as one is a fail-open bug wearing a 200.
 
+## Structured output
+
+Constrain the reply to a JSON schema instead of parsing prose. Send OpenAI's
+`response_format`; stabbur passes it to the runtime verbatim, on `/v1` (proxied) and on
+`/api/chat` alike.
+
+```python
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
+        "confidence": {"type": "number"},
+    },
+    "required": ["sentiment", "confidence"],
+    "additionalProperties": False,
+}
+
+r = httpx.post(
+    f"{BASE}/chat/completions",
+    timeout=60,
+    json={
+        "model": model,
+        "messages": [{"role": "user", "content": "Classify: 'I love this drive'"}],
+        "temperature": 0,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "sentiment", "strict": True, "schema": SCHEMA},
+        },
+    },
+)
+answer = json.loads(r.json()["choices"][0]["message"]["content"])
+```
+
+Three things about this are worth knowing before you rely on it.
+
+**Use `json_schema`, not `json_object`.** llama-server enforces `{"type": "json_schema", …}`
+and returns schema-conforming JSON. It **silently ignores** `{"type": "json_object"}` — you
+get ordinary prose and a `JSONDecodeError` at the line above, with nothing anywhere saying
+the constraint was dropped.
+
+**It cannot be combined with tools.** The runtime compiles one grammar per request and
+rejects the pair with `400 Failed to initialize samplers: failed to parse grammar`, which
+names neither feature. On `/api/chat`, stabbur refuses first with a message that names the
+fix: send `"use_tools": false`. On `/v1` there are no tools, so nothing to disable.
+
+**A reasoning model still needs thinking off**, or the budget goes into a thought and the
+constrained answer never arrives — see the section above.
+
 ## Classification, done defensively
 
 The whole point of a filter is what it does when something goes wrong, so decide that

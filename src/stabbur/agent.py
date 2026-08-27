@@ -200,6 +200,7 @@ async def run(
     on_confirm: ConfirmSink | None = None,
     confirm_policy: Literal["all", "writes", "none"] = "none",
     reasoning: "ReasoningLevel | None" = None,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -254,6 +255,12 @@ async def run(
                 body["min_p"] = min_p
             if repeat_penalty is not None:
                 body["repeat_penalty"] = repeat_penalty
+            # Structured output. Constrains the reply to a JSON schema (OpenAI's
+            # ``response_format``). NOT combinable with tools: llama-server builds one grammar
+            # per request and rejects the pair with 400 "failed to parse grammar", so callers
+            # are stopped before they get there — see the check in the /api/chat route.
+            if response_format is not None:
+                body["response_format"] = response_format
             # Reasoning effort (thinking on/off + budget) — llama-server dialect, see reasoning_fields.
             body.update(reasoning_fields(reasoning))
             content, calls, usage = await _stream_turn(http, base_url, body, on_token, on_reasoning)
