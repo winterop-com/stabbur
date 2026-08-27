@@ -213,6 +213,12 @@ Non-obvious landmines that aren't self-evident from the code:
 - The gate covers the **SPA** too: `oxlint` (`frontend/.oxlintrc.json`, via `bun run lint`) for its
   JS/TS, and `scripts/check_ui_classes.py` for the class conventions a JS linter cannot see inside
   a `className`. Both need `bun`; the Makefile does a frozen install itself.
+- **Release notes are written, never generated.** Cutting a release means writing the notes
+  into the ANNOTATED TAG MESSAGE (`git tag -a vX.Y.Z -F notes.md`); the publish workflow passes
+  them straight through with `--notes-from-tag`. Never `--generate-notes` and never a bare
+  "see the changelog": a list of commit subjects plus a compare link says what was touched and
+  nothing about whether it affects the reader. Say what changed, why it matters, and — when the
+  answer is "probably nothing for you" — say that too. Same reason there is no `CHANGELOG.md`.
 - **Change the chat UI's appearance → run `make hero`, in the same commit.** `docs/assets/web-ui.png`
   is a *derived artifact* of the SPA, but nothing rebuilds it and no check fails when it drifts, so
   it silently advertises a UI that no longer exists (it has gone stale twice, once across two whole

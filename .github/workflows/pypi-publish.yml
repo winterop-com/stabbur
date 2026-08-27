@@ -103,8 +103,12 @@ jobs:
           # No password — trusted publishing handles auth via the OIDC token minted above.
 
   # A tag that publishes to PyPI but creates no GitHub release leaves the repo page showing an
-  # older version as "Latest" - which it did, naming a version from two renames ago. Generated
-  # from the commits since the previous tag; edit the release afterwards to say more.
+  # older version as "Latest" - which it did, naming a version from two renames ago.
+  #
+  # Notes come from the ANNOTATED TAG MESSAGE, never from --generate-notes. A generated list of
+  # commit subjects plus a compare link is not release notes: it tells a reader what was touched
+  # and nothing about whether it affects them. Write the notes into the tag when cutting the
+  # release - see CLAUDE.md - and they land here verbatim.
   release:
     name: GitHub release
     needs: publish
@@ -123,7 +127,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           gh release create "$TAG" \
             --title "stabbur ${TAG#v}" \
-            --generate-notes \
+            --notes-from-tag \
             --latest \
             --verify-tag || echo "release already exists for ${TAG}"
 
