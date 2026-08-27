@@ -366,6 +366,7 @@ async def test_api_unload_stops_the_runtime(app: FastAPI, client: AsyncClient) -
         n_ctx = None
         last_error = None
         is_upstream = False  # /api/status reports base_url only for an upstream backend
+        name = "local"  # the active backend's name, which /api/status reports as `backend`
 
         def stop(self) -> None:
             stopped["n"] += 1

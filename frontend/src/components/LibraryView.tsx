@@ -43,6 +43,137 @@ const FORMAT_ACCENT: Record<string, string> = {
 };
 const FALLBACK_ACCENT = "border-border bg-muted text-muted-foreground";
 
+// --- The backend axis -------------------------------------------------------
+//
+// /api/library merges every declared backend into one flat list, each row naming its
+// origin. Backend is chosen as the OUTER grouping level and format stays the inner one,
+// for three reasons:
+//
+//   - It is the axis that answers the question the merge created. "gguf" used to mean one
+//     thing; with a laptop's library beside two remote hosts it names three unrelated
+//     collections, and a flat format section would interleave them with nothing on the card
+//     to tell them apart. Backend answers "where does this run", which is what a user picks
+//     a host for; format answers "how is it stored", which only matters once you are there.
+//   - It is where a name collides. `model@backend` (ROADMAP) exists because two hosts can
+//     both serve `gemma-4-12b`; a grouping that puts the qualifier in the heading lets the
+//     card keep the bare name, so nothing on screen has to grow a suffix.
+//   - A degraded backend has a place to live. An `error` row is a backend, not a model, so
+//     it cannot be a card in a format grid at all — under a backend heading it is simply
+//     that heading with a reason instead of models.
+//
+// Not a column: the grid is cards, not a table. Not a filter: a filter hides the other
+// backends, and the whole point of the merge is seeing them at once (the tag filter is
+// already the "show me less" control, and it composes with this).
+//
+// The level is not paid for when it is not used. With exactly one backend and nothing
+// degraded, `needsBackendAxis` is false and the page renders the format sections directly —
+// the same `FormatGroups` element, from the same `groupByFormat` list, as before backends
+// existed. See LibraryView.test.ts, which pins that equivalence.
+
+const LOCAL_BACKEND = "local";
+/** Stand-in when a degraded row arrives without a reason (the server always sends one). */
+const NO_REASON = "no reason reported";
+
+/** `[format, models]`, formats sorted, models sorted by name — one section of the grid. */
+export type FormatGroup = [string, LibModel[]];
+
+/** One backend's contribution to the page: its models, or why it has none. */
+export interface BackendSection {
+  backend: string;
+  /** Non-null means this backend could NOT be listed: no models here, only an explanation. */
+  reason: string | null;
+  groups: FormatGroup[];
+  count: number;
+}
+
+export type LibraryShape =
+  | { kind: "formats"; groups: FormatGroup[] }
+  | { kind: "backends"; sections: BackendSection[] };
+
+/** Is this row a backend that could not be listed rather than a model?
+ *
+ *  `error` is the documented discriminator; `model_format` is checked too so that a row the
+ *  server marks `unavailable` can never reach a card — a "Load" button on a host that is down
+ *  is a worse failure than a redundant condition.
+ */
+export function isDegraded(row: LibModel): boolean {
+  return row.error != null || row.model_format === "unavailable";
+}
+
+/** Split a listing into real models and the backends that could not be listed.
+ *
+ *  Everything downstream — the tag vocabulary, the model count and byte total in the top bar,
+ *  the cards — is fed from `models` alone, so a degraded row cannot be counted as one.
+ */
+export function partitionLibrary(rows: LibModel[]): { models: LibModel[]; degraded: LibModel[] } {
+  const models: LibModel[] = [];
+  const degraded: LibModel[] = [];
+  for (const row of rows) (isDegraded(row) ? degraded : models).push(row);
+  return { models, degraded };
+}
+
+/** Group models by format, as the page did before backends existed. */
+export function groupByFormat(models: LibModel[]): FormatGroup[] {
+  const by: Record<string, LibModel[]> = {};
+  for (const m of models) (by[m.model_format] ??= []).push(m);
+  for (const list of Object.values(by)) list.sort((a, b) => a.name.localeCompare(b.name));
+  return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** Does this listing need the backend level at all?
+ *
+ *  Deliberately asked of the WHOLE listing, never the tag-filtered one: the page's structure
+ *  is a property of the deployment, and a filter that happens to leave one backend standing
+ *  must not silently collapse a level and re-flow the page under the reader.
+ */
+export function needsBackendAxis(rows: LibModel[]): boolean {
+  const names = new Set<string>();
+  for (const row of rows) {
+    if (isDegraded(row)) return true; // a degraded backend is only legible under its own heading
+    names.add(row.backend || LOCAL_BACKEND);
+  }
+  return names.size > 1;
+}
+
+/** Group rows by backend, in the order the server listed them (local first, by convention).
+ *
+ *  A healthy backend left empty by the tag filter is dropped — a filter is expected to shrink
+ *  the page, and an empty section per backend is noise. A degraded one is never dropped, which
+ *  is the entire point of it being a row: a host that silently vanishes from the listing is
+ *  indistinguishable from a host with no models.
+ */
+export function backendSections(rows: LibModel[]): BackendSection[] {
+  const order: string[] = [];
+  const byBackend = new Map<string, LibModel[]>();
+  const reasons = new Map<string, string>();
+  for (const row of rows) {
+    const backend = row.backend || LOCAL_BACKEND;
+    let list = byBackend.get(backend);
+    if (list === undefined) {
+      list = [];
+      byBackend.set(backend, list);
+      order.push(backend);
+    }
+    // A degraded row and model rows for one backend is not something the server emits, but if
+    // it ever did, showing both beats dropping either: the reason explains, the models still load.
+    if (isDegraded(row)) reasons.set(backend, reasons.get(backend) ?? row.error ?? NO_REASON);
+    else list.push(row);
+  }
+  return order
+    .map((backend) => {
+      const list = byBackend.get(backend) ?? [];
+      return { backend, reason: reasons.get(backend) ?? null, groups: groupByFormat(list), count: list.length };
+    })
+    .filter((s) => s.reason !== null || s.count > 0);
+}
+
+/** How to render this listing: `visible` is what survived the tag filter, `multi` comes from
+ *  `needsBackendAxis` over the unfiltered listing. */
+export function libraryShape(visible: LibModel[], multi: boolean): LibraryShape {
+  if (multi) return { kind: "backends", sections: backendSections(visible) };
+  return { kind: "formats", groups: groupByFormat(visible.filter((m) => !isDegraded(m))) };
+}
+
 function CapChip({ icon: Icon, label, className }: { icon: typeof Wrench; label: string; className: string }) {
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
@@ -386,10 +517,90 @@ function ModelCard({
   );
 }
 
+/** Everything a card needs that isn't the model itself, bundled so the grid can be rendered
+ *  from two places (flat, and nested under a backend) without drilling nine props twice. */
+interface GridContext {
+  activeName: string | null;
+  loadingName: string | null;
+  locked: boolean;
+  busy: boolean;
+  suggestions: string[];
+  onLoad: (name: string) => void;
+  onChat: () => void;
+  onSetTags: (name: string, tags: string[]) => void;
+  tagRegistry: TagRegistry;
+}
+
+/** The format sections and their card grids — the page's original body, unchanged. */
+function FormatGroups({ groups, ctx }: { groups: FormatGroup[]; ctx: GridContext }) {
+  return (
+    <div className="space-y-6">
+      {groups.map(([fmt, list]) => (
+        <section key={fmt}>
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{fmt}</span>
+            <span className="text-xs text-muted-foreground">{list.length}</span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {list.map((m) => (
+              <ModelCard
+                key={m.name}
+                model={m}
+                active={ctx.activeName === m.name}
+                loading={ctx.loadingName === m.name}
+                blocked={ctx.locked || (ctx.busy && ctx.loadingName !== m.name)}
+                suggestions={ctx.suggestions}
+                onLoad={ctx.onLoad}
+                onChat={ctx.onChat}
+                onSetTags={ctx.onSetTags}
+                tagRegistry={ctx.tagRegistry}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** One backend's block: its name, then either its format sections or why it has none.
+ *
+ *  The heading ladder is weight and case, not size (docs/ui-conventions.md): "Chat" is
+ *  title-case `text-sm font-semibold`, a backend is `text-xs font-semibold uppercase` in the
+ *  page's ink, a format is the same eyebrow at `font-medium` and muted. Nothing grew a pixel.
+ */
+function BackendGroup({ section, ctx }: { section: BackendSection; ctx: GridContext }) {
+  const down = section.reason !== null;
+  return (
+    <section className="border-t border-border pt-5 first:border-t-0 first:pt-0">
+      <div className="mb-3 flex flex-wrap items-baseline gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">{section.backend}</h3>
+        {down ? (
+          // `--critical`, not `--destructive`: a backend being down is a state stabbur observed
+          // and is reporting, not an affordance the reader can press.
+          <span className="rounded-full border border-critical/30 bg-critical/10 px-2 py-0.5 text-xs text-critical">
+            unavailable
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {section.count} model{section.count === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      {down && (
+        // The chip carries the state; this sentence carries the reason. A sentence is not a chip.
+        <p className="text-sm text-muted-foreground">Declared, but its models could not be listed: {section.reason}</p>
+      )}
+      {section.groups.length > 0 && <FormatGroups groups={section.groups} ctx={ctx} />}
+    </section>
+  );
+}
+
 /**
- * Full-panel "Models" browser: every library model as a card, grouped by format
- * (like `stabbur ls`). Clicking a card loads it and drops into chat; the loaded one
- * is marked. Cards carry editable user tags, with a tag filter bar on top.
+ * Full-panel "Models" browser: every library model as a card, grouped by backend and then by
+ * format (like `stabbur ls`), or by format alone when there is only one backend. Clicking a
+ * card loads it and drops into chat; the loaded one is marked. Cards carry editable user tags,
+ * with a tag filter bar on top.
  */
 export function LibraryView({
   library,
@@ -417,8 +628,17 @@ export function LibraryView({
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
 
   // Normalize once so a model with no `tags` field (e.g. an older server that
-  // predates tags) can't crash the grid.
-  const models = useMemo(() => library.map((m) => ({ ...m, tags: m.tags ?? [] })), [library]);
+  // predates tags) can't crash the grid. `backend` gets the same treatment: a server older
+  // than the field sends none, and one backend named "local" is exactly what it had.
+  const rows = useMemo(
+    () => library.map((m) => ({ ...m, tags: m.tags ?? [], backend: m.backend || LOCAL_BACKEND })),
+    [library],
+  );
+
+  // The split that keeps a down backend from ever being mistaken for a model: `models` is what
+  // the counts, the tag vocabulary and the cards see, and it contains no degraded rows.
+  const { models, degraded } = useMemo(() => partitionLibrary(rows), [rows]);
+  const multiBackend = useMemo(() => needsBackendAxis(rows), [rows]);
 
   const allTags = useMemo(() => allTagsOf(models), [models]);
 
@@ -441,10 +661,17 @@ export function LibraryView({
       return next;
     });
 
-  const filtered = useMemo(
-    () => (activeTags.size === 0 ? models : models.filter((m) => [...activeTags].every((t) => m.tags.includes(t)))),
-    [models, activeTags],
+  // A degraded row survives the tag filter: it has no tags to match on, and hiding it would
+  // turn "this host is down" into "this host has nothing tagged that" — the exact confusion the
+  // row exists to prevent. `filtered` is models only, so counts stay a count of models.
+  const visible = useMemo(
+    () =>
+      activeTags.size === 0
+        ? rows
+        : rows.filter((m) => isDegraded(m) || [...activeTags].every((t) => m.tags.includes(t))),
+    [rows, activeTags],
   );
+  const filtered = useMemo(() => visible.filter((m) => !isDegraded(m)), [visible]);
 
   const totalHuman = useMemo(() => formatBytes(filtered.reduce((sum, m) => sum + m.size_bytes, 0)), [filtered]);
 
@@ -458,12 +685,22 @@ export function LibraryView({
       : `${filtered.length}${filtered.length !== models.length ? ` / ${models.length}` : ""} models · ${totalHuman}`,
   );
 
-  const grouped = useMemo(() => {
-    const by: Record<string, LibModel[]> = {};
-    for (const m of filtered) (by[m.model_format] ??= []).push(m);
-    for (const list of Object.values(by)) list.sort((a, b) => a.name.localeCompare(b.name));
-    return Object.entries(by).sort(([a], [b]) => a.localeCompare(b));
-  }, [filtered]);
+  const shape = useMemo(() => libraryShape(visible, multiBackend), [visible, multiBackend]);
+
+  // `status.model` is an unqualified name (the API has no field naming the ACTIVE backend), so
+  // two backends serving the same name would both read as loaded. Left as-is deliberately: the
+  // fix is a backend name in /api/status, not a guess here from the upstream URL.
+  const ctx: GridContext = {
+    activeName: status?.model ?? null,
+    loadingName,
+    locked,
+    busy,
+    suggestions: allTags,
+    onLoad,
+    onChat,
+    onSetTags,
+    tagRegistry,
+  };
 
   return (
     <>
@@ -531,37 +768,23 @@ export function LibraryView({
                   Couldn't read the library: {error}. Check the drive is mounted and{" "}
                   <code className="font-mono">STABBUR_LIBRARY_ROOT</code> is set, then retry.
                 </div>
-              ) : models.length === 0 ? (
+              ) : models.length === 0 && degraded.length === 0 ? (
                 <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
                   No chat models yet. Pull one with <code className="font-mono">stabbur pull</code>.
                 </div>
-              ) : grouped.length === 0 ? (
-                <div className="px-1 py-4 text-sm text-muted-foreground">No chat models match the selected tags.</div>
+              ) : shape.kind === "formats" ? (
+                shape.groups.length === 0 ? (
+                  <div className="px-1 py-4 text-sm text-muted-foreground">No chat models match the selected tags.</div>
+                ) : (
+                  <FormatGroups groups={shape.groups} ctx={ctx} />
+                )
               ) : (
-                <div className="space-y-6">
-                  {grouped.map(([fmt, models]) => (
-                    <section key={fmt}>
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{fmt}</span>
-                        <span className="text-xs text-muted-foreground">{models.length}</span>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {models.map((m) => (
-                          <ModelCard
-                            key={m.name}
-                            model={m}
-                            active={status?.model === m.name}
-                            loading={loadingName === m.name}
-                            blocked={locked || (busy && loadingName !== m.name)}
-                            suggestions={allTags}
-                            onLoad={onLoad}
-                            onChat={onChat}
-                            onSetTags={onSetTags}
-                            tagRegistry={tagRegistry}
-                          />
-                        ))}
-                      </div>
-                    </section>
+                <div className="space-y-5">
+                  {filtered.length === 0 && (
+                    <div className="px-1 text-sm text-muted-foreground">No chat models match the selected tags.</div>
+                  )}
+                  {shape.sections.map((s) => (
+                    <BackendGroup key={s.backend} section={s} ctx={ctx} />
                   ))}
                 </div>
               )}
