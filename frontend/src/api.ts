@@ -181,6 +181,12 @@ export type ChatEvent =
     }
   | { type: "tool"; kind: "call" | "result"; detail: string }
   | { type: "confirm"; id: string; tool: string; args: Record<string, unknown> }
+  /** A tool the model called that must run in the USER'S BROWSER, not on the server — the
+   *  server has no DOM. Carries an action NAME and arguments, never code: what a model can do
+   *  in a logged-in tab is fixed at extension-build time, not synthesised per turn
+   *  (WEBMCP.md 5b). Only the extension acts on this; the web app has no tab to act on and
+   *  parses it purely so the shared client stays one implementation. */
+  | { type: "page_action"; id: string; action: string; args: Record<string, unknown> }
   | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }
   | { type: "error"; detail: string }
   | { type: "done" };
@@ -564,6 +570,29 @@ export async function* streamChat(
  * call until this lands (or it times out); the stream then resumes on its own, so callers must
  * NOT abort the stream. A 404 (unknown or already-resolved id) surfaces as an error.
  */
+/**
+ * Report a page action's outcome, unblocking the agent loop that is waiting on it.
+ *
+ * The mirror of {@link confirmAction}: the server registered a future when it streamed the
+ * `page_action` event and is blocked until this lands. A FAILURE still has to be reported —
+ * silence is only distinguishable from a slow tab by the server's timeout, which costs the
+ * user that wait for nothing.
+ */
+export async function reportPageAction(
+  id: string,
+  outcome: { ok: true; result: unknown } | { ok: false; error: string },
+): Promise<void> {
+  const res = await apiFetch("/api/chat/page-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, ...outcome }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+  }
+}
+
 export async function confirmAction(id: string, approve: boolean): Promise<void> {
   const res = await apiFetch("/api/chat/confirm", {
     method: "POST",
@@ -602,6 +631,13 @@ function parseEvent(evt: unknown): ChatEvent | null {
         type: "tool",
         kind: e.kind === "result" ? "result" : "call",
         detail: typeof e.detail === "string" ? e.detail : "",
+      };
+    case "page_action":
+      return {
+        type: "page_action",
+        id: typeof e.id === "string" ? e.id : "",
+        action: typeof e.action === "string" ? e.action : "",
+        args: e.args !== null && typeof e.args === "object" ? (e.args as Record<string, unknown>) : {},
       };
     case "confirm":
       return {
