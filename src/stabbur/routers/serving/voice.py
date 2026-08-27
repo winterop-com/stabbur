@@ -109,6 +109,53 @@ def voices() -> list[VoiceInfo]:
     ]
 
 
+# Request-size caps. Voice requests carry the only large payloads in stabbur's API, and an
+# uncapped one is a memory fault, not a rejection: text is synthesized wholesale, and a clip is
+# held in RAM while it is decoded and written. The limits are set well above real use — 20k
+# characters is hours of speech, 25 MB is well over an hour of 16 kHz mono audio — so they bite
+# only on abuse or a client bug.
+_MAX_TEXT_CHARS = 20_000
+_MAX_AUDIO_BYTES = 25 * 1024 * 1024
+# Base64 inflates by 4/3, so cap the encoded string rather than the decode's output: the point
+# is to reject before allocating, not after.
+_MAX_REF_AUDIO_B64 = _MAX_AUDIO_BYTES * 4 // 3 + 16
+
+_DEFAULT_KOKORO_VOICE = "af_heart"
+
+
+def _validated_text(raw: str) -> str:
+    """Reduce request text to speakable prose, capped (413) and non-empty (422)."""
+    if len(raw) > _MAX_TEXT_CHARS:
+        raise HTTPException(status_code=413, detail=f"text exceeds the {_MAX_TEXT_CHARS} character limit")
+    text = tts.speech_text(raw)
+    if not text:
+        raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
+    return text
+
+
+async def _kokoro_wav(text: str, voice: str | None, speed: float) -> bytes:
+    """Synthesize ``text`` with Kokoro and return the WAV bytes; one path for both TTS routes.
+
+    Shared so ``/api/speak`` and ``/v1/audio/speech`` answer identically instead of drifting:
+    503 when the engine isn't installed, 422 for an unknown voice id (validated here rather
+    than surfacing the engine's ``RuntimeError`` as an opaque 500), 500 for a genuine synthesis
+    failure. Synthesis, the read of the produced WAV and its cleanup all run off the event loop.
+    """
+    if not kokoro.available():
+        raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall stabbur (`uv sync`)")
+    name = (voice or _DEFAULT_KOKORO_VOICE).split(":", 1)[-1]
+    if name not in {v.id for v in kokoro.voices()}:
+        raise HTTPException(status_code=422, detail=f"unknown Kokoro voice {name!r}")
+    try:
+        wav_path = await asyncio.to_thread(lambda: kokoro.synthesize(text, name, None, speed=speed))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    try:
+        return await asyncio.to_thread(wav_path.read_bytes)
+    finally:
+        await asyncio.to_thread(lambda: wav_path.unlink(missing_ok=True))
+
+
 class SpeakRequest(BaseModel):
     """Text to synthesize into speech, with an optional voice id."""
 
@@ -126,23 +173,9 @@ async def speak(req: SpeakRequest) -> Response:
     is unavailable. Other voice models speak through the OpenAI ``/v1/audio/speech``
     route, which knows the full registry.
     """
-    text = tts.speech_text(req.text)
-    if not text:
-        raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
-    if not kokoro.available():
-        raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall stabbur (`uv sync`)")
-    name = (req.voice or "kokoro:af_heart").split(":", 1)[-1]
-    # An unknown voice id is a client error: validate here so it 422s, rather than letting
-    # kokoro.synthesize raise RuntimeError("unknown Kokoro voice …") that maps to a 500 below.
-    if name not in {v.id for v in kokoro.voices()}:
-        raise HTTPException(status_code=422, detail=f"unknown Kokoro voice {name!r}")
+    text = _validated_text(req.text)
     speed = _validated_speed(req.speed)
-    try:
-        wav_path = await asyncio.to_thread(lambda: kokoro.synthesize(text, name, None, speed=speed))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    data = wav_path.read_bytes()
-    wav_path.unlink(missing_ok=True)
+    data = await _kokoro_wav(text, req.voice, speed)
     return Response(content=data, media_type="audio/wav")
 
 
@@ -191,9 +224,12 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
     runtime, where ``ref_audio_b64`` + ``ref_text`` clone a voice. Markdown is
     reduced to prose first; blocking synthesis runs off-loop. Returns ``audio/wav``.
     """
-    text = tts.speech_text(req.input)
-    if not text:
-        raise HTTPException(status_code=422, detail="nothing speakable (only code or formatting)")
+    text = _validated_text(req.input)
+    if req.ref_audio_b64 is not None and len(req.ref_audio_b64) > _MAX_REF_AUDIO_B64:
+        raise HTTPException(
+            status_code=413,
+            detail=f"ref_audio_b64 exceeds the {_MAX_AUDIO_BYTES // (1024 * 1024)} MB reference-clip limit",
+        )
 
     spec = voice_registry.get(req.model) or voice_registry.by_repo(req.model)
     if spec is None and req.model in _OPENAI_TTS_ALIASES:
@@ -216,23 +252,19 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
 
     speed = _validated_speed(req.speed)
     if backend == Backend.kokoro_onnx:
-        if not kokoro.available():
-            raise HTTPException(status_code=503, detail="Kokoro TTS is unavailable — reinstall stabbur (`uv sync`)")
-        name = (req.voice or "af_heart").split(":")[-1]
-        wav_path = await asyncio.to_thread(lambda: kokoro.synthesize(text, name, None, speed=speed))
-        data = wav_path.read_bytes()
-        wav_path.unlink(missing_ok=True)
+        data = await _kokoro_wav(text, req.voice, speed)
     elif backend == Backend.mlx_audio:
         if not voice_runtime.available():
             raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
-        model = _voice_library_model(spec.repo if spec else req.model, kind="tts")
+        # The library scan is filesystem work: off the loop, like every other scan in the API.
+        model = await asyncio.to_thread(_voice_library_model, spec.repo if spec else req.model, kind="tts")
         ref_path: Path | None = None
         try:
             if req.ref_audio_b64:
-                fd, name = tempfile.mkstemp(suffix=".wav")
+                fd, tmp_name = tempfile.mkstemp(suffix=".wav")
                 os.close(fd)
-                ref_path = Path(name)
-                ref_path.write_bytes(base64.b64decode(req.ref_audio_b64))
+                ref_path = Path(tmp_name)
+                await asyncio.to_thread(_write_ref_clip, ref_path, req.ref_audio_b64)
             params: dict[str, Any] = {"seed": req.seed} if req.seed is not None else {}
             if speed != 1.0:
                 params["speed"] = speed  # honored by models that support it; ignored otherwise
@@ -263,6 +295,35 @@ def _synthesize_mlx(
     return voice_runtime.synthesize(model, text, voice=voice, ref_audio=ref_audio, ref_text=ref_text, **params)
 
 
+def _write_ref_clip(dest: Path, ref_audio_b64: str) -> None:
+    """Thread body: decode a base64 reference clip to ``dest`` (422 if it isn't valid base64)."""
+    try:  # binascii.Error (what b64decode raises) is a ValueError subclass
+        data = base64.b64decode(ref_audio_b64, validate=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="ref_audio_b64 is not valid base64") from exc
+    dest.write_bytes(data)
+
+
+async def _save_upload(file: UploadFile, dest: Path) -> None:
+    """Stream an upload to ``dest`` in bounded chunks, rejecting anything past the size cap (413).
+
+    ``await file.read()`` with no argument pulls the whole body into memory before anything can
+    object to its size, so a multi-gigabyte POST is an out-of-memory kill rather than a refusal.
+    Reading in chunks bounds what is ever resident and lets the cap fire early; each write goes
+    through a thread so the disk IO stays off the event loop.
+    """
+    total = 0
+    with dest.open("wb") as fh:
+        while chunk := await file.read(1 << 20):
+            total += len(chunk)
+            if total > _MAX_AUDIO_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"audio upload exceeds the {_MAX_AUDIO_BYTES // (1024 * 1024)} MB limit",
+                )
+            await asyncio.to_thread(fh.write, chunk)
+
+
 @router.post("/v1/audio/transcriptions")
 async def audio_transcriptions(
     file: Annotated[UploadFile, File()],
@@ -273,13 +334,14 @@ async def audio_transcriptions(
     if not voice_runtime.available():
         raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
     spec = voice_registry.get(model) or voice_registry.by_repo(model)
-    stt_model = _voice_library_model(spec.repo if spec else model, kind="stt")
+    # The library scan is filesystem work: off the loop, like every other scan in the API.
+    stt_model = await asyncio.to_thread(_voice_library_model, spec.repo if spec else model, kind="stt")
     suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-    fd, name = tempfile.mkstemp(suffix=suffix)
+    fd, tmp_name = tempfile.mkstemp(suffix=suffix)
     os.close(fd)
-    clip = Path(name)
+    clip = Path(tmp_name)
     try:
-        clip.write_bytes(await file.read())
+        await _save_upload(file, clip)
         text = await asyncio.to_thread(voice_runtime.transcribe, stt_model.load_target, clip, language=language)
     finally:
         clip.unlink(missing_ok=True)

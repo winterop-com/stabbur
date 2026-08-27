@@ -12,7 +12,9 @@ OuteTTS via ``llama-tts``).
 """
 
 import importlib.util
+import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -151,46 +153,89 @@ def assets_present() -> bool:
 
 
 def _download(url: str, dest: Path) -> None:
-    """Stream ``url`` to ``dest`` (atomic via a ``.part`` file)."""
+    """Stream ``url`` to ``dest``, staged through a **per-download unique** temp file.
+
+    The staging name must be unique (the same reason :mod:`stabbur.fsatomic` uses one): a fixed
+    ``<name>.part`` is a shared mutable file, so two downloads running at once — two first-use
+    requests, the startup pre-warm racing the first Listen click, or a second stabbur process on
+    the same library — interleave their chunks into it and leave a truncated model behind, or
+    trip over each other's rename. With a unique temp each writer owns its own bytes and the
+    final :meth:`Path.replace` is atomic, so whoever lands last wins and every reader sees a
+    complete file.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".part")
-    with httpx.stream("GET", url, follow_redirects=True, timeout=300.0) as resp:
-        resp.raise_for_status()
-        with tmp.open("wb") as fh:
+    fd, staged = tempfile.mkstemp(dir=dest.parent, prefix=f"{dest.name}.", suffix=".part")
+    tmp = Path(staged)
+    try:
+        with os.fdopen(fd, "wb") as fh, httpx.stream("GET", url, follow_redirects=True, timeout=300.0) as resp:
+            resp.raise_for_status()
             for chunk in resp.iter_bytes(1 << 16):
                 fh.write(chunk)
-    tmp.replace(dest)
+        tmp.replace(dest)
+    finally:
+        # A no-op after a successful replace; on any failure it clears the partial download
+        # instead of leaving a stray .part next to the model.
+        tmp.unlink(missing_ok=True)
+
+
+# Serializes the (~310 MB) first-use fetch. Two threads that both find the assets missing would
+# otherwise each start a full download: twice the bytes over the wire for one usable result.
+_assets_lock = threading.Lock()
 
 
 def ensure_assets() -> tuple[Path, Path]:
-    """Return ``(model, voices)`` paths, downloading them on first use (~310 MB)."""
+    """Return ``(model, voices)`` paths, downloading them on first use (~310 MB).
+
+    Thread-safe: the presence check and the fetch happen under one lock, so a caller that
+    arrives while another thread is downloading waits and then finds the finished files
+    rather than starting a second download of its own.
+    """
     d = _assets_dir()
     model, vox = d / _MODEL_FILE, d / _VOICES_FILE
-    if not model.is_file():
-        _download(f"{_RELEASE}/{_MODEL_FILE}", model)
-    if not vox.is_file():
-        _download(f"{_RELEASE}/{_VOICES_FILE}", vox)
+    with _assets_lock:
+        if not model.is_file():
+            _download(f"{_RELEASE}/{_MODEL_FILE}", model)
+        if not vox.is_file():
+            _download(f"{_RELEASE}/{_VOICES_FILE}", vox)
     return model, vox
 
 
 # Cache the loaded engine (loading the ONNX takes ~1 s); reused across requests.
+# A plain ``threading.Lock`` (not an asyncio one): every caller reaches this from a worker
+# thread, since synthesis is blocking and the HTTP layer dispatches it with ``to_thread``.
 _engine: Any = None
+_engine_lock = threading.Lock()
+
+
+def _build_engine() -> Any:
+    """Fetch the assets if needed and construct the ONNX engine (the body of the cached init)."""
+    import espeakng_loader  # noqa: PLC0415
+    from kokoro_onnx import Kokoro  # noqa: PLC0415
+    from kokoro_onnx.config import EspeakConfig  # noqa: PLC0415
+
+    model, vox = ensure_assets()
+    # Point kokoro at the bundled espeak-ng (no system binary needed).
+    espeak = EspeakConfig(
+        lib_path=espeakng_loader.get_library_path(),
+        data_path=espeakng_loader.get_data_path(),
+    )
+    return Kokoro(str(model), str(vox), espeak_config=espeak)
 
 
 def _get_engine() -> Any:
-    global _engine
-    if _engine is None:
-        import espeakng_loader  # noqa: PLC0415
-        from kokoro_onnx import Kokoro  # noqa: PLC0415
-        from kokoro_onnx.config import EspeakConfig  # noqa: PLC0415
+    """The cached Kokoro engine, created once on first use (downloading its assets if needed).
 
-        model, vox = ensure_assets()
-        # Point kokoro at the bundled espeak-ng (no system binary needed).
-        espeak = EspeakConfig(
-            lib_path=espeakng_loader.get_library_path(),
-            data_path=espeakng_loader.get_data_path(),
-        )
-        _engine = Kokoro(str(model), str(vox), espeak_config=espeak)
+    Thread-safe by double-checked init: the fast path is a plain read of the already-built
+    engine, and only the build runs under the lock. Without it, concurrent first uses each
+    run the asset download and each construct an ONNX session — two ~310 MB fetches racing
+    into one destination and two copies of the model resident in RAM.
+    """
+    global _engine
+    if _engine is not None:
+        return _engine
+    with _engine_lock:
+        if _engine is None:
+            _engine = _build_engine()
     return _engine
 
 
@@ -214,14 +259,29 @@ def synthesize(text: str, voice: str, out_path: Path | None = None, *, speed: fl
     if not text.strip():
         raise RuntimeError("nothing to speak (empty text)")
 
+    # Generate *before* creating the output file: engine load, the first-use download and
+    # generation itself can all fail, and a temp created up front would be orphaned by every
+    # one of those failures — one leaked WAV per failed request, for the life of the process.
+    samples, sample_rate = _get_engine().create(text, voice=voice, speed=speed, lang=lang_code(voice))
+    if out_path is not None:
+        return _write_wav(out_path, samples, sample_rate)
+    # NamedTemporaryFile closes its fd on __exit__ (mkstemp leaks it); delete=False keeps the file.
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        out = Path(f.name)
+    written = False
+    try:
+        result = _write_wav(out, samples, sample_rate)
+        written = True
+        return result
+    finally:
+        if not written:  # a failed write leaves no temp behind either; a caller's own path is theirs
+            out.unlink(missing_ok=True)
+
+
+def _write_wav(out: Path, samples: Any, sample_rate: int) -> Path:
+    """Write generated samples to ``out`` as WAV, raising if nothing landed there."""
     import soundfile as sf  # noqa: PLC0415
 
-    if out_path:
-        out = out_path
-    else:  # NamedTemporaryFile closes its fd on __exit__ (mkstemp leaks it); delete=False keeps the file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            out = Path(f.name)
-    samples, sample_rate = _get_engine().create(text, voice=voice, speed=speed, lang=lang_code(voice))
     sf.write(str(out), samples, sample_rate)
     if not out.is_file() or out.stat().st_size == 0:
         raise RuntimeError("Kokoro synthesis produced no audio")
