@@ -97,8 +97,8 @@ def pull(name: str, library_root: Path, models_dir: Path | None = None, move: bo
     dest = safe_join(library_root, f"{model_format.value}/{name}")
     size_bytes, file_count = copy_tree(src, dest)
 
-    # Only delete the source after a per-file verified copy (same paths + sizes), not a mere
-    # aggregate-total match — a corrupt/short copy or a different file set must keep the source.
+    # Only delete the source after a byte-for-byte verified copy — a corrupt, short or
+    # differently-shaped copy (and an empty source, which verifies nothing) keeps the source.
     source_removed = move and copy_verified(src, dest)
     if source_removed:
         shutil.rmtree(src)

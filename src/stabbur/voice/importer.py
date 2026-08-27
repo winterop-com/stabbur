@@ -2,8 +2,8 @@
 
 ``hf download`` drops models in ``~/.cache/huggingface`` — machine-local and unorganized.
 Importing copies a model's snapshot into ``<library_root>/voice/<repo>`` so it travels with
-the drive, then (optionally) prunes the cache copy to reclaim space on the Mac. A copy is
-verified (byte total) before its cache source is deleted — never delete before a good copy.
+the drive, then (optionally) prunes the cache copy to reclaim space on the Mac. The copy is
+verified byte for byte before its cache source is deleted — never delete before a good copy.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from stabbur.sources.base import copy_verified
 from stabbur.voice.catalog import VoicePresence, _dir_size, _library_dir, _real_files, discover, hf_hub_cache, voice_dir
 from stabbur.voice.registry import BUILTIN
 
@@ -56,9 +57,12 @@ def import_to_library(presence: VoicePresence, library_root: Path | str, prune_c
     copied = _dir_size(dest)
 
     pruned = False
-    # Prune the cache only once the library copy holds essentially all the bytes (a verified
-    # copy). The 0.95 slack covers tiny cache-only metadata (refs/) the snapshot copy omits.
-    if prune_cache and presence.cache_bytes and copied >= presence.cache_bytes * 0.95:
+    # Prune the cache only once the library copy is verified byte for byte against the snapshot
+    # it was copied from. An aggregate byte total (previously with 5% slack) could not tell a
+    # complete copy from a short or corrupt one, and this delete is the cache copy's last stop.
+    # The snapshot's symlinks-into-blobs are followed on both sides, so the resolved library
+    # copy compares equal to the cache original.
+    if prune_cache and copy_verified(snapshot, dest):
         shutil.rmtree(presence.cache_path, ignore_errors=True)
         pruned = True
     return ImportResult(
