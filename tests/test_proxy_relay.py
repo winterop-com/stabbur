@@ -19,6 +19,7 @@ from typing import Any, cast
 import httpx
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
@@ -180,6 +181,7 @@ async def test_client_disconnect_midstream_releases_reservation(app: FastAPI) ->
             client=upstream,
         )
         assert app.state.active_generations == 1  # acquired before streaming
+        assert isinstance(resp, StreamingResponse)  # the proxying branch, not discovery
         relay = cast(AsyncGenerator[bytes, None], resp.body_iterator)
         first = await relay.__anext__()
         assert first == b"data: first\n\n"

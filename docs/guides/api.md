@@ -23,6 +23,10 @@ gate still run locally; only the weights are elsewhere.
 | Clients | any OpenAI SDK | hand-rolled |
 | Use it for | classification, extraction, anything stateless | an assistant that must call tools |
 
+`GET /v1/models` answers before anything is loaded — in local mode it lists the library, in
+upstream mode the remote's own list — so a client can discover what to ask for and then load it.
+Every other `/v1` path still requires a loaded model.
+
 **Reach for `/v1` unless you need tools.** It is a transparent stream-proxy to whatever
 backend is loaded, so every OpenAI client library works unmodified — point its base URL
 at `http://127.0.0.1:2222/v1` and give it any API key, which is ignored on a loopback

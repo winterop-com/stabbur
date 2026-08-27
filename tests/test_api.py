@@ -15,6 +15,7 @@ from stabbur.config import Settings
 from stabbur.library import LibraryModel
 from stabbur.models import ModelFormat
 from stabbur.routers import serving
+from stabbur.routers.serving import proxy
 from stabbur.runtime import sampling
 
 
@@ -1296,5 +1297,49 @@ async def test_api_chat_refuses_response_format_together_with_tools(app: FastAPI
         )
         assert r.status_code == 400
         assert "use_tools" in r.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_v1_models_lists_the_library_when_nothing_is_loaded(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `GET /v1/models` is how an OpenAI client discovers what it may ask for. Refusing it until
+    # something is loaded is a chicken-and-egg — the client cannot choose before it can list —
+    # and the docs tell people to point any OpenAI client at this base URL.
+    class FakeManager:
+        current = None
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    model = LibraryModel(
+        name="pub/Some-GGUF",
+        model_format=ModelFormat.gguf,
+        path=Path("/lib/gguf/pub/Some-GGUF"),
+        load_target=Path("/lib/gguf/pub/Some-GGUF/w.gguf"),
+    )
+    monkeypatch.setattr(proxy.library_ops, "scan", lambda *a, **k: [model])
+    try:
+        r = await client.get("/v1/models")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["object"] == "list"
+        assert [m["id"] for m in body["data"]] == ["pub/Some-GGUF"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_v1_completions_still_refuse_when_nothing_is_loaded(app: FastAPI, client: AsyncClient) -> None:
+    # Discovery is the only exemption: listing and using are different questions, and a
+    # completion with no runtime behind it must still say so plainly.
+    class FakeManager:
+        current = None
+        base_url = "http://runtime"
+
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    try:
+        r = await client.post("/v1/chat/completions", json={"messages": []})
+        assert r.status_code == 409
+        assert r.json()["detail"] == "No model loaded"
     finally:
         app.dependency_overrides.clear()
