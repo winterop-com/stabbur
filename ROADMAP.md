@@ -105,6 +105,48 @@ TUI, and `stabbur serve --upstream` all front it. Open threads:
   costs more than it saves; at three or four, extract the variable blocks and the primitives
   both keep re-deriving so a fix lands once.
 
+## Multiple backends at once (several upstreams + the local library)
+
+Today a server is one or the other: `app.py` picks `UpstreamManager(settings.upstream)` **or**
+`ServerManager(...)`, `upstream` is a single `str | None`, and in upstream mode the local library
+is invisible (`/api/library` returns the remote's ids). Asked for by a user who wants a laptop's
+library and one or more remote hosts in the same picker.
+
+The manager is a narrow seam, which is what makes this tractable: four files consume it
+(`routers/serving/{proxy,chat,core,_base}.py`) and the whole surface is `current`, `base_url`,
+`n_ctx`, `last_error`, `state`, `models`, `load_by_name`, `load`, `stop`, `touch`. A facade
+implementing exactly that and delegating to the selected backend drops in without touching the
+routes.
+
+**Identity is the hard part, not plumbing.** A model is `ModelRef(name, model_format)` today;
+two hosts both serving `gemma-4-12b` collide the moment they are listed together. Decide the
+qualified form once and use it everywhere a model is named — `/api/load/{name:path}`, the
+OpenAI `model` field (so `/v1` clients can select a backend too), and the SPA's picker.
+`backend:model` is the obvious shape; an unqualified name should resolve when unambiguous and
+fail with a 409 naming both candidates when not, rather than silently picking one.
+
+Open decisions, in the order they block things:
+
+- **Where backends are declared.** A repeatable `--upstream` is the cheap CLI form but has no
+  place to put a name; `[[backends]]` in `stabbur.toml` (and the machine config) can carry
+  `name`/`url`, with the local library an implicit backend whenever `STABBUR_LIBRARY_ROOT` is
+  set. Probably both, the flag deriving a name from the host.
+- **Whether "loaded" stays singular.** One active backend at a time is the honest model — the
+  selected model implies its backend — and it keeps `/v1` proxying to exactly one place. The
+  alternative (several resident at once) buys fast switching and costs a coherent `/api/status`.
+- **What a down backend does to the picker.** It must degrade to a row, never an empty list or
+  a 502: the same per-item fault isolation the library scan already has. Needs a per-backend
+  timeout and concurrent probing, or one slow host stalls every listing.
+
+**Not this feature:** fan-out to several models, cross-backend fallback, or load balancing.
+Those are a router's job — and a `llama-server` in router mode already covers "many models
+behind one URL", which is what most of the ask turns out to be.
+
+Build order: the facade around a single backend first (no behaviour change, proves the seam),
+then declaration + merged listing, then qualified ids and load resolution, then the picker
+grouping by origin, then docs. Related: **Two stores**, above — the drive and the router box
+being separate collections is the same split seen from the library side.
+
 ## Page actions (and WebMCP)
 
 Design + assessment: **[`WEBMCP.md`](WEBMCP.md)**. Short version: WebMCP is **watch, don't
