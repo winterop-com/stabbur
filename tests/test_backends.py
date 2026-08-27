@@ -2,9 +2,11 @@
 
 import inspect
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from stabbur import backends
 from stabbur.backends import Backends
 from stabbur.library import LibraryModel
 from stabbur.models import ModelFormat
@@ -166,3 +168,26 @@ def test_upstream_backend_rejects_the_local_only_member(tmp_path: Path, monkeypa
 
     with pytest.raises(AttributeError, match="local-only"):
         backends.load(_model(tmp_path))
+
+
+def test_build_selects_the_remote_when_an_upstream_is_configured() -> None:
+    # The factory is the one place that turns configuration into a backend. It had two copies
+    # (the app factory and `stabbur serve`'s locked-model pre-flight) and step 2 adds a third
+    # caller, so the choice is pinned here rather than trusted to stay in step.
+    built = backends.build("http://remote:1234/v1")
+    assert built.is_upstream
+    assert built.base_url == "http://remote:1234"
+
+
+def test_build_selects_a_local_runtime_without_an_upstream() -> None:
+    built = backends.build(None, runtime_port=8123)
+    assert not built.is_upstream
+    assert built.base_url.endswith(":8123")
+
+
+def test_local_only_narrowing_names_the_member_that_was_called() -> None:
+    # The message used to hardcode "load()", so it would have named the wrong member the day a
+    # second local-only one landed. Pin that it reports its caller.
+    remote = backends.build("http://remote:1234/v1")
+    with pytest.raises(AttributeError, match=r"load\(\) is local-only"):
+        remote.load(cast(LibraryModel, object()))

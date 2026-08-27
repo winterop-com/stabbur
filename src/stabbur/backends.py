@@ -36,6 +36,24 @@ from stabbur.server import ServerManager, ServerState, UpstreamManager, Upstream
 Backend = ServerManager | UpstreamManager
 
 
+def build(upstream: str | None, runtime_port: int | None = None) -> "Backends":
+    """The backend a given configuration asks for.
+
+    The ONE place that turns configuration into a backend. It existed in two places before —
+    the app factory and `stabbur serve`'s locked-model pre-flight, which builds a throwaway
+    manager before the app exists — and step 2 adds a third caller (a `[[backends]]` list), so
+    a second copy of this choice is a second thing to keep in step.
+
+    ``upstream`` set selects the remote and never spawns a local runtime; otherwise a local
+    runtime manager, whose port the process-global CLI override still wins.
+    """
+    from stabbur import config  # noqa: PLC0415 - lazy: config imports settings, which imports this
+
+    if upstream:
+        return Backends(UpstreamManager(upstream))
+    return Backends(ServerManager(port=config.runtime_port_override() or runtime_port))
+
+
 class Backends:
     """Delegate the serving routes' backend surface to exactly one backend.
 
@@ -120,14 +138,18 @@ class Backends:
     # for this library model with this context". Unifying them is step 3's job, once a
     # qualified model id makes ``load(name)`` mean the same thing on both.
 
-    def _local(self) -> ServerManager:
+    def _local(self, member: str) -> ServerManager:
         """The wrapped backend as a local runtime manager.
+
+        Takes the member name for the same reason ``_remote`` does: with it hardcoded, the
+        message names ``load()`` whatever was actually called, and would start lying the day a
+        second local-only member lands.
 
         Raises:
             AttributeError: If the wrapped backend is a remote upstream.
         """
         if not isinstance(self._backend, ServerManager):
-            raise AttributeError("load() is local-only; an upstream backend selects an id with load_by_name()")
+            raise AttributeError(f"{member} is local-only; an upstream backend selects an id with load_by_name()")
         return self._backend
 
     def _remote(self, member: str) -> UpstreamManager:
@@ -154,7 +176,7 @@ class Backends:
             AttributeError: If the wrapped backend is a remote upstream.
             RuntimeError: If the runtime binary is not installed.
         """
-        self._local().load(model, n_ctx)
+        self._local("load()").load(model, n_ctx)
 
     def load_by_name(self, name: str, *, warmup: bool = True) -> None:
         """Select the remote model matching ``name``. Upstream backends only.

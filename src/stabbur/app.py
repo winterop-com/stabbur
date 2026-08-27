@@ -13,14 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from stabbur import config, mcp_catalog, mcpservers, project, runtime
+from stabbur import backends, mcp_catalog, mcpservers, project, runtime
 from stabbur import library as library_ops
 from stabbur import tools as mcp_tools
-from stabbur.backends import Backend, Backends
+from stabbur.backends import Backends
 from stabbur.config import Settings, get_settings
 from stabbur.routers import catalog, health, serving
 from stabbur.runtime import supervisor
-from stabbur.server import ServerManager, UpstreamManager
 from stabbur.targets import AssistantRegistry
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -211,18 +210,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
-    backend: Backend
-    if settings.upstream:
-        # Remote backend (`serve --upstream`): no local runtime is ever spawned — the
-        # manager selects among the remote's /v1 models and the proxy targets its URL.
-        backend = UpstreamManager(settings.upstream)
-    else:
-        # Honor the passed settings' runtime_port; the CLI --runtime-port override
-        # (process-global) still wins when set. None → ServerManager auto-picks.
-        backend = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
     # Exactly one backend today, but the routes only ever see the facade — so the day a
     # second one arrives, the change lands in Backends rather than in every serving route.
-    app.state.manager = Backends(backend)
+    app.state.manager = backends.build(settings.upstream, settings.runtime_port)
     # Serializes model load/unload so two concurrent requests can't interleave and
     # corrupt the manager's process state (ServerManager has no internal lock, and
     # load/unload now run in worker threads). Async, so waiting doesn't block the loop.
