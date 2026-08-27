@@ -25,10 +25,10 @@ from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
 from stabbur.app import create_app
+from stabbur.backends import Backends
 from stabbur.config import Settings
 from stabbur.routers import serving
 from stabbur.routers.serving import proxy
-from stabbur.server import ServerManager
 
 # NOTE: httpx 0.28's ASGITransport fully buffers a response — it runs the app to completion
 # before returning — so a stream cannot be observed mid-flight through the outer test client.
@@ -37,10 +37,11 @@ from stabbur.server import ServerManager
 
 
 class _FakeManager:
-    """A manager reporting a loaded model so ``_acquire_runtime`` / proxy pass their guards."""
+    """A backend reporting a loaded model so ``_acquire_runtime`` / proxy pass their guards."""
 
     current = type("M", (), {"load_target": Path("/models/x")})()
     base_url = "http://runtime"
+    is_upstream = False  # read by the /v1/models discovery branch these tests never take
 
 
 @pytest.fixture
@@ -177,7 +178,7 @@ async def test_client_disconnect_midstream_releases_reservation(app: FastAPI) ->
         resp = await proxy.proxy_v1(
             path="chat/completions",
             request=request,
-            manager=cast(ServerManager, _FakeManager()),
+            manager=cast(Backends, _FakeManager()),
             client=upstream,
         )
         assert app.state.active_generations == 1  # acquired before streaming

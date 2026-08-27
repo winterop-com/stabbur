@@ -8,8 +8,8 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from stabbur.backends import Backends
 from stabbur.config import Settings
-from stabbur.server import ServerManager, UpstreamManager
 
 router = APIRouter(tags=["serving"])
 
@@ -17,9 +17,9 @@ router = APIRouter(tags=["serving"])
 _DROP_HEADERS = {"content-length", "transfer-encoding", "connection", "host"}
 
 
-def get_manager(request: Request) -> "ServerManager | UpstreamManager":
-    """Dependency: the app's singleton backend manager (local runtime, or remote upstream)."""
-    manager: ServerManager | UpstreamManager = request.app.state.manager
+def get_manager(request: Request) -> Backends:
+    """Dependency: the app's backend facade (wrapping a local runtime, or a remote upstream)."""
+    manager: Backends = request.app.state.manager
     return manager
 
 
@@ -41,7 +41,7 @@ def get_lifecycle_lock(request: Request) -> asyncio.Lock:
     return lock
 
 
-ManagerDep = Annotated[ServerManager | UpstreamManager, Depends(get_manager)]
+ManagerDep = Annotated[Backends, Depends(get_manager)]
 HttpDep = Annotated[httpx.AsyncClient, Depends(get_http)]
 LockDep = Annotated[asyncio.Lock, Depends(get_lifecycle_lock)]
 ConfDep = Annotated[Settings, Depends(get_conf)]

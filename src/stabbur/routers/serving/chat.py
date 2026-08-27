@@ -23,7 +23,7 @@ from stabbur.routers.serving._base import (  # shared router + request deps
 )
 from stabbur.routers.serving.core import ServerStatus, _status
 from stabbur.runtime import sampling
-from stabbur.server import UpstreamManager, UpstreamModel
+from stabbur.server import UpstreamModel
 from stabbur.tools import MCPToolset, TargetRouting, narrow_to_servers
 
 _MAX_DETAIL = 2000  # cap on a tool SSE detail so one giant result can't flood the stream / the UI
@@ -353,7 +353,7 @@ async def load(
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
     if n_ctx is not None and n_ctx < 1:
         raise HTTPException(status_code=422, detail="n_ctx must be a positive integer")
-    if isinstance(manager, UpstreamManager):
+    if manager.is_upstream:
         # Upstream mode: "loading" selects one of the remote's ids (matched exactly, case-
         # insensitively, or by basename); the remote itself loads it on the next request.
         # ``n_ctx`` is decided by the remote's own presets, so it is ignored here.

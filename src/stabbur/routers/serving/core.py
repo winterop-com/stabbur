@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from stabbur import capabilities, cards, doctor, mcp_catalog
 from stabbur import library as library_ops
 from stabbur import tags as tags_ops
+from stabbur.backends import Backends
 from stabbur.config import Settings
 from stabbur.routers.serving._base import (  # shared router + request deps
     ConfDep,
@@ -20,7 +21,6 @@ from stabbur.routers.serving._base import (  # shared router + request deps
 )
 from stabbur.runtime import sampling
 from stabbur.runtime.sampling import ModelSampling
-from stabbur.server import ServerManager, UpstreamManager
 from stabbur.tools import MCPBridge, MCPToolset, TargetRouting
 
 
@@ -65,7 +65,7 @@ class LibraryModelInfo(BaseModel):
 
 
 async def _status(
-    manager: ServerManager | UpstreamManager,
+    manager: Backends,
     settings: Settings,
     system_prompt: str = "",
     project_model: str | None = None,
@@ -79,7 +79,7 @@ async def _status(
         locked=settings.serve_model is not None,
         n_ctx=manager.n_ctx,
         error=manager.last_error if current is None else None,
-        upstream=manager.base_url if isinstance(manager, UpstreamManager) else None,
+        upstream=manager.base_url if manager.is_upstream else None,
         default_system_prompt=system_prompt,
         project_model=project_model,
         default_chat_voice=chat_voice,
@@ -95,7 +95,7 @@ async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> Se
     # A generation actively streaming through this server IS proof the upstream is alive —
     # and a busy llama-server answers /v1/models slowly mid-generation, so probing it right
     # then is how a healthy backend reads as down. Skip the probe while tokens are flowing.
-    if isinstance(manager, UpstreamManager) and request.app.state.active_generations > 0:
+    if manager.is_upstream and request.app.state.active_generations > 0:
         manager.touch()
     return await _status(
         manager,
@@ -117,7 +117,7 @@ def library(manager: ManagerDep, settings: ConfDep) -> list[LibraryModelInfo]:
     ``loaded`` tag marking what the remote has resident right now. ``tools`` is left
     on — stabbur's agent loop supplies tools server-side regardless of the remote.
     """
-    if isinstance(manager, UpstreamManager):
+    if manager.is_upstream:
         try:
             rows = manager.models()
         except RuntimeError as exc:
@@ -215,7 +215,7 @@ def model_info(name: str, manager: ManagerDep) -> ModelCardInfo:
     """
     matches = library_ops.find(name)
     if not matches:
-        if isinstance(manager, UpstreamManager):
+        if manager.is_upstream:
             return ModelCardInfo(
                 name=name, model_format="remote", size_human="—", path="", sampling=sampling.defaults()
             )
@@ -349,7 +349,7 @@ def _mcp_checks(
     return checks
 
 
-def _loaded_model(manager: ServerManager | UpstreamManager) -> doctor.LoadedModel:
+def _loaded_model(manager: Backends) -> doctor.LoadedModel:
     """What this server has resident, for the doctor's ``Model`` row.
 
     The one fact ``stabbur doctor`` cannot see for itself: the CLI has no runtime, so it reports the
