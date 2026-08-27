@@ -191,3 +191,42 @@ async def test_client_disconnect_midstream_releases_reservation(app: FastAPI) ->
         assert app.state.active_generations == 0  # finally released it on disconnect
     finally:
         await upstream.aclose()
+
+
+async def test_credentials_are_not_forwarded_to_the_runtime(app: FastAPI, client: AsyncClient) -> None:
+    # The runtime we proxy to is a different trust domain — with --upstream it is another box
+    # entirely — so this server's credentials must stop here. Authorization (stabbur's own bearer
+    # token) and Cookie (the browser's cookies for the stabbur origin) are stripped from the
+    # outbound request; everything else the caller sent still passes through.
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update({k.lower(): v for k, v in request.headers.items()})
+
+        async def body() -> AsyncIterator[bytes]:
+            yield b'{"ok": true}'
+
+        return httpx.Response(200, headers={"content-type": "application/json"}, content=body())
+
+    upstream = AsyncClient(transport=httpx.MockTransport(handler), base_url="http://runtime")
+    app.dependency_overrides[serving.get_manager] = lambda: _FakeManager()
+    app.dependency_overrides[serving.get_http] = lambda: upstream
+    try:
+        r = await client.post(
+            "/v1/chat/completions",
+            json={"messages": []},
+            headers={
+                "authorization": "Bearer stabbur-token",
+                "cookie": "session=abc",
+                "proxy-authorization": "Basic Zm9vOmJhcg==",
+                "x-keep-me": "yes",
+            },
+        )
+        assert r.status_code == 200
+        assert "authorization" not in seen
+        assert "cookie" not in seen
+        assert "proxy-authorization" not in seen
+        assert seen["x-keep-me"] == "yes"  # only credentials are dropped, not arbitrary headers
+    finally:
+        app.dependency_overrides.clear()
+        await upstream.aclose()

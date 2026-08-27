@@ -108,6 +108,45 @@ def _default_runtime_state_dir() -> Path:
 # is reported rather than guessed around.
 DEFAULT_SERVE_PORT = 2222
 
+# Bind addresses that mean "every interface on this machine" rather than a single one. The
+# empty string is the one that reads as harmless and is not: uvicorn passes it to bind(), where
+# it is INADDR_ANY — exactly the same reach as ``0.0.0.0``. ``*`` is accepted because config
+# files and docs elsewhere spell any-address that way; it never reaches a bind() here, only
+# this classification.
+ANY_ADDRESS_SPELLINGS = frozenset({"", "0.0.0.0", "::", "*"})  # noqa: S104 - classified, never bound
+
+
+def is_loopback_bind(host: str) -> bool:
+    """Whether binding ``host`` can only be reached from this machine.
+
+    The gate for "does this serve need a bearer token" (see ``stabbur serve``), so it is
+    deliberately **fail-closed**: only an address provably confined to this machine is loopback;
+    an any-address spelling, a name that is not localhost, and anything unparseable are all
+    treated as exposed. Getting this backwards is not a cosmetic bug — a host classified as
+    loopback gets no auto-generated token and no exposure warning, which would hand model
+    control and MCP tool execution (arbitrary code, via the exec server) to the whole LAN.
+
+    Args:
+        host: The bind address as configured (``--host``, ``STABBUR_HOST``, or the default).
+
+    Returns:
+        True only for the loopback interface (``127.0.0.0/8``, ``::1``, ``localhost``).
+    """
+    candidate = host.strip().lower()
+    # A bracketed IPv6 literal ("[::1]") and a zone id ("fe80::1%en0") are both accepted
+    # spellings that ip_address() itself rejects; strip them before parsing.
+    candidate = candidate.removeprefix("[").removesuffix("]").partition("%")[0]
+    if candidate in ANY_ADDRESS_SPELLINGS:
+        return False
+    if candidate in ("localhost", "localhost."):
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        # A hostname we cannot resolve to a literal here. It may well point at this machine,
+        # but "may" is not good enough to skip the token: treat it as exposed.
+        return False
+
 
 def _default_frontend_dir() -> Path:
     """Where the built SPA lives, for an installed package and for a checkout alike.

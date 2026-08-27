@@ -27,6 +27,15 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 _GUARDED_PREFIXES = ("/api", "/v1", "/models")
 
+# The interactive API docs and the schema behind them. They mutate nothing, so the cross-site
+# guard has no business here — but on an exposed bind they hand an unauthenticated reader the
+# complete map of the API (every route and body shape, including the ones that run tools), so
+# the bearer check covers them. On the loopback default (no token configured) auth is a no-op
+# and they stay open, exactly as every other route does.
+_DOC_PATHS = ("/docs", "/redoc", "/openapi.json")  # a prefix match, so /docs/oauth2-redirect is covered
+
+_AUTH_PREFIXES = _GUARDED_PREFIXES + _DOC_PATHS
+
 
 def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
     """Whether to reject a request as a cross-site (drive-by) browser call.
@@ -65,26 +74,42 @@ def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
     return site not in ("same-origin", "none")
 
 
+def _as_bytes(value: str) -> bytes:
+    """Encode a token/header value for a byte-wise constant-time compare.
+
+    ``surrogateescape`` because Starlette decodes header bytes as latin-1: any byte round-trips,
+    and a lone surrogate from some other source encodes instead of raising. Never raises, which
+    is the whole point — see :func:`_auth_failed`.
+    """
+    return value.encode("utf-8", "surrogateescape")
+
+
 def _auth_failed(request: Request, token: str) -> bool:
     """Whether a request to a guarded route lacks the required bearer token.
 
     No-op when ``token`` is empty (auth disabled — the loopback default). Otherwise every
-    ``/api``, ``/v1``, ``/models`` call (any method) must carry ``Authorization: Bearer <token>``;
-    this is what keeps model control + MCP tool execution from being open to the LAN when the
-    server binds a non-loopback address (V-14). The SPA shell, favicon, and ``/health`` stay
-    unauthenticated so a browser can still load the page (then supply the token per request).
+    ``/api``, ``/v1``, ``/models`` call (any method) — plus the API docs and schema — must carry
+    ``Authorization: Bearer <token>``; this is what keeps model control + MCP tool execution from
+    being open to the LAN when the server binds a non-loopback address (V-14). The SPA shell,
+    favicon, and ``/health`` stay unauthenticated so a browser can still load the page (then
+    supply the token per request).
     """
     if not token:
         return False
     if request.method == "OPTIONS":
         return False  # CORS preflight carries no Authorization; let CORS handle it
-    if not request.url.path.startswith(_GUARDED_PREFIXES):
+    if not request.url.path.startswith(_AUTH_PREFIXES):
         return False
     header = request.headers.get("authorization", "")
     scheme, _, provided = header.partition(" ")
     if scheme.lower() != "bearer":
         return True
-    return not secrets.compare_digest(provided.strip(), token)  # constant-time compare
+    # Compared as BYTES, deliberately: compare_digest raises TypeError on a str holding any
+    # non-ASCII character, and a header is attacker-controlled — so a str compare turned a
+    # request carrying one byte of UTF-8 in Authorization into an unhandled 500 instead of a
+    # 401, and would have 500'd every guarded request had the configured token itself been
+    # non-ASCII. Bytes compare in constant time for equal lengths and never raise.
+    return not secrets.compare_digest(_as_bytes(provided.strip()), _as_bytes(token))
 
 
 @asynccontextmanager
@@ -266,17 +291,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     pending_page_actions: dict[str, asyncio.Future[pageactions.PageActionResult]] = {}
     app.state.pending_page_actions = pending_page_actions
 
-    if settings.cors_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=settings.cors_origins,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-
     # Reject cross-site (drive-by) browser calls to mutating endpoints, so a random
     # webpage can't load models / run MCP tools on the local server. Same-origin SPA,
     # allow-listed origins, and non-browser clients are unaffected.
+    #
+    # Added BEFORE the CORS middleware on purpose. Starlette applies middleware
+    # last-added-outermost, so registering this one first puts CORS *around* it — and the
+    # 401/403 short-circuits below then pass back out through CORS and pick up their
+    # Access-Control-Allow-Origin header. Without that ordering an allow-listed caller (the
+    # Chrome extension is the documented one) got a rejection its browser refused to read,
+    # surfacing as an opaque network error rather than "authentication required". The guard
+    # itself is unchanged: CORS never short-circuits a non-preflight request, so every request
+    # still reaches these two checks.
     @app.middleware("http")
     async def _cross_site_guard(request: Request, call_next: RequestResponseEndpoint) -> Response:
         if _auth_failed(request, settings.auth_token):
@@ -288,6 +314,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if _cross_site_blocked(request, settings.cors_origins):
             return JSONResponse({"detail": "cross-site request blocked"}, status_code=403)
         return await call_next(request)
+
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # An unconfigured library is a first-run state, not a crash: with no STABBUR_LIBRARY_ROOT the
     # library routes raise LibraryNotConfigured, which reached the client as a bare 500 and

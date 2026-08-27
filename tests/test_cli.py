@@ -1,5 +1,6 @@
 """CLI behavior tests (Typer CliRunner) — library-centric list + chat-only guard."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -471,6 +472,57 @@ def test_ext_dev_discovers_root_from_subdir(tmp_path: Path, monkeypatch: pytest.
     res = runner.invoke(cli.app, ["ext-dev"])
     assert res.exit_code == 1
     assert "bun not found" in res.output  # got past discovery, failed on the precondition
+
+
+_BIND_HOSTS = [
+    # (bind host, is it reachable only from this machine?)
+    ("127.0.0.1", True),
+    ("localhost", True),
+    ("::1", True),
+    ("[::1]", True),
+    ("127.0.0.5", True),  # the whole 127.0.0.0/8 loopback range, not just the one address
+    ("", False),  # INADDR_ANY: uvicorn binds every interface, exactly like 0.0.0.0
+    ("0.0.0.0", False),  # noqa: S104 - the point of the test
+    ("::", False),
+    ("lab-rig.example", False),  # a name we cannot prove is this machine → treat as exposed
+    ("192.0.2.10", False),
+]
+
+
+@pytest.mark.parametrize(("bind_host", "is_loopback"), _BIND_HOSTS)
+def test_bind_host_classification(bind_host: str, is_loopback: bool) -> None:
+    from stabbur import config
+
+    assert config.is_loopback_bind(bind_host) is is_loopback
+
+
+@pytest.mark.parametrize(("bind_host", "is_loopback"), _BIND_HOSTS)
+def test_exposed_bind_always_gets_a_token(bind_host: str, is_loopback: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The consequence of the classification above: any bind reachable from outside this machine
+    # must come up with a bearer token, or model control and MCP tool execution (arbitrary code,
+    # via the exec server) are open to the LAN. The host arrives via STABBUR_HOST because that —
+    # not --host — is the channel an any-address bind can come through (`--host ""` is falsy and
+    # falls back to the configured default).
+    import uvicorn
+
+    from stabbur.config import get_settings
+
+    monkeypatch.setenv("STABBUR_AUTH_TOKEN", "")  # restored on teardown, whatever serve() writes
+    monkeypatch.setenv("STABBUR_HOST", bind_host)
+    monkeypatch.setattr("stabbur.cli.serve._port_free", lambda _h, _p: True)
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+    get_settings.cache_clear()
+    try:
+        result = runner.invoke(cli.app, ["serve"])
+        assert result.exit_code == 0, result.output
+        token = os.environ.get("STABBUR_AUTH_TOKEN", "")
+        assert bool(token) is not is_loopback
+        assert ("Exposed on" in result.output) is not is_loopback
+        assert ("bearer token required" in result.output) is not is_loopback
+        # The printed URL must be openable: an empty host would otherwise read as `http://:2222`.
+        assert "http://:" not in result.output
+    finally:
+        get_settings.cache_clear()
 
 
 def test_normalize_server_url() -> None:

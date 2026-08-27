@@ -12,6 +12,7 @@ from fastapi.responses import Response, StreamingResponse
 from stabbur import library as library_ops
 from stabbur.routers.serving._base import (  # shared router + request deps
     _DROP_HEADERS,
+    _DROP_REQUEST_HEADERS,
     HttpDep,
     ManagerDep,
     _acquire_runtime,
@@ -57,7 +58,7 @@ async def proxy_v1(path: str, request: Request, manager: ManagerDep, client: Htt
         return _library_as_models()
 
     body = await request.body()
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROP_HEADERS}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROP_REQUEST_HEADERS}
     # Reserve the runtime so a load/unload can't swap/kill it mid-proxy; read the URL
     # under the reservation (and re-check a model is loaded) and release it when the
     # proxied stream finishes.
