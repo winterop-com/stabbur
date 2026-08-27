@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 from rich import box
+from rich.markup import escape
 from rich.table import Table
 
 from stabbur import (
@@ -199,21 +200,20 @@ def mcp_tools() -> None:
     console.print(f"[dim]Connecting to {len(servers)} server(s)…[/]")
     grouped, error, failures = _connect_project_tools(servers)
     if error:
-        console.print(f"[red]Could not connect:[/] [dim]{error}[/]")
+        console.print(f"[red]Could not connect:[/] [dim]{escape(error)}[/]")
         raise typer.Exit(1)
     failed = {label: reason for label, reason in failures}
     total = 0
     for server in servers:
         command = " ".join([server.command, *server.args])
         if server.name in failed:
-            console.print(
-                f"\n[yellow]{server.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{failed[server.name]}[/]"
-            )
+            reason = escape(failed[server.name])
+            console.print(f"\n[yellow]{server.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{reason}[/]")
             continue
         tools = sorted(grouped.get(server.name, []))
         total += len(tools)
         console.print(f"\n[cyan]{server.name}[/] [dim]({command})[/] — [bold]{len(tools)}[/] tool(s)")
         for tool, desc in tools:
             summary = desc.splitlines()[0] if desc else ""
-            console.print(f"  [white]{tool}[/]  [dim]{summary}[/]")
+            console.print(f"  [white]{escape(tool)}[/]  [dim]{escape(summary)}[/]")
     console.print(f"\n[dim]{total} tools across {len(servers)} server(s).[/]")

@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -192,7 +193,7 @@ def _pull_voice_all(root: Path | None, move: bool) -> None:
             result = catalog_ops.pull(ModelSource.voice, vid, library_root=root, move=move)
         except Exception as exc:  # noqa: BLE001 - one bad model must not abort the batch
             failed += 1
-            console.print(f"[red]✗ fail[/] {vid} [dim]— {exc}[/]")
+            console.print(f"[red]✗ fail[/] {vid} [dim]— {escape(str(exc))}[/]")
             continue
         console.print(f"[green]✓ pull[/] {vid} [dim]({result.size_human})[/]")
     console.print(f"\n[bold]{len(ids) - failed} imported[/] · {failed} failed")

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from stabbur import (
     capabilities,
@@ -443,7 +444,7 @@ def _autoload_remote(
         # A locked serve loads its model eagerly at startup; empty means that load failed.
         err = status.get("error")
         detail = f" ({err})" if isinstance(err, str) and err else ""
-        console.print(f"[red]{base_url} is locked but has no model loaded[/]{detail} — check the serve logs.")
+        console.print(f"[red]{base_url} is locked but has no model loaded[/]{escape(detail)} — check the serve logs.")
         raise typer.Exit(1)
     default = status.get("project_model")
     target = (model.name if model is not None else requested) or (default if isinstance(default, str) else None)
@@ -462,10 +463,10 @@ def _autoload_remote(
     except httpx.HTTPStatusError as exc:
         body = exc.response.json() if "json" in exc.response.headers.get("content-type", "") else {}
         detail = body.get("detail", str(exc)) if isinstance(body, dict) else str(exc)
-        console.print(f"[red]{base_url} could not load {target!r}[/] — {detail}")
+        console.print(f"[red]{base_url} could not load {target!r}[/] — {escape(str(detail))}")
         raise typer.Exit(1) from exc
     except httpx.HTTPError as exc:
-        console.print(f"[red]{base_url} could not load {target!r}[/] — {exc}")
+        console.print(f"[red]{base_url} could not load {target!r}[/] — {escape(str(exc))}")
         raise typer.Exit(1) from exc
 
     timeout = status.get("runtime_load_timeout")
@@ -480,7 +481,7 @@ def _autoload_remote(
                 if polled.get("state") == "stopped":
                     err = polled.get("error")
                     detail = f" — {err}" if isinstance(err, str) and err else ""
-                    console.print(f"[red]loading {target!r} on {base_url} failed[/]{detail}")
+                    console.print(f"[red]loading {target!r} on {base_url} failed[/]{escape(detail)}")
                     raise typer.Exit(1)
             time.sleep(1)
     console.print(f"[red]timed out waiting for {target!r} to load on {base_url}[/]")

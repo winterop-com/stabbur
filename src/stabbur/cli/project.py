@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 from pydantic import BaseModel, ConfigDict, ValidationError
+from rich.markup import escape
 from rich.panel import Panel
 
 from stabbur import (
@@ -64,7 +65,9 @@ def _pick_tools_interactive() -> list[tuple[str, str]]:
 
     servers = plugins.advertised_servers(plugins.manager())
     if not servers:
-        console.print("\n[bold]2. Tools[/] [dim]— no MCP plugins installed; skipping (add later in stabbur.toml)[/]")
+        console.print(
+            "\n[bold]2. Tools[/] [dim]— no MCP plugins installed; skipping (add later with `stabbur mcp add`)[/]"
+        )
         return []
     console.print("\n[bold]2. Tools[/] [dim]— MCP servers this assistant can call[/]")
     for i, s in enumerate(servers, 1):
@@ -87,7 +90,7 @@ def _pull_or_exit(model: str, library_root: Path | None) -> None:
         else:
             catalog_ops.pull(ModelSource.huggingface, model, library_root=library_root)
     except Exception as exc:  # noqa: BLE001 - surface pull/network failures
-        console.print(f"[red]Pull failed:[/] {exc}")
+        console.print(f"[red]Pull failed:[/] {escape(str(exc))}")
         raise typer.Exit(1) from exc
 
 
@@ -411,12 +414,14 @@ def project_(
         console.print(f"  [dim]connecting to {len(servers)} MCP server(s) …[/]")
         grouped, error, failures = _connect_project_tools(servers)
         if error:
-            console.print(f"  [red]could not connect:[/] [dim]{error}[/]")
+            console.print(f"  [red]could not connect:[/] [dim]{escape(error)}[/]")
         failed = {label: reason for label, reason in failures}
         for m in servers:
             command = " ".join([m.command, *m.args])
             if m.name in failed:  # this one couldn't start; the others still work
-                console.print(f"  [yellow]{m.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{failed[m.name]}[/]")
+                console.print(
+                    f"  [yellow]{m.name}[/] [dim]({command})[/] — [red]failed:[/] [dim]{escape(failed[m.name])}[/]"
+                )
                 if m.command.startswith("stabbur-mcp-web"):
                     console.print(
                         "    [dim]hint:[/] the web reader is optional — install it with [bold]make install-web[/]"
@@ -426,7 +431,7 @@ def project_(
             console.print(f"  [cyan]{m.name}[/] [dim]({command})[/] — [bold]{len(tools_here)}[/] tool(s)")
             for tool, desc in tools_here:
                 summary = desc.splitlines()[0][:80] if desc else ""
-                console.print(f"    [white]{tool}[/]{f'  [dim]{summary}[/]' if summary else ''}")
+                console.print(f"    [white]{escape(tool)}[/]{f'  [dim]{escape(summary)}[/]' if summary else ''}")
 
     # Model card (README) — opt-in, since it can be long.
     if card and model is not None:

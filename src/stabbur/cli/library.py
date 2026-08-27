@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 from rich import box
+from rich.markup import escape
 from rich.table import Table
 
 from stabbur import (
@@ -252,7 +253,7 @@ def install(
         else:
             result = consumers.install_lmstudio(resolved)
     except RuntimeError as exc:
-        console.print(f"[red]{exc}[/]")
+        console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
     if to == "ollama":
         console.print(
@@ -292,7 +293,7 @@ def uninstall(
             resolved = _resolve_library_model(model, model_format)
             result = consumers.uninstall_lmstudio(resolved)
     except RuntimeError as exc:
-        console.print(f"[red]{exc}[/]")
+        console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
     console.print(
         f"[green]Removed[/] [bold]{result.name}[/] from {from_} [dim]({result.detail}); library copy kept.[/]"
@@ -527,7 +528,7 @@ def sync(
     try:
         wants = wantlist.parse(wantfile.read_text(encoding="utf-8"))
     except (ValueError, tomllib.TOMLDecodeError) as exc:
-        console.print(f"[red]Invalid want list[/] ({wantfile}): {exc}")
+        console.print(f"[red]Invalid want list[/] ({wantfile}): {escape(str(exc))}")
         raise typer.Exit(2) from exc
 
     if deep and not repair:
@@ -573,7 +574,7 @@ def sync(
             result = wantlist.pull_entry(w, root)
         except Exception as exc:  # noqa: BLE001 - one bad model must not abort the sync
             failed += 1
-            console.print(f"[red]✗ fail[/] {w.name} [dim]— {exc}[/]")
+            console.print(f"[red]✗ fail[/] {w.name} [dim]— {escape(str(exc))}[/]")
             continue
         pulled += 1
         console.print(f"[green]✓ pull[/] {w.name} [dim]({result.size_human})[/]")
@@ -670,7 +671,7 @@ def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
             result = catalog_ops.pull(source, entry.name, library_root=root, move=move)
         except Exception as exc:  # noqa: BLE001 - one bad model must not abort the batch
             failed += 1
-            console.print(f"[red]✗ fail[/] {entry.name} [dim]— {exc}[/]")
+            console.print(f"[red]✗ fail[/] {entry.name} [dim]— {escape(str(exc))}[/]")
             continue
         imported += 1
         console.print(f"[green]✓ pull[/] {entry.name} [dim]({result.size_human})[/]")

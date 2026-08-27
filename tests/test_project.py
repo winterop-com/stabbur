@@ -1,6 +1,7 @@
 """Tests for loading the stabbur.toml project manifest."""
 
 import tomllib
+import warnings
 from pathlib import Path
 
 import pytest
@@ -424,3 +425,90 @@ def test_read_raw_is_the_single_parser(tmp_path: Path) -> None:
     p.write_text("nope = = [[[")
     with pytest.raises(project.ProjectError, match="not valid TOML"):
         project.read_raw(p)
+
+
+def test_libraries_must_be_an_array_of_strings(tmp_path: Path) -> None:
+    # A mistyped `libraries` used to coerce to [] (a string) or to nonsense paths (ints), so the
+    # project silently read the DEFAULT library instead of the one it named. Both are typos: say so.
+    p = tmp_path / "stabbur.toml"
+
+    p.write_text('libraries = "../libA"\n[project]\nmodel = "m"\n')  # a string, not an array
+    with pytest.raises(project.ProjectError, match="libraries must be an array of strings"):
+        project.load(p)
+
+    p.write_text("libraries = [1, 2]\n")  # ints would coerce to "1" / "2" as path names
+    with pytest.raises(project.ProjectError, match="libraries must be an array of strings"):
+        project.load(p)
+
+    p.write_text('libraries = ["models", "@shared"]\n')  # the correct shape still loads
+    proj = project.load(p)
+    assert proj is not None and proj.libraries == ["models", "@shared"]
+
+
+def test_voice_enabled_must_be_a_real_boolean(tmp_path: Path) -> None:
+    # bool() coerced anything truthy, so `enabled = "no"` read as ENABLED — the opposite of what
+    # was written. TOML has a real boolean; require it.
+    p = tmp_path / "stabbur.toml"
+    p.write_text('[project]\nmodel = "m"\n\n[voice]\nenabled = "no"\n')
+    with pytest.raises(project.ProjectError, match=r"\[voice\] enabled must be true or false"):
+        project.load(p)
+
+
+def test_voice_and_project_must_be_tables(tmp_path: Path) -> None:
+    # `voice = "loud"` was silently ignored (every key in the block dropped); `project = "x"` raised
+    # an AttributeError traceback. Both are the same manifest mistake — one clean ProjectError.
+    p = tmp_path / "stabbur.toml"
+    p.write_text('[project]\nmodel = "m"\nvoice = "loud"\n')  # inside [project]: not the block we read
+    assert project.load(p) is not None
+
+    p.write_text('voice = "loud"\n')
+    with pytest.raises(project.ProjectError, match=r"\[voice\] must be a table"):
+        project.load(p)
+
+    p.write_text('project = "x"\n')
+    with pytest.raises(project.ProjectError, match=r"\[project\] must be a table"):
+        project.load(p)
+
+
+def test_voice_unknown_keys_are_tolerated(tmp_path: Path) -> None:
+    # Unknown keys INSIDE [voice] stay tolerated, like unknown top-level keys — only the type of a
+    # key we actually read is enforced.
+    p = tmp_path / "stabbur.toml"
+    p.write_text('[project]\nmodel = "m"\n\n[voice]\nenabled = false\nspeed = 1.5\n')
+    proj = project.load(p)
+    assert proj is not None and proj.voice_enabled is False
+
+
+def test_absolute_library_entry_warns_but_loads(tmp_path: Path) -> None:
+    # An absolute path is allowed (it may be deliberate) but breaks the manifest header's
+    # "portable + committable: no machine-specific paths" promise, so it earns one line.
+    p = tmp_path / "stabbur.toml"
+    p.write_text(f'libraries = ["{tmp_path / "lib"}", "models", "@shared"]\n[project]\nmodel = "m"\n')
+    with pytest.warns(UserWarning, match="absolute path"):
+        proj = project.load(p)
+    assert proj is not None and len(proj.libraries) == 3
+
+    # A relative entry and @shared are the portable shapes — neither warns.
+    p.write_text('libraries = ["models", "@shared"]\n[project]\nmodel = "m"\n')
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert project.load(p) is not None
+
+
+def test_legacy_tool_config_warns_that_tools_moved(tmp_path: Path) -> None:
+    # Pre-.mcp.json `[[mcp]]` / `tools` still parse as TOML and do nothing, so a project silently
+    # runs without its tools. Point at where they live now.
+    p = tmp_path / "stabbur.toml"
+    p.write_text('[project]\nmodel = "m"\n\n[[mcp]]\nname = "datetime"\ncommand = "stabbur-mcp-datetime"\n')
+    with pytest.warns(UserWarning, match=r"stabbur mcp add"):
+        assert project.load(p) is not None
+
+    p.write_text('tools = ["datetime"]\n[project]\nmodel = "m"\n')
+    with pytest.warns(UserWarning, match=r"\.mcp\.json"):
+        assert project.load(p) is not None
+
+    # A manifest without either says nothing.
+    p.write_text('[project]\nmodel = "m"\n')
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert project.load(p) is not None

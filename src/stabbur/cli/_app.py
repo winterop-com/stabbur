@@ -4,6 +4,7 @@ import shlex
 from typing import TYPE_CHECKING, Annotated
 
 import typer
+from rich.markup import escape
 
 from stabbur import (
     capabilities,
@@ -13,6 +14,7 @@ from stabbur import (
     tags,
 )
 from stabbur import library as library_ops
+from stabbur.mcpservers import McpConfigError
 from stabbur.models import ModelFormat
 
 if TYPE_CHECKING:
@@ -38,7 +40,7 @@ project_app = typer.Typer(
     help="The project's assistant (./stabbur.toml): scaffold and inspect it.", no_args_is_help=True
 )
 mcp_app = typer.Typer(
-    help="MCP tool servers: browse a curated catalog + installed plugins, and add them to stabbur.toml.",
+    help="MCP tool servers: browse a curated catalog + installed plugins, and add them to .mcp.json.",
     no_args_is_help=True,
 )
 voice_app = typer.Typer(help="Voice models (TTS/STT): list and import them into the library.", no_args_is_help=True)
@@ -187,11 +189,35 @@ def _mount_plugins() -> None:
         app.add_typer(sub, name=name)
 
 
+def _install_one_line_warnings() -> None:
+    """Render a ``UserWarning`` as one plain line — these are notes for the user, not for a developer.
+
+    Python's default format prints the raising file, line number and source line, which for a
+    manifest note (``libraries entry … is an absolute path``) is three lines of stabbur internals in
+    front of the one sentence that matters. Only ``UserWarning`` is reformatted; anything else keeps
+    the default developer-facing format.
+    """
+    import warnings  # noqa: PLC0415
+
+    default = warnings.formatwarning
+
+    def _formatwarning(
+        message: Warning | str, category: type[Warning], filename: str, lineno: int, line: str | None = None
+    ) -> str:
+        if category is UserWarning:
+            return f"Warning: {message}\n"
+        return default(message, category, filename, lineno, line)
+
+    warnings.formatwarning = _formatwarning
+
+
 def main() -> None:
     """Console entry point: run the app, turning config problems into clean messages, not tracebacks."""
     import tomllib  # noqa: PLC0415
 
     from stabbur.runtime import supervisor  # noqa: PLC0415
+
+    _install_one_line_warnings()
 
     # Reclaim any runtime a previously-crashed stabbur left orphaned (holding memory) before doing
     # anything else. Best-effort and safe — only reaps runtimes whose owning stabbur is gone (A4).
@@ -203,12 +229,14 @@ def main() -> None:
     try:
         app()
     except library_ops.LibraryNotConfigured as exc:
-        console.print(f"[red]{exc}[/]")
+        console.print(f"[red]{escape(str(exc))}[/]")
         raise SystemExit(1) from exc
-    except (project.ProjectError, tomllib.TOMLDecodeError) as exc:
+    except (project.ProjectError, tomllib.TOMLDecodeError, McpConfigError) as exc:
         # A malformed stabbur.toml (hand-edited via `stabbur mcp add`) is read by project.load and by
-        # get_settings() (TomlConfigSettingsSource) — catch both so one typo doesn't traceback.
-        console.print(f"[red]Config error:[/] {exc}")
+        # get_settings() (TomlConfigSettingsSource) — catch both so one typo doesn't traceback. A
+        # malformed .mcp.json (McpConfigError) is the same class of hand-edit typo, and its docstring
+        # promises the same clean surfacing, so it lands here too.
+        console.print(f"[red]Config error:[/] {escape(str(exc))}")
         raise SystemExit(1) from exc
 
 

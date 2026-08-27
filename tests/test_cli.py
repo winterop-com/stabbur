@@ -1005,3 +1005,71 @@ def test_chat_save_failure_does_not_fail_the_run(tmp_path: Path, monkeypatch: py
     assert result.exit_code == 0, result.output
     assert "the answer" in result.output  # the reply still came through
     assert "--save failed" in result.output
+
+
+def _run_main(monkeypatch: pytest.MonkeyPatch, exc: Exception) -> None:
+    """Run `cli.main()` against an app that raises ``exc`` — what its clean-message layer sees."""
+    from stabbur.cli import _app as cli_app
+    from stabbur.runtime import supervisor
+
+    def _raise() -> None:
+        raise exc
+
+    monkeypatch.setattr(supervisor, "sweep_orphans", lambda: None)  # hermetic: no runtime dir scan
+    monkeypatch.setattr(cli_app, "app", _raise)
+    with pytest.raises(SystemExit) as raised:
+        cli_app.main()
+    assert raised.value.code == 1
+
+
+def test_main_surfaces_a_bad_mcp_json_cleanly(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A malformed ./.mcp.json (hand-edited, like stabbur.toml) must print one line, not a Rich
+    # traceback — McpConfigError's docstring promises exactly that.
+    from stabbur.mcpservers import McpConfigError
+
+    _run_main(monkeypatch, McpConfigError("/x/.mcp.json is not valid JSON: line 3"))
+    out = capsys.readouterr().out
+    assert "Config error" in out and "not valid JSON" in out
+    assert "Traceback" not in out
+
+
+def test_main_does_not_let_rich_eat_toml_table_names(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The message names the very tables the user has to fix; unescaped, Rich reads [assistant] and
+    # [[assistants]] as markup and swallows them ("declares both  and []").
+    from stabbur import project
+
+    _run_main(monkeypatch, project.ProjectError("declares both [assistant] and [[assistants]]"))
+    out = capsys.readouterr().out
+    assert "[assistant]" in out and "[[assistants]]" in out
+
+
+def test_main_does_not_let_rich_eat_a_library_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Same for the unconfigured-library message: whatever the exception says reaches the user verbatim.
+    from stabbur import library as lib
+
+    _run_main(monkeypatch, lib.LibraryNotConfigured("set STABBUR_LIBRARY_ROOT=[your drive]"))
+    assert "[your drive]" in capsys.readouterr().out
+
+
+def test_main_formats_manifest_warnings_as_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A manifest note (an absolute `libraries` entry, leftover [[mcp]]) is for the user, so it
+    # prints as one sentence — not behind Python's default file/line/source-line preamble.
+    import warnings
+
+    from stabbur.cli import _app as cli_app
+
+    monkeypatch.setattr(warnings, "formatwarning", warnings.formatwarning)  # restored after the test
+    cli_app._install_one_line_warnings()
+
+    user = warnings.formatwarning("libraries entry '/opt/models' is absolute", UserWarning, "project.py", 12)
+    assert user == "Warning: libraries entry '/opt/models' is absolute\n"
+
+    # Anything else keeps the developer-facing format, which names where it came from.
+    dev = warnings.formatwarning("an internal note", DeprecationWarning, "project.py", 12)
+    assert "project.py" in dev and "DeprecationWarning" in dev
