@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 import pytest
@@ -37,3 +39,51 @@ def test_fetch_hf_readme_returns_none_on_failure(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("huggingface_hub.hf_hub_download", _boom)
     assert cards.fetch_hf_readme("pub/Missing") is None  # never raises — a missing card is not fatal
+
+
+# --- the sidecar writes are atomic (stabbur.fsatomic) -------------------------------------------
+
+
+def _fail_fsync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the durable write fail where an unclean eject of the library drive would."""
+
+    def _drive_went_away(_fd: int) -> None:
+        raise OSError("drive went away mid-write")
+
+    monkeypatch.setattr(os, "fsync", _drive_went_away)
+
+
+def test_metadata_write_never_truncates_the_previous_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # metadata.json is what `verify` reads to detect a truncated pull, so it must not be the file
+    # a truncated write can produce: it is staged and fsynced before the rename, and a write that
+    # fails leaves the last complete version in place rather than a half-written one.
+    sidecar = tmp_path / cards.SIDECAR_DIR
+    cards.write_metadata(sidecar, {"name": "pub/model", "files": 3})
+
+    _fail_fsync(monkeypatch)
+    with pytest.raises(OSError):
+        cards.write_metadata(sidecar, {"name": "pub/model", "files": 4})
+
+    assert json.loads((sidecar / "metadata.json").read_text())["files"] == 3
+    assert sorted(p.name for p in sidecar.iterdir()) == ["metadata.json"]  # no staging temp left
+
+
+def test_card_write_never_truncates_the_previous_card(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # For an Ollama pull the generated card is the only copy of the manifest's system prompt,
+    # template and licence — a half-written one loses what the pull already consumed.
+    sidecar = tmp_path / cards.SIDECAR_DIR
+    cards.write_card(sidecar, "# card\n\nfull text\n")
+
+    _fail_fsync(monkeypatch)
+    with pytest.raises(OSError):
+        cards.write_card(sidecar, "# card\n\nreplacement\n")
+
+    assert (sidecar / "model-card.md").read_text() == "# card\n\nfull text\n"
+    assert sorted(p.name for p in sidecar.iterdir()) == ["model-card.md"]
+
+
+def test_metadata_serializes_non_json_values_and_creates_the_sidecar(tmp_path: Path) -> None:
+    # Routing through fsatomic must not lose `default=str`: a pull records Paths and timestamps.
+    sidecar = tmp_path / "deep" / cards.SIDECAR_DIR
+    path = cards.write_metadata(sidecar, {"name": "pub/model", "path": tmp_path / "weights.gguf"})
+    assert json.loads(path.read_text())["path"] == str(tmp_path / "weights.gguf")

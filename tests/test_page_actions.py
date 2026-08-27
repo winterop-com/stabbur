@@ -316,6 +316,15 @@ async def test_no_confirm_channel_denies_rather_than_acting() -> None:
     assert result.text == "error: user declined this action"
 
 
+async def test_a_gating_policy_without_a_channel_denies() -> None:
+    # The gate keys on the confirm channel, not on the policy string. "writes"/"all" only means
+    # the loop *would* have asked — with no sink there was nobody to ask, so a caller that passes
+    # a gating policy and no channel must not thereby run an acting page action ungated.
+    for policy in ("writes", "all"):
+        result = await _gating_toolset(None, policy).call("page_navigate", {"url": "https://a.test/x"})
+        assert result.text == "error: user declined this action"  # and _never_invoked was not reached
+
+
 async def test_the_forced_gate_does_not_ask_twice_under_a_gating_policy() -> None:
     # Under "writes"/"all" the agent loop already gated this exact call before reaching `call`;
     # asking again would prompt the user twice for one navigation.

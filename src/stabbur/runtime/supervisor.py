@@ -78,14 +78,32 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _proc_command(pid: int) -> str:
+    """The live command line for ``pid`` from ``/proc``, or ``""`` — the ps-free fallback.
+
+    ``ps`` comes from procps, which a minimal Linux container image (and any distroless base)
+    does not install, and without it the PID-reuse guard has no way to identify a process at all.
+    ``/proc/<pid>/cmdline`` is NUL-separated argv straight from the kernel; it does not exist on
+    macOS, so this simply returns "" there and ``ps`` remains the only source.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return ""
+    return " ".join(part for part in raw.decode(errors="replace").split("\0") if part)
+
+
 def _process_command(pid: int) -> str:
-    """The live command line for ``pid`` (``ps``), or ``""`` if it can't be read.
+    """The live command line for ``pid`` (``ps``, else ``/proc``), or ``""`` if it can't be read.
 
     ``-ww`` disables ps's column-width truncation (it defaults to the terminal width — 80 with
     no TTY), so the full argv is returned and the ``--port`` at the end of a long runtime command
     isn't dropped from the PID-reuse match. Retries on an empty result: macOS's framework-Python
     launcher (which is how the MLX runtimes run) can intermittently report a blank command to ps,
     and a spurious blank would make the PID-reuse guard skip a real orphan.
+
+    ``""`` means "could not read it", not "no such process" — the callers must treat the two
+    differently, since a pid whose identity is unknown can neither be killed nor written off.
     """
     for _ in range(5):
         try:
@@ -97,12 +115,12 @@ def _process_command(pid: int) -> str:
                 check=False,
             )
         except (OSError, subprocess.SubprocessError):
-            return ""
+            return _proc_command(pid)  # no ps on this machine (a minimal image): ask the kernel
         text = out.stdout.strip()
         if text:
             return text
         time.sleep(0.05)
-    return ""
+    return _proc_command(pid)
 
 
 def _killpg(pgid: int, sig: int) -> None:
@@ -272,11 +290,17 @@ def _is_bind_error(text: str) -> bool:
     return "address already in use" in low or "bind" in low and "in use" in low
 
 
-def _cmd_matches(pid: int, meta: dict[str, object]) -> bool:
-    """Whether ``pid``'s live command line still matches the recorded meta (a PID-reuse guard)."""
+def _cmd_matches(pid: int, meta: dict[str, object]) -> bool | None:
+    """Whether ``pid``'s live command line still matches the recorded meta (a PID-reuse guard).
+
+    Three answers, not two: ``True`` it is our runtime, ``False`` the pid was reused by something
+    else, and ``None`` — *the identity could not be established at all*. Only the caller can
+    decide what to do about the third, and it must not be folded into ``False``: that would read
+    "this is somebody else's process, forget it" from evidence that says nothing.
+    """
     live = _process_command(pid)
     if not live:
-        return False
+        return None  # the pid is alive but unidentifiable (no ps, no /proc, a blank command)
     cmd = meta.get("cmd")
     binary = Path(str(cmd[0])).name if isinstance(cmd, list) and cmd else ""
     return bool(binary) and binary in live and str(meta.get("port", "")) in live
@@ -288,6 +312,12 @@ def sweep_orphans() -> list[int]:
     Only reaps a runtime whose **owning stabbur is gone** (so it never touches a runtime a
     concurrently-running stabbur still owns) and whose live cmdline still matches its meta (so a
     reused pid is left alone). Returns the pids actually killed. Safe to call at every startup.
+
+    When the identity check cannot run at all — no ``ps`` and no ``/proc``, so
+    :func:`_cmd_matches` answers ``None`` — the record is **kept**, not deleted. Deleting it
+    would be the worst of both: the orphan is not killed (we can't confirm it is ours) *and* the
+    only note of its pid is gone, so nothing can ever reclaim its memory. Left in place, it costs
+    one stale directory and stays reapable by the next sweep that can identify it.
     """
     reaped: list[int] = []
     root = _runtimes_root()
@@ -306,12 +336,16 @@ def sweep_orphans() -> list[int]:
         pgid = int(meta.get("pgid", pid))
         if owner_pid and _pid_alive(owner_pid):
             continue  # a live stabbur still owns this runtime — leave it be
-        if pid and _pid_alive(pid) and _cmd_matches(pid, meta):
-            _killpg(pgid, signal.SIGTERM)
-            time.sleep(0.3)
-            if _pid_alive(pid):
-                _killpg(pgid, signal.SIGKILL)
-            reaped.append(pid)
+        if pid and _pid_alive(pid):
+            matches = _cmd_matches(pid, meta)
+            if matches is None:
+                continue  # identity unknown → keep the record so a later sweep can still reap it
+            if matches:
+                _killpg(pgid, signal.SIGTERM)
+                time.sleep(0.3)
+                if _pid_alive(pid):
+                    _killpg(pgid, signal.SIGKILL)
+                reaped.append(pid)
         shutil.rmtree(entry, ignore_errors=True)
     return reaped
 

@@ -232,3 +232,47 @@ def test_process_command_reads_an_established_process() -> None:
     # long-established process — here the test suite's own, which is stable unlike a just-spawned
     # framework-Python launcher. This is the real-ps coverage the stubbed sweep tests don't give.
     assert supervisor._process_command(os.getpid())
+
+
+def test_process_command_falls_back_to_proc_without_ps(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `ps` ships in procps, which a minimal Linux image doesn't install. On Linux the kernel's
+    # own /proc/<pid>/cmdline answers instead; on macOS there is no /proc, so the read is simply
+    # unavailable — which _cmd_matches must then report as "unknown", not as "no match".
+    def _no_ps(*_args: object, **_kwargs: object) -> object:
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", _no_ps)
+    result = supervisor._process_command(os.getpid())
+    if Path("/proc/self/cmdline").exists():
+        assert result  # Linux: identified without ps
+    else:
+        assert result == ""  # macOS: nothing can identify the pid
+
+
+def test_cmd_matches_reports_an_unidentifiable_pid_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Three-way answer: no readable cmdline is "can't tell", which is not the same as "no match".
+    monkeypatch.setattr(supervisor, "_process_command", lambda _p: "")
+    assert supervisor._cmd_matches(1234, {"cmd": ["/x/llama-server"], "port": 8080}) is None
+    monkeypatch.setattr(supervisor, "_process_command", lambda _p: "/x/llama-server --port 8080")
+    assert supervisor._cmd_matches(1234, {"cmd": ["/x/llama-server"], "port": 8080}) is True
+    assert supervisor._cmd_matches(1234, {"cmd": ["/x/other"], "port": 8080}) is False
+
+
+def test_sweep_keeps_the_record_when_the_pid_cannot_be_identified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No ps and no /proc (a minimal container image): the sweep can neither confirm the pid is
+    # ours nor rule it out. It must not kill blind — and it must NOT delete the record either,
+    # which used to lose the only note of a runtime still holding tens of GB.
+    root = tmp_path / "runtimes"
+    _owner_dead(monkeypatch)
+    port = supervisor.find_free_port()
+    sleeper = _raw_sleeper(port)
+    monkeypatch.setattr(supervisor, "_process_command", lambda _p: "")
+    try:
+        entry = _write_meta(root, owner_pid=_DEAD_OWNER, proc=sleeper, port=port)
+        assert supervisor.sweep_orphans() == []
+        assert supervisor._pid_alive(sleeper.pid)  # not killed on evidence that says nothing
+        assert entry.exists()  # still reapable by a later sweep on a machine that can check
+    finally:
+        _reap(sleeper.pid)

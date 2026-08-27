@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from stabbur import fsatomic
+
 SIDECAR_DIR = ".stabbur"
 """Name of the per-model sidecar directory (what a new pull writes)."""
 
@@ -28,18 +30,27 @@ _CARD_CANDIDATES = ("README.md", "model_card.md", "MODEL_CARD.md", "modelcard.md
 
 
 def write_metadata(sidecar_dir: Path, data: dict[str, Any]) -> Path:
-    """Write ``metadata.json`` into ``sidecar_dir`` and return its path."""
-    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    """Write ``metadata.json`` into ``sidecar_dir`` and return its path.
+
+    Atomic + fsynced (:mod:`stabbur.fsatomic`), because this is the file ``verify`` reads to decide
+    whether a pull landed intact: a plain write interrupted by an unclean eject of the no-journal
+    library drive leaves a truncated sidecar, and the check that exists to catch a truncated pull
+    is then the thing that is truncated. ``default=str`` (not ``fsatomic.write_json``) keeps
+    ``Path``/datetime values serializable and the file's existing key order and shape unchanged.
+    """
     path = sidecar_dir / "metadata.json"
-    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    fsatomic.write_text(path, json.dumps(data, indent=2, default=str))
     return path
 
 
 def write_card(sidecar_dir: Path, markdown: str) -> Path:
-    """Write a generated ``model-card.md`` into ``sidecar_dir`` and return its path."""
-    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    """Write a generated ``model-card.md`` into ``sidecar_dir`` and return its path.
+
+    Atomic, like its metadata sibling: a half-written card is the only copy of an Ollama model's
+    system prompt, template and licence, which are generated from a manifest the pull consumed.
+    """
     path = sidecar_dir / "model-card.md"
-    path.write_text(markdown, encoding="utf-8")
+    fsatomic.write_text(path, markdown)
     return path
 
 
