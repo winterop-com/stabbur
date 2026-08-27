@@ -144,10 +144,21 @@ is `gemma4` a backend or a model? — and needed a split-on-first-colon rule to 
 
 Open decisions, in the order they block things:
 
-- **Where backends are declared.** A repeatable `--upstream` is the cheap CLI form but has no
-  place to put a name; `[[backends]]` in `stabbur.toml` (and the machine config) can carry
-  `name`/`url`, with the local library an implicit backend whenever `STABBUR_LIBRARY_ROOT` is
-  set. Probably both, the flag deriving a name from the host.
+- **Decided: both.** `[[backends]]` tables (project `stabbur.toml` and the machine config, layered
+  by the usual `Settings` precedence) plus a repeatable `--upstream`, whose name is derived from the
+  host's first label (`http://msai:1234/v1` -> `msai`; IP literals keep every digit). The local
+  library is implicit whenever a library is *configured* — not merely when `STABBUR_LIBRARY_ROOT`
+  is set, since a project's own `libraries = [...]` configures one too — and is named `local`,
+  because the qualifier lands in committed `model@local` references and must not vary per machine.
+
+  Two sub-decisions worth keeping: two different URLs deriving the same name is a hard error
+  naming both (never an auto-suffix, never a silent pick), and the layers *replace* rather than
+  merge, exactly as `libraries` does. If "machine remote + project remote" turns out common, a
+  `@shared`-style opt-in token is the follow-up.
+
+  Note `[[backends]]` in `stabbur.toml` puts a machine-specific URL in the file whose point is
+  being portable. The machine config is the honest home for a host like `msai`; the project file
+  is right only when a team shares the host. It should not go in the `project init` scaffold.
 - **Decided: "loaded" stays singular** — one model this stabbur is currently pointed at.
   Backends may independently hold things resident (a remote router always does); stabbur tracks
   one selection, `/api/status` keeps one answer, and `/v1` keeps one proxy target.
@@ -165,9 +176,15 @@ Open decisions, in the order they block things:
 
   If fast local switching is ever the real want, the answer is llama-server's router mode
   locally — built for it, and it manages the memory itself — not plural backends here.
-- **What a down backend does to the picker.** It must degrade to a row, never an empty list or
-  a 502: the same per-item fault isolation the library scan already has. Needs a per-backend
-  timeout and concurrent probing, or one slow host stalls every listing.
+- **Decided and built: a down backend degrades to a row.** `/api/library` probes backends
+  concurrently with a per-backend timeout and returns HTTP 200 with one `unavailable` row
+  carrying the reason — measured at 5.04s against a black-holed host, where it previously 502'd
+  after 15s. `/api/library` became `async` for the concurrency; three slow backends now cost one
+  timeout, not three.
+
+  One asymmetry left deliberately: `LibraryNotConfigured` is re-raised rather than degraded,
+  because burying it in an anonymous row would lose the hint naming `STABBUR_LIBRARY_ROOT`. So an
+  unconfigured local library still fails a whole listing. Worth revisiting.
 
 **Not this feature:** fan-out to several models, cross-backend fallback, or load balancing.
 Those are a router's job — and a `llama-server` in router mode already covers "many models

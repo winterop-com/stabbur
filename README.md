@@ -135,6 +135,12 @@ The agent loop, tools, confirm gate, chat history, and UI all run locally; only 
 is remote. Both prefer whatever model the remote already has loaded, so attaching never
 evicts it — useful when the far end holds one model at a time.
 
+**Several at once.** `--upstream` is repeatable, and your local library is listed alongside the
+remotes, so the picker shows everything you can reach from one place. Names are derived from the
+host (`http://msai:1234/v1` becomes `msai`); declare them yourself with `[[backends]]` in the
+machine config when you want your own. A backend that is unreachable shows as one row saying so
+rather than failing the whole list.
+
 ## API
 
 `sb serve` exposes an OpenAI-compatible surface plus browse/voice endpoints:

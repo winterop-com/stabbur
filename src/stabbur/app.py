@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from stabbur import backends, mcp_catalog, mcpservers, project, runtime
+from stabbur import backends, config, mcp_catalog, mcpservers, project, runtime
 from stabbur import library as library_ops
 from stabbur import tools as mcp_tools
 from stabbur.backends import Backends
@@ -212,7 +212,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     # Exactly one backend today, but the routes only ever see the facade — so the day a
     # second one arrives, the change lands in Backends rather than in every serving route.
-    app.state.manager = backends.build(settings.upstream, settings.runtime_port)
+    # Every declared backend (the library plus any remotes), with ONE of them active — see
+    # ROADMAP, "loaded stays singular". Which one is active cannot be "the first declared":
+    # the library is listed first because that reads best in a picker, and `--upstream msai`
+    # must still start pointed at msai or the flag silently stops meaning what it says.
+    specs = config.declared_backends(settings=settings)
+    active = next((s.name for s in specs if s.url), None) if settings.upstream else None
+    app.state.manager = backends.declare(specs, settings.runtime_port, active)
     # Serializes model load/unload so two concurrent requests can't interleave and
     # corrupt the manager's process state (ServerManager has no internal lock, and
     # load/unload now run in worker threads). Async, so waiting doesn't block the loop.

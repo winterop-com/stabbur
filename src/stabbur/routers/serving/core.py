@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 from stabbur import capabilities, cards, doctor, mcp_catalog
 from stabbur import library as library_ops
 from stabbur import tags as tags_ops
-from stabbur.backends import Backends
+from stabbur.backends import BackendListing, Backends
 from stabbur.config import Settings
+from stabbur.library import LibraryModel
 from stabbur.routers.serving._base import (  # shared router + request deps
     ConfDep,
     LockDep,
@@ -21,6 +22,7 @@ from stabbur.routers.serving._base import (  # shared router + request deps
 )
 from stabbur.runtime import sampling
 from stabbur.runtime.sampling import ModelSampling
+from stabbur.server import UpstreamModel
 from stabbur.tools import MCPBridge, MCPToolset, TargetRouting
 
 
@@ -50,18 +52,36 @@ class ServerStatus(BaseModel):
     default_sampling: ModelSampling = Field(default_factory=sampling.defaults)
 
 
+UNAVAILABLE = "unavailable"
+"""``model_format`` of the placeholder row standing in for a backend that could not be listed."""
+
+
 class LibraryModelInfo(BaseModel):
-    """A runnable library model, for the UI's model picker."""
+    """One row in the UI's model picker: a runnable model, or a backend that could not be listed.
+
+    ``backend`` is the row's origin — the name half of a ``model@backend`` id (ROADMAP), which
+    is both what the picker groups by and what disambiguates two hosts serving the same model
+    name. Every row has one, including the single-backend case: with one backend the qualifier
+    is redundant, not absent.
+
+    ``error`` set means this row is **not a model**. A declared backend that is down, slow or
+    answering garbage degrades to one of these rather than vanishing from the listing or
+    failing it — a picker that silently drops a host looks identical to a host with no models,
+    and the user has no way to tell which happened. Such a row carries the backend's name and
+    ``model_format`` :data:`UNAVAILABLE`, and must not be offered as loadable.
+    """
 
     name: str
     model_format: str
     size_bytes: int
     size_human: str
+    backend: str
     vision: bool = False
     audio: bool = False
     tools: bool = False
     context_length: int | None = None
     tags: list[str] = []
+    error: str | None = None
 
 
 async def _status(
@@ -107,57 +127,100 @@ async def status(manager: ManagerDep, settings: ConfDep, request: Request) -> Se
     )
 
 
-@router.get("/api/library")
-def library(manager: ManagerDep, settings: ConfDep) -> list[LibraryModelInfo]:
-    """List the models the UI's picker can load: the library, or the upstream's ids.
+def _remote_row(model: UpstreamModel, backend: str) -> LibraryModelInfo:
+    """A picker row for one id a remote backend serves.
 
-    Sync (``def``) so the filesystem scan (or the upstream probe) runs in a worker
-    thread, off the loop. In upstream mode the rows are the remote's ``/v1/models``:
-    format ``remote``, no size, vision/audio from the reported modalities, and a
-    ``loaded`` tag marking what the remote has resident right now. ``tools`` is left
-    on — stabbur's agent loop supplies tools server-side regardless of the remote.
+    Format ``remote`` and no size: the weights are on the other host, so there is nothing
+    truthful to report. The ``loaded`` tag marks what that remote has resident right now.
+    ``tools`` is left on unconditionally — stabbur's agent loop supplies the tools server-side,
+    so it is true regardless of what the remote says about itself.
     """
-    if manager.is_upstream:
-        try:
-            rows = manager.models()
-        except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-        return [
-            LibraryModelInfo(
-                name=r.name,
-                model_format="remote",
-                size_bytes=0,
-                size_human="—",
-                vision=r.vision,
-                audio=r.audio,
-                tools=True,
-                tags=(["loaded"] if r.loaded else []),
-            )
-            for r in rows
-        ]
-    tag_maps: dict[str, dict[str, list[str]]] = {}  # cache tags.json per library root
+    return LibraryModelInfo(
+        name=model.name,
+        model_format="remote",
+        size_bytes=0,
+        size_human="—",
+        backend=backend,
+        vision=model.vision,
+        audio=model.audio,
+        tools=True,
+        tags=(["loaded"] if model.loaded else []),
+    )
+
+
+def _local_row(model: LibraryModel, backend: str, tag_maps: dict[str, dict[str, list[str]]]) -> LibraryModelInfo:
+    """A picker row for one library model, with its capabilities and its own library's tags.
+
+    ``tag_maps`` caches ``tags.json`` per library root across the whole listing: a library
+    composes several roots, and re-reading each one per model is the difference between one
+    file read and hundreds.
+    """
+    caps = capabilities.capabilities(model)
+    key = str(model.library_root)
+    if key not in tag_maps:
+        tag_maps[key] = tags_ops.load(model.library_root)
+    return LibraryModelInfo(
+        name=model.name,
+        model_format=model.model_format.value,
+        size_bytes=model.size_bytes,
+        size_human=model.size_human,
+        backend=backend,
+        vision=caps.vision,
+        audio=caps.audio,
+        tools=caps.tools,
+        context_length=caps.context_length,
+        tags=tag_maps[key].get(model.name, []),  # tags come from the model's own library
+    )
+
+
+def _picker_rows(listings: list[BackendListing]) -> list[LibraryModelInfo]:
+    """Flatten every backend's listing into picker rows, in declaration order.
+
+    Blocking: reading a model's capabilities parses its GGUF header on a cache miss, and its
+    tags read a file per library root. Called via ``to_thread`` for that reason — it is the
+    work the old sync handler did, unchanged apart from being fed several backends.
+    """
+    tag_maps: dict[str, dict[str, list[str]]] = {}
     out: list[LibraryModelInfo] = []
-    for m in library_ops.scan():
-        if not m.generative or m.is_ollama:
-            continue
-        caps = capabilities.capabilities(m)
-        key = str(m.library_root)
-        if key not in tag_maps:
-            tag_maps[key] = tags_ops.load(m.library_root)
-        out.append(
-            LibraryModelInfo(
-                name=m.name,
-                model_format=m.model_format.value,
-                size_bytes=m.size_bytes,
-                size_human=m.size_human,
-                vision=caps.vision,
-                audio=caps.audio,
-                tools=caps.tools,
-                context_length=caps.context_length,
-                tags=tag_maps[key].get(m.name, []),  # tags come from the model's own library
+    for listing in listings:
+        if listing.error is not None:
+            # The degraded row. Named for the backend because that is what is unavailable;
+            # there is no model here to name.
+            out.append(
+                LibraryModelInfo(
+                    name=listing.backend,
+                    model_format=UNAVAILABLE,
+                    size_bytes=0,
+                    size_human="—",
+                    backend=listing.backend,
+                    error=listing.error,
+                )
             )
-        )
+            continue
+        for model in listing.models:
+            if isinstance(model, UpstreamModel):
+                out.append(_remote_row(model, listing.backend))
+            elif model.generative and not model.is_ollama:  # runnable-by-the-picker only
+                out.append(_local_row(model, listing.backend, tag_maps))
     return out
+
+
+@router.get("/api/library")
+async def library(manager: ManagerDep) -> list[LibraryModelInfo]:
+    """List what the UI's picker can load, merged across every declared backend.
+
+    Each row names the backend it came from, so the picker can group by origin and form a
+    ``model@backend`` id. A backend that is down or slow contributes a single row with
+    ``error`` set (``model_format`` ``unavailable``) instead of failing the request: one
+    unreachable host must not cost the user the models on the healthy ones.
+
+    Async (``def`` before) because the probes now have to run **concurrently** — serially, a
+    slow host would add its whole timeout to every listing. Nothing blocking runs on the loop:
+    ``Backends.listings`` puts each probe in a worker thread and this handler puts the row
+    mapping (GGUF header reads, tags.json) in one more.
+    """
+    listings = await manager.listings()
+    return await asyncio.to_thread(_picker_rows, listings)
 
 
 class TagUpdate(BaseModel):

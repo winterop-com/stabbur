@@ -12,13 +12,20 @@ written by ``stabbur config`` / ``stabbur setup`` — the persistent per-machine
 
 Precedence (high to low): CLI args, ``STABBUR_*`` env vars, ``stabbur.toml``, ``.env``,
 machine config.
+
+Also here, because it is configuration rather than state: :func:`declared_backends`, which turns
+``[[backends]]`` tables plus ``--upstream`` values into the named backends the serving layer can
+hold (ROADMAP, "Multiple backends at once").
 """
 
+import ipaddress
 import json
 import os
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
+from urllib.parse import urlparse
 
 from pydantic import field_validator
 from pydantic_settings import (
@@ -27,6 +34,9 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+if TYPE_CHECKING:  # `stabbur.backends` imports `stabbur.library`, which imports this module
+    from stabbur.backends import BackendSpec
 
 
 class _StabburTomlSource(PydanticBaseSettingsSource):
@@ -184,6 +194,18 @@ class Settings(BaseSettings):
     # --upstream <url>`. Empty means local runtimes (the default).
     upstream: str | None = None
 
+    # Backends declared as ``[[backends]]`` tables (``name`` + optional ``url``) in
+    # ``stabbur.toml`` or the machine config — several remotes and the local library in one
+    # picker, where ``upstream`` above names exactly one remote. Read it through
+    # :func:`declared_backends`, never directly: the entries are kept **raw** here and
+    # validated there, for two reasons. A ``list[BackendSpec]`` field would need
+    # ``stabbur.backends`` imported at module level, and that is a genuine import cycle
+    # (backends -> library -> config -> backends, an ImportError on the first ``import
+    # stabbur.library``). And this file is hand-edited: validating at the point of use turns a
+    # typo into one readable message from the command that wanted a backend, instead of a
+    # pydantic ValidationError on *every* stabbur command.
+    backends: list[Any] = []
+
     # Bearer token required on the API (``/api``, ``/v1``, ``/models``) when set. Empty (the
     # default) disables auth — safe for the loopback-only default bind. ``stabbur serve`` auto-fills
     # a random one when it binds a non-loopback address, so exposing the server to the LAN never
@@ -291,6 +313,214 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a cached :class:`Settings` instance."""
     return Settings()
+
+
+# --- declared backends -------------------------------------------------------
+#
+# Turning configuration into a list of named backends (ROADMAP, "Multiple backends at once").
+# Declaration only: what *is* a backend here, not which one is loaded or how a model name
+# resolves across them.
+
+# The implicit backend for the machine's own library. The name is the qualifier in a
+# ``model@local`` id, so it is a public string, not a label — and it is written into portable,
+# committed places (a project's model reference, a bookmarked URL, the extension's config). That
+# rules out deriving it from the hostname or the drive: the same ``stabbur.toml`` would then name a
+# different backend on every machine, and renaming or swapping the drive would break the id.
+# "local" instead says what the backend *is* — the runtimes this process spawns — which stays true
+# wherever the library sits.
+LOCAL_BACKEND_NAME = "local"
+
+# Keys a ``[[backends]]`` table may set. Deliberately closed rather than ignored-if-unknown: the
+# shape is two keys, and a typo'd ``ur1 =`` would otherwise declare a *local* backend (``url``
+# absent means the library) that silently never reaches the host the user meant.
+_BACKEND_ENTRY_KEYS = frozenset({"name", "url"})
+
+
+class BackendDeclarationError(ValueError):
+    """A ``[[backends]]`` entry or ``--upstream`` value that cannot become a backend.
+
+    Its message is written to be printed at the user verbatim: every one of these comes from a
+    hand-edited config file or a command line, where a typo must produce a readable line rather
+    than a traceback.
+    """
+
+
+def _normalize_backend_url(url: str) -> str:
+    """Strip a trailing slash and ``/v1`` from a backend URL.
+
+    Mirrors :meth:`stabbur.server.UpstreamManager.__init__` (routes append their own ``/v1``
+    paths), repeated rather than shared because config sits below both the server and the CLI and
+    must not import either. Normalizing at declaration time is what makes ``http://msai:1234`` and
+    ``http://msai:1234/v1`` one backend instead of two that would then collide on their name.
+    """
+    return url.strip().rstrip("/").removesuffix("/v1").rstrip("/")
+
+
+def derive_backend_name(url: str) -> str:
+    """Derive a backend name from a URL's host — ``http://msai:1234/v1`` becomes ``msai``.
+
+    ``--upstream`` carries no name (that is the whole reason ``[[backends]]`` exists), so one is
+    derived from the host: its first label, which is what a person calls the box —
+    ``gpu-box.lan`` is "gpu-box". An IP literal keeps every digit; truncating ``127.0.0.1`` to
+    ``127`` would name nothing.
+
+    Args:
+        url: The upstream URL, with or without a scheme.
+
+    Returns:
+        The derived backend name.
+
+    Raises:
+        BackendDeclarationError: If the URL has no host to derive a name from.
+    """
+    # A bare ``host:port`` parses as scheme + path, so re-parse it as a network location. Only
+    # when the URL has no ``//`` at all: retrying a scheme'd-but-hostless URL would find a "host"
+    # in its own scheme (``http:///v1`` -> "http") and name a backend after it.
+    host = urlparse(url).hostname if "//" in url else urlparse(f"//{url}").hostname
+    if not host:
+        raise BackendDeclarationError(
+            f"could not derive a backend name from {url!r} (no host); "
+            f"declare it as a [[backends]] entry with an explicit name instead"
+        )
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return host.split(".")[0]
+    return host
+
+
+def _spec_from_entry(entry: Any, index: int) -> "BackendSpec":
+    """Validate one raw ``[[backends]]`` table into a :class:`~stabbur.backends.BackendSpec`.
+
+    Args:
+        entry: The parsed TOML table.
+        index: Its position in the list, so the error can point at the offending entry.
+
+    Returns:
+        The validated spec (``url`` normalized; absent ``url`` means the local library).
+
+    Raises:
+        BackendDeclarationError: If the entry is not a table, has no usable ``name``, has a
+            non-string ``url``, or sets a key that is not ``name`` / ``url``.
+    """
+    from stabbur.backends import BackendSpec  # noqa: PLC0415 - lazy: see the `backends` field
+
+    where = f"[[backends]] entry #{index + 1}"
+    if not isinstance(entry, dict):
+        raise BackendDeclarationError(f"{where} is not a table: expected `name = ...` (and an optional `url = ...`)")
+    unknown = sorted(set(entry) - _BACKEND_ENTRY_KEYS)
+    if unknown:
+        raise BackendDeclarationError(f"{where} sets unknown key(s) {', '.join(unknown)}; only name and url are read")
+    name = entry.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise BackendDeclarationError(f"{where} has no name; every backend needs one (it is the `model@backend` id)")
+    url = entry.get("url")
+    if url is not None and (not isinstance(url, str) or not url.strip()):
+        raise BackendDeclarationError(f"{where} ({name}) has an unusable url; give an OpenAI /v1 base URL, or omit it")
+    return BackendSpec(name=_checked_name(name, where), url=_normalize_backend_url(url) if url else None)
+
+
+def _checked_name(name: str, where: str) -> str:
+    """Reject a backend name that cannot be used as the qualifier in a ``model@backend`` id.
+
+    Args:
+        name: The declared or derived name.
+        where: Human-readable origin, for the message.
+
+    Returns:
+        The name, stripped.
+
+    Raises:
+        BackendDeclarationError: If the name contains ``@`` (the separator itself) or whitespace.
+    """
+    clean = name.strip()
+    # `model@backend` splits on the LAST `@`, so an `@` inside the backend name silently eats part
+    # of it; whitespace makes the id unquotable on a command line and in a URL path.
+    if "@" in clean or any(ch.isspace() for ch in clean):
+        raise BackendDeclarationError(
+            f"{where}: backend name {clean!r} may not contain '@' or whitespace — "
+            f"it is the qualifier in a `model@backend` id"
+        )
+    return clean
+
+
+def declared_backends(upstreams: Sequence[str] = (), settings: Settings | None = None) -> list["BackendSpec"]:
+    """Every backend this configuration declares, in listing order.
+
+    The one place configuration becomes a list of backends. Sources, each layered by the usual
+    :class:`Settings` precedence (env > ``stabbur.toml`` > machine config) *before* they get here:
+
+    1. the **local library**, implicit whenever one is configured — see :data:`LOCAL_BACKEND_NAME`;
+    2. ``[[backends]]`` tables (``settings.backends``), in file order;
+    3. ``--upstream`` values (``upstreams``), else the legacy single ``upstream`` setting.
+
+    The three are concatenated rather than overriding one another because they answer different
+    questions: ``[[backends]]`` is the durable declaration, ``--upstream`` is an ad-hoc addition
+    for this run, and neither is a reason to stop being able to run the models on this machine.
+    Order is listing order (local first: it is the one backend that works with no network); it is
+    **not** a selection priority — what is loaded stays singular and is tracked elsewhere.
+
+    Two flags naming the same place are one backend: URLs are normalized, and an ``--upstream``
+    whose URL is already declared is dropped (keeping the configured name, so ``--upstream``-ing a
+    host a project already declares is a no-op rather than a conflict). Two *different* URLs whose
+    derived names collide is an error, never a silent pick — ``[[backends]]`` is where a name that
+    a host cannot supply gets written.
+
+    Args:
+        upstreams: ``--upstream`` values from the command line, in the order given.
+        settings: Settings to read; the cached process settings by default.
+
+    Returns:
+        The declared backends, names unique.
+
+    Raises:
+        BackendDeclarationError: On a malformed ``[[backends]]`` entry, an un-nameable URL, or a
+            name declared twice.
+    """
+    from stabbur import library as library_ops  # noqa: PLC0415 - lazy: library imports this module
+    from stabbur.backends import BackendSpec  # noqa: PLC0415 - lazy: see the `backends` field
+
+    settings = settings or get_settings()
+    specs: list[BackendSpec] = []
+    by_name: dict[str, str] = {}  # name -> the URL (or "the local library") that claimed it
+
+    def _claim(spec: BackendSpec, hint: str) -> None:
+        """Take a name for ``spec``, or say who already holds it and how to settle it."""
+        taken = by_name.get(spec.name)
+        if taken is not None:
+            raise BackendDeclarationError(
+                f"two backends are named {spec.name!r}: {taken} and {spec.url or 'the local library'}. {hint}"
+            )
+        by_name[spec.name] = spec.url or "the local library"
+        specs.append(spec)
+
+    for index, entry in enumerate(settings.backends):
+        _claim(_spec_from_entry(entry, index), "Give each [[backends]] entry a name of its own.")
+
+    # A --upstream flag replaces STABBUR_UPSTREAM rather than adding to it: they are the same
+    # single-remote switch, spelled on the command line and in the environment.
+    urls = list(upstreams) or ([settings.upstream] if settings.upstream else [])
+    declared_urls = {spec.url for spec in specs}
+    for url in urls:
+        base = _normalize_backend_url(url)
+        if not base or base in declared_urls:
+            continue
+        declared_urls.add(base)
+        # Named from the URL as written, not from the normalized base: stripping ``/v1`` can leave
+        # a hostless URL that no longer parses the way the user typed it.
+        _claim(
+            BackendSpec(name=_checked_name(derive_backend_name(url.strip()), f"--upstream {url}"), url=base),
+            "A --upstream name is its host's, so two ports on one host collide — "
+            "declare them as [[backends]] entries with distinct names.",
+        )
+
+    # The local library leads the listing, but only if nothing has claimed its place: an explicit
+    # entry always wins over an implicit one, whether it renamed the library (a `[[backends]]`
+    # entry with no url) or merely took the name.
+    local_declared = any(spec.url is None for spec in specs) or LOCAL_BACKEND_NAME in by_name
+    if not local_declared and library_ops.configured(settings):
+        specs.insert(0, BackendSpec(name=LOCAL_BACKEND_NAME))
+    return specs
 
 
 # Process-wide debug switch, flipped by the CLI's global ``--debug`` flag (or the
