@@ -48,7 +48,7 @@ One codebase ships two builds. Only branding and a few words of in-app copy diff
 | Output dir | `.output/chrome-mv3` | `.output/chrome-mv3-dhis2` |
 | Manifest name | `stabbur` | `stabbur for DHIS2` |
 | Description | generic side-panel copy | DHIS2 assistant copy |
-| Icon | dark `k` mark | same mark + blue corner accent |
+| Icon | stabbur emblem | same emblem, ringed in DHIS2 blue |
 | Panel header | `stabbur` | `stabbur for DHIS2` |
 | Disconnected hint | generic `stabbur serve` | mentions a DHIS2 project + docs link |
 
@@ -57,9 +57,9 @@ switches the manifest name/description/icon and the output dir) and baked into t
 bundle via a Vite `define` (`__STABBUR_FLAVOR__`). App code branches copy through
 `lib/flavor.ts` (`flavor()`, `isDhis2Flavor()`, `flavorTitle()`).
 
-Icons live in `public/icon/{generic,dhis2}-{16,32,48,128}.png`, generated
-deterministically by `bun run scripts/gen-icons.ts` (re-run only when the mark
-changes; the PNGs are committed). The E2E tests and the mock screenshots default to the
+Icons live in `public/icon/{generic,dhis2}-{16,32,48,128}.png`, resized from the emblem
+(`docs/assets/logo.png`) by `uv run scripts/gen_extension_icons.py` (re-run only when the
+emblem changes; the PNGs are committed). The E2E tests and the mock screenshots default to the
 generic build path (`.output/chrome-mv3`); the docs-screenshots harness uses the DHIS2
 build so the panel is branded in the images.
 
