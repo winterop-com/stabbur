@@ -8,8 +8,48 @@ import { CopyButton } from "@/components/CopyButton";
 import { Markdown } from "@/components/Markdown";
 import { SpeakButton } from "@/components/SpeakButton";
 import { ToolMarkerChip } from "@/components/ToolMarkerChip";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, GenerationStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/**
+ * What the turn cost, LM Studio / llama.cpp style: tokens, wall time, and the rate. Ticks live
+ * while streaming (estimated from deltas) and settles on the runtime's own count when it ends.
+ *
+ * THE THREE NUMBERS DO NOT DIVIDE INTO EACH OTHER, and that is not a bug: "29 tokens · 14s ·
+ * 28.0 t/s" reads as a contradiction because the seconds are the whole turn — queueing and
+ * prompt processing included — while the rate is measured from the first token onward. The
+ * sentence that reconciles them used to live in a `title` on a plain div, which is to say
+ * nowhere a keyboard, a screen reader or a touch device could reach it. It is a disclosure now:
+ * the row is the summary, so the default is still one quiet line, and the explanation is one
+ * Enter away.
+ */
+function StatsRow({ stats }: { stats: GenerationStats }) {
+  return (
+    <details className="mt-1.5 w-full">
+      <summary className="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+        <span className="inline-flex items-center gap-2.5 tabular-nums align-middle">
+          <span className="inline-flex items-center gap-1">
+            <Hash className="h-3 w-3" />
+            {stats.completionTokens.toLocaleString()} tokens
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {stats.seconds < 10 ? `${stats.seconds.toFixed(1)}s` : `${Math.round(stats.seconds)}s`}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Gauge className="h-3 w-3" />
+            {stats.tokensPerSecond.toFixed(1)} t/s
+          </span>
+        </span>
+      </summary>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {stats.promptTokens.toLocaleString()} prompt + {stats.completionTokens.toLocaleString()} completion tokens. The
+        time is the whole turn; the rate is measured from the first token, which arrived after{" "}
+        {stats.ttftSeconds.toFixed(2)}s.
+      </p>
+    </details>
+  );
+}
 
 /**
  * One turn. User turns render as a right-aligned muted bubble; assistant turns
@@ -143,32 +183,19 @@ export function MessageItem({
         </div>
       )}
 
-      {message.stats && (
-        /* What the turn costs, LM Studio / llama.cpp style: tokens, wall time, and the rate.
-           Ticks live while streaming (estimated from deltas) and settles on the runtime's own
-           count when the turn ends. */
-        <div
-          className="mt-1.5 flex items-center gap-2.5 text-xs tabular-nums text-muted-foreground"
-          title={`${message.stats.promptTokens.toLocaleString()} prompt + ${message.stats.completionTokens.toLocaleString()} completion tokens\n${message.stats.ttftSeconds.toFixed(2)}s to first token · rate measured after it`}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Hash className="h-3 w-3" />
-            {message.stats.completionTokens.toLocaleString()} tokens
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {message.stats.seconds < 10 ? `${message.stats.seconds.toFixed(1)}s` : `${Math.round(message.stats.seconds)}s`}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Gauge className="h-3 w-3" />
-            {message.stats.tokensPerSecond.toFixed(1)} t/s
-          </span>
-        </div>
+      {/* One line, the Note recipe: a turn that ends early has to say why, or it reads as the
+          model having answered with nothing. */}
+      {message.stopped && !streaming && (
+        <p className="mt-1.5 text-sm text-muted-foreground">Stopped.</p>
       )}
 
+      {message.stats && <StatsRow stats={message.stats} />}
+
       {/* Always visible, not hover-gated: Listen is a control you reach for while reading (and
-          can run for many seconds), so it must not vanish when the pointer moves away. */}
-      {!streaming && (message.content || hasTools) && (
+          can run for many seconds), so it must not vanish when the pointer moves away. A stopped
+          turn earns the row too — regenerate is exactly what you want after pressing Stop, and it
+          was the one turn that had no way to reach it. */}
+      {!streaming && (message.content || hasTools || message.stopped) && (
         <div className="mt-1 flex items-center">
           {message.content && !message.error && <CopyButton text={message.content} />}
           {message.content && !message.error && (

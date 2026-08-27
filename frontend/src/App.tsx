@@ -132,6 +132,20 @@ type RailAnim = {
   widths: Record<string, number> | null;
 };
 
+/** The headline over `status.error`, in the mode the error actually happened in.
+ *
+ *  NOTHING LOCAL RUNS UNDER `--upstream`. The fallback used to be "The model runtime stopped
+ *  unexpectedly." in both modes, which is a sentence about a process stabbur never started: what
+ *  failed there is a remote that did not answer, and the fix is on the other host. Same wording
+ *  pattern as the health menu's Backend row, which names the host and says it did not answer.
+ */
+function runtimeErrorHeadline(raw: string, upstream: string | null | undefined): string {
+  return (
+    friendlyRuntimeError(raw) ??
+    (upstream ? `No answer from the model server at ${upstream}.` : "The model runtime stopped unexpectedly.")
+  );
+}
+
 /** Map a raw runtime error / log tail to a friendly one-liner for known failures. */
 function friendlyRuntimeError(raw: string): string | null {
   const low = raw.toLowerCase();
@@ -595,6 +609,15 @@ export function App() {
       // id, or the next send streams into a conversation that no longer renders.
       if (id && conversationsRef.current.some((c) => c.id === id)) {
         setActiveId(id);
+        setView("chat");
+        return;
+      }
+      // THE EMPTY HASH IS A ROUTE, and leaving it out is what made Back look broken: `hashTarget`
+      // maps a fresh chat to "" (see above), so navigating Library -> Back landed on the empty
+      // hash, matched no branch here, and left the Library mounted while the URL said chat.
+      // `#/chat` is the same surface spelled out, for anyone who types it.
+      if (window.location.hash === "" || window.location.hash === "#" || window.location.hash === "#/chat") {
+        setActiveId(null);
         setView("chat");
       }
     };
@@ -1098,14 +1121,21 @@ export function App() {
           }));
         }
       } finally {
-        // The stream is over: strip any confirmation still awaiting a decision (nothing will
-        // resolve it now), keeping only resolved ones (e.g. an auto-denied timeout note).
+        // The stream is over. Two things settle here, both about the turn as a whole: any
+        // confirmation still awaiting a decision is stripped (nothing will resolve it now),
+        // keeping only resolved ones (e.g. an auto-denied timeout note); and a turn the reader
+        // stopped is marked as such, so the transcript says why it ends where it does.
+        const wasStopped = ctrl.signal.aborted;
         upsertConv(convId, (c) => ({
           ...c,
           messages: c.messages.map((m) => {
-            if (m.id !== assistantId || !m.confirms?.length) return m;
-            const kept = m.confirms.filter((cf) => cf.status === "resolved");
-            return { ...m, confirms: kept.length ? kept : undefined };
+            if (m.id !== assistantId) return m;
+            let next = m;
+            if (m.confirms?.length) {
+              const kept = m.confirms.filter((cf) => cf.status === "resolved");
+              next = { ...next, confirms: kept.length ? kept : undefined };
+            }
+            return wasStopped ? { ...next, stopped: true } : next;
           }),
         }));
         setStreamingConvId(null);
@@ -1730,7 +1760,7 @@ export function App() {
                 {status?.error && (
                   <details className={error ? "mt-1" : undefined}>
                     <summary className="cursor-pointer">
-                      {friendlyRuntimeError(status.error) ?? "The model runtime stopped unexpectedly."}
+                      {runtimeErrorHeadline(status.error, status.upstream)}
                     </summary>
                     <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs opacity-80">
                       {status.error}
@@ -1816,8 +1846,13 @@ export function App() {
                     onAdd={addAttachments}
                     onRemove={removeAttachment}
                   />
+                  {/* "Locally" is a claim, not decoration, and under `serve --upstream` it is
+                      false: the agent loop, the tools and this UI run here, the weights run on
+                      another host. `status.upstream` is the only thing in the payload that knows. */}
                   <p className="mt-2 text-center text-sm text-muted-foreground">
-                    stabbur runs your model locally. Responses may be inaccurate.
+                    {status?.upstream
+                      ? "stabbur is fronting a model server you configured. Responses may be inaccurate."
+                      : "stabbur runs your model locally. Responses may be inaccurate."}
                   </p>
                 </div>
               </div>

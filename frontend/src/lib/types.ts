@@ -69,6 +69,11 @@ export interface ChatMessage {
   tools?: ToolMarker[];
   confirms?: PendingConfirm[]; // per-action write confirmations awaiting (or reflecting) a decision
   stats?: GenerationStats; // token accounting + wall time for a finished assistant turn
+  /** The reader pressed Stop while this turn was streaming. Recorded rather than inferred: a
+   *  turn stopped before its first token is indistinguishable from one the model ended empty,
+   *  and without this it renders as a collapsed Thinking bar, a stats row and nothing else —
+   *  no explanation, and no action row to copy or regenerate from. */
+  stopped?: boolean;
   error?: boolean;
   model?: string; // the model that produced this turn (assistant turns), for export fidelity
 }
