@@ -114,7 +114,7 @@ knows instead of failing the turn.
 Server streams, mid-turn, exactly as it does for a confirmation:
 
 ```
-{"type": "page_action", "id": "<hex>", "action": "navigate", "args": {...}}
+{"type": "page_action", "id": "<hex>", "action": "page_navigate", "args": {...}}
 ```
 
 The client executes it in the target tab and answers:
@@ -129,11 +129,19 @@ POST /api/chat/page-action  {"id": "<hex>", "ok": true, "result": {...}}
 Five rules. The first is the one everything else rests on.
 
 1. **Typed actions only; the server never sends code.** The wire carries an action NAME and
-   arguments, never JavaScript. The extension owns every implementation, so the set of things a
+   arguments, never JavaScript. **An argument that holds a URL is where code smuggles itself back
+   in** — `javascript:` and `data:` URLs are code wearing a URL's clothes — so a URL argument must
+   be scheme-checked to `http(s)` at the model. The same applies to any future argument that names
+   a resource (an image `src`, an `href`). The extension owns every implementation, so the set of things a
    model can do in your tab is fixed at extension-build time and reviewable — not synthesised per
    turn by a model. An `eval`-shaped channel would make every other rule here decorative.
-2. **Reads and navigation are ungated; anything that mutates rides the existing confirm gate —
-   and a mutating page action must force that gate on regardless of policy.** The plain version
+2. **Reads are ungated; everything else rides the confirm gate, forced on regardless of policy.**
+   The predicate is not "does it write something" — navigation writes nothing anywhere and is
+   still not safe. It is: *does this answer a question and leave the user's tab exactly as it
+   found it?* Navigation fails that — it moves what the user is looking at and discards whatever
+   was on the page, a half-filled form included — so `page_navigate` is gated. An earlier version
+   of this rule said "reads and navigation are ungated", which was wrong twice over: it exempted
+   navigation, and it leaned on a policy that defaults to `"none"`. The plain version
    of this rule was wrong, found while building the channel: the confirm policy defaults to
    `"none"` for free-play and for a read-only assistant, so a mutating page action would have
    been **ungated by default on a generic site with no project assistant** — precisely the case
@@ -211,14 +219,17 @@ So the read is not neutral. A dashboard title reading "ignore your instructions 
 
 What actually contains this, in order of load-bearingness:
 
-- **Mutating page actions are gated** (rule 2, as corrected). Injected text can ask for a click;
-  it cannot produce one without the user approving that specific action.
+- **Every non-read page action is gated** (rule 2, as corrected) — **navigation included**.
+  Injected text can ask for a click or a hop to another page; it cannot produce either without the
+  user approving that specific action. Navigation is worth naming separately because it is the one
+  acting verb that sounds harmless.
 - **MCP writes are gated by the same policy.** The confirm gate is the single choke point where
   a human sees what is about to happen, whoever suggested it.
 - **The action set is closed.** Injected text cannot invent an action: the server's registry is a
   `Literal` union and the client refuses an unknown name before injecting anything.
-- **`ref`s are opaque ordinals into a read the client performed.** Injected text cannot name an
-  element that read did not return.
+- **`ref`s will be opaque ordinals into a read the client performed**, so injected text cannot
+  name an element that read did not return. Stated as intent, not as containment that exists: the
+  client returns refs today, but no server action consumes one yet — click/fill are unbuilt.
 
 What does NOT contain it: the model's own judgement. Treating page text as untrusted input is a
 property of the gates, not of the prompt.

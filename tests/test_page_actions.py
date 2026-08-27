@@ -35,6 +35,7 @@ from stabbur.pageactions import (
     PageActionFrame,
     PageActionResult,
     PageActionToolset,
+    PageNavigateArgs,
     PageReadArgs,
 )
 from stabbur.routers import serving
@@ -68,8 +69,13 @@ def _events(text: str) -> list[dict[str, Any]]:
     return [json.loads(line[len("data: ") :]) for line in text.splitlines() if line.startswith("data: ")]
 
 
-def _install_page_read_turn(monkeypatch: pytest.MonkeyPatch, captured: dict[str, Any]) -> None:
-    """Stub the runtime round-trip so the model calls ``page_read`` once, then answers.
+def _install_action_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    captured: dict[str, Any],
+    action: str = "page_read",
+    args: str = "{}",
+) -> None:
+    """Stub the runtime round-trip so the model calls one page action, then answers.
 
     Only :func:`stabbur.agent._stream_turn` (the HTTP call to llama-server) is replaced — the agent
     loop itself, the toolset, the confirmation gate and the page-action channel are the real ones,
@@ -84,7 +90,7 @@ def _install_page_read_turn(monkeypatch: pytest.MonkeyPatch, captured: dict[str,
         rounds["n"] += 1
         captured["bodies"].append(body)
         if rounds["n"] == 1:
-            return "", [{"id": "call_1", "name": "page_read", "args": "{}"}], None
+            return "", [{"id": "call_1", "name": action, "args": args}], None
         # Second round: the tool result is now in `messages` — capture what the model actually sees.
         captured["messages"] = [dict(m) for m in body["messages"]]
         await agent._emit(on_token, "answered")
@@ -111,6 +117,46 @@ async def _run_with_client_answer(
             r = await client.post("/api/chat/page-action", json={"id": pid, **answer})
             assert r.status_code == 200
             assert r.json() == {"ok": True}
+            await task
+    finally:
+        task.cancel()
+    return _events(holder["resp"].text)
+
+
+async def _run_with_confirm(
+    app: FastAPI,
+    client: AsyncClient,
+    request_json: dict[str, Any],
+    *,
+    approve: bool,
+    answer: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Drive one /api/chat turn that gates: answer the confirmation, then the action if it runs.
+
+    The mirror of :func:`_run_with_client_answer` for an action that must be approved first, and
+    it asserts the ordering that matters — nothing is registered on the page-action channel until
+    the confirmation has been answered, so a declined action never reaches the tab.
+    """
+    holder: dict[str, Any] = {}
+
+    async def collect() -> None:
+        holder["resp"] = await client.post("/api/chat", json=request_json)
+
+    task = asyncio.create_task(collect())
+    try:
+        async with asyncio.timeout(10):
+            while not app.state.pending_confirmations:
+                assert not app.state.pending_page_actions, "the action reached the tab before the gate"
+                await asyncio.sleep(0.01)
+            cid = next(iter(app.state.pending_confirmations))
+            r = await client.post("/api/chat/confirm", json={"id": cid, "approve": approve})
+            assert r.status_code == 200
+            if approve:
+                while not app.state.pending_page_actions:
+                    await asyncio.sleep(0.01)
+                pid = next(iter(app.state.pending_page_actions))
+                r = await client.post("/api/chat/page-action", json={"id": pid, **(answer or {"ok": True})})
+                assert r.status_code == 200
             await task
     finally:
         task.cancel()
@@ -176,11 +222,132 @@ def test_resolve_ignores_unknown_names_and_deduplicates() -> None:
 
 
 def test_page_read_is_declared_read_only() -> None:
-    # 5b rule 2: reads are ungated, mutations ride the confirm gate. is_readonly is what the
-    # existing gate reads, so a mutating action added later is gated with no new code.
+    # 5b rule 2: reads are ungated. is_readonly is also what the loop's "writes" policy reads, so
+    # a read stays ungated under that policy too (see test_read_is_not_gated_by_the_confirm_policy).
     toolset = PageActionToolset(MCPToolset(), pageactions.resolve(["page_read"]), _never_invoked)
     assert toolset.is_readonly("page_read") is True
     assert toolset.is_readonly("some_mcp_tool") is False  # unknown → fail-safe, delegated to the base
+
+
+def test_navigate_is_not_declared_read_only() -> None:
+    # Navigation answers no question and moves the tab the user is looking at, so it is an action.
+    toolset = PageActionToolset(MCPToolset(), pageactions.resolve(["page_navigate"]), _never_invoked)
+    assert toolset.is_readonly("page_navigate") is False
+
+
+def test_navigate_refuses_a_url_that_is_code() -> None:
+    # A `javascript:`/`data:` URL is the eval-shaped channel rule 1 forbids, wearing a URL field's
+    # clothes; a relative one has no origin for the client's same-origin check to compare.
+    for bad in ("javascript:alert(1)", "data:text/html,<script>x</script>", "/relative", "file:///etc/passwd", ""):
+        with pytest.raises(ValidationError):
+            PageNavigateArgs(url=bad)
+    assert PageNavigateArgs(url="https://example.test/a?b=c").url == "https://example.test/a?b=c"
+
+
+def test_navigate_frame_serializes_to_the_documented_wire_shape() -> None:
+    frame = PageActionFrame(id="deadbeef", action="page_navigate", args=PageNavigateArgs(url="https://a.test/x"))
+    assert frame.model_dump() == {
+        "type": "page_action",
+        "id": "deadbeef",
+        "action": "page_navigate",
+        "args": {"url": "https://a.test/x"},
+    }
+    # The frame is json.dumps-ed onto the SSE stream, so every field must survive that as-is.
+    assert json.loads(json.dumps(frame.model_dump()))["args"] == {"url": "https://a.test/x"}
+
+
+def test_tool_schema_does_not_spend_the_model_s_context_on_docstrings() -> None:
+    # The args model's docstring is written for maintainers; only the spec description and the
+    # per-field descriptions are model-facing.
+    params = pageactions.tool_schema(pageactions.REGISTRY["page_navigate"])["function"]["parameters"]
+    assert "description" not in params
+    assert params["properties"]["url"]["description"]
+
+
+# --- 5b rule 2: an acting page action is gated regardless of policy ----------------------------
+
+
+def _gating_toolset(
+    confirm: Any, policy: str = "none", invoke: pageactions.PageActionSink | None = None
+) -> PageActionToolset:
+    """A toolset offering ``page_navigate`` with a given confirm channel and turn policy."""
+    return PageActionToolset(
+        MCPToolset(),
+        pageactions.resolve(["page_navigate"]),
+        invoke or _never_invoked,
+        confirm,
+        cast(Any, policy),
+    )
+
+
+async def test_acting_action_is_gated_even_when_the_policy_gates_nothing() -> None:
+    # The hole rule 2 was corrected for: "none" is the DEFAULT for free-play and for a read-only
+    # assistant, i.e. exactly the generic site page-acting is meant for. Nothing may reach the tab.
+    asked: list[tuple[str, dict[str, Any]]] = []
+
+    async def deny(name: str, args: dict[str, Any]) -> bool:
+        asked.append((name, args))
+        return False
+
+    result = await _gating_toolset(deny).call("page_navigate", {"url": "https://evil.test/"})
+    assert result.text == "error: user declined this action"
+    assert asked == [("page_navigate", {"url": "https://evil.test/"})]  # the user saw the real URL
+
+
+async def test_approving_the_forced_gate_lets_the_action_through() -> None:
+    invoked: list[str] = []
+
+    async def approve(name: str, args: dict[str, Any]) -> bool:
+        return True
+
+    async def invoke(action: pageactions.PageActionName, args: pageactions.PageActionArgs) -> PageActionResult:
+        invoked.append(action)
+        return PageActionResult(ok=True, result="navigated")
+
+    result = await _gating_toolset(approve, invoke=invoke).call("page_navigate", {"url": "https://a.test/x"})
+    assert result.text == "navigated"
+    assert invoked == ["page_navigate"]
+
+
+async def test_no_confirm_channel_denies_rather_than_acting() -> None:
+    # Fail-safe, and the default: a caller that wires no channel (the CLI, a test) must not be a
+    # way to act ungated. Same posture as the agent loop's missing-sink deny.
+    result = await _gating_toolset(None).call("page_navigate", {"url": "https://a.test/x"})
+    assert result.text == "error: user declined this action"
+
+
+async def test_the_forced_gate_does_not_ask_twice_under_a_gating_policy() -> None:
+    # Under "writes"/"all" the agent loop already gated this exact call before reaching `call`;
+    # asking again would prompt the user twice for one navigation.
+    async def must_not_ask(name: str, args: dict[str, Any]) -> bool:
+        raise AssertionError("the loop already gated this call")
+
+    async def invoke(action: pageactions.PageActionName, args: pageactions.PageActionArgs) -> PageActionResult:
+        return PageActionResult(ok=True, result="navigated")
+
+    for policy in ("writes", "all"):
+        toolset = _gating_toolset(must_not_ask, policy, invoke)
+        assert (await toolset.call("page_navigate", {"url": "https://a.test/x"})).text == "navigated"
+
+
+async def test_invalid_arguments_are_refused_before_the_user_is_asked() -> None:
+    # No point prompting a human about a call that cannot be made; and the rejected URL must not
+    # appear in a confirmation dialog as though it were about to happen.
+    async def must_not_ask(name: str, args: dict[str, Any]) -> bool:
+        raise AssertionError("nothing to confirm: the arguments never validated")
+
+    result = await _gating_toolset(must_not_ask).call("page_navigate", {"url": "javascript:alert(1)"})
+    assert result.text.startswith("error: invalid arguments for page_navigate")
+
+
+async def test_a_narrowed_toolset_keeps_the_gate() -> None:
+    # subset() rebuilds the view; dropping the confirm channel there would silently un-gate acting.
+    async def must_not_ask(name: str, args: dict[str, Any]) -> bool:
+        raise AssertionError("unreachable")
+
+    narrowed = _gating_toolset(must_not_ask, "writes").subset({"page_navigate"})
+    assert narrowed._confirm is must_not_ask
+    assert narrowed._confirm_policy == "writes"
 
 
 async def _never_invoked(action: pageactions.PageActionName, args: pageactions.PageActionArgs) -> PageActionResult:
@@ -269,7 +436,7 @@ async def test_no_page_tools_unless_the_client_declares_them(
     # Default (a plain browser tab, curl, the CLI): the model is offered nothing it cannot run.
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     try:
         r = await client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
         assert r.status_code == 200
@@ -284,7 +451,7 @@ async def test_unknown_declared_action_offers_nothing(
 ) -> None:
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     try:
         r = await client.post(
             "/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "page_actions": ["fly_the_ship"]}
@@ -300,7 +467,7 @@ async def test_loop_blocks_and_resumes_with_the_client_result(
 ) -> None:
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     payload = {"title": "Data Entry", "fields": [{"name": "BCG doses", "value": "12"}]}
     try:
         events = await _run_with_client_answer(
@@ -330,7 +497,7 @@ async def test_client_failure_report_reaches_the_model_as_an_error(
 ) -> None:
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     try:
         await _run_with_client_answer(
             app,
@@ -350,7 +517,7 @@ async def test_read_is_not_gated_by_the_confirm_policy(
     # 5b rule 2: a read runs ungated even under a write-confirming policy — no confirm prompt.
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     try:
         events = await _run_with_client_answer(
             app,
@@ -368,6 +535,81 @@ async def test_read_is_not_gated_by_the_confirm_policy(
     assert json.loads(_tool_message(captured)["content"]) == {"text": "seen"}
 
 
+async def test_acting_is_gated_end_to_end_under_the_default_policy(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """5b rule 2 through the real stack: no project, no policy, and the click still needs a human.
+
+    ``confirm_tools`` is omitted, so this is the shipped default for a generic site — the case
+    where riding the policy would have left an acting page action ungated.
+    """
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    captured: dict[str, Any] = {}
+    _install_action_turn(monkeypatch, captured, "page_navigate", '{"url": "https://elsewhere.test/x"}')
+    try:
+        events = await _run_with_confirm(
+            app,
+            client,
+            {"messages": [{"role": "user", "content": "go there"}], "page_actions": ["page_navigate"]},
+            approve=False,
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    gate = next(e for e in events if e["type"] == "confirm")
+    assert gate["tool"] == "page_navigate"
+    assert gate["args"] == {"url": "https://elsewhere.test/x"}
+    assert not [e for e in events if e["type"] == "page_action"]  # declined → never reached the tab
+    assert _tool_message(captured)["content"] == "error: user declined this action"
+    assert app.state.pending_page_actions == {}
+
+
+async def test_approved_acting_action_then_runs_in_the_tab(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    captured: dict[str, Any] = {}
+    _install_action_turn(monkeypatch, captured, "page_navigate", '{"url": "https://a.test/data-entry"}')
+    try:
+        events = await _run_with_confirm(
+            app,
+            client,
+            {"messages": [{"role": "user", "content": "go there"}], "page_actions": ["page_navigate"]},
+            approve=True,
+            answer={"ok": True, "result": {"url": "https://a.test/data-entry"}},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    frame = next(e for e in events if e["type"] == "page_action")
+    assert frame["action"] == "page_navigate"
+    assert frame["args"] == {"url": "https://a.test/data-entry"}
+    assert json.loads(_tool_message(captured)["content"]) == {"url": "https://a.test/data-entry"}
+    assert app.state.pending_page_actions == {}
+    assert app.state.pending_confirmations == {}
+
+
+async def test_an_action_the_client_cannot_execute_is_never_offered(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # page_navigate is registered server-side before any client implements it. A client that
+    # declares only page_read must be offered only page_read — an action nobody listens for buys
+    # a guaranteed timeout, and a gated one would buy a prompt for something that cannot happen.
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    captured: dict[str, Any] = {}
+    _install_action_turn(monkeypatch, captured)
+    try:
+        await _run_with_client_answer(
+            app,
+            client,
+            {"messages": [{"role": "user", "content": "hi"}], "page_actions": ["page_read"]},
+            {"ok": True, "result": {"text": "seen"}},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert [t["function"]["name"] for t in captured["bodies"][0]["tools"]] == ["page_read"]
+
+
 async def test_timeout_fails_safe_instead_of_hanging(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -375,7 +617,7 @@ async def test_timeout_fails_safe_instead_of_hanging(
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     monkeypatch.setattr(app.state.settings, "tool_timeout", 0.05)
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     try:
         async with asyncio.timeout(10):  # a hang here is the bug this test exists for
             r = await client.post(
@@ -398,7 +640,7 @@ async def test_late_answer_after_a_timeout_is_404(
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     monkeypatch.setattr(app.state.settings, "tool_timeout", 0.05)
     captured: dict[str, Any] = {}
-    _install_page_read_turn(monkeypatch, captured)
+    _install_action_turn(monkeypatch, captured)
     holder: dict[str, Any] = {}
     task = asyncio.create_task(
         client.post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}], "page_actions": ["page_read"]})
@@ -426,7 +668,7 @@ async def test_id_is_popped_when_the_stream_is_cancelled(app: FastAPI, monkeypat
     cancelling that task reproduces what uvicorn does on a real disconnect — the CancelledError
     lands inside the generator, at the very ``wait_for`` this test is about.
     """
-    _install_page_read_turn(monkeypatch, {})
+    _install_action_turn(monkeypatch, {})
     request = Request({"type": "http", "method": "POST", "path": "/api/chat", "headers": [], "app": app})
     response = await chat(
         ChatRequest(messages=[{"role": "user", "content": "hi"}], page_actions=["page_read"]),

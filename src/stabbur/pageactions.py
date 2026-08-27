@@ -15,18 +15,25 @@ so the server cannot express "run this JavaScript" even if a model asked it to: 
 reject it at build time and pydantic rejects it at runtime. Every other rule in 5b is decorative
 without that one, which is why it is enforced by the types rather than by a comment.
 
-Two more of 5b's rules are enforced here by *absence*: the frame has no tab field (rule 3 — the
-model can never name a tab, so the client can only ever act on the one it bound) and no URL/origin
-field today (rule 5 — the first action navigates nowhere). Adding an action means adding a spec to
-:data:`REGISTRY` with its own argument model; the agent loop and the channel do not change.
+Rule 3 is enforced here by *absence*: the frame has no tab field, so the model can never name a
+tab and the client can only ever act on the one it bound. Adding one would be the regression.
+Rule 5 (same-origin) is the client's check at execution time and cannot be made here — the server
+is never told what the bound origin is — but the server still refuses a URL that is *code*
+(:class:`PageNavigateArgs`), which is rule 1 rather than rule 5.
+
+Adding an action means adding a spec to :data:`REGISTRY` with its own argument model; the agent
+loop and the channel do not change. An action that is not ``readonly`` also gates — see
+:class:`PageActionSpec`.
 """
 
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from stabbur.agent import ConfirmSink
 from stabbur.tools import MCPToolset, ToolResult
 
 if TYPE_CHECKING:
@@ -40,7 +47,12 @@ if TYPE_CHECKING:
 _MAX_RESULT = 50_000
 _TRUNCATED = "\n[truncated: page content exceeded the size a single tool result may return]"
 
-PageActionName = Literal["page_read"]
+# Byte-for-byte the string the agent loop feeds the model when a user denies a gated tool call.
+# A page action denied *here* rather than in the loop must be indistinguishable to the model, or
+# the same refusal reads as two different failures depending on which gate happened to catch it.
+_DECLINED = "error: user declined this action"
+
+PageActionName = Literal["page_read", "page_navigate"]
 """Every action the server can put on the wire. A closed set, by construction."""
 
 
@@ -57,8 +69,35 @@ class PageReadArgs(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-PageActionArgs = PageReadArgs
-"""Union of every registered action's argument model (one member today; ``A | B`` as they land)."""
+class PageNavigateArgs(BaseModel):
+    """Arguments for ``page_navigate``: where to send the tab.
+
+    ``url`` is a plain ``str``, not pydantic's ``AnyHttpUrl``, because the frame is
+    ``model_dump()``-ed straight into ``json.dumps`` for the SSE stream and a ``Url`` object is not
+    JSON-serializable — a type that validates beautifully and then breaks the wire is worse than
+    a validator.
+
+    The validator is rule 1, not rule 5: ``javascript:`` and ``data:`` URLs *are* code, so a
+    channel that accepted them would be the ``eval``-shaped channel the whole design exists to
+    avoid, whatever the frame is called. Same-origin (rule 5) cannot be checked here — the server
+    is never told the bound origin — so it stays the client's check immediately before execution.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    url: str = Field(description="Absolute http(s) URL, on the same site as the page the user is already on.")
+
+    @field_validator("url")
+    @classmethod
+    def _absolute_http_only(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("url must be an absolute http(s) URL")
+        return value
+
+
+PageActionArgs = PageReadArgs | PageNavigateArgs
+"""Union of every registered action's argument model."""
 
 
 class PageActionFrame(BaseModel):
@@ -98,9 +137,16 @@ class PageActionSpec(BaseModel):
     name: PageActionName
     description: str
     args_model: type[PageActionArgs]
-    # Drives the existing confirmation gate via MCPToolset.is_readonly, so 5b rule 2 ("reads and
-    # navigation are ungated; anything that mutates rides the confirm gate") costs no new code:
-    # a mutating action registers readonly=False and is gated by the same policy as an MCP write.
+    # The predicate is "answers a question and leaves the user's tab exactly as it found it", not
+    # "does not write to a server": a navigation stores nothing anywhere and still fails it,
+    # because it moves the tab the user is looking at and discards whatever state was on the page.
+    #
+    # readonly=False means GATED, ALWAYS — 5b rule 2 as corrected. It deliberately does NOT just
+    # feed the confirm policy through MCPToolset.is_readonly, which was the original plan and was
+    # wrong: `confirm_tools` defaults to "none" for free-play and for a read-only assistant, so
+    # riding the policy would leave an acting page action ungated by default on exactly the
+    # generic, no-project site where page-acting is most wanted. PageActionToolset therefore
+    # raises the gate itself when the loop's policy would not have (see its `call`).
     readonly: bool
 
 
@@ -114,6 +160,17 @@ REGISTRY: dict[str, PageActionSpec] = {
         ),
         args_model=PageReadArgs,
         readonly=True,
+    ),
+    "page_navigate": PageActionSpec(
+        name="page_navigate",
+        description=(
+            "Send the tab the user is looking at to a different page on the same site. "
+            "The user is asked to approve every navigation, and a URL on another site is "
+            "refused, so navigate only where the user asked to go and read the page first if "
+            "you are guessing at the address."
+        ),
+        args_model=PageNavigateArgs,
+        readonly=False,
     ),
 }
 
@@ -141,10 +198,14 @@ def tool_schema(spec: PageActionSpec) -> dict[str, Any]:
     """The OpenAI ``tools`` entry for an action — its parameters generated from the args model.
 
     Generated, not hand-written, so the schema the model is shown and the validation the call
-    actually undergoes can never drift apart.
+    actually undergoes can never drift apart. What is dropped is what pydantic derives from the
+    *class* rather than from the contract: the class-name title, and the docstring — which is
+    written for whoever maintains this module and would otherwise spend the model's context on
+    internal reasoning. The model-facing text is the spec's ``description`` and each field's own.
     """
     parameters = spec.args_model.model_json_schema()
-    parameters.pop("title", None)  # pydantic's class-name title is noise in a tool schema
+    parameters.pop("title", None)
+    parameters.pop("description", None)
     return {
         "type": "function",
         "function": {"name": spec.name, "description": spec.description, "parameters": parameters},
@@ -198,14 +259,31 @@ class PageActionToolset(MCPToolset):
     Wrap *last*, after any target narrowing and ``enabled_tools`` subsetting: those select among
     the MCP servers a project configured, while the page actions available are decided by what the
     client can execute, not by that list.
+
+    It is also where 5b rule 2's "regardless of policy" lives. ``confirm`` and ``confirm_policy``
+    describe the turn's *existing* gate; a non-readonly page action is confirmed here whenever
+    that gate would not have caught it. Both defaults are the fail-safe ones — "the loop is not
+    gating" and "there is no channel to ask on" — so a caller that wires neither denies an acting
+    page action rather than running it, which is the failure that costs nothing.
     """
 
-    def __init__(self, base: MCPToolset, actions: Sequence[PageActionSpec], invoke: PageActionSink) -> None:
+    def __init__(
+        self,
+        base: MCPToolset,
+        actions: Sequence[PageActionSpec],
+        invoke: PageActionSink,
+        confirm: ConfirmSink | None = None,
+        confirm_policy: Literal["all", "writes", "none"] = "none",
+    ) -> None:
         super().__init__()
         self._base = base
         # Keyed by str, not by the Literal: lookups come from whatever name the *model* emitted.
         self._actions: dict[str, PageActionSpec] = {spec.name: spec for spec in actions}
         self._invoke = invoke
+        self._confirm = confirm
+        # Annotated, not inferred: pyright widens a literal assigned to an attribute to ``str``,
+        # and this value is passed straight back into this same constructor by ``subset``.
+        self._confirm_policy: Literal["all", "writes", "none"] = confirm_policy
         self.schemas = [*base.schemas, *(tool_schema(spec) for spec in actions)]
         self.errors = base.errors  # the same list object: spawn failures keep surfacing through the view
 
@@ -230,7 +308,22 @@ class PageActionToolset(MCPToolset):
         channel gone — a landmine for the first caller that does.
         """
         kept = [spec for spec in self._actions.values() if spec.name in names]
-        return PageActionToolset(self._base.subset(names), kept, self._invoke)
+        return PageActionToolset(self._base.subset(names), kept, self._invoke, self._confirm, self._confirm_policy)
+
+    async def _approved(self, spec: PageActionSpec, args: PageActionArgs) -> bool:
+        """Whether an acting page action may proceed — 5b rule 2's forced gate.
+
+        A ``readonly`` action never reaches here. For any other, the only question is who asks:
+        under ``"writes"`` or ``"all"`` the agent loop already gated this exact call before
+        reaching ``call``, and asking again would prompt the user twice for one click. Under
+        ``"none"`` — free-play, and a read-only assistant, i.e. the default on a generic site —
+        nothing gated it, so this is the gate. No channel to ask on denies, matching the loop.
+        """
+        if self._confirm_policy != "none":
+            return True
+        if self._confirm is None:
+            return False
+        return await self._confirm(spec.name, args.model_dump())
 
     async def call(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> ToolResult:
         """Execute a page action in the client's tab, or delegate to the wrapped MCP toolset.
@@ -248,6 +341,10 @@ class PageActionToolset(MCPToolset):
             # Validation is the no-code-on-the-wire boundary: a model that invents an argument
             # gets the error back and retries, and nothing it invented reaches the browser.
             return ToolResult(text=f"error: invalid arguments for {name} ({exc}); resend valid arguments.")
+        # Confirm *after* validating and *before* invoking: the user is shown the arguments that
+        # would actually be sent, and a declined action never reaches the tab at all.
+        if not spec.readonly and not await self._approved(spec, args):
+            return ToolResult(text=_DECLINED)
         return as_tool_result(await self._invoke(spec.name, args))
 
     async def call_structured(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
