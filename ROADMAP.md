@@ -60,15 +60,6 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
   step that made publishing to PyPI coherent. Pick the target licence (MIT or Apache-2.0; Apache
   adds an explicit patent grant) and drop the reserved-rights section when 1.0.0 is cut.
 
-- **Audio-specialist models don't process audio.** [High] gemma-4-12B transcribes fine, but
-  Ultravox 500s (`image input is not supported`) and Voxtral silently ignores the audio.
-  stabbur's path looks correct (capabilities from `clip.has_audio_encoder`, `--mmproj` passed,
-  OpenAI `input_audio` parts sent), so the fault is likely downstream (llama.cpp/mtmd support
-  for those architectures) or a projector-selection edge case (`pick_gguf` matches mmproj by
-  filename — a repo naming it otherwise gets no `--mmproj`). Verification needs a small
-  audio-specialist GGUF in the library: confirm `capabilities()` reports audio, then curl an
-  `input_audio` request against llama-server alone to isolate stabbur vs llama.cpp; if stabbur is
-  at fault, match the projector by `clip.has_audio_encoder`, not filename.
 - **`stabbur-mcp-web` browser path can't pin DNS.** [deferred — matters only if exposing stabbur
   beyond a trusted LAN] The static fetch path pins the resolved IP, but Chromium resolves its
   own connections, so a rebinding window remains on the Playwright path. A full fix would

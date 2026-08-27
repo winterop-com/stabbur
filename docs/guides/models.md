@@ -28,8 +28,8 @@ first-load and depend heavily on where the model lives (see
 | Qwen3.6-27B-GGUF | gguf | 16.3 GB | tools, vision | loads | minutes (drive) | Large; slow to load from an external drive. |
 | MN-Violet-Lotus-12B-GGUF | gguf | 12.1 GB | tools | loads | ~5 s | Roleplay/uncensored — set a system prompt or clear it. |
 | Ornith-1.0-9B-GGUF | gguf | 5.2 GB | tools | loads | ~57 s (drive) | Vision **not** detected (the MLX twin does — see below). |
-| ultravox-v0_5-llama-3_2-1b-GGUF | gguf | 2.0 GB | tools, audio | loads; **audio fails** | ~2 s | Audio input 500s at the runtime (see limitations). |
-| Voxtral-Mini-3B-2507-GGUF | gguf | 3.0 GB | tools, audio | loads; **audio ignored** | ~37 s | Multilingual, but audio input isn't processed. |
+| ultravox-v0_5-llama-3_2-1b-GGUF | gguf | 2.0 GB | tools, audio | loads; **audio works** | ~2 s | Transcribes reliably. Regurgitates tool schemas — use `--no-tools`. |
+| Voxtral-Mini-3B-2507-GGUF | gguf | 3.0 GB | tools, audio | loads; **audio works** | ~37 s | Multilingual. Deflects instead of transcribing on some turns — see below. |
 | gemma-4-26B-A4B-it-QAT-MLX-4bit | mlx | 14.6 GB | tools, vision, audio | not tested this run | — | Large MLX MoE. |
 | Qwen3.6-27B-4bit | mlx | 15.0 GB | vision | not tested this run | — | Tools **not** detected (the GGUF twin does). |
 | gemma-4-E4B-it-MLX-4bit | mlx | 6.4 GB | tools, vision, audio | **fails to load** | error ~9 s | Weight mismatch under mlx-vlm. |
@@ -40,18 +40,29 @@ first-load and depend heavily on where the model lives (see
 
 ## Known limitations
 
-### Dedicated audio models don't process audio yet
+### Audio-specialist models: fixed upstream, but prompt-sensitive
 
-**gemma-4-12B handles audio input correctly** (it transcribed a test clip), but the
-audio-specialist GGUFs do not, via the current `llama-server`:
+This was previously recorded as broken — Ultravox returning `500 image input is not
+supported`, Voxtral silently ignoring audio. **Neither reproduces on current
+`llama.cpp`.** Both transcribe correctly, through `llama-server` directly and through
+stabbur. The runtime now reports `init_audio` on load for an audio-only projector.
 
-- **Ultravox** returns a runtime `500` — `image input is not supported` (its
-  audio-only projector is being hit through the image path).
-- **Voxtral** silently ignores the audio and answers as a text-only model.
+What remains is a model behaviour, not a capability gap, and it is easy to mistake for
+one:
 
-So for **audio input, use a general multimodal model (gemma-4)** for now. The
-dedicated audio models load fine but their audio path needs a runtime/projector
-fix — tracked as a follow-up.
+- **The prompt matters.** Asking Voxtral to *"Transcribe the audio"* reliably produces a
+  refusal — *"I'm unable to transcribe audio directly"* — while *"Repeat exactly what you
+  hear"* transcribes. The refusal reads exactly like the audio never arrived.
+- **It is not deterministic.** At default sampling Voxtral transcribed 7 of 8 turns; on
+  some turns it answers as a generic assistant instead. At `temperature 0` it was 6 of 6.
+
+If you are checking whether a model hears audio, **run the same prompt without the
+attachment and compare**. Identical answers mean the audio was ignored; different ones
+mean it arrived. Without that control a refusal is indistinguishable from a broken
+audio path — which is how this was first recorded as a bug.
+
+gemma-4-12B remains the safest choice for audio: its projector carries both vision and
+audio encoders, and it does not deflect.
 
 ### Some MLX vision checkpoints fail to load
 
