@@ -4193,7 +4193,7 @@ requires-dist = [
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "soundfile", marker = "extra == 'voice'", specifier = ">=0.13.1" },
     { name = "soxr", marker = "extra == 'voice'", specifier = ">=0.5" },
-    { name = "textual", specifier = ">=0.85" },
+    { name = "textual", specifier = ">=8.0" },
     { name = "trafilatura", marker = "extra == 'web'", specifier = ">=1.12" },
     { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=5.5,<5.13" },
     { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'voice'", specifier = ">=5.5,<5.13" },

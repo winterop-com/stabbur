@@ -578,6 +578,60 @@ def test_chat_p_server_flag_passes_base_url(monkeypatch: pytest.MonkeyPatch) -> 
     assert captured["model_id"] == "pub/X"  # the remote's id, never the local load_target path
 
 
+def _stub_remote_listing(monkeypatch: pytest.MonkeyPatch, *rows: tuple[str, bool]) -> None:
+    """Answer ``GET /v1/models`` with ``(id, loaded)`` rows (the remote-attach discovery probe)."""
+    listing = {"data": [{"id": rid, **({"status": {"value": "loaded"}} if loaded else {})} for rid, loaded in rows]}
+    monkeypatch.setattr(cli.chat, "_probe_json", lambda _url: listing)
+
+
+def test_chat_p_server_does_not_demand_the_machine_default_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A machine default (`stabbur config set model`) says what to LOAD when nothing else does — it is
+    # not a request. Substituted before the remote's listing was matched, it made every
+    # `chat -p --server` fail with "does not serve <default>" on a box holding other models, and
+    # contradicted the documented "with no name, the remote's loaded model wins".
+    from stabbur import runtime
+
+    # Stand in for `stabbur config set model` (Settings is process-cached, so the env var alone
+    # would not reach this run): resolve_model's real precedence with a machine default set.
+    monkeypatch.setattr(
+        cli.chat.project,
+        "resolve_model",
+        lambda explicit, proj: explicit or (proj.model if proj else None) or "pub/Only-Here",
+    )
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])
+    _stub_remote_listing(monkeypatch, ("remote-a", False), ("remote-b", True))
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("model_id", a[5]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000"])
+    assert result.exit_code == 0, result.output
+    assert captured["model_id"] == "remote-b"  # the model the remote has loaded
+
+
+def test_chat_p_server_still_refuses_an_explicitly_named_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An explicit name is a request, and a request the server can't serve must fail loudly.
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])
+    _stub_remote_listing(monkeypatch, ("remote-a", True))
+
+    result = runner.invoke(cli.app, ["chat", "pub/X", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000"])
+    assert result.exit_code == 1
+    assert "does not serve" in result.output and "remote-a" in result.output  # and says what it does serve
+
+
+def test_chat_p_server_still_refuses_a_project_model_it_cannot_serve(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The project's model is the project speaking, not a per-machine fallback: keep failing loudly.
+    monkeypatch.chdir(tmp_path)
+    Path("stabbur.toml").write_text('[project]\nmodel = "proj/Bound-GGUF"\n', encoding="utf-8")
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])
+    _stub_remote_listing(monkeypatch, ("remote-a", True))
+
+    result = runner.invoke(cli.app, ["chat", "-p", "hi", "--no-tools", "--server", "http://127.0.0.1:8000"])
+    assert result.exit_code == 1
+    assert "does not serve 'proj/Bound-GGUF'" in result.output
+
+
 def test_chat_p_auto_attaches_to_running_serve(monkeypatch: pytest.MonkeyPatch) -> None:
     from stabbur import capabilities, runtime
     from stabbur.runtime import serve_registry
@@ -736,6 +790,34 @@ def test_probe_remote_falls_back_to_v1_models(monkeypatch: pytest.MonkeyPatch) -
     endpoint = _probe_remote("http://127.0.0.1:9999", None, None)
     assert endpoint.model_id == "/models/foo.gguf"  # sent as the OpenAI model field
     assert endpoint.model_name == "/models/foo.gguf"
+
+
+def test_probe_remote_reads_the_context_window_from_v1_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The footer's context gauge simply vanished against a plain llama-server: n_ctx was read only
+    # from stabbur serve's /api/status, while the /v1/models row already carries the loaded window.
+    from stabbur.cli.chat import _probe_remote
+
+    _stub_httpx_get(
+        monkeypatch,
+        {
+            "/v1/models": {
+                "data": [
+                    {"id": "other", "meta": {"n_ctx": 512}},
+                    {"id": "running", "status": {"value": "loaded"}, "meta": {"n_ctx": 8192, "n_ctx_train": 262144}},
+                ]
+            }
+        },
+    )
+    endpoint = _probe_remote("http://127.0.0.1:9999", None, None)
+    assert endpoint.model_id == "running"  # the loaded model, not the first listed
+    assert endpoint.n_ctx == 8192  # its window — not n_ctx_train, which is the model's maximum
+
+
+def test_probe_remote_survives_a_server_that_reports_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    from stabbur.cli.chat import _probe_remote
+
+    _stub_httpx_get(monkeypatch, {"/v1/models": {"data": [{"id": "plain", "meta": {"n_ctx_train": 4096}}]}})
+    assert _probe_remote("http://127.0.0.1:9999", None, None).n_ctx is None  # gauge omitted, as before
 
 
 def test_probe_remote_exits_when_nothing_answers(monkeypatch: pytest.MonkeyPatch) -> None:

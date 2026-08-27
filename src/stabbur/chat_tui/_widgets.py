@@ -18,8 +18,18 @@ from textual.widgets.option_list import Option
 class _StabburCommands(Provider):
     """Commands for the Ctrl+P palette, alongside Textual's built-ins."""
 
+    # Built once per palette opening: Textual calls `discover` and then `search` on the same
+    # provider instance, and both need the full list — building it twice did every lookup twice.
+    _cache: "list[tuple[str, str, Any]] | None" = None
+
     def _commands(self) -> list[tuple[str, str, Any]]:
-        """(title, help, callback) for every palette command, from live app state."""
+        """(title, help, callback) for every palette command, from live app state (memoized)."""
+        if self._cache is None:
+            self._cache = self._build_commands()
+        return self._cache
+
+    def _build_commands(self) -> list[tuple[str, str, Any]]:
+        """The palette's command list. Runs on the event loop, so it must never block on I/O."""
         app: Any = self.app
         items: list[tuple[str, str, Any]] = [
             ("MCP servers & tools", "list the MCP servers and tools available to the model", app.action_show_mcp),
@@ -62,8 +72,11 @@ class _StabburCommands(Provider):
                     items.append((f"Switch model: {rid}", note, lambda n=rid: app.action_switch_model(n)))
             return items
         # Locally, hand the picked model straight to the loader: a name can name two builds
-        # (GGUF *and* MLX), so the entry must carry the exact one it is labelled with.
-        for model in app._switchable_models():
+        # (GGUF *and* MLX), so the entry must carry the exact one it is labelled with. The rows come
+        # from the cache the mount worker primes — scanning here would block the palette (and the
+        # whole UI) on a library that can be an external drive, which is the very thing the remote
+        # branch above avoids. A cold cache lists no models and starts the scan for the next open.
+        for model in app._cached_switchable_models():
             if model.path != (app._model.path if app._model else None):
                 items.append(
                     (

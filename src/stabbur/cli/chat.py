@@ -194,12 +194,20 @@ def chat(
         # so letting the machine/project *default* model label the session would mislead.
         model = _maybe_library_model(name, model_format) if name is not None else None
     elif base_url is not None:
-        # Remote one-shot (-p against --server). A local copy supplies metadata only
-        # (sampling, capabilities); the wire ``model`` field ALWAYS comes from the server's own
-        # /v1/models listing, because the remote matches ids, not local filesystem paths — and
-        # a name can exist both places.
-        model = _maybe_library_model(model_name, model_format) if model_name is not None else None
-        remote_model_id = _remote_model_id(base_url, model_name)
+        # Remote one-shot (-p against --server). The wire ``model`` field ALWAYS comes from the
+        # server's own /v1/models listing, because the remote matches ids, not local filesystem
+        # paths — and a name can exist both places.
+        #
+        # Only a name the user actually asked for is matched against the listing: an explicit
+        # argument or the project's model. The MACHINE DEFAULT (`stabbur config set model`) is not
+        # a request — it is what to load when nothing else says. Passing it here made every
+        # `chat -p --server` fail with "does not serve <default>" on any remote holding other
+        # models, and contradicted the documented "with no name, the remote's loaded model wins".
+        requested = name if name is not None else (proj.model if proj else None)
+        remote_model_id = _remote_model_id(base_url, requested)
+        # Metadata (sampling, capabilities) is resolved against the id that will actually answer,
+        # so it can never describe a different model than the one generating.
+        model = _maybe_library_model(remote_model_id, model_format)
     else:
         if model_name is None:
             console.print(
@@ -423,6 +431,10 @@ def _probe_remote(base_url: str, model: library_ops.LibraryModel | None, request
         loaded_first = next((rid for rid, is_loaded in model_rows if is_loaded), None)
         model_id = loaded_first if loaded_first is not None else (model_rows[0][0] if model_rows else None)
         remote_name = model_id
+        # llama-server reports the window it actually loaded in the row's ``meta.n_ctx``. Without it
+        # the TUI's context gauge simply vanished on every non-stabbur server, because ``n_ctx`` was
+        # read only from stabbur serve's /api/status.
+        n_ctx = _row_n_ctx(listed, model_id)
 
     display = model.name if model is not None else (remote_name or base_url)
     return RemoteEndpoint(base=base_url, model=model, model_name=display, model_id=model_id, n_ctx=n_ctx)
@@ -514,6 +526,24 @@ def _model_rows(listed: dict[str, object]) -> list[tuple[str, bool]]:
                 status = row.get("status") if isinstance(row, dict) else None
                 out.append((rid, isinstance(status, dict) and status.get("value") == "loaded"))
     return out
+
+
+def _row_n_ctx(listed: dict[str, object], model_id: str | None) -> int | None:
+    """The loaded context window a ``GET /v1/models`` row reports for ``model_id``, if any.
+
+    llama-server puts the window it loaded with in each row's ``meta.n_ctx`` (``n_ctx_train`` next
+    to it is the model's maximum, not the running window — reading that would overstate the gauge).
+    Servers that report neither just leave the footer without a context reading, as before.
+    """
+    rows = listed.get("data")
+    if model_id is None or not isinstance(rows, list):
+        return None
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == model_id:
+            meta = row.get("meta")
+            n_ctx = meta.get("n_ctx") if isinstance(meta, dict) else None
+            return n_ctx if isinstance(n_ctx, int) and n_ctx > 0 else None
+    return None
 
 
 def _remote_model_id(base_url: str, requested: str | None) -> str:

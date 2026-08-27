@@ -39,7 +39,9 @@ dependencies = [
     "pluginkit>=0.4.7",
     "pydantic-settings>=2.14.2",
     "soundfile>=0.13.1",
-    "textual>=0.85",
+    # 8.x, not the old >=0.85 floor: the chat TUI uses APIs that changed in 8 (Static's
+    # renderable, among others), so an install that resolved to 0.x crashed on the first reply.
+    "textual>=8.0",
     "typer>=0.25.1",
     "uvicorn[standard]>=0.49.0",
 ]

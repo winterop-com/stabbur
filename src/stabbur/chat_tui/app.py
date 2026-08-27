@@ -38,6 +38,38 @@ def _confirm_policy(proj: project.Project | None) -> Literal["all", "writes", "n
     return "writes"
 
 
+def _free_path(dest: Path) -> Path:
+    """``dest`` if nothing is there, else the first free ``stem-2``, ``stem-3``, … sibling.
+
+    ``/export`` defaults to ``chat.md`` in the current directory, so the second export of a session
+    (or of the next session in the same directory) silently destroyed the first one — a transcript
+    is not something the user can get back. Numbering is the same escape a browser download uses.
+    """
+    if not dest.exists():
+        return dest
+    for n in range(2, 1000):
+        candidate = dest.with_name(f"{dest.stem}-{n}{dest.suffix}")
+        if not candidate.exists():
+            return candidate
+    return dest.with_name(f"{dest.stem}-{int(time.time())}{dest.suffix}")
+
+
+def _effective_max_tokens(max_tokens: int | None) -> int | None:
+    """The generation cap for a session: an explicit ``-n``, else the configured default.
+
+    Web parity: the serving path applies ``Settings.default_max_tokens`` when a client omits
+    ``max_tokens`` so a small model can't run away on a hard tool question and never emit a final
+    answer. The TUI sent ``None`` (unbounded) instead — same agent loop, same runaway, no cap.
+    A configured default of ``<= 0`` disables the cap, exactly as it does on the web path.
+    """
+    if max_tokens is not None:
+        return max_tokens
+    from stabbur.config import get_settings  # noqa: PLC0415 - keep the TUI module import-light
+
+    default_cap = get_settings().default_max_tokens
+    return default_cap if default_cap > 0 else None
+
+
 class RemoteEndpoint(BaseModel):
     """An already-running OpenAI-compatible server the TUI attaches to (and never owns).
 
@@ -59,7 +91,7 @@ class ChatApp(App[None]):
 
     CSS = """
     Screen { layers: base; }
-    #transcript { height: 1fr; padding: 1 2; scrollbar-size-vertical: 0; }
+    #transcript { height: 1fr; padding: 1 2; scrollbar-size-vertical: 1; }
     #transcript > .user { color: $text-muted; margin-top: 2; }
     #transcript > .tools { color: $text-muted; }
     #transcript > .answer { margin-bottom: 1; }
@@ -77,7 +109,7 @@ class ChatApp(App[None]):
     COMMANDS = App.COMMANDS | {_StabburCommands}
 
     BINDINGS = [
-        Binding("ctrl+d", "quit", "Quit", priority=True),
+        Binding("ctrl+d", "quit_if_empty", "Quit", priority=True),
         Binding("ctrl+p", "command_palette", "Commands", show=True, priority=True),
         Binding("escape", "cancel", "Stop", show=True),
         # A full-screen TUI captures the mouse, so the terminal's own click-drag selection
@@ -103,7 +135,7 @@ class ChatApp(App[None]):
         self._endpoint: runtime_mod.RuntimeProc | RemoteEndpoint = endpoint
         self._model: library_ops.LibraryModel | None = endpoint.model
         self._servers = servers
-        self._max_tokens = max_tokens
+        self._max_tokens = _effective_max_tokens(max_tokens)
         # Confirmation policy from the loaded project's assistant: a write-enabled assistant gates
         # its non-read-only tool calls behind the ConfirmModal; otherwise nothing is gated.
         self._confirm_policy: Literal["all", "writes", "none"] = _confirm_policy(project.load())
@@ -192,13 +224,33 @@ class ChatApp(App[None]):
         # local branch scans the library, which is slow on an external drive and would
         # otherwise block on the first `/model ` keystroke.
         if self._remote is not None:
-            self.run_worker(self._prime_remote_models(), group="models")
+            self.run_worker(self._prime_remote_models(), group="prime", exclusive=True)
         else:
-            self.run_worker(self._prime_library_models(), group="models")
-        # Connecting MCP servers can take a moment; do it after the UI is up.
+            self.run_worker(self._prime_library_models(), group="prime", exclusive=True)
+        # Connecting MCP servers can take a long moment — a server that starts but never finishes
+        # its handshake burns the full 60s init timeout, each. Awaited here it would do that on the
+        # App's message pump: no paint, no keys, no quit. In a worker (like the model priming above)
+        # the UI is usable immediately and the tools appear in the footer when they land.
         if self._servers:
+            self.run_worker(self._connect_mcp(), group="mcp")
+
+    async def _connect_mcp(self) -> None:
+        """(worker) Connect the session's MCP servers, then refresh the footer's tool count.
+
+        Never raises into the UI: a server that fails to start is reported in the transcript and the
+        session simply runs without its tools — the same non-fatal handling ``/mcp reconnect`` gives.
+        """
+        try:
             self.toolset = await self._stack.enter_async_context(mcp_tools.connect(self._servers))
+        except Exception as exc:  # noqa: BLE001 - a failed connect must not take the session down
             self._refresh_status()
+            self._post(Text(f"MCP connect failed: {exc} — continuing without tools", style="red"))
+            return
+        self._refresh_status()
+        # connect() records a per-server failure instead of raising, so surface those too: silently
+        # missing tools reads as "the model ignored them".
+        for label, err in self.toolset.errors:
+            self._post(Text(f"MCP server {label!r} did not start: {err}", style="grey50"))
 
     async def on_unmount(self) -> None:
         await self._stack.aclose()
@@ -256,7 +308,9 @@ class ChatApp(App[None]):
             line1.append("  ·  ", style="grey37")
             line1.append(f"{len(self._queue)} queued", style="yellow")
 
-        line2 = Text("enter send  ·  ^p commands  ·  /help  ·  esc stop  ·  /exit", style="grey42")
+        # Every key here must have a way out: the hint used to advertise no quit at all, so a user
+        # who never typed /help had to guess one.
+        line2 = Text("enter send  ·  ^j newline  ·  ^p commands  ·  esc stop  ·  ^d quit  ·  /help", style="grey42")
         return Group(line1, line2)
 
     def _last_reply_text(self) -> str | None:
@@ -293,7 +347,7 @@ class ChatApp(App[None]):
             return
         # expanduser: the input is not a shell, so a habitually typed `~/notes.md` would
         # otherwise mean a literal `./~` directory and fail with a puzzling OSError.
-        dest = Path(path).expanduser() if path else Path("chat.md")
+        dest = _free_path(Path(path).expanduser() if path else Path("chat.md"))
         rendered = transcript.render_markdown(
             self._model_name,
             [
@@ -378,6 +432,19 @@ class ChatApp(App[None]):
             self._models_cache = self._scan_switchable()
         return self._models_cache
 
+    def _cached_switchable_models(self) -> list[library_ops.LibraryModel]:
+        """The switchable models already in hand — never a scan on the caller's thread.
+
+        For callers that run on the event loop and can live with an empty answer (the command
+        palette): the library scan hits the filesystem, which on an external drive is seconds of
+        frozen UI. A cold cache starts the same worker ``on_mount`` uses and answers empty; the
+        next open has the rows.
+        """
+        if self._models_cache is None:
+            self.run_worker(self._prime_library_models(), group="prime", exclusive=True)
+            return []
+        return self._models_cache
+
     def _fetch_remote_models(self) -> list[tuple[str, bool]]:
         """The remote's ``GET /v1/models`` as ``(id, loaded)`` rows — empty on any failure.
 
@@ -439,7 +506,7 @@ class ChatApp(App[None]):
             title = f"models · {len(rows)} on {self._base}"
             choice = await self.push_screen_wait(ModelPickerModal(rows, current, title))
             if choice is not None:
-                self._switch_remote_model(listed[choice][0])
+                self._switch_remote_model(listed[choice][0], listed)
             return
         models = self._switchable_models()
         if not models:
@@ -454,15 +521,26 @@ class ChatApp(App[None]):
         if choice is not None:
             self._switch_to(models[choice])
 
-    def _switch_remote_model(self, name: str) -> None:
+    async def _switch_remote_by_name(self, name: str) -> None:
+        """(worker) Resolve ``name`` against the remote's model list, then switch to it.
+
+        The listing is a blocking ``httpx.get`` with a 5s timeout; on the event loop that is 5s of
+        frozen UI when the server is slow or gone, so it runs in a thread like the picker's does.
+        A primed cache answers without any network call at all.
+        """
+        listed = self._remote_models_cache
+        if not listed:
+            listed = await asyncio.to_thread(self._fetch_remote_models)
+            self._remote_models_cache = listed
+        self._switch_remote_model(name, listed)
+
+    def _switch_remote_model(self, name: str, listed: list[tuple[str, bool]]) -> None:
         """Point the session at another of the remote's models (matched against ``/v1/models``).
 
         No teardown: a router-mode server hot-swaps on the next request, so switching is just
         changing the OpenAI ``model`` field. The conversation carries over — the new model sees
         the full history. A single-model server simply lists nothing else to switch to.
         """
-        listed = self._remote_models_cache if self._remote_models_cache else self._fetch_remote_models()
-        self._remote_models_cache = listed
         ids = [rid for rid, _ in listed]
         if not ids:
             self._post(Text(f"couldn't list models at {self._base} — is the server running?", style="grey50"))
@@ -493,7 +571,7 @@ class ChatApp(App[None]):
             if self._busy:
                 self.notify("Stop the current reply first (Esc).", severity="warning", timeout=2)
                 return
-            self._switch_remote_model(name)
+            self.run_worker(self._switch_remote_by_name(name), group="models")
             return
         want = name.strip().lower()
         fmt = model_format.strip().lower() if model_format else None
@@ -785,6 +863,18 @@ class ChatApp(App[None]):
         self.ctx_used = None
         self._refresh_status()
 
+    def _drop_messages(self, index: int) -> None:
+        """Drop ``self.messages[index:]``, and the reasoning stored against those messages.
+
+        The single truncation path. ``_reasonings`` is keyed by ``id()`` of the message dict, so a
+        message dropped without pruning leaves an entry pointing at a freed address — which CPython
+        is free to hand to the next dict allocated, folding a dead turn's thinking into an unrelated
+        one's ``/export --thinking``. Every caller that shortens the history goes through here.
+        """
+        for message in self.messages[index:]:
+            self._reasonings.pop(id(message), None)
+        del self.messages[index:]
+
     def action_help(self) -> None:
         """Show slash commands + keyboard shortcuts in the transcript."""
         body = Text()
@@ -807,7 +897,18 @@ class ChatApp(App[None]):
             body.append(f"  {cmd}", style="grey66")
             body.append(f"   {desc}\n", style="grey42")
         body.append("\nkeys\n", style="bold #fb7185")
-        for key, desc in (("ctrl+p", "command palette"), ("ctrl+y", "copy reply"), ("esc", "stop"), ("ctrl+d", "quit")):
+        for key, desc in (
+            ("enter", "send"),
+            # ctrl+j leads: it is the fallback that works on every terminal AND every keyboard
+            # layout. Shift+Return needs a terminal that reports it, and the trailing backslash
+            # needs a key that is Alt+Shift on some layouts — neither is a default worth teaching.
+            ("ctrl+j", "newline (multi-line message; shift+enter too, where the terminal sends it)"),
+            ("\\ + enter", "newline — a message ending in a backslash continues on the next line"),
+            ("ctrl+p", "command palette"),
+            ("ctrl+y", "copy reply"),
+            ("esc", "stop"),
+            ("ctrl+d", "quit (only with an empty input, like a shell)"),
+        ):
             body.append(f"  {key}", style="grey66")
             body.append(f"   {desc}\n", style="grey42")
         self._post(body)
@@ -816,6 +917,17 @@ class ChatApp(App[None]):
         self.query_one("#status", Static).update(self._status_renderable())
 
     # -- input / generation ----------------------------------------------------
+
+    async def action_quit_if_empty(self) -> None:
+        """Ctrl+D: quit only when the input is empty, the way a shell / readline does.
+
+        Bound unconditionally it threw away a half-written message (and the whole conversation) on
+        one keystroke — and Ctrl+D is a routine mistype next to Ctrl+F/Ctrl+E while editing. With
+        text in the input it does nothing; ``/exit`` and Ctrl+C still quit outright.
+        """
+        if self.query_one(ChatInput).text:
+            return
+        await self.action_quit()
 
     def action_cancel(self) -> None:
         # ESC stops the current reply and drops anything queued behind it.
@@ -916,7 +1028,8 @@ class ChatApp(App[None]):
         has = bool(self.messages) and self.messages[0].get("role") == "system"
         if text.lower() == "clear":
             if has:
-                self.messages.pop(0)
+                dropped = self.messages.pop(0)
+                self._reasonings.pop(id(dropped), None)  # same id()-reuse hazard as any other drop
                 self._post(Text("system prompt cleared — history kept", style="grey50"))
             else:
                 self._post(Text("no system prompt set", style="grey50"))
@@ -967,7 +1080,17 @@ class ChatApp(App[None]):
                 extras.append(f"{len(files)} file")
             if extras:
                 user.append(f"   [{', '.join(extras)}]", style="dim")
-            await self._append(Static(user, classes="user"))
+            user_w = await self._append(Static(user, classes="user"))
+
+            def mark_unsent() -> None:
+                """Flag the on-screen user line as dropped, matching what the history now holds.
+
+                A canceled or failed turn deletes its user message from ``self.messages``, but the
+                line stayed on screen unmarked — so the transcript showed a question the model never
+                received (and the next turn carried no trace of it). Say so on the line itself.
+                """
+                user.append("   (not sent)", style="yellow")
+                user_w.update(user)
 
             mark = len(self.messages)
             self.messages.append(
@@ -1099,14 +1222,22 @@ class ChatApp(App[None]):
                 # A stop mid-confirmation leaves the ConfirmModal on the screen stack; close it.
                 if isinstance(self.screen, ConfirmModal):
                     self.pop_screen()
-                del self.messages[mark:]
+                self._drop_messages(mark)
+                mark_unsent()  # the turn is gone from history; the line must not imply otherwise
                 answer_w.update(Text("(canceled)", style="yellow"))
                 self._scroll_end()
                 return
             except Exception as exc:  # noqa: BLE001 - surface runtime/network errors in the transcript
                 _stop_think()
                 finalize_reasoning()
-                del self.messages[mark:]
+                self._drop_messages(mark)
+                mark_unsent()
+                # A failed turn is one the user will want to retry, and the text is otherwise gone
+                # (the input was cleared on submit). Put it back so retrying is one keypress —
+                # unless something has since been typed, which is never ours to overwrite.
+                if not input_w.text:
+                    input_w.text = raw_text
+                    input_w.move_cursor(input_w.document.end)
                 answer_w.update(Text(f"error: {exc}", style="red"))
                 self._scroll_end()
                 return
