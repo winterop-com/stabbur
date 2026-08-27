@@ -220,12 +220,12 @@ const MessageBubble = memo(function MessageBubble({
       {isUser && message.pageMissing ? (
         <span
           data-testid="page-context-missing"
-          className="inline-flex items-center gap-1 text-[10px] text-amber-600"
+          className="inline-flex items-center gap-1 text-xs text-amber-600"
         >
           <FileText className="h-3 w-3" /> page not captured — stabbur lacks page access here
         </span>
       ) : isUser && message.context ? (
-        <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+        <span className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
           <FileText className="h-3 w-3" /> page context attached
         </span>
       ) : null}
@@ -445,7 +445,7 @@ export function ChatView({
               type="button"
               onClick={() => onTogglePageContext(!pageContextEnabled)}
               className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
                 pageContextEnabled
                   ? "border-[var(--primary)] bg-[var(--accent)] text-[var(--foreground)]"
                   : "border-[var(--border)] text-[var(--muted-foreground)]",
@@ -460,7 +460,7 @@ export function ChatView({
                 onClick={() => onTogglePageText(!pageTextEnabled)}
                 title="Include the page's visible text (up to 8000 chars)"
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
                   pageTextEnabled
                     ? "border-[var(--primary)] bg-[var(--accent)] text-[var(--foreground)]"
                     : "border-[var(--border)] text-[var(--muted-foreground)]",
@@ -474,7 +474,7 @@ export function ChatView({
             type="button"
             onClick={clear}
             disabled={streaming || messages.length === 0}
-            className="text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
+            className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
           >
             Clear
           </button>

@@ -197,7 +197,7 @@ export function SettingsView({ settings, extensionId, onSave, onClose }: Setting
               </div>
             );
           })}
-          <span className="block text-[11px] text-[var(--muted-foreground)]">
+          <span className="block text-sm text-[var(--muted-foreground)]">
             Loopback (127.0.0.1/localhost) may use http; a remote host requires https.
           </span>
         </div>
@@ -215,7 +215,7 @@ export function SettingsView({ settings, extensionId, onSave, onClose }: Setting
         <label className="flex items-center justify-between gap-2">
           <span className="text-sm">
             Include full page text
-            <span className="block text-[11px] text-[var(--muted-foreground)]">
+            <span className="block text-sm text-[var(--muted-foreground)]">
               Attach the page's visible text (up to 8000 chars). Requires page context.
             </span>
           </span>

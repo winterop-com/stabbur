@@ -366,12 +366,19 @@ query nor failing to answer its own prefix.
 
 ### Not yet swept
 
-Honest gaps, not exemptions:
+Nothing. Both former gaps are closed, and the check now covers 118 files across
+both SPAs with no skips:
 
-- **`extension/`** (the Chrome MV3 side panel) is a second SPA with 12 arbitrary
-  type sizes of its own and is outside the check's roots. It should be swept and
-  added; it was left out to keep one change one subject.
-- **`frontend/src/components/ToolsControl.tsx`** is skipped by name in the check.
-  It is unreferenced — no import anywhere in the tree — and whether it is revived
-  or deleted is a separate decision from what size its text should be. Deleting it
-  deletes the skip.
+- **`extension/`** (the Chrome MV3 side panel) held 12 hand-written sizes. Two were
+  complete sentences explaining a settings field and became `text-sm`; the other ten
+  were chips, status badges and toolbar furniture and became `text-xs`. It is now
+  inside the check's roots, which is what stops it drifting back — the sweep alone
+  would not have.
+- **`frontend/src/components/ToolsControl.tsx`** was skipped by name while it sat
+  unreferenced. It was deleted rather than revived: its per-server tool fly-outs are
+  superseded by the tools section in the chat settings panel. Deleting the file
+  deleted the skip, exactly as that entry said it should be resolved.
+
+The check descends into `extension/` but prunes `node_modules`, `.output` and other
+build directories — a package root holds far more `.ts`/`.tsx` than its source does,
+none of it ours to restyle.

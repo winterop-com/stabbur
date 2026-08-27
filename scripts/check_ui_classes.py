@@ -24,17 +24,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-#: Where the conventions apply. The Chrome extension (`extension/`) is a second SPA with arbitrary
-#: sizes of its own and is deliberately NOT here yet — see docs/ui-conventions.md, "Not yet swept".
-#: Adding it is a sweep, not a config change.
-ROOTS = [REPO_ROOT / "frontend" / "src"]
+#: Where the conventions apply. The Chrome extension is a second SPA and was swept onto the scale
+#: (its 12 hand-written sizes became text-sm for the two that were sentences, text-xs for the chips
+#: and status badges), so it is covered here too — which is what stops it drifting back.
+ROOTS = [REPO_ROOT / "frontend" / "src", REPO_ROOT / "extension"]
 
 SUFFIXES = {".ts", ".tsx"}
 
-#: Skipped by name, with a reason and an expiry condition — never "this file is special". It is
-#: unreferenced (no import anywhere in the tree), so whether it is revived or deleted is a separate
-#: decision from what size its text should be. Deleting the file deletes this entry.
-SKIP = {REPO_ROOT / "frontend" / "src" / "components" / "ToolsControl.tsx"}
+#: Skipped by name, with a reason and an expiry condition — never "this file is special".
+#: Empty: the one entry was ToolsControl.tsx, unreferenced and now deleted, exactly as this
+#: comment said it should be resolved.
+SKIP: set[Path] = set()
+
+#: Directory names never descended into. `frontend/src` contains none of these, but `extension/`
+#: is a package root: its node_modules and build output hold far more .ts/.tsx than the source
+#: does, all of it third-party or generated, and none of it ours to restyle.
+PRUNE = {"node_modules", ".output", "dist", ".wxt", "build", "__pycache__"}
 
 #: An absolute font size written by hand: `text-[11px]`, `text-[0.8rem]`, `text-[13px]` — including
 #: inside a variant, e.g. `[&_[cmdk-group-heading]]:text-[11px]`. Relative units are deliberately
@@ -56,7 +61,12 @@ def source_files() -> list[Path]:
     """
     found: list[Path] = []
     for root in ROOTS:
-        found.extend(p for p in root.rglob("*") if p.suffix in SUFFIXES and p not in SKIP)
+        for p in root.rglob("*"):
+            if p.suffix not in SUFFIXES or p in SKIP:
+                continue
+            if PRUNE & set(p.relative_to(root).parts):
+                continue
+            found.append(p)
     return sorted(found)
 
 

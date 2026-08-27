@@ -442,26 +442,26 @@ export function TargetBanner({
         <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
           <span className="truncate font-medium text-[var(--foreground)]">{active.name ?? "Assistant"}</span>
           {active.readonly ? (
-            <span className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">
+            <span className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-xs text-[var(--muted-foreground)]">
               <ShieldCheck className="h-3 w-3" /> read-only
             </span>
           ) : null}
           {tab === "matched" ? (
-            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] text-emerald-600">
+            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs text-emerald-600">
               {TAB_MATCHED}
             </span>
           ) : tab === "mismatch" ? (
-            <span className="truncate text-[10px] text-[var(--muted-foreground)]">
+            <span className="truncate text-xs text-[var(--muted-foreground)]">
               {tabMismatchOneLiner(active.name ?? "target")}
             </span>
           ) : (
-            <span className="text-[10px] text-[var(--muted-foreground)]">{TAB_UNKNOWN}</span>
+            <span className="text-xs text-[var(--muted-foreground)]">{TAB_UNKNOWN}</span>
           )}
           {binding ? (
             <span
               data-testid="bind-acting-as"
               title={`Acting as your ${active.name ?? "target"} login — ${binding.writes ? "writes enabled" : "read-only"}`}
-              className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]"
+              className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-1.5 py-0.5 text-xs text-[var(--foreground)]"
             >
               <UserCheck className="h-3 w-3" /> Acting as {binding.username || "your account"}
             </span>

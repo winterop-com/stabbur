@@ -104,10 +104,6 @@ TUI, and `stabbur serve --upstream` all front it. Open threads:
   `ui/sheet.tsx`, and the same command palette, kept in step by copying. At two apps a package
   costs more than it saves; at three or four, extract the variable blocks and the primitives
   both keep re-deriving so a fix lands once.
-- **The extension is unswept.** `extension/` still holds ~12 hand-written type sizes that
-  `scripts/check_ui_classes.py` does not cover; the SPA has none.
-- **`ToolsControl.tsx` is unreferenced.** A composer-docked tools pill that nothing imports —
-  wire it up or delete it, but it should not sit there being neither.
 
 ## Page actions (and WebMCP)
 
