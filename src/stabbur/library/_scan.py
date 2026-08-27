@@ -15,6 +15,7 @@ from stabbur.library._model import (
     _tts_languages,
     _voice_spec,
     _weights,
+    find_projector,
     pick_gguf,
 )
 from stabbur.library._roots import roots
@@ -118,7 +119,8 @@ def _model_from_dir(model_dir: Path, base: Path) -> LibraryModel | None:
         if vocoder is not None:
             # TTS setup: a model GGUF paired with a vocoder. The vocoder alone
             # isn't a runnable model, so a dir with only a vocoder is skipped.
-            mains = [g for g in ggufs if g != vocoder and not g.name.lower().startswith("mmproj")]
+            projector = find_projector([g for g in ggufs if g != vocoder])
+            mains = [g for g in ggufs if g != vocoder and g != projector]
             if not mains:
                 return None
             return LibraryModel(

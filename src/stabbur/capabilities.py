@@ -17,12 +17,12 @@ sidecar ``config.json`` / ``tokenizer_config.json``.
 """
 
 import json
-import struct
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from stabbur.gguf import read_metadata
 from stabbur.library import LibraryModel
 from stabbur.models import ModelFormat
 
@@ -32,11 +32,6 @@ from stabbur.models import ModelFormat
 # so the cache never goes stale. A separate file from ``metadata.json`` to stay clear of ``verify``.
 _CAPS_CACHE = "capabilities.json"
 
-# GGUF metadata value type codes (ggml spec).
-_GGUF_STRING = 8
-_GGUF_ARRAY = 9
-# Fixed-width scalar type → struct size in bytes.
-_GGUF_SCALAR_SIZE = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
 
 # Chat-template markers that indicate the model was trained for tool calling. Require a
 # tool-*calling* structure (``tool_call``/``function_call``/``available_tools``), not a bare
@@ -56,73 +51,6 @@ class ModelCapabilities(BaseModel):
     context_length: int | None = None
 
 
-# Cap a single GGUF metadata string read: chat templates are large but bounded, so a bit-flipped
-# uint64 length (corruption on the no-journal exFAT drive) can't slurp gigabytes into RAM. A
-# misaligned read past this just yields garbage the (guarded) capability parse discards.
-_MAX_GGUF_STRING = 16 * 1024 * 1024
-
-
-def _read_gguf_string(fh: Any) -> str:
-    """Read a GGUF string (uint64 length + UTF-8 bytes) from an open file (length-capped)."""
-    (length,) = struct.unpack("<Q", fh.read(8))
-    return bytes(fh.read(min(length, _MAX_GGUF_STRING))).decode("utf-8", errors="replace")
-
-
-def _skip_gguf_value(fh: Any, vtype: int) -> None:
-    """Advance past a GGUF value of ``vtype`` we don't need to keep."""
-    if vtype == _GGUF_STRING:
-        (length,) = struct.unpack("<Q", fh.read(8))
-        fh.seek(length, 1)
-    elif vtype == _GGUF_ARRAY:
-        (elem_type,) = struct.unpack("<I", fh.read(4))
-        (count,) = struct.unpack("<Q", fh.read(8))
-        for _ in range(count):
-            _skip_gguf_value(fh, elem_type)
-    else:
-        fh.seek(_GGUF_SCALAR_SIZE.get(vtype, 0), 1)
-
-
-def _read_gguf_scalar(fh: Any, vtype: int) -> Any:
-    """Read a fixed-width GGUF scalar value of ``vtype``."""
-    fmt = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f", 7: "<?", 10: "<Q", 11: "<q", 12: "<d"}
-    code = fmt.get(vtype)
-    if code is None:
-        return None
-    size = _GGUF_SCALAR_SIZE[vtype]
-    (value,) = struct.unpack(code, fh.read(size))
-    return value
-
-
-def _gguf_metadata(path: Path, wanted: set[str]) -> dict[str, Any]:
-    """Read requested scalar/string metadata keys from a GGUF file.
-
-    Only scalar and string values are captured (arrays are skipped); parsing
-    stops once every wanted key is found. Returns ``{}`` on any read/format error.
-    """
-    out: dict[str, Any] = {}
-    try:
-        with path.open("rb") as fh:
-            if fh.read(4) != b"GGUF":
-                return {}
-            struct.unpack("<I", fh.read(4))  # version
-            struct.unpack("<Q", fh.read(8))  # tensor count
-            (kv_count,) = struct.unpack("<Q", fh.read(8))
-            for _ in range(kv_count):
-                key = _read_gguf_string(fh)
-                (vtype,) = struct.unpack("<I", fh.read(4))
-                if key in wanted and vtype == _GGUF_STRING:
-                    out[key] = _read_gguf_string(fh)
-                elif key in wanted and vtype in _GGUF_SCALAR_SIZE:
-                    out[key] = _read_gguf_scalar(fh, vtype)
-                else:
-                    _skip_gguf_value(fh, vtype)
-                if wanted <= out.keys():
-                    break
-    except (OSError, struct.error, ValueError):
-        return out
-    return out
-
-
 def _has_tool_markers(template: str | None) -> bool:
     """Whether a chat template string references tool calling."""
     if not template:
@@ -133,9 +61,9 @@ def _has_tool_markers(template: str | None) -> bool:
 
 def _gguf_capabilities(model: LibraryModel) -> ModelCapabilities:
     """Read capabilities from a GGUF file's metadata."""
-    meta = _gguf_metadata(model.load_target, {"general.architecture", "tokenizer.chat_template"})
+    meta = read_metadata(model.load_target, {"general.architecture", "tokenizer.chat_template"})
     arch = meta.get("general.architecture")
-    ctx_meta = _gguf_metadata(model.load_target, {f"{arch}.context_length"}) if arch else {}
+    ctx_meta = read_metadata(model.load_target, {f"{arch}.context_length"}) if arch else {}
     ctx = ctx_meta.get(f"{arch}.context_length")
 
     # An mmproj projector is either a vision or an audio encoder (or both); read
@@ -144,7 +72,7 @@ def _gguf_capabilities(model: LibraryModel) -> ModelCapabilities:
     vision = False
     audio = False
     if model.mmproj is not None:
-        mm = _gguf_metadata(model.mmproj, {"clip.has_vision_encoder", "clip.has_audio_encoder"})
+        mm = read_metadata(model.mmproj, {"clip.has_vision_encoder", "clip.has_audio_encoder"})
         vision = bool(mm.get("clip.has_vision_encoder"))
         audio = bool(mm.get("clip.has_audio_encoder"))
         if not vision and not audio:

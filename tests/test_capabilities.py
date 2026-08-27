@@ -180,7 +180,7 @@ def test_read_gguf_string_caps_a_bogus_length() -> None:
     import io
     import struct
 
-    from stabbur import capabilities
+    from stabbur import gguf
 
     fh = io.BytesIO(struct.pack("<Q", 10**10) + b"hello")  # claims 10 GB, has 5 bytes
-    assert capabilities._read_gguf_string(fh) == "hello"
+    assert gguf._read_string(fh) == "hello"

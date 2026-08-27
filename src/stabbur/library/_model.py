@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
+from stabbur.gguf import is_projector
 from stabbur.models import ModelFormat, _human_size
 
 if TYPE_CHECKING:
@@ -164,6 +165,29 @@ def _pick_weight(weights: list[Path]) -> Path:
     return max(weights, key=lambda p: p.stat().st_size)
 
 
+def find_projector(ggufs: list[Path]) -> Path | None:
+    """Find the multimodal projector among a model directory's GGUF files.
+
+    Filename first, because it is free and usually right: the convention is a name starting with
+    ``mmproj``, but real repos also ship ``<model>-mmproj-f16.gguf``, so match the token anywhere.
+
+    Then ASK THE FILES, because a repo is free to name a projector anything. Missing it is not a
+    cosmetic error: the model loads with no ``--mmproj`` and silently cannot see or hear, and the
+    projector sits in the weight list where it can be picked as the model itself. That is the
+    suspected cause of audio-specialist models ignoring their audio.
+
+    The metadata probe reads a few hundred bytes per candidate and only runs when the filename
+    said nothing, so the common cases — one weight file, or a conventional ``mmproj-*.gguf`` —
+    cost nothing extra.
+    """
+    named = [g for g in ggufs if "mmproj" in g.name.lower()]
+    if named:
+        return named[0]
+    if len(ggufs) < 2:
+        return None  # a lone GGUF is the weights; nothing to disambiguate
+    return next((g for g in ggufs if is_projector(g)), None)
+
+
 def pick_gguf(model_dir: Path) -> tuple[Path, Path | None]:
     """Pick the main GGUF (+ optional mmproj) from a directory of ``*.gguf`` files.
 
@@ -171,7 +195,7 @@ def pick_gguf(model_dir: Path) -> tuple[Path, Path | None]:
     shard of a split model, else the largest file. Returns ``(main, mmproj)``.
     """
     ggufs = sorted(_weights(model_dir, ".gguf"))
-    mmproj = next((g for g in ggufs if g.name.lower().startswith("mmproj")), None)
+    mmproj = find_projector(ggufs)
     weights = [g for g in ggufs if g != mmproj]
     if not weights:
         raise FileNotFoundError(f"No .gguf weights in {model_dir}")
