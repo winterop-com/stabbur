@@ -234,6 +234,33 @@ not blocked on it — the extension already executes script in the tab. Open wor
 - **Rich tags — the last mile.** Assigning a tag a color/icon ships as `stabbur library tag-style`;
   what is left is a color-picker in the web UI and a curated default tag set seeded from
   `docs/guides/models.md`.
+- **Skills: is there anything to build, or is it MCP plus a prompt?** Asked directly, and the
+  first job is deciding whether "skill" names something stabbur lacks. A skill in the Claude Code
+  sense is packaged instructions that load on demand — which here decomposes into things that
+  already exist (a project's system prompt, `.mcp.json` tool sets, per-chat tool enabling) plus
+  one thing that does not: *selective* loading, so a model sees the instructions for the task at
+  hand rather than every instruction at once. That matters more for small local models than for
+  frontier ones, since the prompt budget is the scarce resource. Open: whether the unit is a
+  project, a file convention, or an MCP server that serves instructions as resources; and whether
+  selection is the user's (a picker) or the model's (a tool call that loads a skill).
+
+- **More bundled MCP servers?** Twelve ship today. Adding one is cheap, but each is a tool in
+  every model's context by default, and tool-choice accuracy on small local models degrades as
+  the list grows — the DHIS2 benchmark already shows a 315-tool surface being too heavy. So the
+  question is not "which server next" but what earns a slot: the answer is probably fewer,
+  broader servers plus better per-chat enabling, not more entries. Candidates worth weighing
+  against that: a filesystem-write server (the current `files` is read-oriented), a
+  SQLite/dataset server for local analysis, and a calendar/mail reader. Each needs a reason it
+  beats "the user pastes it in".
+
+- **Diagrams beyond mermaid.** Mermaid renders today (lazy-loaded, deferred while streaming,
+  falls back to source). What is missing is everything else a model might emit: Graphviz/DOT,
+  PlantUML, and plain SVG. DOT is the most likely next — models emit it readily and
+  `@viz-js/viz` is WASM, so it stays a client-side render with no new service. PlantUML needs a
+  server, which is a different decision (nothing leaves the box is the whole premise). Also
+  open: what to do with a fence in a language we cannot render — today it falls through to a
+  code block, which is the right default and should stay.
+
 - **Paste-long-text-as-file.** llama.cpp's webui turns a long pasted block into an attachment.
   Cheap, but it changes paste behaviour, so it wants its own setting.
 

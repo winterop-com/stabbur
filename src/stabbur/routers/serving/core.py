@@ -39,6 +39,12 @@ class ServerStatus(BaseModel):
     # a remote id looks like a local model name — so a UI that wants to say where a reply comes
     # from has no other way to know.
     upstream: str | None = None
+    # Name of the ACTIVE backend — the half after the ``@`` in a ``model@backend`` id, and the
+    # only thing that says *where* ``model`` is loaded. Without it two declared backends serving
+    # the same name both read as loaded in the picker, since ``model`` alone is unqualified;
+    # ``upstream`` can't stand in for it (it is null for the library and identical for two
+    # backends on one host).
+    backend: str
     default_system_prompt: str = ""  # the project (stabbur.toml) system prompt, so the UI can prefill/show it
     project_model: str | None = None  # the project's bound model, so the UI auto-loads it on open
     default_chat_voice: str | None = None  # the project's [project] chat_voice, so the UI defaults the Listen voice
@@ -100,6 +106,7 @@ async def _status(
         n_ctx=manager.n_ctx,
         error=manager.last_error if current is None else None,
         upstream=manager.base_url if manager.is_upstream else None,
+        backend=manager.name,
         default_system_prompt=system_prompt,
         project_model=project_model,
         default_chat_voice=chat_voice,

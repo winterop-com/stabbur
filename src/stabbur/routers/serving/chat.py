@@ -11,8 +11,10 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from stabbur import agent, capabilities, runtime
+from stabbur import agent, backends, capabilities, runtime
 from stabbur import library as library_ops
+from stabbur.backends import Backends
+from stabbur.config import Settings
 from stabbur.routers.serving._base import (  # shared router + request deps
     ConfDep,
     LockDep,
@@ -344,7 +346,14 @@ async def chat_confirm(req: ConfirmRequest, request: Request) -> dict[str, bool]
 async def load(
     name: str, manager: ManagerDep, settings: ConfDep, lock: LockDep, request: Request, n_ctx: int | None = None
 ) -> ServerStatus:
-    """Load (or switch to) a model by name; rejected in locked mode.
+    """Load (or switch to) a model by name, optionally qualified as ``model@backend``.
+
+    A qualified id names the backend to load on and activates it, so the picker can offer a
+    remote's model while the library is active (and back). A bare name resolves on whatever
+    backend is active — unless another declared backend carries it too, which is a 409 rather
+    than a silent pick, since two hosts serving the same name is exactly what the qualifier
+    exists for. A switch that lands elsewhere also *frees* the backend it left
+    (:func:`_release_outgoing`), so "loaded stays singular" holds in RAM and not just in status.
 
     ``n_ctx`` sets the context window (GGUF/llama.cpp only); changing it reloads
     the model since context is fixed at load time.
@@ -353,6 +362,90 @@ async def load(
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
     if n_ctx is not None and n_ctx < 1:
         raise HTTPException(status_code=422, detail="n_ctx must be a positive integer")
+    requested = backends.parse_id(name)
+    if requested.backend is None:
+        await _reject_if_ambiguous(manager, requested)
+        return await _load_on_active(requested.model, manager, settings, lock, request, n_ctx)
+    previous = manager.name
+    try:
+        manager.activate(requested.backend)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No backend named {requested.backend!r} — declared: {', '.join(manager.names)}",
+        ) from exc
+    try:
+        status = await _load_on_active(requested.model, manager, settings, lock, request, n_ctx)
+    except Exception:
+        # A load that failed must not leave the server pointed somewhere it holds nothing: /v1,
+        # /api/chat and /api/status all read the ACTIVE backend, so an unwound qualifier would
+        # cost the caller the model it still had running. Put the pointer back and report the
+        # failure, not a second one. Nothing is released on this path — the caller's model is
+        # still the loaded one.
+        manager.activate(previous)
+        raise
+    await _release_outgoing(manager, previous, lock)
+    return status
+
+
+async def _release_outgoing(manager: Backends, previous: str, lock: asyncio.Lock) -> None:
+    """Free the backend the load just switched away from, now that the new one is loaded.
+
+    ROADMAP.md's "loaded stays singular" is a claim about RAM; without this it was only a claim
+    about reporting. Switching from a local model to a remote one left the ``llama-server``
+    resident *and unreachable*: ``/api/status`` answers for the remote, ``/api/unload`` is scalar
+    and so hits the remote too, and the process was freed only by a later local load or by
+    stabbur exiting. That is precisely the several-models-resident OOM the ROADMAP rejected
+    plural backends to avoid, arriving through the back door of a pointer that moved and a
+    process that didn't.
+
+    Load first, release second — never the reverse. Only a local backend has anything to release
+    and only one may be declared (``backends.declare``), so an outgoing local implies an incoming
+    *remote*, whose load is a selection costing no local memory: nothing is ever doubly resident
+    in the gap, and a load that fails leaves the caller's runtime exactly where it was (which is
+    why this runs after the ``try``, not in a ``finally``).
+
+    No ``_reject_if_generating`` here, deliberately. The load this follows already refused to run
+    with a generation in flight, and anything started since reads its target off the *newly
+    active* backend — ``/api/chat`` and the ``/v1`` proxy both go through ``manager.base_url`` —
+    so no stream can be reading from the runtime being stopped. Checking would only let an
+    unrelated generation turn an already-successful load into an error, leaving the leak in place.
+    """
+    async with lock:
+        # Under the lock, since a concurrent load may have switched back in the window after the
+        # one above released it — in which case ``previous`` is the live backend, not the left one.
+        if previous == manager.name:
+            return
+        # Terminating a process group waits on it (up to 10s), so it goes to a worker thread for
+        # the same reason ``manager.load`` does: status polling must not stall behind a swap.
+        await asyncio.to_thread(manager.release, previous)
+
+
+async def _reject_if_ambiguous(manager: Backends, requested: backends.ModelId) -> None:
+    """409 if more than one declared backend carries a bare name, naming each candidate.
+
+    Only asked with several backends declared — with one there is nothing to be ambiguous
+    *with*, and skipping the probe keeps the single-backend load (every deployment today) free
+    of a library rescan it has no use for.
+
+    Raises:
+        HTTPException: 409, listing the qualified ids to retry with.
+    """
+    if len(manager.names) < 2:
+        return
+    candidates = await manager.serving(requested.model)
+    if len(candidates) > 1:
+        qualified = ", ".join(requested.qualified(b) for b in candidates)
+        raise HTTPException(
+            status_code=409,
+            detail=f"{requested.model!r} is served by more than one backend — load one of: {qualified}",
+        )
+
+
+async def _load_on_active(
+    name: str, manager: Backends, settings: Settings, lock: asyncio.Lock, request: Request, n_ctx: int | None
+) -> ServerStatus:
+    """Load ``name`` on the active backend: select a remote id, or run a library model locally."""
     if manager.is_upstream:
         # Upstream mode: "loading" selects one of the remote's ids (matched exactly, case-
         # insensitively, or by basename); the remote itself loads it on the next request.

@@ -79,6 +79,12 @@ export interface Status {
 export interface LibModel {
   name: string;
   model_format: string;
+  /** Which backend this row came from — the qualifier half of a `model@backend` id.
+   *  Always present, including single-backend, where it is just "local". */
+  backend: string;
+  /** Set only when this row is NOT a model: a declared backend that could not be listed.
+   *  Such a row names the backend and must never be offered as loadable. */
+  error: string | null;
   size_bytes: number;
   size_human: string;
   vision: boolean;

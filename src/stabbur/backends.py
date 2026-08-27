@@ -17,9 +17,11 @@ failure as data rather than raising — the same per-item fault isolation ``libr
 already gives a corrupt model, applied one level up. One unreachable host must cost the
 listing a timeout and a row, never the whole response.
 
-Still not this class's job: resolving a qualified ``model@backend`` id to a backend +
-model (that belongs wherever a model is named — ``/api/load/{name:path}``, the OpenAI
-``model`` field, the SPA picker). :meth:`activate` is the hook it will pull.
+What this module owns of qualified ids is the **grammar** (:func:`parse_id`) and the
+plural question only it can answer (:meth:`Backends.serving` — which declared backends
+carry a name). The *policy* — activate-then-load, which failure is a 404 and which a 409 —
+stays at the sites where a model is named (``/api/load/{name:path}``, the OpenAI ``model``
+field, the SPA picker), because each of them answers it in its own protocol.
 """
 
 import asyncio
@@ -69,6 +71,56 @@ nothing fails fast and only a deadline ends the wait. Five seconds is well clear
 ``UpstreamManager._LISTING_TIMEOUT`` is a much roomier 15s — that budget is right for a
 model *switch* and far too long for a picker refresh the user is watching).
 """
+
+
+QUALIFIER = "@"
+"""Separator between the model half and the backend half of a qualified id.
+
+Forced rather than chosen (ROADMAP): ``/`` is publisher/repo and ``:`` is an Ollama tag, so
+both would make ``unsloth/Qwen3.5-4B-GGUF`` or ``gemma4:12b-mlx`` ambiguous. ``@`` is unused
+by either convention, which is what lets the split be a plain rule with no special case.
+"""
+
+
+class ModelId(BaseModel):
+    """A parsed model reference: the model half, and the backend it was qualified with.
+
+    ``backend`` of ``None`` is a *bare* name — the caller decides what that resolves to, and
+    the answer differs per surface, which is why this type reports the parse instead of
+    resolving it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    backend: str | None = None
+
+    def qualified(self, backend: str) -> str:
+        """This id spelled out against ``backend`` — what an error message offers as the retry."""
+        return f"{self.model}{QUALIFIER}{backend}"
+
+
+def parse_id(value: str) -> ModelId:
+    """Split ``model@backend`` on the LAST ``@`` (ROADMAP); a name with no ``@`` is bare.
+
+    Last rather than first because the model half is the one that can contain almost anything
+    (a publisher prefix, an Ollama tag), while a backend name is a single trailing label.
+
+    An empty half on either side is not a qualification — ``"x@"`` names no backend and
+    ``"@x"`` names no model — so both parse as the whole string being a bare name. That keeps
+    the one-way property the rest of the code leans on: a value ``parse_id`` calls bare is
+    passed through untouched, never silently truncated.
+
+    Args:
+        value: The reference as it arrived (a URL path segment, an OpenAI ``model`` field).
+
+    Returns:
+        The parsed id.
+    """
+    model, sep, backend = value.rpartition(QUALIFIER)
+    if not sep or not model or not backend:
+        return ModelId(model=value)
+    return ModelId(model=model, backend=backend)
 
 
 class BackendListing(BaseModel):
@@ -169,8 +221,9 @@ class Backends:
     - **Scalar** (``backend``, ``base_url``, ``current``, ``n_ctx``, ``last_error``,
       ``state``, ``stop``, and the whole divergent surface below) — the *active* backend,
       the one thing this stabbur is pointed at. Unchanged by holding several.
-    - **Plural** (``specs``, ``names``, :meth:`listings`, :meth:`activate`) — every declared
-      backend. The picker reads across all of them; loading picks one.
+    - **Plural** (``specs``, ``names``, :meth:`listings`, :meth:`activate`, :meth:`release`) —
+      every declared backend. The picker reads across all of them; loading picks one, and
+      releasing frees the one it just left.
     """
 
     def __init__(self, backend: Backend, spec: BackendSpec | None = None) -> None:
@@ -225,12 +278,24 @@ class Backends:
         return self._active
 
     def activate(self, name: str) -> None:
-        """Point the scalar surface (and so ``/v1``) at the named backend.
+        """Point the scalar surface (and so ``/v1``) at the named backend. Moves the pointer only.
 
         The hook qualified-id resolution pulls: ``load`` of ``gemma-4-12b@gpu-box`` activates
-        ``gpu-box`` and then loads on it. Deliberately does *not* stop the outgoing backend —
-        a remote keeps whatever it holds regardless, and a local runtime is stopped by the
-        load that replaces it (``ServerManager.load`` calls ``stop`` itself).
+        ``gpu-box`` and then loads on it.
+
+        Freeing what the *outgoing* backend still holds is :meth:`release`, and it is a separate
+        call — not an omission. ROADMAP.md's "loaded stays singular" is a claim about RAM, so
+        somebody must make it; three things say that somebody is the caller and not this method:
+
+        - **Ordering.** The release is only correct once the incoming load has *succeeded*.
+          Activating is a step in resolving an id, and a resolution that then fails is unwound by
+          activating *back* — so an ``activate`` that stopped things would kill the runtime the
+          caller still had, on the failure path, to reach a backend it never got to.
+        - **Blocking.** Stopping a local runtime terminates a process group and waits on it
+          (seconds). ``activate`` is a synchronous field assignment, called from :func:`declare`
+          while the app is still being built; only the route can afford the thread hop.
+        - **Usually nothing to do.** A remote has nothing local to free, which is exactly why the
+          ROADMAP counts switching between remotes as free.
 
         Args:
             name: A declared backend name.
@@ -241,6 +306,94 @@ class Backends:
         if name not in self._backends:
             raise KeyError(f"no backend named {name!r} — declared: {', '.join(self._backends) or '(none)'}")
         self._active = name
+
+    def release(self, name: str) -> bool:
+        """Free what the named backend holds on *this* machine. The other half of a switch.
+
+        Only a local runtime is stabbur's to free: it is a child process holding this machine's
+        RAM, and once the pointer has moved on it is also unreachable — ``/api/status`` reports
+        the new backend and ``/api/unload`` is scalar, so nothing but a later local load or
+        stabbur exiting would ever get to it.
+
+        A remote is a deliberate no-op, not a gap. Its "loading" is only a selection; the host
+        holds what it holds for every client talking to it, so evicting there would spend other
+        people's generations to reclaim nothing here. Dropping merely the *selection* would be
+        just as wrong in the other direction: it costs nothing to keep, and keeping it is what
+        makes switching back to that remote instant.
+
+        Blocking: locally this terminates a process group and waits on it, which can take
+        seconds. Call it off the event loop.
+
+        Args:
+            name: A declared backend name. The active one is allowed and is simply unloaded —
+                this never moves the pointer (that is :meth:`activate`).
+
+        Returns:
+            Whether a local runtime was actually running and has been stopped.
+
+        Raises:
+            KeyError: If no backend is declared under ``name``.
+        """
+        if name not in self._backends:
+            raise KeyError(f"no backend named {name!r} — declared: {', '.join(self._backends) or '(none)'}")
+        held = self._backends[name]
+        if not isinstance(held, ServerManager):
+            return False
+        # Stop unconditionally and report separately: ``current`` answers None while another
+        # lifecycle op is mid-flight, so gating the stop on it could skip the one call that
+        # frees the memory. ``ServerManager.stop`` is a no-op when nothing is running.
+        was_running = held.current is not None
+        held.stop()
+        return was_running
+
+    async def serving(self, name: str, *, timeout: float | None = None) -> tuple[str, ...]:
+        """Which declared backends carry ``name``, probed concurrently, in declaration order.
+
+        The plural question behind a *bare* id: with several backends declared, the same model
+        name can exist in more than one place, and the caller has to know that before it picks
+        one. Asking is not selecting — nothing here touches a backend's loaded model, which is
+        why this cannot be spelled ``load_by_name(warmup=False)``.
+
+        **A backend that cannot be asked is not a candidate.** Every failure — down host,
+        timeout, an unconfigured local library — is swallowed rather than raised: this is an
+        advisory probe run *beside* a load, so a remote being unreachable must not break a load
+        aimed at the library, and vice versa. The real attempt reports the real error a moment
+        later.
+
+        Args:
+            name: A bare model name (no qualifier).
+            timeout: Seconds each backend gets, independently. ``None`` reads :data:`PROBE_TIMEOUT`.
+
+        Returns:
+            The names of the backends that appear to serve it, in declaration order.
+        """
+        budget = PROBE_TIMEOUT if timeout is None else timeout
+        found = await asyncio.gather(*(self._serves(n, name, budget) for n in self._backends))
+        return tuple(n for n, carries in zip(self._backends, found, strict=True) if carries)
+
+    async def _serves(self, backend: str, name: str, timeout: float) -> bool:
+        """Whether one backend carries ``name``. Never raises — an unaskable backend answers False."""
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(self._has, backend, name), timeout)
+        except Exception:  # noqa: BLE001 - advisory probe: an unaskable backend is simply not a candidate
+            return False
+
+    def _has(self, backend: str, name: str) -> bool:
+        """Whether one backend carries ``name``, blocking, by that backend's own matching rule.
+
+        The rules must be the ones the *load* would use, or the probe would flag an ambiguity the
+        load cannot reproduce (or miss one it can): ``library.find`` for the library, and the
+        remote's own exact/case-insensitive/basename match for an upstream. The latter is spelled
+        out here rather than borrowed from ``UpstreamManager.load_by_name`` because that method
+        records a selection as a side effect, and a probe must leave the remote exactly as it
+        found it.
+        """
+        held = self._backends[backend]
+        if isinstance(held, UpstreamManager):
+            want = name.strip().lower()
+            want_base = want.rsplit("/", 1)[-1]
+            return any(r.name.lower() == want or r.name.lower().rsplit("/", 1)[-1] == want_base for r in held.models())
+        return bool(library_ops.find(name))
 
     async def listings(self, *, timeout: float | None = None) -> list[BackendListing]:
         """Every declared backend's rows, probed concurrently, failures reported as data.
