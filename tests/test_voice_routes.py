@@ -296,6 +296,17 @@ async def test_transcriptions_oversized_upload_is_413(
     assert "2 MB" in r.json()["detail"]  # the limit is stated, not just "too large"
 
 
+async def test_speak_rejects_a_speed_the_engine_cannot_honor(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The validator's range must be the engine's: it used to accept 0.25-0.5, which the engine
+    # then rejected mid-synthesis — a 500 for what is plainly a bad request.
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: True)
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "kokoro:af_heart", "speed": 0.3})
+    assert r.status_code == 422
+    assert "0.5" in r.json()["detail"]
+
+
 async def test_transcriptions_unknown_stt_model_is_404(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # With the runtime available but the requested STT model absent from the library, the
     # endpoint must 404 (resolve the model before transcribing), not run against nothing.

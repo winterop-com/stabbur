@@ -401,7 +401,7 @@ export interface SpeechOptions {
   refAudioB64?: string | null; // base64 WAV to clone a voice from (cloneable models)
   refText?: string | null; // exact transcript of refAudioB64
   seed?: number | null; // pin a seeded model's random voice
-  speed?: number | null; // playback speed multiplier (0.25-2.0); default 1
+  speed?: number | null; // playback speed multiplier (0.5-2.0); default 1
 }
 
 /** Synthesize speech via the OpenAI /v1/audio/speech endpoint; returns an audio blob. */

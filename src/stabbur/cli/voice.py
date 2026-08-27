@@ -69,7 +69,7 @@ def speak(
     ] = None,
     speed: Annotated[
         float,
-        typer.Option("--speed", help="Playback speed multiplier, 0.25-2.0 (default 1.0)."),
+        typer.Option("--speed", help="Playback speed multiplier, 0.5-2.0 (default 1.0)."),
     ] = 1.0,
     fmt: Annotated[
         str,
@@ -93,13 +93,25 @@ def speak(
     writes there, otherwise a temp file is played.
     """
     from stabbur.voice import audio as audio_export  # noqa: PLC0415
+    from stabbur.voice import (
+        kokoro,  # noqa: PLC0415
+        tts,  # noqa: PLC0415
+    )
     from stabbur.voice import registry as voice_registry  # noqa: PLC0415
-    from stabbur.voice import tts  # noqa: PLC0415
 
     text = tts.speech_text(" ".join(words))  # accept an unquoted phrase; strip any Markdown
     if not audio_export.is_supported(fmt):
         typer.secho(
             f"Unknown format {fmt!r}; use one of {', '.join(audio_export.FORMATS)}.", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(1)
+    # Reject an impossible speed before doing any work: the engine raises its own ValueError deep
+    # inside synthesis, which surfaced as a traceback after the model had already been downloaded.
+    if not kokoro.SPEED_MIN <= speed <= kokoro.SPEED_MAX:
+        typer.secho(
+            f"--speed must be between {kokoro.SPEED_MIN} and {kokoro.SPEED_MAX} (got {speed:g}).",
+            fg=typer.colors.RED,
+            err=True,
         )
         raise typer.Exit(1)
 
@@ -122,8 +134,10 @@ def speak(
         else:  # a registry voice model via the mlx-audio runtime
             data = _synth_mlx(spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed, speed=speed)
         data = audio_export.convert(data, fmt)
-    except RuntimeError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+    except (RuntimeError, ValueError) as exc:
+        # ValueError as well as RuntimeError: the synthesis engines validate their own arguments
+        # and raise it, and a bad argument is a user error to print, never a traceback.
+        typer.secho(str(exc) or f"{type(exc).__name__} during synthesis", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
     _finish_speak(data, fmt, output, play)
 

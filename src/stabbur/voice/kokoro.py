@@ -28,6 +28,13 @@ _RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-
 _MODEL_FILE = "kokoro-v1.0.onnx"
 _VOICES_FILE = "voices-v1.0.bin"
 
+# The speed multipliers the engine actually accepts. kokoro-onnx enforces this range itself and
+# raises a bare ValueError outside it, which every caller has to anticipate — so the bound lives
+# here, next to the engine it belongs to, and callers validate against it before synthesizing
+# rather than each inventing a range of its own (they disagreed: 0.25 was documented, 0.5 works).
+SPEED_MIN = 0.5
+SPEED_MAX = 2.0
+
 # Voice-name language prefix (first char) -> (display language, espeak lang code).
 _LANGS: dict[str, tuple[str, str]] = {
     "a": ("American English", "en-us"),
@@ -249,8 +256,8 @@ def synthesize(text: str, voice: str, out_path: Path | None = None, *, speed: fl
     from a worker thread in async contexts. Returns the written WAV path.
 
     Raises:
-        RuntimeError: If the extra isn't installed, the voice is unknown, the
-            text is empty, or synthesis produces no audio.
+        RuntimeError: If the extra isn't installed, the voice is unknown, the text is empty,
+            the speed is out of range, or synthesis produces no audio.
     """
     if not available():
         raise RuntimeError("Kokoro TTS is unavailable — reinstall stabbur's dependencies (`uv sync`).")
@@ -258,6 +265,10 @@ def synthesize(text: str, voice: str, out_path: Path | None = None, *, speed: fl
         raise RuntimeError(f"unknown Kokoro voice {voice!r}")
     if not text.strip():
         raise RuntimeError("nothing to speak (empty text)")
+    # Check the range here too, not only in each caller: out of range the engine raises ValueError,
+    # which is not what this function documents and reached the CLI as a Rich traceback.
+    if not SPEED_MIN <= speed <= SPEED_MAX:
+        raise RuntimeError(f"speed must be between {SPEED_MIN} and {SPEED_MAX} (got {speed:g})")
 
     # Generate *before* creating the output file: engine load, the first-use download and
     # generation itself can all fail, and a temp created up front would be orphaned by every
