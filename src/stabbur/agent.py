@@ -6,6 +6,7 @@ the results back, and repeats until the model answers with plain text.
 
 import json
 from collections.abc import Awaitable, Callable
+from contextlib import AsyncExitStack
 from inspect import isawaitable
 from typing import Any, Literal
 
@@ -40,6 +41,10 @@ UsageSink = Callable[[dict[str, Any]], None]
 # approved the action. Async-only (the /api/chat + UI path awaits a user decision over a channel),
 # so the loop can suspend on it — a missing sink is treated as a denial (fail-safe) at the gate.
 ConfirmSink = Callable[[str, dict[str, Any]], Awaitable[bool]]
+# on_finish(reason) receives the OpenAI ``finish_reason`` of each round as the round ends
+# ("stop", "length", "tool_calls", ...). Sync; the last call is the one that describes how the
+# turn actually ended. Without it a length-capped reply is indistinguishable from a short one.
+FinishSink = Callable[[str], None]
 
 
 def _needs_confirm(policy: Literal["all", "writes", "none"], toolset: MCPToolset, name: str) -> bool:
@@ -123,17 +128,102 @@ def user_content(
     return parts
 
 
+_SYNTHETIC_ID = "stabbur-call-"
+"""Prefix for a tool-call id stabbur mints because the server streamed none."""
+
+
+def _slot_for(index: object, call_id: str, name: str, calls: dict[int, dict[str, str]], by_id: dict[str, int]) -> int:
+    """Which accumulating slot a ``tool_calls`` delta belongs to.
+
+    ``index`` is how OpenAI's streaming format identifies which call a delta continues, and it is
+    what the parser used to key on unconditionally — a ``KeyError`` that killed the whole stream
+    for any compatible server that omits it. The fallbacks, in order:
+
+    - a repeated ``id`` continues the call it already named;
+    - a delta bringing a *new* id or a function name starts a new call (that is what "new call"
+      looks like in every dialect);
+    - anything else is an arguments-only fragment, which continues the call in flight — the shape
+      a server that streams incrementally but omits ``index`` produces.
+    """
+    if isinstance(index, int) and not isinstance(index, bool):
+        return index
+    if call_id and call_id in by_id:
+        return by_id[call_id]
+    if calls and not call_id and not name:
+        return max(calls)  # arguments-only: keep filling the most recent call
+    return max(calls) + 1 if calls else 0
+
+
+def _merge_tool_call(tc: object, calls: dict[int, dict[str, str]], by_id: dict[str, int]) -> None:
+    """Fold one streamed ``tool_calls`` delta into the accumulating call slots.
+
+    Every field is read defensively: a delta of the wrong shape must degrade to a tool call the
+    loop then fails and reports back to the model (the existing malformed-call path, which the
+    model can retry from), never to an exception that ends the generation.
+    """
+    if not isinstance(tc, dict):
+        return
+    raw_id = tc.get("id")
+    call_id = raw_id if isinstance(raw_id, str) else ""
+    fn = tc.get("function")
+    fn = fn if isinstance(fn, dict) else {}
+    raw_name, raw_args = fn.get("name"), fn.get("arguments")
+    name = raw_name if isinstance(raw_name, str) else ""
+    args = raw_args if isinstance(raw_args, str) else ""
+    if not (call_id or name or args):
+        return  # an empty delta must not conjure a phantom tool call out of a plain text reply
+    slot_index = _slot_for(tc.get("index"), call_id, name, calls, by_id)
+    slot = calls.setdefault(slot_index, {"id": "", "name": "", "args": ""})
+    if call_id:
+        slot["id"] = call_id
+        by_id[call_id] = slot_index
+    if name:
+        slot["name"] = name
+    slot["args"] += args
+
+
+def _mint_missing_ids(calls: list[dict[str, str]]) -> None:
+    """Give every parsed call a unique id, minting one where the server streamed none.
+
+    The id is the only thing that ties a ``tool`` result message back to the call it answers. Left
+    empty — as a server that omits ``id`` leaves them — two calls in one round both came back as
+    ``tool_call_id: ""``: two answers the model cannot tell apart, which is worse than a failure
+    because it looks like it worked. Minted ids are checked against the ones the server did send,
+    so a synthetic id can never shadow a real one.
+    """
+    used = {call["id"] for call in calls if call["id"]}
+    n = 0
+    for call in calls:
+        if call["id"]:
+            continue
+        while f"{_SYNTHETIC_ID}{n}" in used:
+            n += 1
+        call["id"] = f"{_SYNTHETIC_ID}{n}"
+        used.add(call["id"])
+        n += 1
+
+
 async def _stream_turn(
     http: httpx.AsyncClient,
     base_url: str,
     body: dict[str, Any],
     on_token: TokenSink | None,
     on_reasoning: TokenSink | None = None,
-) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
-    """Stream one completion; return (content, tool_calls, usage). Emits content + reasoning live."""
+) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None, str | None]:
+    """Stream one completion; return (content, tool_calls, usage, finish_reason).
+
+    Emits content + reasoning live. ``finish_reason`` is the last one the stream reported —
+    ``"stop"`` for a complete answer, ``"tool_calls"`` for a round that ends in tool calls, and
+    ``"length"`` when the runtime cut the reply at ``max_tokens``. It is the only signal that
+    distinguishes a finished reply from a truncated one, so it is carried out rather than dropped:
+    a reply whose whole budget went to ``reasoning_content`` emits no content deltas at all, and
+    without this reads as a model that simply answered nothing.
+    """
     content = ""
-    calls: dict[int, dict[str, str]] = {}
+    calls: dict[int, dict[str, str]] = {}  # slot -> the call accumulating in it
+    by_id: dict[str, int] = {}  # call id -> its slot, for deltas that identify by id alone
     usage: dict[str, Any] | None = None
+    finish: str | None = None
     async with http.stream("POST", f"{base_url}/v1/chat/completions", json=body) as resp:
         if resp.status_code >= 400:
             # Read the body on error — llama-server puts the real cause (e.g. context overflow)
@@ -150,7 +240,14 @@ async def _stream_turn(
             payload = line[len("data:") :].strip()
             if payload == "[DONE]":
                 break
-            chunk = json.loads(payload)
+            try:
+                chunk = json.loads(payload)
+            except ValueError:
+                # A frame that is not JSON is one non-conforming server's noise, not a reason to
+                # abandon a generation that is otherwise streaming fine. Skipping costs one delta.
+                continue
+            if not isinstance(chunk, dict):
+                continue
             # With include_usage the final chunk carries `usage` and an empty
             # `choices` list; capture it and skip the (missing) delta.
             if chunk.get("usage"):
@@ -163,27 +260,34 @@ async def _stream_turn(
                 timings = chunk.get("timings")
                 if isinstance(timings, dict):
                     usage["timings"] = timings
-            if not chunk.get("choices"):
+            choices = chunk.get("choices")
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
                 continue
-            delta = chunk["choices"][0]["delta"]
-            if delta.get("content"):
-                content += delta["content"]
-                await _emit(on_token, delta["content"])
+            choice = choices[0]
+            # Only the final chunk of a choice carries it; every earlier one sends null, so
+            # overwrite on truthy values rather than assigning unconditionally.
+            if isinstance(choice.get("finish_reason"), str) and choice["finish_reason"]:
+                finish = choice["finish_reason"]
+            # ``.get``, since the chunk that carries finish_reason may carry nothing else.
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            text = delta.get("content")
+            if isinstance(text, str) and text:
+                content += text
+                await _emit(on_token, text)
             # Reasoning models (gemma-4, Qwen3.5, …) stream their thinking here, not in
             # content; surface it separately instead of dropping it (→ blank replies).
-            if delta.get("reasoning_content") and on_reasoning:
-                await _emit(on_reasoning, delta["reasoning_content"])
-            for tc in delta.get("tool_calls") or []:
-                slot = calls.setdefault(tc["index"], {"id": "", "name": "", "args": ""})
-                if tc.get("id"):
-                    slot["id"] = tc["id"]
-                fn = tc.get("function") or {}
-                if fn.get("name"):
-                    slot["name"] = fn["name"]
-                if fn.get("arguments"):
-                    slot["args"] += fn["arguments"]
+            thinking = delta.get("reasoning_content")
+            if isinstance(thinking, str) and thinking and on_reasoning:
+                await _emit(on_reasoning, thinking)
+            tool_calls = delta.get("tool_calls")
+            if isinstance(tool_calls, list):
+                for tc in tool_calls:
+                    _merge_tool_call(tc, calls, by_id)
     ordered = [calls[i] for i in sorted(calls)]
-    return content, ordered, usage
+    _mint_missing_ids(ordered)
+    return content, ordered, usage, finish
 
 
 ReasoningLevel = Literal["off", "low", "medium", "high", "max"]
@@ -234,6 +338,8 @@ async def run(
     confirm_policy: Literal["all", "writes", "none"] = "none",
     reasoning: "ReasoningLevel | None" = None,
     response_format: dict[str, Any] | None = None,
+    on_finish: FinishSink | None = None,
+    http: httpx.AsyncClient | None = None,
 ) -> str:
     """Run the agent loop against ``base_url``, streaming the reply; return its text.
 
@@ -255,12 +361,21 @@ async def run(
     every call. When a call is gated, ``on_confirm(name, args)`` is awaited for approval; if it
     returns falsy (or no ``on_confirm`` is supplied — fail-safe deny), the tool is NOT run and the
     model gets a ``tool`` turn whose text is exactly ``error: user declined this action``.
+    ``on_finish`` receives each round's OpenAI ``finish_reason``, so a caller can tell a complete
+    reply from one the runtime cut off at ``max_tokens``.
+
+    ``http`` lets a long-lived caller pass its own client so the loop reuses one connection pool
+    (the server passes ``app.state.http``, the same client the ``/v1`` proxy uses); ``None`` opens
+    a private one for the call, which is what the CLI and TUI want — they have no app to borrow
+    from. A passed client is never closed here: it belongs to whoever opened it.
     """
     if tool_timeout is None:
         from stabbur.config import get_settings  # noqa: PLC0415 - lazy to keep agent import light
 
         tool_timeout = get_settings().tool_timeout or None  # 0 → no bound
-    async with httpx.AsyncClient(timeout=600) as http:
+    async with AsyncExitStack() as stack:
+        if http is None:
+            http = await stack.enter_async_context(httpx.AsyncClient(timeout=600))
         for _ in range(max_rounds):
             body: dict[str, Any] = {"messages": messages, "stream": True}
             # Ask for a final usage chunk (prompt/completion tokens) so callers can
@@ -296,9 +411,11 @@ async def run(
                 body["response_format"] = response_format
             # Reasoning effort (thinking on/off + budget) — llama-server dialect, see reasoning_fields.
             body.update(reasoning_fields(reasoning))
-            content, calls, usage = await _stream_turn(http, base_url, body, on_token, on_reasoning)
+            content, calls, usage, finish = await _stream_turn(http, base_url, body, on_token, on_reasoning)
             if usage and on_usage:
                 on_usage(usage)
+            if finish and on_finish:
+                on_finish(finish)
             if not calls:
                 messages.append({"role": "assistant", "content": content})
                 return content

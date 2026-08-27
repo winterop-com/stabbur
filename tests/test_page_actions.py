@@ -86,15 +86,15 @@ def _install_action_turn(
 
     async def fake_stream_turn(
         http: Any, base_url: str, body: dict[str, Any], on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[dict[str, str]], dict[str, Any] | None]:
+    ) -> tuple[str, list[dict[str, str]], dict[str, Any] | None, str | None]:
         rounds["n"] += 1
         captured["bodies"].append(body)
         if rounds["n"] == 1:
-            return "", [{"id": "call_1", "name": action, "args": args}], None
+            return "", [{"id": "call_1", "name": action, "args": args}], None, "tool_calls"
         # Second round: the tool result is now in `messages` — capture what the model actually sees.
         captured["messages"] = [dict(m) for m in body["messages"]]
         await agent._emit(on_token, "answered")
-        return "answered", [], None
+        return "answered", [], None, "stop"
 
     monkeypatch.setattr(agent, "_stream_turn", fake_stream_turn)
 
@@ -629,7 +629,7 @@ async def test_timeout_fails_safe_instead_of_hanging(
         app.dependency_overrides.clear()
 
     assert _tool_message(captured)["content"].startswith("error: the browser did not answer")
-    assert events[-1] == {"type": "done"}
+    assert events[-1]["type"] == "done"  # the stream ends cleanly (the frame also carries finish_reason)
     assert app.state.pending_page_actions == {}
 
 

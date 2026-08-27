@@ -32,11 +32,11 @@ class _StubToolset:
 
 def _one_tool_then_done(name: str) -> Any:
     """A staged ``_stream_turn``: round 1 calls ``name``, round 2 answers with plain text."""
-    rounds = iter([("", [{"id": "1", "name": name, "args": "{}"}], None), ("done", [], None)])
+    rounds = iter([("", [{"id": "1", "name": name, "args": "{}"}], None, "tool_calls"), ("done", [], None, "stop")])
 
     async def staged(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
         return next(rounds)
 
     return staged

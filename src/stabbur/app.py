@@ -149,26 +149,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001 - a sweep failure must never block startup
         pass
 
+    # Everything the startup model selection does is BLOCKING, and some of it is blocking for a
+    # very long time: the upstream paths reach a synchronous ``httpx.get`` (15s), a warmup
+    # ``httpx.post`` that waits out a cold model load (up to 600s) and ``time.sleep`` retries,
+    # while the local paths walk the library and spawn (or terminate) a child process. Run on the
+    # event loop, that is a startup during which the loop cannot run *anything* — no signal
+    # handler, so ``serve --upstream <url> --model <name>`` against a host that accepts the
+    # connection and then never answers ignored Ctrl-C for ten minutes. In a thread the wait is
+    # the same length; the difference is that the process stays interruptible while it happens.
     if manager.is_upstream:
         if settings.serve_model:
             # Locked upstream serve: the name must match one of the remote's ids — fail
             # startup with the remote's own list otherwise (parity with the local check).
-            manager.load_by_name(settings.serve_model)
+            await asyncio.to_thread(manager.load_by_name, settings.serve_model)
         else:
             # Start on whatever the upstream already has loaded (a router hot-swaps on
             # request, so any other default would evict it on the first message).
-            manager.select_loaded()
+            await asyncio.to_thread(manager.select_loaded)
     elif settings.serve_model:
-        matches = library_ops.find(settings.serve_model)
+        matches = await asyncio.to_thread(library_ops.find, settings.serve_model)
         if len(matches) != 1:
             raise RuntimeError(
                 f"locked --model {settings.serve_model!r} did not resolve to exactly one library "
                 f"model (found {len(matches)}); fix the name or library before locking the server"
             )
-        reason = runtime.runnable_error(matches[0])
+        reason = await asyncio.to_thread(runtime.runnable_error, matches[0])
         if reason is not None:
             raise RuntimeError(f"locked --model cannot be run: {reason}")
-        manager.load(matches[0])
+        await asyncio.to_thread(manager.load, matches[0])
 
     # Spawn the resolved MCP servers (global ~/.config/stabbur/mcp.json + project .mcp.json) once,
     # shared across chat requests, so the web UI / extension get tools via the server-side agent loop.
@@ -242,8 +250,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             yield
         finally:
-            manager.stop()
-            await app.state.http.aclose()
+            # try/finally, not two statements: releasing the backends terminates process groups
+            # and closes remote clients, any of which can raise — and the shared proxy client
+            # must be closed regardless, or a raising teardown leaks the one connection pool
+            # every request went through. Each half is independent, so neither may be able to
+            # skip the other.
+            try:
+                await manager.aclose()  # every declared backend, not just the active one
+            finally:
+                await app.state.http.aclose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

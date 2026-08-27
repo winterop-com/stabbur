@@ -511,10 +511,31 @@ class Backends:
 
         Shared in name only, and intentionally left that way: locally this kills a child
         process, upstream it drops a selection and the remote keeps running. Both mean
-        "nothing is loaded here any more", which is what the caller (``/api/unload``,
-        lifespan teardown) is asking for.
+        "nothing is loaded here any more", which is what the caller (``/api/unload``) is asking
+        for. Shutdown wants :meth:`aclose` instead — this one is scalar, and at shutdown every
+        declared backend has to be let go of, not just the one the pointer happens to rest on.
         """
         self.backend.stop()
+
+    async def aclose(self) -> None:
+        """Release what EVERY declared backend holds. The lifespan teardown.
+
+        Scalar ``stop`` is the wrong shape for shutdown, and was what the lifespan called: it
+        reaches only the *active* backend, so a remote that had merely been status-polled kept
+        its keep-alive client (and, after a switch, a local runtime could keep its child process)
+        for the rest of the process. Which backend the pointer ended on is an accident of the
+        user's last click; what has to be released is everything that was ever touched.
+
+        Best-effort per backend, deliberately: terminating a process group can raise, and one
+        backend failing to let go must not leave the remaining ones — or the caller's own
+        cleanup — unrun. This is the last thing that will ever touch them, so there is nobody
+        left to report a failure to.
+        """
+        for backend in self._backends.values():
+            try:
+                await backend.aclose()
+            except Exception:  # noqa: BLE001 - shutdown: one backend must not block the others
+                pass
 
     # --- divergent surface ---
     #

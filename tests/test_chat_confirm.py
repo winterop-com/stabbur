@@ -160,7 +160,9 @@ async def test_gated_flow_approve_runs_tool(app: FastAPI, client: AsyncClient, m
     assert captured["on_confirm"] is not None
     confirm = next(e for e in events if e["type"] == "confirm")
     assert confirm["tool"] == "dhis2__write_thing"
-    assert len(confirm["args"]["secret"]) < 500  # args are capped (the 500-char string is trimmed)
+    # The user approves what the frame SHOWS, so a 500-char argument reaches them whole — the
+    # display cap that trims a trace line would have cut it at 200 (see the truncation test below).
+    assert confirm["args"]["secret"] == "z" * 500
     resolved = next(e for e in events if e["type"] == "confirm_resolved")
     assert resolved["id"] == confirm["id"]
     assert resolved["approved"] is True
@@ -168,6 +170,40 @@ async def test_gated_flow_approve_runs_tool(app: FastAPI, client: AsyncClient, m
     assert any(e["type"] == "tool" and e.get("detail") == "did the write" for e in events)
     # The registry is emptied once the confirmation resolves (no leak).
     assert app.state.pending_confirmations == {}
+
+
+async def test_confirm_frame_shows_the_call_not_a_preview_of_it(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The gate's whole value is that the user sees what they are approving. The confirm frame used
+    # to run its args through the 200-char DISPLAY cap, so a call whose consequential part sat past
+    # character 200 — a long SQL statement, a payload with the destination at the end — was
+    # approved unseen. Nothing about the card said anything had been left out.
+    payload = "harmless padding " * 40 + "DELETE EVERYTHING"  # the part that matters is at the end
+    assert len(payload) > 200
+
+    async def fake_run(
+        base: str, messages: Any, toolset: Any, max_tokens: Any, on_event: Any, on_token: Any, **kw: Any
+    ) -> str:
+        await kw["on_confirm"]("dhis2__write_thing", {"body": payload, "huge": "z" * 20_000})
+        await on_token("done")
+        return "done"
+
+    monkeypatch.setattr(agent, "run", fake_run)
+    app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
+    try:
+        events = await _run_gated(
+            app, client, {"messages": [{"role": "user", "content": "hi"}], "confirm_tools": "all"}, approve=True
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    confirm = next(e for e in events if e["type"] == "confirm")
+    assert confirm["args"]["body"] == payload  # verbatim: the tail is visible at approval time
+    # A genuinely unbounded value is still bounded (the frame goes through a queue into a browser),
+    # but it says so in words a reader will recognize as a warning, not with a trailing ellipsis.
+    assert confirm["args"]["huge"].endswith("TRUNCATED — this value continues beyond what is shown]")
+    assert confirm["args"]["huge"].startswith("z" * 10_000)
 
 
 async def test_gated_flow_decline_skips_tool(

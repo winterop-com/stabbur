@@ -7,6 +7,7 @@ underlying ``llama-server`` / ``mlx_lm.server`` process is swapped underneath.
 read surface, but "loading" a model means selecting one of the remote's ids.
 """
 
+import asyncio
 import shutil
 import threading
 import time
@@ -174,6 +175,17 @@ class ServerManager:
             self._n_ctx = None
             self._reset_proc()  # killpg + wait + clean up the captured log/state (no-op if stopped)
 
+    async def aclose(self) -> None:
+        """Release everything this backend holds: the shutdown counterpart of :meth:`load`.
+
+        Locally that is the child process, so this is :meth:`stop` moved off the event loop —
+        terminating a process group waits on it (up to 10s), which the loop must not sit through
+        while the rest of the shutdown (other backends, the shared HTTP client) is still pending.
+        Named to match :meth:`UpstreamManager.aclose` so ``Backends.aclose`` can call it on every
+        declared backend without asking which kind it is.
+        """
+        await asyncio.to_thread(self.stop)
+
 
 class UpstreamModel(BaseModel):
     """A model the upstream server lists on its ``/v1/models``."""
@@ -243,15 +255,23 @@ class UpstreamManager:
     # The warmup request that forces a model swap waits for the remote to load the weights —
     # minutes for a large model off cold storage, not seconds.
     _WARMUP_TIMEOUT = 600.0
+    # How long a fetched listing is served from cache. Short: it carries the per-model ``loaded``
+    # flags, which change whenever anything on the remote swaps a model.
+    _MODELS_TTL = 5.0
 
     def __init__(self, upstream: str) -> None:
         # Accept with or without a trailing /v1 — routes append their own /v1 paths.
         self._upstream = upstream.strip().rstrip("/").removesuffix("/v1").rstrip("/")
         self._selected: UpstreamModel | None = None
         self._last_error: str | None = None
-        self._lock = threading.Lock()  # serializes selection writes (routes mutate off-loop)
+        self._lock = threading.Lock()  # serializes selection + listing-cache writes (routes mutate off-loop)
         self._ready_at = 0.0  # time.monotonic() of the last successful probe (0 = never)
         self._http: httpx.AsyncClient | None = None  # persistent keep-alive client for probes
+        # Single-flight gate for the listing FETCH. Separate from ``_lock`` on purpose: ``_lock``
+        # guards short field writes and is taken from the event loop's worker threads all over,
+        # so it must never be held across a network call. This one is held for exactly that call,
+        # and only by the one thread that found the cache stale.
+        self._models_refresh = threading.Lock()
         self._models_at = 0.0  # time.monotonic() of the cached listing
         self._models: list[UpstreamModel] = []
         self._loading: UpstreamModel | None = None  # model being warmed up on the remote right now
@@ -276,27 +296,57 @@ class UpstreamManager:
         """Context window — decided by the remote's own presets, unknown here."""
         return None
 
+    def _cached_models(self) -> list[UpstreamModel] | None:
+        """The cached listing if it is still fresh, else ``None``. Read under the lock.
+
+        The pair (rows, timestamp) is read and written as a unit — a torn read could otherwise
+        pick up a just-stored *timestamp* against the previous rows and serve a stale listing as
+        if it were fresh for another full TTL.
+        """
+        with self._lock:
+            if self._models and time.monotonic() - self._models_at < self._MODELS_TTL:
+                return list(self._models)
+        return None
+
     def models(self) -> list[UpstreamModel]:
         """The upstream's ``GET /v1/models`` as :class:`UpstreamModel` rows.
 
         ``loaded`` comes from llama-server router mode's per-model ``status``; the
         vision/audio flags from ``architecture.input_modalities`` when reported.
 
+        Called from worker threads — the picker fans every declared backend out with
+        ``to_thread`` + ``gather`` — so the cache is guarded and the fetch is **single-flight**:
+        N concurrent callers that all find it stale send ONE request to the remote and share the
+        answer, instead of stampeding a host that is already slow enough to have made this cache
+        worth having.
+
         Raises:
             RuntimeError: If the upstream is unreachable or answers garbage.
         """
-        now = time.monotonic()
-        if self._models and now - self._models_at < 5.0:
-            return list(self._models)  # fresh enough; don't re-hit the upstream per poll
-        try:
-            resp = httpx.get(f"{self._upstream}/v1/models", timeout=self._LISTING_TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise RuntimeError(f"upstream {self._upstream} unreachable: {exc}") from exc
-        out = parse_model_listing(data)
-        self._models, self._models_at = out, now
-        return list(out)
+        fresh = self._cached_models()
+        if fresh is not None:
+            return fresh  # fresh enough; don't re-hit the upstream per poll
+        with self._models_refresh:
+            # Re-check: while we queued on the gate, the thread ahead of us may have refreshed —
+            # in which case its answer is this call's answer and the remote is left alone.
+            fresh = self._cached_models()
+            if fresh is not None:
+                return fresh
+            try:
+                resp = httpx.get(f"{self._upstream}/v1/models", timeout=self._LISTING_TIMEOUT)
+                resp.raise_for_status()
+                data = resp.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                raise RuntimeError(f"upstream {self._upstream} unreachable: {exc}") from exc
+            out = parse_model_listing(data)
+            with self._lock:
+                self._models, self._models_at = out, time.monotonic()
+            return list(out)
+
+    def _invalidate_models(self) -> None:
+        """Drop the cached listing so the next :meth:`models` re-asks the remote."""
+        with self._lock:
+            self._models_at = 0.0
 
     def _warmup(self, model_id: str) -> None:
         """Make the remote actually load ``model_id``, by sending it a one-token request.
@@ -323,7 +373,7 @@ class UpstreamManager:
             raise RuntimeError(f"{model_id!r} could not be loaded on {self._upstream}: {exc}") from exc
         # The listing's per-model ``loaded`` flags just changed, and the upstream answered a real
         # request — so drop the cached listing and count this as a successful liveness probe.
-        self._models_at = 0.0
+        self._invalidate_models()
         self._ready_at = time.monotonic()
 
     def load_by_name(self, name: str, *, warmup: bool = True) -> None:
@@ -378,7 +428,7 @@ class UpstreamManager:
                     self._last_error = str(exc)
                 if attempt < 2:
                     time.sleep(1.0)  # a slow upstream at startup is common; give it a moment
-                    self._models_at = 0.0  # don't serve the (empty) cache on the retry
+                    self._invalidate_models()  # don't serve the (empty) cache on the retry
                     continue
                 return
             match = next((r for r in rows if r.loaded), None)
@@ -423,3 +473,20 @@ class UpstreamManager:
         """Clear the selection. The remote keeps running — nothing is unloaded there."""
         with self._lock:
             self._selected = None
+
+    async def aclose(self) -> None:
+        """Close the keep-alive probe client, then clear the selection.
+
+        ``stop`` alone is not a teardown here. :meth:`ready` lazily opens a persistent
+        ``AsyncClient`` — the whole point of which is that it *keeps* its connection to the remote
+        between status polls — and nothing ever closed it, so every declared upstream held an open
+        pool (and leaked one warning per unclosed client at interpreter exit) for the lifetime of
+        the process. Idempotent: the field is cleared before the close, so a second call, or a
+        :meth:`ready` that reopens one afterwards, is well-defined. No lock: ``_http`` is only
+        ever touched from the event loop (``ready`` is async, and so is this), unlike the
+        selection and listing fields the worker threads write.
+        """
+        http, self._http = self._http, None
+        if http is not None:
+            await http.aclose()
+        self.stop()

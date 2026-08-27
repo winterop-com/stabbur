@@ -103,8 +103,8 @@ async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyP
     # REPL keeps prior answers in context on the next turn.
     async def fake_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
-        return "final answer", [], None
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
+        return "final answer", [], None, "stop"
 
     monkeypatch.setattr(agent, "_stream_turn", fake_stream)
     messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
@@ -125,11 +125,13 @@ class _ImageToolset:
 
 def _one_tool_then_done() -> Any:
     """A staged _stream_turn: round 1 calls a tool, round 2 answers with plain text."""
-    rounds = iter([("", [{"id": "1", "name": "b__shot", "args": "{}"}], None), ("done", [], None)])
+    rounds = iter(
+        [("", [{"id": "1", "name": "b__shot", "args": "{}"}], None, "tool_calls"), ("done", [], None, "stop")]
+    )
 
     async def staged(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
         return next(rounds)
 
     return staged
@@ -324,8 +326,8 @@ async def test_agent_streams_stop_message_on_max_rounds(monkeypatch: pytest.Monk
     # still shows it) and recorded in history.
     async def looping_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
-        return "", [{"id": "1", "name": "x__y", "args": "{}"}], None
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
+        return "", [{"id": "1", "name": "x__y", "args": "{}"}], None, "tool_calls"
 
     monkeypatch.setattr(agent, "_stream_turn", looping_stream)
     tokens: list[str] = []
@@ -344,8 +346,8 @@ async def test_agent_stop_message_reaches_an_async_sink(monkeypatch: pytest.Monk
     # for exactly the streaming clients it exists for.
     async def looping_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
-        return "", [{"id": "1", "name": "x__y", "args": "{}"}], None
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
+        return "", [{"id": "1", "name": "x__y", "args": "{}"}], None, "tool_calls"
 
     monkeypatch.setattr(agent, "_stream_turn", looping_stream)
     tokens: list[str] = []
@@ -366,14 +368,14 @@ async def test_agent_recovers_from_a_hung_tool_call(monkeypatch: pytest.MonkeyPa
     # 40-min benchmark hang where a wedged MCP tool blocked the loop indefinitely.
     rounds = iter(
         [
-            ("", [{"id": "1", "name": "x__y", "args": "{}"}], None),  # round 1: a tool call
-            ("recovered", [], None),  # round 2: a plain answer
+            ("", [{"id": "1", "name": "x__y", "args": "{}"}], None, "tool_calls"),  # round 1: a tool call
+            ("recovered", [], None, "stop"),  # round 2: a plain answer
         ]
     )
 
     async def staged_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
         return next(rounds)
 
     class _HangingToolset:
@@ -507,11 +509,13 @@ async def test_subset_restricts_execution_not_just_display() -> None:
 async def test_agent_rejects_unparseable_tool_args(monkeypatch: pytest.MonkeyPatch) -> None:
     # Malformed tool-call JSON must NOT run the tool with empty args (V-7): feed the parse
     # error back and continue, so the model can resend valid arguments.
-    rounds = iter([("", [{"id": "1", "name": "x__y", "args": "{not valid json"}], None), ("done", [], None)])
+    rounds = iter(
+        [("", [{"id": "1", "name": "x__y", "args": "{not valid json"}], None, "tool_calls"), ("done", [], None, "stop")]
+    )
 
     async def staged_stream(
         http: Any, base_url: str, body: Any, on_token: Any, on_reasoning: Any = None
-    ) -> tuple[str, list[Any], dict[str, Any] | None]:
+    ) -> tuple[str, list[Any], dict[str, Any] | None, str | None]:
         return next(rounds)
 
     class _RecordingToolset:
