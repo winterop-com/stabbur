@@ -14,6 +14,12 @@ disk without loading the model:
 GGUF metadata is read with a minimal header parser (the KV block sits at the
 start of the file, so only a small prefix is read). MLX / safetensors read the
 sidecar ``config.json`` / ``tokenizer_config.json``.
+
+Results are cached in the model's ``.stabbur`` sidecar, which is why detection
+distinguishes "read it, it declares nothing" from "could not read it"
+(:class:`_DetectionFailed`): only the first is cacheable. The second is answered
+conservatively for that one call and left uncached, so a transient fault is
+retried rather than written into the library and carried with the drive.
 """
 
 import json
@@ -22,6 +28,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from stabbur import fsatomic
 from stabbur.gguf import read_metadata
 from stabbur.library import LibraryModel
 from stabbur.models import ModelFormat
@@ -51,6 +58,18 @@ class ModelCapabilities(BaseModel):
     context_length: int | None = None
 
 
+class _DetectionFailed(Exception):
+    """The weights could not be read — which is *not* the same as "this model has none".
+
+    The distinction is the whole point: a stalled drive, a half-copied model, a permission fault
+    all produce "nothing detected", and writing that to the sidecar would cache the failure
+    **portably** — an MLX vision checkpoint recorded as text-only routes to ``mlx_lm.server``,
+    which errors on the vision params and returns empty, on this machine and every machine the
+    drive is plugged into afterwards. Raised where a read is known to have failed; the caller
+    answers conservatively for that one call and caches nothing, so the next scan retries.
+    """
+
+
 def _has_tool_markers(template: str | None) -> bool:
     """Whether a chat template string references tool calling."""
     if not template:
@@ -60,10 +79,20 @@ def _has_tool_markers(template: str | None) -> bool:
 
 
 def _gguf_capabilities(model: LibraryModel) -> ModelCapabilities:
-    """Read capabilities from a GGUF file's metadata."""
+    """Read capabilities from a GGUF file's metadata.
+
+    Raises:
+        _DetectionFailed: The file's metadata could not be read.
+    """
     meta = read_metadata(model.load_target, {"general.architecture", "tokenizer.chat_template"})
     arch = meta.get("general.architecture")
-    ctx_meta = read_metadata(model.load_target, {f"{arch}.context_length"}) if arch else {}
+    if not arch:
+        # ``read_metadata`` never raises: a missing file, a stalled drive and a half-written
+        # download all come back as ``{}``, indistinguishable from a real read. But every GGUF
+        # header carries ``general.architecture`` — its absence means the header was not read,
+        # not that the model declares nothing, so this is a failure rather than an answer.
+        raise _DetectionFailed(f"no GGUF metadata read from {model.load_target}")
+    ctx_meta = read_metadata(model.load_target, {f"{arch}.context_length"})
     ctx = ctx_meta.get(f"{arch}.context_length")
 
     # An mmproj projector is either a vision or an audio encoder (or both); read
@@ -87,11 +116,25 @@ def _gguf_capabilities(model: LibraryModel) -> ModelCapabilities:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    """Best-effort JSON object read; ``{}`` on any error."""
+    """Read a JSON object; ``{}`` when the file simply isn't there.
+
+    A file that *is* there but cannot be read or parsed — an IO error off a stalled drive, a
+    config still being written by a copy — is a failed read, not an empty config, so it raises
+    rather than returning ``{}`` and letting a caller record "declares nothing".
+
+    Raises:
+        _DetectionFailed: The file exists but could not be read or parsed.
+    """
     try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        text = path.read_text()
+    except FileNotFoundError:
         return {}
+    except OSError as exc:
+        raise _DetectionFailed(f"could not read {path}") from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise _DetectionFailed(f"could not parse {path}") from exc
     return data if isinstance(data, dict) else {}
 
 
@@ -116,17 +159,32 @@ def _dir_chat_template(model_dir: Path, tok: dict[str, Any]) -> str | None:
         except OSError:
             continue
         if fname.endswith(".json"):
-            data = _read_json(path)
-            inner = data.get("chat_template")
+            # Parsed from the text already read (not re-read): a template file that isn't valid
+            # JSON still gets searched for markers as raw text, which is why this is tolerant
+            # here while the model's own configs are not.
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                return text
+            inner = data.get("chat_template") if isinstance(data, dict) else None
             return inner if isinstance(inner, str) else text
         return text
     return None
 
 
 def _dir_capabilities(model: LibraryModel) -> ModelCapabilities:
-    """Read capabilities from an MLX / safetensors model directory's sidecars."""
+    """Read capabilities from an MLX / safetensors model directory's sidecars.
+
+    Raises:
+        _DetectionFailed: Neither config could be read (an unreadable or half-copied directory).
+    """
     config = _read_json(model.load_target / "config.json")
     tok = _read_json(model.load_target / "tokenizer_config.json")
+    if not config and not tok:
+        # Every MLX / safetensors checkpoint ships at least one of these. Neither present means
+        # the directory was not readable yet (a scan racing a copy, a drive that went away), so
+        # the answer would be a guess — and a cached guess is a permanent one.
+        raise _DetectionFailed(f"no model config read from {model.load_target}")
     architectures = [str(a).lower() for a in (config.get("architectures") or [])]
     name_low = model.name.lower()
     vision = (
@@ -175,24 +233,34 @@ def _read_cached(model: LibraryModel) -> ModelCapabilities | None:
 
 
 def _write_cached(model: LibraryModel, caps: ModelCapabilities) -> None:
-    """Best-effort backfill of the capabilities cache (silent on a read-only mount)."""
-    path = _cache_path(model)
+    """Best-effort backfill of the capabilities cache (silent on a read-only mount).
+
+    Written through :mod:`stabbur.fsatomic`: an unclean eject mid-write would otherwise leave a
+    truncated sidecar, and a sidecar that fails to parse is silently a cache miss forever.
+    """
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(caps.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        fsatomic.write_text(_cache_path(model), caps.model_dump_json(indent=2) + "\n")
     except OSError:
         pass  # e.g. a read-only drive — detection still returned; we just don't cache it
 
 
-def _detect(model: LibraryModel) -> ModelCapabilities:
-    """Read capabilities straight from the weights on disk (the uncached path)."""
+def _detect(model: LibraryModel) -> ModelCapabilities | None:
+    """Read capabilities straight from the weights on disk, or ``None`` if the read failed.
+
+    ``None`` means "could not tell", and is deliberately different from an all-``False``
+    :class:`ModelCapabilities`, which means "read it, it declares nothing". Only the latter is
+    worth caching. A format with no reader (Ollama's per-tensor layout) is the honest second
+    case, not the first: there is nothing to read, so nothing will change on a retry.
+    """
     try:
         if model.model_format is ModelFormat.gguf:
             return _gguf_capabilities(model)
         if model.model_format in (ModelFormat.mlx, ModelFormat.safetensors):
             return _dir_capabilities(model)
-    except Exception:  # noqa: BLE001 - capability detection is best-effort; never break the picker
-        pass
+    except _DetectionFailed:
+        return None
+    except Exception:  # noqa: BLE001 - never break the picker; an unexpected fault is still a failure
+        return None
     return ModelCapabilities()
 
 
@@ -202,10 +270,17 @@ def capabilities(model: LibraryModel) -> ModelCapabilities:
     Reads a cached result from the ``.stabbur`` sidecar when present (so a library scan doesn't
     re-parse the GGUF header every time); on a miss it detects from the weights and backfills the
     cache, so the next scan is instant. The model is immutable once pulled, so the cache is stable.
+
+    A *failed* detection is never cached. The caller still gets the all-``False`` default, because
+    every consumer needs an answer now, but nothing is written — so the next call re-detects
+    instead of inheriting one bad read forever, on this machine and on every machine the library
+    is carried to.
     """
     cached = _read_cached(model)
     if cached is not None:
         return cached
-    caps = _detect(model)
-    _write_cached(model, caps)
-    return caps
+    detected = _detect(model)
+    if detected is None:
+        return ModelCapabilities()
+    _write_cached(model, detected)
+    return detected

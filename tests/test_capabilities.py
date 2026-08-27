@@ -1,8 +1,11 @@
 """Tests for static model-capability detection (GGUF parse + dir configs)."""
 
 import json
+import os
 import struct
 from pathlib import Path
+
+import pytest
 
 from stabbur import capabilities
 from stabbur.library import LibraryModel
@@ -107,7 +110,9 @@ def test_tools_needs_a_calling_marker_not_bare_tools(tmp_path: Path) -> None:
         (tmp_path / "config.json").write_text(json.dumps({"architectures": ["LlamaForCausalLM"]}))
         (tmp_path / "tokenizer_config.json").write_text(json.dumps({"chat_template": template}))
         # _detect (not the cached capabilities()) — this re-reads a mutated model at the same path.
-        return capabilities._detect(_model(tmp_path, ModelFormat.mlx, tmp_path)).tools
+        caps = capabilities._detect(_model(tmp_path, ModelFormat.mlx, tmp_path))
+        assert caps is not None  # a readable config: detected, not failed
+        return caps.tools
 
     assert caps_for("you may use these tools to help the user") is False
     assert caps_for("{% if tool_call %}...{% endif %}") is True
@@ -180,10 +185,76 @@ def test_read_gguf_string_rejects_a_bogus_length() -> None:
     # the file, so it aborts the parse (read_metadata returns what it had) instead of allocating.
     import io
 
-    import pytest
-
     from stabbur import gguf
 
     data = struct.pack("<Q", 10**10) + b"hello"  # claims 10 GB, has 5 bytes
     with pytest.raises(ValueError, match="past end of file"):
         gguf._read_string(io.BytesIO(data), len(data))
+
+
+# --- a failed read is not an answer, so it is never cached ---------------------------------------
+
+
+def test_a_failed_gguf_read_is_not_cached_and_is_retried(tmp_path: Path) -> None:
+    # The poisoning case: a scan while the drive stalls (or before the file has landed) reads
+    # nothing. That must not be written to the sidecar as "no vision, no tools" — the sidecar
+    # travels with the library, so one bad read would follow the model to every machine.
+    model = _model(tmp_path, ModelFormat.gguf, tmp_path / "m.gguf")
+    assert capabilities.capabilities(model) == capabilities.ModelCapabilities()  # conservative now
+    assert not capabilities._cache_path(model).exists()  # ... but nothing recorded
+
+    # The weights arrive; the next call re-detects instead of inheriting the failure.
+    _write_gguf(tmp_path / "m.gguf", {"general.architecture": (8, "llama"), "llama.context_length": (4, 4096)})
+    assert capabilities.capabilities(model).context_length == 4096
+
+
+def test_a_half_written_model_dir_is_not_cached_and_is_retried(tmp_path: Path) -> None:
+    # A scan racing a copy: config.json exists but is truncated. Detection fails rather than
+    # recording a vision checkpoint as text-only (which routes MLX to the text-only runtime).
+    (tmp_path / "config.json").write_text('{"architectures": ["Qwen3ForCon')
+    model = _model(tmp_path, ModelFormat.mlx, tmp_path)
+    assert capabilities.capabilities(model) == capabilities.ModelCapabilities()
+    assert not capabilities._cache_path(model).exists()
+
+    (tmp_path / "config.json").write_text(json.dumps({"vision_config": {"hidden_size": 1}}))
+    assert capabilities.capabilities(model).vision is True
+
+
+def test_an_empty_model_dir_is_a_failed_read_not_an_empty_model(tmp_path: Path) -> None:
+    # Neither config present: the directory was not readable yet, so there is no answer to cache.
+    model = _model(tmp_path, ModelFormat.mlx, tmp_path)
+    assert capabilities._detect(model) is None
+    assert capabilities.capabilities(model) == capabilities.ModelCapabilities()
+    assert not capabilities._cache_path(model).exists()
+
+
+def test_a_model_that_really_declares_nothing_is_still_cached(tmp_path: Path) -> None:
+    # The other side of the distinction: a GGUF that was read fine and declares no vision, no
+    # tools and no context is a real result, and caching it is the whole point of the sidecar.
+    gguf = tmp_path / "m.gguf"
+    _write_gguf(gguf, {"general.architecture": (8, "llama")})
+    model = _model(tmp_path, ModelFormat.gguf, gguf)
+    assert capabilities.capabilities(model) == capabilities.ModelCapabilities()
+    cache = capabilities._cache_path(model)
+    assert cache.is_file()
+    assert capabilities.ModelCapabilities.model_validate_json(cache.read_text()) == capabilities.ModelCapabilities()
+
+
+def test_the_cache_write_is_atomic_and_a_failed_write_is_survivable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The sidecar goes through fsatomic: an unclean eject mid-write can't leave a truncated
+    # capabilities.json (which would read as a permanent cache miss), and a write that fails
+    # outright still returns the detected capabilities rather than raising at the caller.
+    gguf = tmp_path / "m.gguf"
+    _write_gguf(gguf, {"general.architecture": (8, "llama"), "llama.context_length": (4, 8192)})
+    model = _model(tmp_path, ModelFormat.gguf, gguf)
+
+    def _drive_went_away(_fd: int) -> None:
+        raise OSError("drive went away mid-write")
+
+    monkeypatch.setattr(os, "fsync", _drive_went_away)
+    assert capabilities.capabilities(model).context_length == 8192
+    cache = capabilities._cache_path(model)
+    assert not cache.exists()  # nothing half-written landed
+    assert list(cache.parent.iterdir()) == []  # and no staging temp was left behind

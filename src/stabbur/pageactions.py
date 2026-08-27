@@ -264,7 +264,9 @@ class PageActionToolset(MCPToolset):
     describe the turn's *existing* gate; a non-readonly page action is confirmed here whenever
     that gate would not have caught it. Both defaults are the fail-safe ones — "the loop is not
     gating" and "there is no channel to ask on" — so a caller that wires neither denies an acting
-    page action rather than running it, which is the failure that costs nothing.
+    page action rather than running it, which is the failure that costs nothing. And a caller that
+    passes a gating *policy* but no channel is the same case: see :meth:`_approved`, which reads
+    the channel and never the policy string alone.
     """
 
     def __init__(
@@ -313,16 +315,24 @@ class PageActionToolset(MCPToolset):
     async def _approved(self, spec: PageActionSpec, args: PageActionArgs) -> bool:
         """Whether an acting page action may proceed — 5b rule 2's forced gate.
 
-        A ``readonly`` action never reaches here. For any other, the only question is who asks:
-        under ``"writes"`` or ``"all"`` the agent loop already gated this exact call before
-        reaching ``call``, and asking again would prompt the user twice for one click. Under
-        ``"none"`` — free-play, and a read-only assistant, i.e. the default on a generic site —
-        nothing gated it, so this is the gate. No channel to ask on denies, matching the loop.
+        A ``readonly`` action never reaches here. For any other, the question is whether a human
+        was actually asked, and the only evidence of that is **a confirmation channel** — so the
+        channel is what this gates on, and the policy string only decides *who does the asking*:
+
+        * No ``confirm`` sink: nothing can have asked anybody, whatever the policy says. Deny.
+          The policy is a caller-supplied string, and ``"writes"`` with no sink is a caller
+          asserting a gate that does not exist; trusting the assertion over the missing channel
+          is exactly the ungated-acting failure this gate was added to prevent.
+        * A sink, under ``"writes"``/``"all"``: the agent loop already gated this exact call
+          through this same sink before reaching ``call``. Asking again would prompt the user
+          twice for one click.
+        * A sink, under ``"none"`` — free-play, and a read-only assistant, i.e. the default on a
+          generic site — nothing gated it, so this is the gate: ask.
         """
-        if self._confirm_policy != "none":
-            return True
         if self._confirm is None:
             return False
+        if self._confirm_policy != "none":
+            return True
         return await self._confirm(spec.name, args.model_dump())
 
     async def call(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> ToolResult:
