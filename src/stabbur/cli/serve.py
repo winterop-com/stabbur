@@ -164,7 +164,7 @@ def serve(
                 # app agree on what "the backend for this configuration" means.
                 backends.build(upstream_url).load_by_name(locked_model, warmup=False)
             except RuntimeError as exc:
-                console.print(f"[red]{exc}[/]")
+                console.print(f"[red]{escape(str(exc))}[/]")
                 raise typer.Exit(1) from exc
         else:
             _resolve_library_model(locked_model, None)

@@ -623,6 +623,22 @@ def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.Mo
     assert library.roots(settings) == [(tmp_path / ".stabbur/library").resolve(), shared.resolve()]
 
 
+def test_roots_expands_a_tilde_library_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `~` only expands as a path's FIRST component, so expanding after the cwd join was a no-op and
+    # left a literal `~` directory under the project. Expand first, then join only if still relative.
+    from stabbur import project
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(library_root=tmp_path / "shared")
+    monkeypatch.setattr(library._roots, "get_settings", lambda: settings)
+    monkeypatch.setattr(project, "load", lambda *a, **k: project.Project(libraries=["~/models"]))
+
+    # Before the fix this was [tmp_path / "~" / "models"] — a literal `~` directory, never the home one.
+    assert library.roots(settings) == [(home / "models").resolve()]
+
+
 def test_roots_shared_token_strictness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # @shared resolves to the machine default (STABBUR_LIBRARY_ROOT). When that isn't set
     # explicitly, @shared must hard-fail if it's the only source — but drop out silently

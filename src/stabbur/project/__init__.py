@@ -20,6 +20,7 @@ This module is the **single owner** of the project side of ``stabbur.toml`` (A1)
 import json
 import re
 import tomllib
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -377,19 +378,90 @@ def read_raw(path: Path | None = None) -> dict[str, Any]:
         raise ProjectError(f"{path} is not valid TOML: {exc}") from exc
 
 
+def _require_table(value: Any, name: str, path: Path) -> dict[str, Any]:
+    """The ``name`` block as a table, or a clean :class:`ProjectError` if it's some other type.
+
+    ``voice = "loud"`` (or ``project = "x"``) is a manifest mistake, not a value to shrug off:
+    reading it with ``.get`` would either silently ignore every key in the block or raise an
+    ``AttributeError`` traceback. Missing blocks are fine — the caller passes ``{}`` for those.
+    """
+    if not isinstance(value, dict):
+        raise ProjectError(f"{path}: {name} must be a table, got {value!r}")
+    return value
+
+
+def _require_bool(value: Any, name: str, path: Path) -> bool:
+    """A manifest boolean, or a clean :class:`ProjectError`.
+
+    ``bool()`` would coerce anything truthy, so ``enabled = "no"`` (a string) would read as
+    *enabled* — the opposite of what was written. TOML has a real boolean, so require it.
+    """
+    if not isinstance(value, bool):
+        raise ProjectError(f"{path}: {name} must be true or false, got {value!r}")
+    return value
+
+
+def _warn_manifest(message: str) -> None:
+    """Warn once per distinct message about a manifest that loads but won't do what it says.
+
+    ``stacklevel=1`` on purpose: :func:`load` runs several times per command (the CLI, then
+    :func:`stabbur.library.roots`, then a scan), and pointing the warning at each *caller* would give
+    every one its own registry entry — the same line repeated four times for one manifest.
+    """
+    warnings.warn(message, stacklevel=1)
+
+
+def _read_libraries(value: Any, path: Path) -> list[str]:
+    """The ``libraries`` list, validated as an array of strings.
+
+    Coercing here is worse than failing: ``libraries = "../lib"`` (a string, not an array) would
+    drop to ``[]`` and the project would silently read the *default* library instead of the one it
+    named, and ``[1, 2]`` would coerce to nonsense paths. Both are typos — say so.
+    """
+    if not isinstance(value, list) or not all(isinstance(entry, str) for entry in value):
+        raise ProjectError(f"{path}: libraries must be an array of strings, got {value!r}")
+    for entry in value:
+        # Not an error: a project may deliberately point at a fixed location (and @shared already
+        # covers the portable case), but the manifest header promises no machine-specific paths.
+        if entry != SHARED_LIBRARY_TOKEN and Path(entry).is_absolute():
+            _warn_manifest(
+                f"{path}: libraries entry {entry!r} is an absolute path, so this project is not "
+                f"portable to another machine; use a project-relative path or '{SHARED_LIBRARY_TOKEN}'"
+            )
+    return value
+
+
+def _warn_legacy_tools(data: dict[str, Any], path: Path) -> None:
+    """Warn about pre-``.mcp.json`` tool config left in ``stabbur.toml``, which is now ignored.
+
+    ``[[mcp]]`` / ``tools`` used to live in the manifest; tools moved to the standard ``mcpServers``
+    JSON (:mod:`stabbur.mcpservers`). A leftover block parses fine and does nothing, so the project
+    just runs without its tools — silently, unless we say something.
+    """
+    stale = [key for key in ("mcp", "tools") if key in data]
+    if stale:
+        names = " / ".join(f"'{key}'" for key in stale)
+        _warn_manifest(
+            f"{path}: {names} is ignored — MCP tool servers moved to .mcp.json; "
+            "re-add them with `stabbur mcp add <name>`"
+        )
+
+
 def load(path: Path | None = None) -> Project | None:
     """Load the project manifest from ``path``, or ``None`` if the file doesn't exist.
 
     Raises :class:`ProjectError` (with a readable message) on malformed TOML or a bad manifest —
-    users hand-edit this file, so a typo must not crash every command.
+    users hand-edit this file, so a typo must not crash every command. A wrong-*typed* value is a
+    typo too, so it fails the same way rather than being coerced or dropped.
     """
     path = _manifest_path() if path is None else path
     if not path.is_file():
         return None
     data = read_raw(path)
-    project = data.get("project", {})
-    voice = data.get("voice", {})
-    libraries = data.get("libraries", [])
+    project = _require_table(data.get("project", {}), "[project]", path)
+    voice = _require_table(data.get("voice", {}), "[voice]", path)
+    libraries = _read_libraries(data.get("libraries", []), path)
+    _warn_legacy_tools(data, path)
     single = data.get("assistant")
     array = data.get("assistants")
     # One shape or the other, never both — otherwise which is the primary is ambiguous.
@@ -403,8 +475,8 @@ def load(path: Path | None = None) -> Project | None:
             model=project.get("model"),
             system_prompt=project.get("system_prompt", ""),
             chat_voice=project.get("chat_voice"),
-            voice_enabled=bool(voice.get("enabled", True)) if isinstance(voice, dict) else True,
-            libraries=[str(x) for x in libraries] if isinstance(libraries, list) else [],
+            voice_enabled=_require_bool(voice.get("enabled", True), "[voice] enabled", path),
+            libraries=libraries,
             registry=registry,
         )
     except (TypeError, ValidationError) as exc:

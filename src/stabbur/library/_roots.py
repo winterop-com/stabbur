@@ -61,7 +61,10 @@ def roots(settings: Settings | None = None) -> list[Path]:
             assert shared is not None  # guaranteed: @shared only survives the guard above when set
             base = shared
         else:
-            base = (Path.cwd() / entry).expanduser()
+            # expanduser() FIRST: `~` only expands when it is the path's first component, so
+            # joining before expanding ("/cwd/~/lib") leaves a literal `~` directory behind.
+            expanded = Path(entry).expanduser()
+            base = expanded if expanded.is_absolute() else Path.cwd() / expanded
         resolved = base.resolve()
         if resolved not in seen:
             seen.add(resolved)

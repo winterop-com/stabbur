@@ -19,7 +19,7 @@ src/stabbur/
 ├── runtime/     # spawn + run models: runtime (commands), supervisor (reaper), serve_registry, sampling
 ├── voice/       # TTS/STT: kokoro, tts, the mlx-audio runtime, audio export, the voice registry
 ├── chat_tui/    # the Textual terminal chat: _util, _widgets, app (ChatApp)
-├── project.py / scaffold.py / templates.py  # the stabbur.toml manifest (one parser+writer) + scaffolding
+├── project/     # the stabbur.toml manifest (one parser+writer) + scaffolding: __init__, scaffold, templates
 ├── agent.py / tools.py / mcpservers.py / mcp_catalog.py / plugins.py  # agent loop + MCP client/config
 ├── catalog.py / consumers.py / cards.py / tags.py / arch.py / capabilities.py / wantlist.py  # source + library support
 ├── attach.py / chatui.py / hfcache.py  # media attach, shared chat rendering, HF-cache redirect
@@ -127,20 +127,22 @@ Command names are pinned to current upstream (verified mid-2026). See the
   env > `stabbur.toml` > `.env` > `~/.config/stabbur/config.toml`). `library_root` has **no default** —
   it is `None` when unset, and every consumer routes through `library.roots()` /
   `library.default_root()`, which raise `LibraryNotConfigured` rather than silently using `./data`.
-- **The project manifest** (`project.py`) — the *portable, committable* assistant definition:
+- **The project manifest** (`project/`) — the *portable, committable* assistant definition:
   `[project]` (model + system prompt), `[voice]`, and `libraries` (which stores this project
   composes, in priority order). Tools are separate — the standard `mcpServers` JSON in `.mcp.json`
   (`mcpservers.py`), merged with the machine-global `~/.config/stabbur/mcp.json`. No machine-specific
   paths, so a project directory is git-committable and moves between machines.
 
-Despite the two readers, the file has **one parser and one writer** (`project.py`):
+Despite the two readers, the file has **one parser and one writer** (`project/`):
 
 - `project.read_raw()` is the single TOML parse. `config.py`'s settings source routes through it
   too, so a malformed `stabbur.toml` fails one way — a clean `ProjectError` — instead of crashing
-  differently in each reader.
-- `project.render_manifest()` renders a fresh manifest from values (`sb project init` / `new`);
-  `project.add_mcp()` appends a server and **re-parses the result to validate before writing**,
-  so an edit (`sb mcp add`) can never leave a half-written or broken `stabbur.toml` behind.
+  differently in each reader. `project.load()` validates on top of it: a wrong-*typed* value
+  (`libraries` that isn't an array of strings, a `[voice] enabled` that isn't a boolean) is a typo
+  like any other, so it raises `ProjectError` rather than being coerced or silently dropped.
+- `project.render_manifest()` renders a fresh manifest from values (`sb project init` / `new`) —
+  the only thing that writes `stabbur.toml`. Tool servers are no longer part of it: `sb mcp add`
+  writes `.mcp.json` through `mcpservers.py`, which owns that file's reads and writes.
 
 ### Import-time HF cache (the one deliberate side effect)
 

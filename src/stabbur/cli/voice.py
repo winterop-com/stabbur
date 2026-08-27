@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 import typer
 from rich import box
+from rich.markup import escape
 from rich.table import Table
 
 from stabbur import catalog as catalog_ops
@@ -263,7 +264,7 @@ def voice_import(
         try:
             result = catalog_ops.pull(ModelSource.voice, vid, library_root=root, move=prune)
         except Exception as exc:  # noqa: BLE001 - unknown id / download / disk; surface cleanly
-            console.print(f"  [red]failed[/]: {exc}")
+            console.print(f"  [red]failed[/]: {escape(str(exc))}")
             failed = True
             continue
         console.print(f"  [green]done[/] {result.size_human} → {result.destination}")
