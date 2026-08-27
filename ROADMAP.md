@@ -119,11 +119,18 @@ implementing exactly that and delegating to the selected backend drops in withou
 routes.
 
 **Identity is the hard part, not plumbing.** A model is `ModelRef(name, model_format)` today;
-two hosts both serving `gemma-4-12b` collide the moment they are listed together. Decide the
-qualified form once and use it everywhere a model is named — `/api/load/{name:path}`, the
-OpenAI `model` field (so `/v1` clients can select a backend too), and the SPA's picker.
-`backend:model` is the obvious shape; an unqualified name should resolve when unambiguous and
-fail with a 409 naming both candidates when not, rather than silently picking one.
+two hosts both serving `gemma-4-12b` collide the moment they are listed together.
+
+**Decided: `model@backend`, split on the LAST `@`.** Used everywhere a model is named —
+`/api/load/{name:path}`, the OpenAI `model` field (so `/v1` clients can select a backend too),
+and the SPA's picker. An unqualified name resolves when exactly one backend serves it, and
+fails with a 409 naming both candidates when more than one does — never a silent pick.
+
+The separator is forced, not chosen. Both obvious ones are already spoken for: `/` by
+publisher/repo (`unsloth/Qwen3.5-4B-GGUF`) and `:` by Ollama tags (`gemma4:12b-mlx`). An earlier
+draft of this plan said `backend:model`, which would have made `gemma4:12b-mlx` ambiguous —
+is `gemma4` a backend or a model? — and needed a split-on-first-colon rule to disambiguate.
+`@` is unused by either convention, so `gemma4:12b-mlx@workstation` parses with no special case.
 
 Open decisions, in the order they block things:
 
