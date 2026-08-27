@@ -164,13 +164,18 @@ The gate rides the existing `/api/chat` SSE stream plus one resolving endpoint:
 POST /api/chat            (streaming; unchanged shape, one new event pair)
   body adds: "confirm_tools": "all"|"writes"|"none"   // optional; defaults from the assistant
   -> ...token/tool frames as before...
-     {"type":"confirm","id":"<call-id>","tool":"...","detail":{...}}   // gated call pauses here
-     {"type":"confirm_resolved","id":"<call-id>","approved":true|false}
+     {"type":"confirm","id":"<call-id>","tool":"...","args":{...}}   // gated call pauses here
+     {"type":"confirm_resolved","id":"<call-id>","approved":true|false,"reason":"user"|"timeout"}
      ...continues (tool runs, or "error: user declined this action" is fed back)...
 
 POST /api/chat/confirm    resolves the pending call for the in-flight generation
-  body: {"id":"<call-id>","approved":true|false}
+  body: {"id":"<call-id>","approve":true|false}
 ```
+
+Note the asymmetry, which is easy to get wrong from either end: the **request body** field is
+`approve`, while the `confirm_resolved` **frame** reports `approved` (plus `reason`, which says
+whether the user answered or the gate timed out). The `confirm` frame carries the call's `args`,
+not a `detail` — `detail` is the tool-activity frame's field.
 
 The backend holds a **per-generation future** for each gated call; `POST /api/chat/confirm`
 resolves it. If nothing resolves within 300s (`STABBUR_CONFIRM_TIMEOUT`) the call **auto-denies**
@@ -847,7 +852,7 @@ Responsibilities:
 
 This phase does not need DHIS2 host permissions and does not need cookie access.
 
-`POST /api/chat` request/response contract (from `routers/serving.py`):
+`POST /api/chat` request/response contract (from `routers/serving/chat.py`):
 
 ```text
 POST /api/chat
@@ -857,7 +862,7 @@ POST /api/chat
     "enabled_tools": ["dhis2_cli"],    // optional allow-list; omit for all tools
     "system_prompt": null              // null → fall back to project prompt; "" → none
   }
-  // `messages` is typed list[dict] (serving.py), so `content` may be a plain
+  // `messages` is typed list[dict] (chat.py), so `content` may be a plain
   // string OR an OpenAI content-part array (text + {"type":"image_url",...}) for
   // vision models. The schema accepts image parts, but that they actually reach
   // the mlx-vlm runtime is UNVERIFIED — confirm end-to-end before relying on it
@@ -866,19 +871,30 @@ POST /api/chat
        {"type":"token","text":...}
        {"type":"reasoning","text":...}
        {"type":"tool","kind":"call"|"result","detail":...}
-       {"type":"confirm","id":...,"tool":...,"detail":...}   // gated write; awaits /api/chat/confirm
-       {"type":"confirm_resolved","id":...,"approved":...}
+       {"type":"usage","usage":{...}}      // per round; OpenAI usage + llama.cpp `timings`
+       {"type":"confirm","id":...,"tool":...,"args":{...}}   // gated write; awaits /api/chat/confirm
+       {"type":"confirm_resolved","id":...,"approved":...,"reason":"user"|"timeout"}
+       {"type":"page_action","id":...,"action":...,"args":{...}}  // runs in the TAB; see WEBMCP.md 5b
        {"type":"error","detail":...}
-       {"type":"done"}
+       {"type":"done","finish_reason":"stop"|"length"|"tool_calls"|...}
 ```
+
+`done` is always the last frame. Its `finish_reason` is present only when the runtime reported
+one, so a parser that ignores unknown keys reads it exactly as the bare `{"type":"done"}` it read
+before. **`"length"` means the reply was cut off at `max_tokens`** — which from the frames alone
+is indistinguishable from a complete answer, and (when the whole budget went to
+`reasoning_content`) from an empty one: zero token frames, then a clean `done`. The server also
+emits a plain `error` frame saying so just before `done`, so a client that renders errors already
+shows the user what happened without reading `finish_reason` at all.
 
 The `confirm` / `confirm_resolved` pair is the round-3 per-action write gate; the panel renders a
 `confirm` frame as an Approve/Deny card and POSTs the choice to `POST /api/chat/confirm`
-(`{"id":..., "approved":...}`). Full contract in "Status (2026-07-12): round 3".
+(`{"id":..., "approve":...}` — the body field is `approve`, not `approved`; only the
+`confirm_resolved` *frame* spells it `approved`). Full contract in "Status (2026-07-12): round 3".
 
 **Handle 409 "No model loaded".** `POST /api/chat` returns 409 if no model is
 loaded. In a locked project the model loads at server startup; otherwise a model
-must be loaded explicitly via **`POST /api/load/{name}`** (`routers/serving.py`;
+must be loaded explicitly via **`POST /api/load/{name}`** (`routers/serving/chat.py`;
 `GET /api/status` only *reports* state, it does not trigger a load — the web UI
 reads status then issues the load itself). The side panel must do the same:
 
