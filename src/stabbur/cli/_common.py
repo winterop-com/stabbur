@@ -64,6 +64,11 @@ def _fmt_cell(model_format: ModelFormat) -> str:
     return f"[{_FORMAT_STYLE[model_format]}]{model_format.value}[/]"
 
 
+def _count(n: int, noun: str, plural: str | None = None) -> str:
+    """A count and its noun, agreeing in number ("1 model", "2 models")."""
+    return f"{n} {noun}" if n == 1 else f"{n} {plural or noun + 's'}"
+
+
 def _caps_label(caps: "capabilities.ModelCapabilities | None") -> str:
     """A compact, colored list of a model's capabilities (present ones only)."""
     if caps is None:

@@ -1155,3 +1155,19 @@ def test_voice_speak_rejects_a_speed_the_help_used_to_advertise() -> None:
     result = runner.invoke(cli.app, ["voice", "speak", "--speed", "0.3", "hello"])
     assert result.exit_code == 1
     assert "0.5" in result.output
+
+
+def test_install_to_ollama_says_the_model_lacks_a_gguf_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An MLX-only model is in the library; --to ollama must not claim otherwise.
+
+    `--to ollama` pins the lookup to GGUF, so an MLX-only model resolved to nothing and the
+    generic resolver reported "is not in the library" — false, and it sends the reader hunting
+    for a model that is sitting right there.
+    """
+    mlx = _lib_model("pub/Only-MLX", fmt=ModelFormat.mlx)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [mlx] if k.get("model_format") is None else [])
+    result = runner.invoke(cli.app, ["library", "install", "pub/Only-MLX", "--to", "ollama"])
+    assert result.exit_code == 1
+    assert "not in the library" not in result.output
+    assert "no GGUF build" in result.output
+    assert "mlx" in result.output and "--to lmstudio" in result.output

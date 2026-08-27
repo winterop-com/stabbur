@@ -26,6 +26,7 @@ from stabbur.cli._common import (
     FormatOption,
     SourceOption,
     _caps_label,
+    _count,
     _fmt_cell,
     _fmt_ctx,
     _library_names,
@@ -68,7 +69,7 @@ def list_models(
 
     total = _human_size(sum(m.size_bytes for m in all_models))
     voice_note = f" · [magenta]{len(voices)} voice[/]" if voices else ""
-    console.print(f"\n[bold]{len(models)} models{voice_note} · {total}[/] in your library\n")
+    console.print(f"\n[bold]{_count(len(models), 'model')}{voice_note} · {total}[/] in your library\n")
     if missing:
         console.print(f"[yellow]Note:[/] not mounted: [dim]{', '.join(str(r) for r in missing)}[/]\n")
     if details:  # full-detail cards, one per model, stacked and grouped by format
@@ -246,6 +247,19 @@ def install(
             f"[red]Ollama imports GGUF only[/] — drop `--format {model_format.value}` or use `--to lmstudio`."
         )
         raise typer.Exit(1)
+    if to == "ollama":
+        # --to ollama pins the format to GGUF below, so a model held only as MLX/safetensors
+        # resolves to nothing and the generic resolver says it "is not in the library" — which is
+        # false, and sends the reader looking for a model that is sitting right there. Say the
+        # true thing, in the same shape as the --format message above.
+        other = {m.model_format for m in library_ops.find(model)}
+        if other and ModelFormat.gguf not in other:
+            fmts = ", ".join(sorted(f.value for f in other))
+            console.print(
+                f"[red]{model!r} has no GGUF build[/] — Ollama imports GGUF only, and the library has it "
+                f"as {fmts}. Pull a GGUF build, or use `--to lmstudio`."
+            )
+            raise typer.Exit(1)
     resolved = _resolve_library_model(model, ModelFormat.gguf if to == "ollama" else model_format)
     try:
         if to == "ollama":
@@ -368,7 +382,7 @@ def formats() -> None:
         return
 
     present = [f for f in _FORMAT_COLUMNS if any(f in fmts for fmts in by_name.values())]
-    console.print(f"\n[bold]{len(by_name)} models[/] by format\n")
+    console.print(f"\n[bold]{_count(len(by_name), 'model')}[/] by format\n")
     table = Table(box=box.SIMPLE_HEAD, header_style="bold", pad_edge=False)
     table.add_column("NAME", style="white")
     for f in present:
@@ -491,7 +505,7 @@ def manifest(
         typer.echo(text, nl=False)  # raw TOML, pipeable
         return
     fsatomic.write_text(save, text)
-    console.print(f"[green]Wrote[/] {len(entries)} models [dim]→[/] {save}")
+    console.print(f"[green]Wrote[/] {_count(len(entries), 'model')} [dim]→[/] {save}")
     if comments:
         console.print(f"[dim]{len(comments)} model(s) noted as comments (not source-re-pullable).[/]")
 
@@ -558,7 +572,7 @@ def sync(
         console.print(f"[yellow]! damaged[/] {name} [dim](failed verification — will re-pull)[/]")
     if not sp.missing:
         suffix = " and verified" if repair else ""
-        console.print(f"\n[green]Nothing to sync[/] — all {len(wants)} models present{suffix}.")
+        console.print(f"\n[green]Nothing to sync[/] — all {_count(len(wants), 'model')} present{suffix}.")
         return
     if dry_run:
         console.print(f"\n[bold]{len(sp.missing)} to pull[/] [dim](dry run)[/]:")
@@ -787,7 +801,7 @@ def sources(
     pulled = sum(1 for e in shown if in_library(e.name))
     shown_total = _human_size(sum(e.size_bytes for e in shown))
     console.print(
-        f"\n[bold]{len(shown)} models · {shown_total}[/] in local app caches "
+        f"\n[bold]{_count(len(shown), 'model')} · {shown_total}[/] in local app caches "
         f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
     )
     console.print(
