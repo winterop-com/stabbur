@@ -9,12 +9,25 @@ A project is **portable and committable**: it references models by name (never b
 absolute path) and can carry its own model files, so the whole directory moves to
 another machine and still runs.
 
+## Which project applies
+
+stabbur finds the manifest by **walking up** from the current directory, like `git`
+finding `.git` — so a command in `my-assistant/src/` uses `my-assistant`'s project, not
+free-play. The first `stabbur.toml` found wins (a nested project shadows an enclosing one
+from there down), and the walk stops at your home directory, at a filesystem mount
+boundary, and never looks in `/`.
+
+Everything the manifest names is relative to **its own directory**, not to where you
+ran the command: its `libraries` entries and its `.mcp.json`. So a subdirectory reads the
+same libraries and gets the same tools as the project root. `sb project show` prints the
+full path of the manifest it found whenever that isn't the current directory.
+
 ## Scaffold one
 
 Two entry points, same wizard:
 
 ```bash
-sb project init              # scaffold stabbur.toml in the current directory
+sb project init              # scaffold stabbur.toml here (warns if it nests in another project)
 sb project new my-assistant  # create a fresh directory and scaffold in it (like `cargo new`)
 ```
 

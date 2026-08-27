@@ -252,6 +252,23 @@ def _print_scaffold_summary(proj: Path, choices: _WizardChoices, *, uv: bool, gi
         console.print(f"\n[bold]Next steps[/]\n{choices.template.next_steps}")
 
 
+def _warn_if_nested(target: Path) -> None:
+    """Warn when this scaffold lands *inside* an existing project, naming the one it will shadow.
+
+    Nesting is allowed on purpose — ``init`` scaffolds where you stand, which is the whole point of
+    it — but it is rarely what someone means: discovery stops at the **nearest** ``stabbur.toml``
+    (:func:`stabbur.project.discover`), so from here down every command silently binds to the new
+    assistant instead of the enclosing one. Searching from ``target``'s parent, so the manifest
+    about to be written (or overwritten with ``--force``) is never mistaken for the outer project.
+    """
+    outer = project.discover(target.resolve().parent)
+    if outer is not None:
+        console.print(
+            f"[yellow]Note:[/] this is inside an existing project ({outer}). "
+            "Commands run from here will use the new project, not that one."
+        )
+
+
 def _scaffold_project(
     target: Path,
     model: str | None,
@@ -273,11 +290,16 @@ def _scaffold_project(
     ``uv`` (default on) also makes the project a **self-contained uv project**: a
     ``pyproject.toml`` pinning ``stabbur`` + its MCP servers, so ``uv run stabbur serve`` uses the
     project's own environment instead of a global stabbur and runtime ``uvx`` fetches.
+
+    Scaffolding is always *here* (``target``), never in a project found above it — creating a
+    project where you stand is the whole point — but that shadows an enclosing one from here down,
+    so :func:`_warn_if_nested` says so rather than letting it be a surprise.
     """
     proj = target / "stabbur.toml"
     if proj.exists() and not force:
         console.print(f"[red]{proj} already exists[/] — use --force to overwrite.")
         raise typer.Exit(1)
+    _warn_if_nested(target)
     choices = _gather_choices(model, template)
     target.mkdir(parents=True, exist_ok=True)
     use_local, existing = _provision_model(target, choices.model, local)
@@ -296,10 +318,12 @@ def init(
 ) -> None:
     """Scaffold a project assistant in the current directory (interactive wizard).
 
-    A project is a purpose-built assistant: `stabbur serve`/`chat` here bind to its model
-    (like --model) with its tools + prompt; outside a project it's free-play. Use
-    `stabbur project new <dir>` to scaffold into a fresh directory instead. `--template dhis2`
-    presets a reproducible DHIS2 assistant (model + prompt + bridge + example files).
+    A project is a purpose-built assistant: `stabbur serve`/`chat` in it (or in any subdirectory
+    of it) bind to its model (like --model) with its tools + prompt; outside a project it's
+    free-play. This always scaffolds in the current directory — inside an existing project that
+    creates a nested one, which it warns about. Use `stabbur project new <dir>` to scaffold into a
+    fresh directory instead. `--template dhis2` presets a reproducible DHIS2 assistant (model +
+    prompt + bridge + example files).
     """
     _scaffold_project(Path("."), model, force, local, git, uv, template)
     console.print(f"[dim]Next:[/] {'uv sync && uv run stabbur serve --ui' if uv else 'stabbur serve --ui'}")
@@ -380,13 +404,24 @@ def project_(
     default to this model, system prompt, and MCP tool servers. This connects to
     those servers to list the tools they actually expose (``--card`` also prints
     the bound model's model card).
+
+    The manifest is the nearest one at or above this directory, so this is also the answer to
+    "which project am I in?" — when it was found further up, its full path is printed.
     """
     proj = project.load()
     if proj is None:
-        console.print("[yellow]No stabbur.toml here.[/] Run [bold]stabbur project init[/] to scaffold a project.")
+        console.print(
+            "[yellow]No stabbur.toml here or in any parent directory.[/] "
+            "Run [bold]stabbur project init[/] to scaffold a project."
+        )
         raise typer.Exit(1)
 
-    console.print("\n[bold]Project[/] [dim](stabbur.toml)[/]\n")
+    # Say *which* manifest applies whenever it isn't the one in this directory: from a subdirectory
+    # the commands bind to a project you can't see in `ls`, and a silent "Project" header would
+    # leave you guessing which one. In the project root the header stays exactly as it was.
+    found = proj.manifest_path
+    where = "stabbur.toml" if found is None or found.resolve().parent == Path.cwd() else str(found)
+    console.print(f"\n[bold]Project[/] [dim]({where})[/]\n")
 
     # Model — full detail card if it's in the library, else just the (missing) name.
     model = None

@@ -3,7 +3,8 @@
 stabbur reads and writes the same ``mcpServers`` format Claude Desktop / Claude Code / Cursor use,
 so a server's README snippet pastes straight in. It lives at two levels that **merge**:
 
-- **project** — ``./.mcp.json`` next to ``stabbur.toml`` (the assistant's own tools);
+- **project** — ``.mcp.json`` next to the discovered ``stabbur.toml`` (the assistant's own tools),
+  or ``./.mcp.json`` outside a project;
 - **global** — ``~/.config/stabbur/mcp.json`` (machine-wide defaults, e.g. what free-play chat gets).
 
 A server entry is ``{ "command": ..., "args": [...], "env": {...} }`` keyed by name; stabbur's bundled
@@ -72,8 +73,16 @@ def global_path() -> Path:
 
 
 def project_path(project_dir: Path | None = None) -> Path:
-    """The project config (``<project_dir or cwd>/.mcp.json``)."""
-    return (project_dir or Path.cwd()) / PROJECT_FILE
+    """The project config — ``.mcp.json`` next to the discovered ``stabbur.toml``, else ``./.mcp.json``.
+
+    With no explicit ``project_dir`` the base is the project found by walking up from the working
+    directory (:func:`stabbur.project.project_root`), so a subdirectory gets the project's tools
+    rather than looking for a ``.mcp.json`` that only ever exists at the top. Outside a project
+    there is nothing to walk up to and the cwd is the base, unchanged.
+    """
+    from stabbur import project  # noqa: PLC0415 - lazy: project imports targets, which imports project
+
+    return (project_dir or project.project_root() or Path.cwd()) / PROJECT_FILE
 
 
 def _is_disabled(entry: object) -> bool:

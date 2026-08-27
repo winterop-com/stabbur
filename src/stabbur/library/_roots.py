@@ -38,10 +38,17 @@ def roots(settings: Settings | None = None) -> list[Path]:
     project keep its own models *and* use the shared archive. Outside a project (no
     ``libraries``), the single default library (``library_root``) is used. Deduped by
     resolved path, so listing ``@shared`` and the default path doesn't double-scan.
+
+    "Relative to the project dir" means the directory holding the discovered ``stabbur.toml``
+    (:attr:`stabbur.project.Project.directory`), **not** the working directory: the manifest is
+    found by walking up (:func:`stabbur.project.discover`), so resolving against the cwd would make
+    ``libraries = ["models"]`` point at a different (usually nonexistent) store in every
+    subdirectory. Outside a project there is no manifest, so the cwd is the base as before.
     """
     settings = settings or get_settings()
     proj = project.load()
     entries = proj.libraries if proj and proj.libraries else [SHARED_TOKEN]
+    base_dir = proj.directory if proj is not None else Path.cwd()
     # @shared resolves to the machine default library (STABBUR_LIBRARY_ROOT), which must be set
     # explicitly (``library_root is None`` means unconfigured — there is no ./data fallback). If
     # a project also ships its own (project-relative) libraries, a missing @shared simply drops
@@ -64,7 +71,7 @@ def roots(settings: Settings | None = None) -> list[Path]:
             # expanduser() FIRST: `~` only expands when it is the path's first component, so
             # joining before expanding ("/cwd/~/lib") leaves a literal `~` directory behind.
             expanded = Path(entry).expanduser()
-            base = expanded if expanded.is_absolute() else Path.cwd() / expanded
+            base = expanded if expanded.is_absolute() else base_dir / expanded
         resolved = base.resolve()
         if resolved not in seen:
             seen.add(resolved)

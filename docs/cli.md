@@ -30,9 +30,17 @@ sb project init --force                          # overwrite an existing stabbur
 `sb project new <dir>` scaffolds into a fresh directory instead (like `cargo new`)
 and takes the same `--model` / `--copy` / `--git` / `--force` flags.
 
-A project is a **reproducible assistant**: in a project directory both `sb chat`
-and `sb serve --ui` default to its model, system prompt, and MCP tool servers —
-so `sb serve --ui` boots straight into that model, no manual picking.
+A project is a **reproducible assistant**: in a project directory — or any subdirectory
+of it — both `sb chat` and `sb serve --ui` default to its model, system prompt, and MCP
+tool servers, so `sb serve --ui` boots straight into that model, no manual picking.
+
+**Which project applies:** stabbur walks up from the current directory and uses the first
+`stabbur.toml` it finds (like `git` and `.git`), stopping at your home directory, at a
+filesystem mount boundary, and never looking in `/`. Everything the manifest names —
+its `libraries` entries and its `.mcp.json` — is relative to the manifest's own directory,
+so a subdirectory gets the same libraries and tools the project root does. `sb project
+init` still scaffolds in the current directory, warning if that nests inside an existing
+project.
 
 ## `sb project show`
 
@@ -40,7 +48,8 @@ Show the active project (`stabbur.toml`) in full: the bound model's detail card
 (format, size, capabilities, context, tags, path), the system prompt, and the
 **actual tools** — it connects to the project's MCP servers and lists the tools
 they expose (with descriptions), not just the server names. `--card` also renders
-the bound model's model card (README).
+the bound model's model card (README). Run from a subdirectory it prints the full
+path of the manifest it found, so you can see which project you are in.
 
 ```bash
 sb project show
@@ -51,14 +60,15 @@ sb project show --card    # also print the model card (README)
 
 Browse MCP tool servers and attach them via the standard `mcpServers` JSON. `list`
 shows a **curated catalog** (DHIS2, `fetch`, `git`, `sqlite`, `filesystem`, …) plus any
-installed `stabbur-mcp-*` plugins; a `✓` marks servers already in the current directory's
-`.mcp.json`. `add` writes a server entry to `./.mcp.json` — or the machine-global
-`~/.config/stabbur/mcp.json` with `--global` — printing a `setup:` hint when the command
+installed `stabbur-mcp-*` plugins; a `✓` marks servers already switched on here. `add`
+writes a server entry to the project's `.mcp.json` — the one beside the `stabbur.toml`
+found by walking up, or `./.mcp.json` outside a project — or the machine-global
+`~/.config/stabbur/mcp.json` with `--global`, printing a `setup:` hint when the command
 needs config; `remove` drops one again.
 
 ```bash
 sb mcp list             # curated catalog + installed plugins (ls is an alias)
-sb mcp add fetch        # add to ./.mcp.json
+sb mcp add fetch        # add to this project's .mcp.json
 sb mcp add --global datetime   # add to ~/.config/stabbur/mcp.json (every chat gets it)
 sb mcp add dhis2        # then edit the DHIS2_PROFILE in the entry's env
 ```

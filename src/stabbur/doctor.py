@@ -17,6 +17,7 @@ no consumer re-derives it from names.
 
 import socket
 from enum import StrEnum
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -463,14 +464,21 @@ def check_project(settings: Settings) -> list[Check]:
     """Check the current project (if any) and the tools it resolves to.
 
     A project is optional (free-play is valid), so its parent row only appears when a ``stabbur.toml``
-    is present — and what nests under it is what a project can get *wrong*, which today is exactly
-    one thing: a ``@shared`` library that doesn't resolve. The model a project pins is not here; it
-    is the ``Model`` row's business (:func:`check_model`), whichever manifest it came from.
+    is in scope — the nearest one at or above the working directory (:func:`stabbur.project.discover`)
+    — and what nests under it is what a project can get *wrong*, which today is exactly one thing: a
+    ``@shared`` library that doesn't resolve. The model a project pins is not here; it is the ``Model``
+    row's business (:func:`check_model`), whichever manifest it came from.
     """
     proj = project_ops.load()
     checks: list[Check] = []
     if proj is not None:
-        checks.append(Check(name=PROJECT_GROUP, status=CheckStatus.ok, detail="stabbur.toml found"))
+        # Name the manifest when it came from a parent directory: `doctor` is where you go to find
+        # out what stabbur thinks is true here, and "found" without a path is the wrong answer when
+        # the project you are bound to isn't the one you can see.
+        found = proj.manifest_path
+        above = found is not None and found.resolve().parent != Path.cwd()
+        detail = f"{found} found" if above else "stabbur.toml found"
+        checks.append(Check(name=PROJECT_GROUP, status=CheckStatus.ok, detail=detail))
         # A project that lists @shared but whose library_root is unset silently drops the shared
         # archive (see library.roots): it runs from its own libraries, but the drive's models are
         # invisible with no error. Warn so it's not a mystery.

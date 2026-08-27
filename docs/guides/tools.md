@@ -9,7 +9,8 @@ It lives at two levels that **merge**:
 
 - **Global** — `~/.config/stabbur/mcp.json`, the machine-wide default toolset every chat
   gets (what `sb setup` seeds and `sb mcp add --global` writes).
-- **Project** — `./.mcp.json` next to `stabbur.toml`, the assistant's own tools
+- **Project** — `.mcp.json` next to the `stabbur.toml` stabbur finds by walking up from the
+  current directory (`./.mcp.json` when there is no project), the assistant's own tools
   (`sb mcp add`). A project entry overrides a global one of the same name.
 
 The bundled first-party `stabbur-mcp-*` servers (`datetime`, `utils`, `memory`,
