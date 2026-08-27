@@ -107,7 +107,7 @@ The app keeps one stable origin while swapping the underlying runtime:
 | Endpoint | Purpose |
 | -------- | ------- |
 | `GET /api/status` | runtime state (`stopped`/`loading`/`ready`), model, n_ctx, error |
-| `GET /api/library` | runnable **chat** models + capabilities (vision/audio/tools/context) |
+| `GET /api/library` | runnable **chat** models + capabilities (vision/audio/tools/context); locked → the locked model only |
 | `GET /api/voice` | **voice** models (TTS/STT) with backend + traits, for the Library/studio |
 | `GET /api/model?name=` | one model's card + metadata + recommended sampling |
 | `POST /api/load/{name}` | load/switch a model (`?n_ctx=` sets context; locked → 409) |
@@ -115,12 +115,13 @@ The app keeps one stable origin while swapping the underlying runtime:
 | `POST /api/chat` | server-side agent loop (tools + multimodal) → typed SSE |
 | `GET /api/tools` | attached MCP tools (namespaced `<server>__<tool>`) |
 | `GET /api/assistant` | project `[assistant]` target metadata for UI clients (404 if none); `?verify=1` runs the verify recipe |
+| `POST /api/assistant/verify`, `/api/assistants/{id}/verify` | the same probe under a method that admits it runs something |
 | `POST /api/assistant/bind`, `/unbind` | install/remove a client-minted credential (the side panel's "Use my login") |
 | `GET /api/doctor` | system-health report (mirrors `sb doctor`) |
 | `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV (chat Listen) |
 | `POST /v1/audio/speech` | OpenAI TTS: text → audio (Kokoro/Dia/…), formats via ffmpeg, voice cloning |
 | `POST /v1/audio/transcriptions` | OpenAI STT: audio → text (Whisper) |
-| `POST /v1/{path}` | stream-proxied to the loaded runtime's `/v1` |
+| `POST /v1/{path}` | stream-proxied to the loaded runtime's `/v1`; locked → `model` pinned to the locked one, under its stabbur name |
 | `GET /health`, `GET /docs` | health check, OpenAPI docs |
 
 So the SPA only ever talks to `serve`'s origin; `serve` starts `llama-server` /

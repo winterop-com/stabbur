@@ -37,6 +37,24 @@ _DOC_PATHS = ("/docs", "/redoc", "/openapi.json")  # a prefix match, so /docs/oa
 _AUTH_PREFIXES = _GUARDED_PREFIXES + _DOC_PATHS
 
 
+def _side_effectful_read(request: Request) -> bool:
+    """Whether this GET actually *runs* something, so the guard must treat it as a mutation.
+
+    Exactly one read does: ``?verify=1`` on the assistant routes spawns that target's MCP servers
+    and calls the project's verify tool against the live instance. Exempting it as "a GET, so a
+    read" was a hole the guard's own docstring promised to close — a drive-by ``<img
+    src="http://localhost:8080/api/assistants/x?verify=1">`` on any page fires MCP subprocesses and
+    a tool call, no CORS or preflight involved (the attacker never needs to read the response).
+
+    Any truthy-looking ``verify`` counts. Over-blocking is free here: a value FastAPI would reject
+    is a 422 either way, and this only ever costs a *cross-site* caller.
+    """
+    path = request.url.path
+    if request.method != "GET" or not (path == "/api/assistant" or path.startswith("/api/assistants/")):
+        return False
+    return request.query_params.get("verify", "") not in ("", "0", "false", "False", "no", "off")
+
+
 def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
     """Whether to reject a request as a cross-site (drive-by) browser call.
 
@@ -48,8 +66,11 @@ def _cross_site_blocked(request: Request, allowed_origins: list[str]) -> bool:
     the browser marks cross-site via ``Sec-Fetch-Site``. Allowed through:
     same-origin (the served SPA), an explicitly-configured origin (extension/dev),
     and non-browser clients (curl, the CLI, tests — they send no ``Sec-Fetch-Site``).
+
+    "Mutating" is by *effect*, not only by method: a GET that runs something server-side
+    (:func:`_side_effectful_read`) is guarded exactly like a POST.
     """
-    if request.method not in _MUTATING_METHODS:
+    if request.method not in _MUTATING_METHODS and not _side_effectful_read(request):
         return False
     path = request.url.path
     if not path.startswith(_GUARDED_PREFIXES):

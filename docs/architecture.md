@@ -62,10 +62,24 @@ flowchart LR
     api -->|"/v1/* stream-proxy"| rt
 ```
 
+**Locked mode** (`serve --model`) is enforced on `/v1` as well as on `/api/load`, and it is the
+only place the proxy is not byte-transparent: `/v1/models` answers with the locked model alone,
+a forwarded request's `model` is **pinned** to it (clients send back whatever id they listed, and
+a locked server has one answer for all of them — pinning serves the request where a 409 would
+refuse it), and the id presented in listings and replies is stabbur's model name rather than the
+backend's own. Without the pin, naming another model made an upstream router hot-swap and evict
+the lock; without the rename, `/v1` handed out the absolute path llama.cpp calls the model by.
+
+If the runtime dies mid-reply, the proxy emits an OpenAI-shaped `data: {"error": …}` frame (and
+never a `[DONE]`) before ending, so a truncated answer can't be read as a complete one.
+
 The **cross-site guard** (`app.py`) is part of this surface: `serve` is same-origin by
 default, and a mutating `/api` / `/v1` call a browser flags cross-site (`Sec-Fetch-Site`) is
 rejected `403` unless its origin is in `cors_origins` — that is what a Chrome extension origin
-(`chrome-extension://<id>`) must be added to. Read-only traffic is unaffected.
+(`chrome-extension://<id>`) must be added to. "Mutating" is by effect, not just by method: a GET
+that runs something server-side — `?verify=1`, which spawns MCP servers and calls a tool — is
+guarded like a POST, or a drive-by `<img src>` on any page would fire it. Plain reads are
+unaffected.
 
 ## Agent loop, tools & the assistant surface
 
@@ -93,7 +107,9 @@ A project can also carry a domain-generic **`[assistant]` block** — target met
 - `GET /api/assistant` returns the block verbatim (name / base_url / auth / readonly / source),
   404 if absent. `?verify=1` runs the project-declared **verify** recipe (a named MCP tool call)
   once and caches the outcome for 60s, so a UI can show a live connection state without stabbur
-  knowing what "connected" means for the domain.
+  knowing what "connected" means for the domain. Verifying *runs* something, so `POST
+  /api/assistant/verify` (and `POST /api/assistants/{id}/verify`) is the honest form; the
+  `?verify=` GET stays for shipped clients and the cross-site guard treats it as mutating.
 - The **probe** recipe is echoed for the *client* to run same-origin in the target tab (e.g. the
   side panel's "Who am I here?").
 - The **bind** recipe (`POST /api/assistant/bind` / `/unbind`) installs a credential the client

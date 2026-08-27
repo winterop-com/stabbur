@@ -6,6 +6,9 @@ stabbur stays domain-generic — it never interprets these fields. A project can
 - ``GET /api/assistants`` returns the sanitized registry (every target); ``?url=<tabUrl>`` adds which
   target a browser tab falls under (``selected`` / ``matches`` via :func:`stabbur.targets.select`).
 - ``GET /api/assistants/{id}`` echoes one target; ``?verify=1`` runs its verify tool (cached 60s per id).
+- ``POST /api/assistants/{id}/verify`` is the same probe under the method that admits it *runs* something
+  (it can spawn the target's MCP servers and calls a tool); the ``?verify=`` GET is kept for shipped
+  clients and is guarded as a mutating call.
 - ``POST /api/assistants/{id}/bind|unbind`` runs that target's bind recipe.
 - ``GET /api/assistant`` (+ ``?verify=1``) and ``POST /api/assistant/bind|unbind`` are the **compat**
   single-target routes for old clients — they read ``app.state.assistant`` (the registry's primary) and
@@ -21,7 +24,7 @@ import asyncio
 import os
 import signal
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -46,15 +49,23 @@ _MAX_SECRET = 16384  # cap on a bind secret so a caller can't shove an unbounded
 _MAX_OUTPUT = 16384  # cap on each of a mode's captured stdout/stderr (bounds RAM, redaction, response)
 
 
-def _capture(raw: bytes) -> str:
-    """Decode captured child output, capping it so a chatty command can't blow up RAM / the response.
+def _capture(raw: bytes, secrets: tuple[str | None, ...] = ()) -> str:
+    """Decode captured child output, redact the secrets, then cap what is returned.
 
-    Keeps the first ``_MAX_OUTPUT`` bytes (which also bounds the redaction scan and the JSON response
-    size), appending a truncation marker so the caller can tell the output was cut.
+    Order matters, and it used to be the other way round: capping first meant a secret straddling
+    the cut kept its leading half in the response, because the redaction pass no longer had the
+    whole string to match. Redaction now runs over the entire output — ``communicate()`` has
+    already buffered all of it in memory by the time this is called, so scanning it whole costs no
+    bound the process wasn't holding anyway — and the cap then bounds the JSON response, with a
+    marker so the caller can tell the output was cut. Encoded copies of a secret are still not
+    covered (only literal occurrences are).
     """
-    text = raw[:_MAX_OUTPUT].decode(errors="replace")
-    if len(raw) > _MAX_OUTPUT:
-        text += "... [truncated]"
+    text = raw.decode(errors="replace")
+    for value in secrets:
+        if value:
+            text = text.replace(value, "***")
+    if len(text) > _MAX_OUTPUT:
+        return text[:_MAX_OUTPUT] + "... [truncated]"
     return text
 
 
@@ -286,11 +297,33 @@ def _fresh_target(state: Any, target_id: str) -> AssistantVerified | None:
     return None
 
 
-def _invalidate_target(state: Any, target_id: str) -> None:
-    """Drop only ``target_id``'s cached verify outcome (a new/removed credential changes it)."""
-    cache: dict[str, tuple[float, AssistantVerified]] | None = getattr(state, "assistant_verified_by_id", None)
-    if cache is not None:
-        cache.pop(target_id, None)
+def _verify_lock(state: Any, target_id: str) -> asyncio.Lock:
+    """``target_id``'s single-flight verify lock, created on first use."""
+    locks: dict[str, asyncio.Lock] | None = getattr(state, "assistant_verify_locks", None)
+    if locks is None:
+        locks = {}
+        state.assistant_verify_locks = locks
+    lock = locks.get(target_id)
+    if lock is None:  # no await between .get() and the set -> race-free on the single-threaded loop
+        lock = asyncio.Lock()
+        locks[target_id] = lock
+    return lock
+
+
+async def _invalidate_target(state: Any, target_id: str) -> None:
+    """Drop only ``target_id``'s cached verify outcome (a new/removed credential changes it).
+
+    Taken **under that target's verify lock**, which is the whole point of the await. A bind runs
+    under the global bind lock while a ``?verify=1`` for the same target can be in flight under the
+    verify lock, and that probe writes its result when it returns: popping the entry without the
+    lock let a pre-bind outcome land *after* the invalidate and pin the stale answer for the full
+    60s TTL — the panel then reported "not bound" for a minute after a successful bind. Waiting for
+    the lock means the in-flight probe has written before we drop what it wrote.
+    """
+    async with _verify_lock(state, target_id):
+        cache: dict[str, tuple[float, AssistantVerified]] | None = getattr(state, "assistant_verified_by_id", None)
+        if cache is not None:
+            cache.pop(target_id, None)
 
 
 async def _verify(request: Request, info: AssistantInfo, target_id: str) -> AssistantVerified:
@@ -304,15 +337,7 @@ async def _verify(request: Request, info: AssistantInfo, target_id: str) -> Assi
     assert spec is not None  # callers only reach here when a verify spec is declared
     if (fresh := _fresh_target(state, target_id)) is not None:
         return fresh
-    locks: dict[str, asyncio.Lock] | None = getattr(state, "assistant_verify_locks", None)
-    if locks is None:
-        locks = {}
-        state.assistant_verify_locks = locks
-    lock = locks.get(target_id)
-    if lock is None:  # no await between .get() and the set -> race-free on the single-threaded loop
-        lock = asyncio.Lock()
-        locks[target_id] = lock
-    async with lock:
+    async with _verify_lock(state, target_id):
         if (fresh := _fresh_target(state, target_id)) is not None:  # a racing caller refreshed our slot
             return fresh
         # First ?verify=1 for a lazily-deferred target: spawn its bridge before probing, so the verify
@@ -433,6 +458,44 @@ async def assistant(request: Request, verify: bool = False) -> AssistantResponse
     return response
 
 
+@router.post("/api/assistants/{target_id}/verify")
+async def assistant_target_verify(request: Request, target_id: str) -> AssistantResponse:
+    """Probe one target and echo it with the outcome — the POST form of ``GET …?verify=1``.
+
+    Same work, honest method. Verifying *runs* something: it spawns a lazily-deferred target's MCP
+    servers and calls the project's verify tool against the instance. That is a side effect, and a
+    side effect behind a GET rides the cross-site guard's read exemption — a drive-by ``<img src>``
+    on any page the user has open could fire it. The GET form still works (it is what shipped
+    clients call, and the guard now treats a ``?verify=`` GET as mutating), but this is the shape
+    that says what the call does.
+
+    404 for an unknown target id. A target with no verify recipe is echoed with ``verified`` unset,
+    exactly as the GET does — not an error, just nothing to run.
+    """
+    info, resolved_id = _target(request, target_id)
+    toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
+    bridge, routing = _lazy_state(request)
+    response = _sanitize(info, toolset, target_id=resolved_id, bridge=bridge, routing=routing)
+    if info.verify is not None:
+        response.verified = await _verify(request, info, resolved_id)
+    return response
+
+
+@router.post("/api/assistant/verify")
+async def assistant_verify(request: Request) -> AssistantResponse:
+    """Compat: probe the primary target and echo it (the POST form of ``GET /api/assistant?verify=1``)."""
+    info: AssistantInfo | None = getattr(request.app.state, "assistant", None)
+    if info is None:
+        raise HTTPException(status_code=404, detail="No assistant metadata")
+    toolset: MCPToolset | None = getattr(request.app.state, "toolset", None)
+    bridge, routing = _lazy_state(request)
+    compat_id = _compat_id(request, info)
+    response = _sanitize(info, toolset, target_id=compat_id, bridge=bridge, routing=routing)
+    if info.verify is not None:
+        response.verified = await _verify(request, info, compat_id)
+    return response
+
+
 def _template_argv(argv: list[str], info: AssistantInfo) -> list[str]:
     """Substitute ``{base_url}`` / ``{name}`` in a bind mode's argv from the AssistantInfo fields.
 
@@ -462,7 +525,7 @@ async def _run_mode(
     extra_secret_env: str | None = None,
     extra_secret: str | None = None,
     timeout: float,
-    invalidate: Callable[[], None] | None = None,
+    invalidate: Callable[[], Awaitable[None]] | None = None,
 ) -> BindResult:
     """Run a bind/unbind mode's argv once, serialized on the one global ``app.state.assistant_bind_lock``.
 
@@ -502,18 +565,16 @@ async def _run_mode(
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             exit_code = proc.returncode
-            stdout, stderr = _capture(out), _capture(err)
+            secrets = (secret, extra_secret)
+            stdout, stderr = _capture(out, secrets), _capture(err, secrets)
             ok = exit_code == 0
         except TimeoutError:
             _killpg(proc)  # whole group: a plain proc.kill() would orphan grandchildren holding the secret
             await proc.wait()
             exit_code, stdout, ok = proc.returncode, "", False
-            stderr = f"bind command timed out after {timeout}s"
-        for value in (secret, extra_secret):
-            if value:
-                stdout, stderr = stdout.replace(value, "***"), stderr.replace(value, "***")
+            stderr = f"bind command timed out after {timeout}s"  # our own text: nothing to redact
         if ok and invalidate is not None:
-            invalidate()  # a new/removed credential changes what verify would report
+            await invalidate()  # a new/removed credential changes what verify would report
         return BindResult(ok=ok, exit_code=exit_code, stdout=stdout, stderr=stderr)
 
 
@@ -528,7 +589,7 @@ def _bind_mode(info: AssistantInfo | None, mode: str) -> tuple[AssistantInfo, Bi
 
 
 async def _do_bind(
-    request: Request, info: AssistantInfo, body: BindRequest, invalidate: Callable[[], None]
+    request: Request, info: AssistantInfo, body: BindRequest, invalidate: Callable[[], Awaitable[None]]
 ) -> BindResult:
     """Validate + run a bind mode: check secret sizes, template the argv, run it with the secret in env."""
     _, spec = _bind_mode(info, body.mode)
@@ -551,7 +612,9 @@ async def _do_bind(
     )
 
 
-async def _do_unbind(request: Request, info: AssistantInfo, mode: str, invalidate: Callable[[], None]) -> BindResult:
+async def _do_unbind(
+    request: Request, info: AssistantInfo, mode: str, invalidate: Callable[[], Awaitable[None]]
+) -> BindResult:
     """Validate + run a mode's ``unbind_command`` (400 if the mode declares none)."""
     _, spec = _bind_mode(info, mode)
     if spec.unbind_command is None:
