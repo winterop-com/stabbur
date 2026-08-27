@@ -1,7 +1,9 @@
 """Headless pilot tests for the Textual chat app."""
 
 import asyncio
+import contextlib
 import subprocess
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -38,7 +40,7 @@ def _fake_runtime(model: LibraryModel, base: str = "http://127.0.0.1:9", port: i
     return rt
 
 
-def _app() -> chat_tui.ChatApp:
+def _app(*, servers: list[Any] | None = None, max_tokens: int | None = None) -> chat_tui.ChatApp:
     model = LibraryModel(
         name="pub/Foo-GGUF",
         model_format=ModelFormat.gguf,
@@ -48,11 +50,11 @@ def _app() -> chat_tui.ChatApp:
     rt = _fake_runtime(model)
     return chat_tui.ChatApp(
         endpoint=rt,
-        servers=[],
+        servers=servers or [],
         system_prompt="",
         images=[],
         audios=[],
-        max_tokens=None,
+        max_tokens=max_tokens,
     )
 
 
@@ -725,3 +727,396 @@ async def test_export_path_expands_home_and_keeps_spaces(monkeypatch: pytest.Mon
     written = tmp_path / "My Chat.md"
     assert written.exists()  # under $HOME, under the full name
     assert "hello" in written.read_text(encoding="utf-8")
+
+
+# -- responsiveness ------------------------------------------------------------------------
+
+
+def _status_text(app: chat_tui.ChatApp) -> str:
+    """The status footer as plain text (a mounted Static's render() is an opaque visual in 8.x)."""
+    from rich.console import Group
+    from rich.text import Text
+
+    def plain(renderable: Any) -> str:
+        if isinstance(renderable, Group):
+            return "  ".join(plain(r) for r in renderable.renderables)
+        return renderable.plain if isinstance(renderable, Text) else str(renderable)
+
+    return plain(app._status_renderable())
+
+
+def _toolset_with(*names: str) -> Any:
+    """A toolset carrying ``names`` (enough for the footer's tool count and identity checks)."""
+    from stabbur import tools as mcp_tools
+
+    toolset = mcp_tools.MCPToolset()
+    for name in names:
+        toolset.schemas.append({"function": {"name": name, "description": ""}})
+    return toolset
+
+
+async def test_startup_stays_responsive_while_mcp_connects(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Awaited on the message pump, a slow MCP connect froze paint, keys and quit for as long as it
+    # took (up to the 60s init timeout, per server). It runs in a worker now: the UI takes input
+    # immediately and the tools land in the footer when they arrive.
+    from contextlib import asynccontextmanager
+
+    release = asyncio.Event()
+    connected = _toolset_with("slow__ping")
+
+    @asynccontextmanager
+    async def slow_connect(_servers: Any) -> AsyncGenerator[Any, None]:
+        # Bounded: awaited on the message pump (the defect) this would otherwise deadlock the test
+        # rather than failing it — the release only comes from the body, which never gets to run.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(release.wait(), 5)
+        yield connected
+
+    monkeypatch.setattr(chat_tui.app.mcp_tools, "connect", slow_connect)
+    app = _app(servers=[("slow", ["stabbur-mcp-slow"], {})])
+    async with app.run_test() as pilot:
+        # The connect is still hanging...
+        await pilot.press("h", "i")
+        assert app.query_one(chat_tui.ChatInput).text == "hi"  # ...and the UI is fully alive
+        assert app.toolset is not connected
+        assert "tool" not in _status_text(app)
+
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.toolset is connected  # tools appear once connected...
+        assert "1 tool" in _status_text(app)  # ...and the footer says so
+
+
+async def test_a_failed_mcp_connect_is_reported_not_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import asynccontextmanager
+
+    from textual.widgets import Static
+
+    @asynccontextmanager
+    async def boom(_servers: Any) -> AsyncGenerator[Any, None]:
+        raise RuntimeError("no such command")
+        yield  # pragma: no cover - unreachable; keeps this an async generator
+
+    monkeypatch.setattr(chat_tui.app.mcp_tools, "connect", boom)
+    app = _app(servers=[("broken", ["nope"], {})])
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        posted = " ".join(str(w.render()) for w in app.query(Static))
+        assert "MCP connect failed" in posted and "no such command" in posted
+        await pilot.press("h", "i")  # the session keeps going, just without tools
+        assert app.query_one(chat_tui.ChatInput).text == "hi"
+
+
+async def test_per_server_mcp_failures_are_surfaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    # connect() records a bad server instead of raising; unsurfaced, its missing tools just read as
+    # "the model ignored them".
+    from contextlib import asynccontextmanager
+
+    from textual.widgets import Static
+
+    toolset = _toolset_with("ok__ping")
+    toolset.errors.append(("broken", "executable not found"))
+
+    @asynccontextmanager
+    async def partial(_servers: Any) -> AsyncGenerator[Any, None]:
+        yield toolset
+
+    monkeypatch.setattr(chat_tui.app.mcp_tools, "connect", partial)
+    app = _app(servers=[("ok", ["a"], {}), ("broken", ["b"], {})])
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        posted = " ".join(str(w.render()) for w in app.query(Static))
+    assert "broken" in posted and "executable not found" in posted
+
+
+async def test_remote_model_by_name_does_not_block_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `/model <name>` on a remote attach listed the server's models with a blocking httpx.get (5s
+    # timeout) straight on the event loop. It runs in a thread now: the UI keeps taking keys while
+    # the listing is in flight, and the switch lands when it answers.
+    import threading
+
+    gate = threading.Event()
+
+    def slow_fetch(_self: Any) -> list[tuple[str, bool]]:
+        gate.wait(10)  # bounded, so a regression fails the test instead of hanging the suite
+        return [("served-a", True), ("served-b", False)]
+
+    monkeypatch.setattr(chat_tui.ChatApp, "_fetch_remote_models", slow_fetch)
+    app = _remote_app()
+    async with app.run_test() as pilot:
+        app._remote_models_cache = None  # cold cache: the switch has to go and ask
+        app.action_switch_model("served-b")
+        await pilot.pause()
+        # On the event loop this press could not be delivered until the fetch returned.
+        await pilot.press("x")
+        assert app.query_one(chat_tui.ChatInput).text == "x"
+        assert app._model_name == "pub/Served-GGUF"  # not switched yet
+
+        gate.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app._model_name == "served-b"
+
+
+async def test_the_palette_never_scans_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Building the palette's entries used to call the synchronous library scan on the event loop —
+    # seconds of frozen UI on an external drive, and twice per open (discover + search).
+    from stabbur.chat_tui._widgets import _StabburCommands
+
+    # Counted, not raised: _scan_switchable swallows every exception, so an assert inside the scan
+    # would be eaten and the test would pass against the very defect it is here to catch.
+    scans: list[int] = []
+
+    def counted_scan() -> list[LibraryModel]:
+        scans.append(1)
+        return []
+
+    monkeypatch.setattr(chat_tui.app.library_ops, "scan", counted_scan)
+    app = _app()
+    async with app.run_test() as pilot:
+        app._models_cache = None  # cold: nothing primed yet
+        scans.clear()  # ignore the mount worker's own (off-thread) priming scan
+        titles = [t for t, _h, _c in _StabburCommands(app.screen)._commands()]
+        assert scans == []  # the palette answered without touching the filesystem
+        assert titles and not any(t.startswith("Switch model:") for t in titles)  # listed, never scanned
+
+        # Once the (worker-primed) cache is warm, the rows are there.
+        other = LibraryModel(
+            name="pub/Bar-GGUF",
+            model_format=ModelFormat.gguf,
+            path=Path("/lib/gguf/pub/Bar-GGUF"),
+            load_target=Path("/lib/gguf/pub/Bar-GGUF/model.gguf"),
+        )
+        app._models_cache = [other]
+        titles = [t for t, _h, _c in _StabburCommands(app.screen)._commands()]
+        assert "Switch model: pub/Bar-GGUF (gguf)" in titles
+        await pilot.pause()
+
+
+async def test_the_palette_builds_its_commands_once_per_opening(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Textual calls discover() and then search() on the same provider; each rebuilt the whole list,
+    # and each rebuild raced the model cache.
+    from stabbur.chat_tui._widgets import _StabburCommands
+
+    app = _app()
+    async with app.run_test():
+        builds: list[int] = []
+
+        def counted_models() -> list[LibraryModel]:
+            builds.append(1)
+            return []
+
+        monkeypatch.setattr(app, "_cached_switchable_models", counted_models)
+        provider = _StabburCommands(app.screen)
+        [hit async for hit in provider.discover()]
+        [hit async for hit in provider.search("model")]
+        assert len(builds) == 1
+
+
+# -- correctness ---------------------------------------------------------------------------
+
+
+async def test_a_failed_turn_marks_the_line_and_gives_the_text_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A failed turn is dropped from the history, but its line stayed on screen unmarked — the
+    # transcript showed a question the model never received, with no way to retry it.
+    from textual.widgets import Static
+
+    async def fake_run(*_a: Any, **_kw: Any) -> str:
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        posted = " ".join(str(w.render()) for w in app.query(Static))
+        assert "error: connection refused" in posted
+        assert "(not sent)" in posted  # the user line says it never reached the model
+        assert app.messages == []  # and the history agrees
+        assert app.query_one(chat_tui.ChatInput).text == "hi"  # retry is one keypress
+
+
+async def test_a_failed_turn_does_not_overwrite_newly_typed_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_run(*_a: Any, **_kw: Any) -> str:
+        started.set()
+        await release.wait()
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await started.wait()
+        await pilot.press("n", "e", "x", "t")  # typed while the reply was in flight
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.query_one(chat_tui.ChatInput).text == "next"  # never clobbered
+
+
+async def test_canceling_keeps_the_transcript_honest(monkeypatch: pytest.MonkeyPatch) -> None:
+    from textual.widgets import Static
+
+    async def fake_run(*_a: Any, **_kw: Any) -> str:
+        await asyncio.Event().wait()  # hangs until the turn is canceled
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        for _ in range(50):
+            await pilot.pause()
+            if app._busy:
+                break
+        app.action_cancel()
+        for _ in range(100):
+            await pilot.pause()
+            if not app._busy:
+                break
+        posted = " ".join(str(w.render()) for w in app.query(Static))
+        assert "(canceled)" in posted
+        assert "(not sent)" in posted  # the dropped turn is marked, not left looking answered
+        assert app.messages == []
+        # A deliberate stop is not a failure: the text is NOT pushed back into the input.
+        assert app.query_one(chat_tui.ChatInput).text == ""
+
+
+async def test_truncating_the_history_prunes_stored_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
+    # _reasonings is keyed by id() of the message dict, so a message dropped without pruning leaves
+    # an entry pointing at a freed address — which a later dict can reuse, folding a dead turn's
+    # thinking into an unrelated one's `/export --thinking`.
+    async def fake_run(
+        base: str,
+        messages: list[dict[str, Any]],
+        toolset: Any,
+        max_tokens: Any,
+        on_event: Any,
+        on_token: Any,
+        on_reasoning: Any = None,
+        on_usage: Any = None,
+        **_kw: Any,
+    ) -> str:
+        on_reasoning("private thinking")
+        on_token("answer")
+        messages.append({"role": "assistant", "content": "answer"})
+        return "answer"
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app._reasonings  # stored against the assistant message
+
+        app._drop_messages(0)  # the one truncation path every caller goes through
+        assert app.messages == []
+        assert app._reasonings == {}
+
+        # /system clear drops messages[0] on its own; it must prune too.
+        app.messages.insert(0, {"role": "system", "content": "be terse"})
+        app._reasonings[id(app.messages[0])] = "stale"
+        app._run_command("/system clear")
+        assert app._reasonings == {}
+
+
+def test_the_tui_applies_the_configured_max_token_cap() -> None:
+    # Web parity: the serving path caps a request that omits max_tokens so a small model can't run
+    # away on a hard tool question and never emit a final answer. The TUI sent None (unbounded).
+    from stabbur.config import get_settings
+
+    assert _app()._max_tokens == get_settings().default_max_tokens
+    assert _app(max_tokens=7)._max_tokens == 7  # an explicit -n still wins
+
+
+async def test_the_cap_reaches_the_agent_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    from stabbur.config import get_settings
+
+    seen: dict[str, Any] = {}
+
+    async def fake_run(
+        base: str, messages: list[dict[str, Any]], toolset: Any, max_tokens: Any, *_a: Any, **_kw: Any
+    ) -> str:
+        seen["max_tokens"] = max_tokens
+        messages.append({"role": "assistant", "content": "ok"})
+        return "ok"
+
+    monkeypatch.setattr(chat_tui.app.agent, "run", fake_run)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+    assert seen["max_tokens"] == get_settings().default_max_tokens
+
+
+# -- UX ------------------------------------------------------------------------------------
+
+
+async def test_ctrl_d_quits_only_on_an_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ctrl+D used to quit outright, throwing away a half-written message and the conversation on a
+    # single (easily mistyped) keystroke. Readline semantics: it only quits an empty input.
+    quits: list[bool] = []
+
+    async def fake_quit(_self: Any) -> None:
+        quits.append(True)
+
+    monkeypatch.setattr(chat_tui.ChatApp, "action_quit", fake_quit)
+    app = _app()
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("ctrl+d")
+        await pilot.pause()
+        assert quits == []  # nothing quit...
+        assert app.query_one(chat_tui.ChatInput).text == "hi"  # ...and nothing was discarded
+
+        app.query_one(chat_tui.ChatInput).text = ""
+        await pilot.press("ctrl+d")
+        await pilot.pause()
+        assert quits == [True]
+
+
+async def test_export_never_overwrites_an_existing_file(tmp_path: Path) -> None:
+    # /export defaults to chat.md, so a second export destroyed the first transcript — and a
+    # transcript is not something the user can get back.
+    dest = tmp_path / "chat.md"
+    dest.write_text("PRE-EXISTING", encoding="utf-8")
+    app = _app()
+    async with app.run_test() as pilot:
+        app.messages.append({"role": "user", "content": "hi"})
+        app.messages.append({"role": "assistant", "content": "hello"})
+        app.action_export(str(dest))
+        app.action_export(str(dest))
+        await pilot.pause()
+
+    assert dest.read_text(encoding="utf-8") == "PRE-EXISTING"  # untouched
+    assert "hello" in (tmp_path / "chat-2.md").read_text(encoding="utf-8")
+    assert "hello" in (tmp_path / "chat-3.md").read_text(encoding="utf-8")  # and again, no clobber
+
+
+async def test_the_footer_and_help_document_quit_and_multiline() -> None:
+    from textual.widgets import Static
+
+    app = _app()
+    async with app.run_test() as pilot:
+        footer = _status_text(app)
+        assert "^d quit" in footer  # the hint advertised no way out at all
+        assert "^j newline" in footer
+        app.action_help()
+        await pilot.pause()
+        helped = " ".join(str(w.render()) for w in app.query(Static))
+    assert "ctrl+j" in helped  # multi-line input was undocumented
+    assert "backslash" in helped
