@@ -1,6 +1,7 @@
 """Model identity + on-disk classification: ModelRef, LibraryModel, and format detection."""
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,10 @@ _PREFIXES = {"gguf", "mlx", "safetensors", "huggingface", "tts", "voice", "other
 # (shared) library" — so a committed stabbur.toml stays portable (no hard-coded path).
 
 _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
+
+# llama.cpp's split-model suffix: ``<name>-00001-of-00003.gguf``. Only the head stands for the
+# model; the tails are pieces of it, not alternatives to it.
+_SHARD_RE = re.compile(r"-(\d{5})-of-\d{5}\.gguf$", re.IGNORECASE)
 
 
 class ModelRef(BaseModel):
@@ -200,6 +205,32 @@ def pick_gguf(model_dir: Path) -> tuple[Path, Path | None]:
     if not weights:
         raise FileNotFoundError(f"No .gguf weights in {model_dir}")
     return _pick_weight(weights), mmproj
+
+
+def weight_variants(model_dir: Path, model_format: ModelFormat) -> list[Path]:
+    """The independently loadable weight files in ``model_dir`` — one entry per quant.
+
+    THE SIZE OF A MODEL AND THE SIZE OF A LOAD ARE NOT THE SAME NUMBER. A repo pulled at two
+    quants is one directory, one name and one card, so it scans as one model whose ``size_bytes``
+    is the sum of both files — and the browser then advertises the pair's total for a Load that
+    runs exactly one of them. This is what lets a caller say so out loud instead of implying a
+    47 GB model that is really an 18 GB one beside a 31 GB one.
+
+    Only GGUF has variants to count. A safetensors/MLX repo is one model spread over shards —
+    the shards are not alternatives, and neither is the projector, the vocoder, or the tail of a
+    split GGUF, so none of them is a row here.
+    """
+    if model_format is not ModelFormat.gguf:
+        return []
+    ggufs = sorted(_weights(model_dir, ".gguf"))
+    excluded = {find_projector(ggufs), _find_vocoder(ggufs)}
+    return [g for g in ggufs if g not in excluded and _shard_index(g) in (None, 1)]
+
+
+def _shard_index(path: Path) -> int | None:
+    """Which shard of a split GGUF this is (1-based), or ``None`` when it is not split."""
+    match = _SHARD_RE.search(path.name)
+    return int(match.group(1)) if match else None
 
 
 def _voice_spec(name: str) -> "VoiceModel | None":

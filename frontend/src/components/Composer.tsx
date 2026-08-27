@@ -369,7 +369,12 @@ export function Composer({
           rows={1}
           // Not "Message stabbur": you are not talking to the app, you are talking to whichever
           // model is loaded - and the row below already names it, so repeating it here is noise.
-          placeholder={ready ? "Ask anything…" : "Select a model to start"}
+          //
+          // NEUTRAL WHEN THERE IS NO MODEL, rather than a third "Select a model to start". The
+          // empty state's heading says it, and the picker directly below says it again as the
+          // button that does it; a placeholder saying it once more is the same instruction on
+          // three consecutive lines, only one of which you can act on ("say it once").
+          placeholder="Ask anything…"
           className="max-h-[200px] min-h-[52px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
         />
       </div>

@@ -485,6 +485,32 @@ async def test_api_model_returns_card(client: AsyncClient, monkeypatch: pytest.M
     assert "My Model" in (body["card"] or "")
 
 
+async def test_api_model_lists_the_weights_and_marks_the_one_that_loads(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A directory holding two quants reports the pair's bytes in the listing and runs exactly one
+    # of them. This is where a reader finds out which — the card and the size line cannot say it.
+    (tmp_path / "model-Q4_K_M.gguf").write_bytes(b"x" * 100)
+    (tmp_path / "model-Q8_0.gguf").write_bytes(b"x" * 900)
+    (tmp_path / "mmproj-f16.gguf").write_bytes(b"x" * 10)
+    (tmp_path / "config.json").write_text("{}")  # not a weight; never in the listing
+    model = LibraryModel(
+        name="pub/M",
+        model_format=ModelFormat.gguf,
+        path=tmp_path,
+        load_target=tmp_path / "model-Q4_K_M.gguf",
+        mmproj=tmp_path / "mmproj-f16.gguf",
+    )
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [model])
+    files = (await client.get("/api/model", params={"name": "pub/M"})).json()["files"]
+    assert [f["name"] for f in files] == ["model-Q8_0.gguf", "model-Q4_K_M.gguf", "mmproj-f16.gguf"]  # largest first
+    assert {f["name"]: f["role"] for f in files} == {
+        "model-Q8_0.gguf": "",  # the quant you could have had instead
+        "model-Q4_K_M.gguf": "loads",
+        "mmproj-f16.gguf": "projector",
+    }
+
+
 async def test_api_chat_use_tools_flag_drops_tools(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1193,12 +1219,15 @@ async def upstream_client(upstream_app: FastAPI):
 
 async def test_upstream_library_lists_remote_models(upstream_client: AsyncClient) -> None:
     # The picker rows are the remote's /v1/models: format "remote", modality flags from the
-    # listing, and a "loaded" tag marking what the remote has resident.
+    # listing, and `loaded` marking what the remote has resident.
     body = (await upstream_client.get("/api/library")).json()
     assert [m["name"] for m in body] == ["gemma-4-12b-qat", "qwen3-coder"]
     assert all(m["model_format"] == "remote" for m in body)
     assert body[0]["vision"] and body[0]["audio"] and body[0]["tags"] == []
-    assert body[1]["tags"] == ["loaded"]
+    # A STATE, NOT A TAG: what the remote is doing with a model never enters the vocabulary a
+    # person edits, or the tag editor would offer "+ loaded" as something to write on a model.
+    assert body[1]["loaded"] and body[1]["tags"] == []
+    assert not body[0]["loaded"]
 
 
 async def test_upstream_status_names_the_remote(upstream_client: AsyncClient) -> None:

@@ -153,6 +153,27 @@ which mode it is in.
 `--critical` and `--info` need no twin — red and blue are dark enough at their
 light-theme lightness to be read directly.
 
+### `--capability`: what a model *can do* is not a state
+
+Tool calling, vision and audio are marked on a library card and in the picker.
+They were three literals — the same cyan as the `gguf` badge and the same fuchsia
+as `mlx`, on the same card, so a hue meant "this is a GGUF" in one corner and
+"this calls tools" in the other; the third borrowed `--good-ink`, which is to say
+green, which already means healthy. The cyan measured **3.62:1** as 12px text on
+white, the exact failure the `-ink` split exists for.
+
+They are one token now, and one is the point: **hue in this app already means
+state (the semantic set) and format (the badges), and a third meaning for it
+weakens both.** The icon says *which* capability — that is what an icon is for.
+
+```tsx
+<span className="inline-flex items-center gap-1 text-capability"><Wrench …/> tools</span>
+```
+
+No `-ink` twin, for the same reason `--critical` and `--info` have none: it is
+only ever text — an icon and a word, never a fill — so it is tuned as text in
+every theme. Each of the ten values clears 4.5:1 against its own theme's ground.
+
 ### The rail is a surface of its own
 
 `--sidebar-*` is a complete family (ground, foreground, active fill, border, ring)
@@ -162,6 +183,12 @@ tint, which on some themes is invisible. Two tones are *derived* from the rail's
 pair (`--sidebar-muted-foreground`, `--sidebar-wash`) so they follow whichever rail
 is in force. **Nothing on the rail may borrow the page's `--muted-foreground`**: a
 dark rail under a light page would render it unreadable.
+
+**The ring is part of the family.** Everything focusable on the rail —
+`Sidebar.tsx`'s `RAIL_RING`, which `IconRail.tsx` imports — spends
+`--sidebar-ring`, never the page's `--ring`. The page ring is tuned against the
+page ground; over the rail it measured ~2.2:1, under the 3:1 WCAG 2.4.11 asks of
+a focus indicator. The token existed for exactly this and nothing was spending it.
 
 `--code-*` are spent by the `.hljs-*` rules alone and deliberately get **no**
 Tailwind utilities, so no component can paint prose with a syntax colour.
@@ -179,6 +206,25 @@ an identity that already exists outside the theme and must not move with it.
 - `bg-black/*` scrims (`ui/sheet.tsx`, `ui/dialog.tsx`, image and rail overlays)
   darken *arbitrary content* underneath, not a themed surface. There is no token
   for "less light through", and a themed scrim inverts in dark mode.
+- **`lib/tags.ts`'s eleven-hue tag ramp**, and this one is a different argument
+  from the two above: a tag is a name a **user invented**, so there is no theme
+  that could hold a token for it — a token per tag is a token per string anyone
+  might type. The hue has to be *computed* (a stable hash of the name into a
+  fixed ramp), and a computed hue cannot come from the palette.
+
+  The constraint that comes with the exception is contrast, in **both** modes,
+  and it is what the shade numbers are. Light ink is the ramp's **700** step, not
+  600: at 600 seven of the eleven fell under 4.5:1 on the light ground (lime
+  3.06, amber 3.19, cyan 3.60, teal 3.66 …); at 700 the worst of the eleven is
+  4.96, which is the bar `--good-ink` (4.61) and `--warning-ink` (4.65) already
+  meet. Dark ink is the **400** step, the lightest landing at 6.71:1. The border
+  and background stay at 500 — a fill has nothing to read against it. One rule
+  for the whole ramp on purpose: a per-hue table of steps is a table that drifts,
+  and "700 light, 400 dark" is checkable by reading it.
+
+  Anything added to that array is held to the same measurement. A registered
+  colour from `/api/tags/registry` (`tagStyle`'s other branch) is the user's own
+  hex and is outside this — stabbur renders what it is given.
 
 Everything else is a token.
 
@@ -227,6 +273,13 @@ Four separate reports of the same fault, all fixed the same way:
   status bar, and every fact in it was already a row in `sb doctor`, which the
   health menu renders. A hand-written copy of a list that maintains itself can only
   drift. The bar states none of them now.
+
+- The **empty chat** said "Select a model to start" three times on three
+  consecutive lines: as the heading, as the composer's placeholder, and as the
+  picker button directly under it. Only one of the three could be acted on. The
+  heading kept it (it is the largest thing on an otherwise empty screen and the
+  picker is right below it); the placeholder went back to the neutral "Ask
+  anything…" it uses the rest of the time.
 
 The rule: **one fact, one place, chosen by which surface the fact acts on.** When
 a summary moves into the chrome, delete the copy underneath it (the Library's

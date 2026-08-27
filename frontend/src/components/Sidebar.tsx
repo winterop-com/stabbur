@@ -37,6 +37,13 @@ import { cn } from "@/lib/utils";
  * AND THE FILLS ARE SOLID `--sidebar-*` TOKENS, never an alpha of the page's accent. The rail has a
  * ground of its own; a wash over a wash is what made the old highlight invisible on some themes.
  */
+/** The rail's focus ring.
+ *
+ *  `--sidebar-ring`, never the page's `--ring`. The rail is a surface of its own (see the family
+ *  at the top of index.css), and the page ring is tuned against the page ground: over the rail it
+ *  measured ~2.2:1, under the 3:1 WCAG 2.4.11 asks of a focus indicator. The token for exactly
+ *  this existed and nothing was spending it. */
+export const RAIL_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring";
 const ROW = "flex w-full rounded-l-[4px] rounded-r-lg border-l-[3px] text-left transition-colors";
 const ROW_ACTIVE = "border-sidebar-primary bg-sidebar-accent text-sidebar-accent-foreground";
 /** The section you are in, while something nested inside it owns the selection.
@@ -49,7 +56,7 @@ const ROW_CURRENT = "border-sidebar-primary text-sidebar-foreground";
 const ROW_IDLE = "border-transparent text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground";
 /** Ghost buttons inside the rail. The shared variant hovers to the PAGE's `--accent`, which over
  *  the rail's own ground is a patch of a different room; the wash is the rail's own hover. */
-const RAIL_GHOST = "text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground";
+const RAIL_GHOST = cn("text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground", RAIL_RING);
 
 /** A primary nav row: icon + title + one-line subtitle, with an accent border when active. */
 function NavItem({
@@ -75,6 +82,7 @@ function NavItem({
       onClick={onClick}
       className={cn(
         ROW,
+        RAIL_RING,
         "items-start gap-3 px-3 py-2",
         active ? `${ROW_ACTIVE} font-medium` : current ? ROW_CURRENT : ROW_IDLE,
       )}
@@ -192,7 +200,7 @@ export function Sidebar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
-            className="h-8 border-transparent bg-sidebar-wash pl-8 text-sm focus-visible:ring-1"
+            className="h-8 border-transparent bg-sidebar-wash pl-8 text-sm focus-visible:ring-1 focus-visible:ring-sidebar-ring"
           />
         </div>
       </div>
@@ -272,7 +280,7 @@ export function Sidebar({
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}
-                    className="flex-1 truncate text-left"
+                    className={cn("flex-1 truncate rounded-sm text-left", RAIL_RING)}
                     title={c.title}
                   >
                     {c.title}

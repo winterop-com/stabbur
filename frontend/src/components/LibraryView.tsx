@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { AudioLines, Eye, Info, Loader2, MessageSquare, Play, Plus, Tag, Wrench, X } from "lucide-react";
 
-import { getModelInfo, getVoiceModels, type LibModel, type ModelInfo, type Status, type VoiceModelInfo } from "@/api";
+import {
+  getModelInfo,
+  getVoiceModels,
+  type LibModel,
+  type ModelFile,
+  type ModelInfo,
+  type Status,
+  type VoiceModelInfo,
+} from "@/api";
 import { allTagsOf, normalizeTag, tagColor, tagStyle } from "@/lib/tags";
 import type { TagRegistry } from "@/lib/tags";
 import { Markdown } from "@/components/Markdown";
@@ -174,12 +182,44 @@ export function libraryShape(visible: LibModel[], multi: boolean): LibraryShape 
   return { kind: "formats", groups: groupByFormat(visible.filter((m) => !isDegraded(m))) };
 }
 
-function CapChip({ icon: Icon, label, className }: { icon: typeof Wrench; label: string; className: string }) {
+/** A capability marker: one icon and one word, in the `--capability` ink.
+ *
+ *  ONE INK FOR ALL THREE, and the icon is what says which. They used to be written as literals —
+ *  the same cyan as the `gguf` badge and the same fuchsia as `mlx`, sitting on the same card, so
+ *  a hue meant "this is a GGUF" in one corner and "this calls tools" in the other. The literals
+ *  carve-out (docs/ui-conventions.md) covers format badges alone, because those mirror an
+ *  identity the CLI already has; a capability mirrors nothing outside the theme.
+ */
+function CapChip({ icon: Icon, label }: { icon: typeof Wrench; label: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-1", className)}>
+    <span className="inline-flex items-center gap-1 text-capability">
       <Icon className="h-3 w-3" />
       {label}
     </span>
+  );
+}
+
+/** What a backend is doing with a model right now — a state stabbur observed, not a user's tag.
+ *
+ *  This arrived as `tags: ["loaded"]` until the API grew a field for it, which meant a word the
+ *  server synthesised sat in the filter row beside hand-written tags, took a colour from the hash
+ *  palette, and was offered in the tag editor as "+ loaded" — something a reader could persist
+ *  onto a model, where it would then be wrong the moment the backend moved on.
+ */
+function LoadedChip() {
+  return (
+    <span className="rounded-full border border-good/30 bg-good/10 px-2 py-0.5 text-xs text-good-ink">resident</span>
+  );
+}
+
+/** A list with nothing in it. One shape, whatever emptied it — the two used to differ (a bordered
+ *  box for "nothing pulled yet", bare text for "nothing matched"), which read as two different
+ *  kinds of thing happening rather than one list with two reasons for being short. */
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
+      {children}
+    </div>
   );
 }
 
@@ -335,6 +375,57 @@ function TagRow({
   );
 }
 
+/** Strip a leading YAML front-matter block from a model card.
+ *
+ *  Hugging Face READMEs open with `---`-fenced YAML (license, tags, base_model, the eval table's
+ *  raw source), which is metadata for the Hub, not prose for a reader. Markdown has no notion of
+ *  it, so it rendered as the first paragraph of the card — a wall of `key: value` lines above the
+ *  actual description. Only a block the file OPENS with is dropped: a `---` further down is a
+ *  horizontal rule and means what it says.
+ */
+export function stripFrontMatter(card: string): string {
+  const text = card.replace(/^﻿/, "");
+  if (!/^---[ \t]*\r?\n/.test(text)) return card;
+  const end = text.slice(4).search(/\r?\n---[ \t]*(\r?\n|$)/);
+  if (end < 0) return card; // an unterminated fence is not front matter; leave it alone
+  return text.slice(4 + end).replace(/^\r?\n---[ \t]*(\r?\n)?/, "");
+}
+
+/** The weights on disk, largest first — what the directory holds and what a Load will run.
+ *
+ *  A repo pulled at two quants is ONE card with ONE size, and that size is the pair's sum while
+ *  Load runs exactly one of the two. Until the picker exists (ROADMAP), this is where the reader
+ *  finds out which: the row marked "loads" is the file the runtime opens.
+ */
+function FileList({ files }: { files: ModelFile[] }) {
+  if (files.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Files</div>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {files.map((f) => (
+          <li key={f.name} className="flex items-center gap-2 px-2.5 py-2">
+            <span className="min-w-0 flex-1 truncate text-xs" title={f.name}>
+              {f.name}
+            </span>
+            {f.role && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-full border px-2 py-0.5 text-xs",
+                  f.role === "loads" ? "border-good/30 bg-good/10 text-good-ink" : "border-border bg-muted/60",
+                )}
+              >
+                {f.role}
+              </span>
+            )}
+            <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{f.size_human}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Full model details (facts + rendered model card), fetched lazily on open. */
 function ModelDetailsDialog({
   model,
@@ -370,9 +461,10 @@ function ModelDetailsDialog({
         </DialogHeader>
 
         <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
-          {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
-          {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
-          {model.audio && <CapChip icon={AudioLines} label="audio" className="text-good-ink" />}
+          {model.tools && <CapChip icon={Wrench} label="tools" />}
+          {model.vision && <CapChip icon={Eye} label="vision" />}
+          {model.audio && <CapChip icon={AudioLines} label="audio" />}
+          {model.loaded && <LoadedChip />}
           {model.tags.map((t) => (
             <span key={t} className="rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs">
               {t}
@@ -381,13 +473,15 @@ function ModelDetailsDialog({
         </div>
         {info?.path && <div className="break-all text-xs text-muted-foreground">{info.path}</div>}
 
+        <FileList files={info?.files ?? []} />
+
         <div className="max-h-[70vh] min-h-[40vh] overflow-y-auto rounded-lg border border-border bg-muted/20 p-4 text-sm">
           {loading ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading model card…
             </div>
           ) : info?.card ? (
-            <Markdown content={info.card} allowHtml />
+            <Markdown content={stripFrontMatter(info.card)} allowHtml />
           ) : (
             <span className="text-muted-foreground">No model card available.</span>
           )}
@@ -421,6 +515,7 @@ function ModelCard({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const ctx = ctxLabel(model.context_length);
   const pub = publisher(model.name);
+  const weights = model.weight_count ?? 1; // absent on a backend older than the field: one weight
   const actDisabled = loading || (!active && blocked);
   return (
     <div
@@ -441,13 +536,20 @@ function ModelCard({
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
-            "rounded border px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
+            // The badge recipe exactly (docs/ui-conventions.md): px-1.5, not px-2.
+            "rounded border px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide",
             FORMAT_ACCENT[model.model_format] ?? FALLBACK_ACCENT,
           )}
         >
           {model.model_format}
         </span>
-        <span className="text-xs text-muted-foreground">{model.size_human}</span>
+        {/* ONE NUMBER, TWO MEANINGS, so say which. With a single weight `size_human` is what Load
+            runs; with several it is the sum of alternatives, and the card was advertising the
+            total for a load that opens one of them (an 18 GB quant beside a 31 GB one read as a
+            47.7 GB model). The Details dialog lists the files and marks the one that loads. */}
+        <span className="text-xs text-muted-foreground">
+          {weights > 1 ? `${weights} quants · ${model.size_human} total` : model.size_human}
+        </span>
       </div>
 
       <div className="mt-2 break-words text-sm font-medium leading-snug" title={model.name}>
@@ -456,11 +558,17 @@ function ModelCard({
       {pub && <div className="truncate text-xs text-muted-foreground">{pub}</div>}
 
       <div className="mt-2 flex items-center gap-2.5 text-xs text-muted-foreground">
-        {model.tools && <CapChip icon={Wrench} label="tools" className="text-cyan-600 dark:text-cyan-400" />}
-        {model.vision && <CapChip icon={Eye} label="vision" className="text-fuchsia-600 dark:text-fuchsia-400" />}
-        {model.audio && <CapChip icon={AudioLines} label="audio" className="text-good-ink" />}
+        {model.tools && <CapChip icon={Wrench} label="tools" />}
+        {model.vision && <CapChip icon={Eye} label="vision" />}
+        {model.audio && <CapChip icon={AudioLines} label="audio" />}
         {ctx && <span className="ml-auto">{ctx} ctx</span>}
       </div>
+
+      {model.loaded && (
+        <div className="mt-2">
+          <LoadedChip />
+        </div>
+      )}
 
       <TagRow
         label={model.name}
@@ -470,8 +578,12 @@ function ModelCard({
         tagRegistry={tagRegistry}
       />
 
-      {/* Explicit actions: details (any model) + load/chat (deliberate, never on card click). */}
-      <div className="mt-3 flex items-center justify-between gap-2">
+      {/* Explicit actions: details (any model) + load/chat (deliberate, never on card click).
+          `mt-auto` pins the row to the foot of the card, so Load and Details line up across a grid
+          row whatever the cards above them are: a name that wraps to two lines, a publisher line,
+          a capability row, and a tag row are each optional, and without this every card in a row
+          put its buttons at a different height. */}
+      <div className="mt-auto flex items-center justify-between gap-2 pt-3">
         <button
           type="button"
           onClick={() => setDetailsOpen(true)}
@@ -637,7 +749,7 @@ export function LibraryView({
 
   // The split that keeps a down backend from ever being mistaken for a model: `models` is what
   // the counts, the tag vocabulary and the cards see, and it contains no degraded rows.
-  const { models, degraded } = useMemo(() => partitionLibrary(rows), [rows]);
+  const { models } = useMemo(() => partitionLibrary(rows), [rows]);
   const multiBackend = useMemo(() => needsBackendAxis(rows), [rows]);
 
   const allTags = useMemo(() => allTagsOf(models), [models]);
@@ -673,17 +785,23 @@ export function LibraryView({
   );
   const filtered = useMemo(() => visible.filter((m) => !isDegraded(m)), [visible]);
 
-  const totalHuman = useMemo(() => formatBytes(filtered.reduce((sum, m) => sum + m.size_bytes, 0)), [filtered]);
+  const totalBytes = useMemo(() => filtered.reduce((sum, m) => sum + m.size_bytes, 0), [filtered]);
 
   // What the top bar reads while the Library is on screen. Tag-filter aware, so the bar answers
   // "how much of it am I looking at" rather than restating a constant.
-  usePublishViewTitle(
-    "library",
-    "Library",
-    models.length === 0
-      ? null
-      : `${filtered.length}${filtered.length !== models.length ? ` / ${models.length}` : ""} models · ${totalHuman}`,
-  );
+  //
+  // "CHAT MODELS", not "models": this page also lists voice models, under their own heading with
+  // their own count, so a bare "28 models" above 28 chat cards and 3 voice cards is a number that
+  // disagrees with the page it sits over. And the size term is DROPPED rather than zeroed — a
+  // remote-only instance keeps its weights on another host, so "0 MB" would read as a tiny
+  // library where the truth is that stabbur has no figure to give.
+  const chip = useMemo(() => {
+    if (models.length === 0) return null;
+    const count = `${filtered.length}${filtered.length !== models.length ? ` / ${models.length}` : ""}`;
+    const label = `${count} chat model${filtered.length === 1 && filtered.length === models.length ? "" : "s"}`;
+    return totalBytes > 0 ? `${label} · ${formatBytes(totalBytes)}` : label;
+  }, [filtered.length, models.length, totalBytes]);
+  usePublishViewTitle("library", "Library", chip);
 
   const shape = useMemo(() => libraryShape(visible, multiBackend), [visible, multiBackend]);
 
@@ -758,6 +876,14 @@ export function LibraryView({
                 <p className="mt-1 text-sm text-muted-foreground">
                   Language models you talk to — text in and out. Some also read images or audio, or call tools.
                 </p>
+                {/* AT THE HEAD OF THE LIST, not the foot. This is the reason every Load button
+                    below is greyed, and at the bottom of a long list it was a full scroll away
+                    from the first one — read only by someone who had already given up on it. */}
+                {locked && (
+                  <p className="mt-1.5 text-sm text-muted-foreground">
+                    This server is locked to a single model; switching is disabled.
+                  </p>
+                )}
               </div>
               {!loaded ? (
                 <div className="flex items-center gap-2 px-1 py-4 text-sm text-muted-foreground">
@@ -768,24 +894,37 @@ export function LibraryView({
                   Couldn't read the library: {error}. Check the drive is mounted and{" "}
                   <code className="font-mono">STABBUR_LIBRARY_ROOT</code> is set, then retry.
                 </div>
-              ) : models.length === 0 && degraded.length === 0 ? (
-                <div className="rounded-lg border border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-                  No chat models yet. Pull one with <code className="font-mono">stabbur pull</code>.
-                </div>
-              ) : shape.kind === "formats" ? (
-                shape.groups.length === 0 ? (
-                  <div className="px-1 py-4 text-sm text-muted-foreground">No chat models match the selected tags.</div>
-                ) : (
-                  <FormatGroups groups={shape.groups} ctx={ctx} />
-                )
               ) : (
                 <div className="space-y-5">
-                  {filtered.length === 0 && (
-                    <div className="px-1 text-sm text-muted-foreground">No chat models match the selected tags.</div>
-                  )}
-                  {shape.sections.map((s) => (
-                    <BackendGroup key={s.backend} section={s} ctx={ctx} />
-                  ))}
+                  {/* CHOSEN BY WHY IT IS EMPTY, which the old gate got backwards: it hung the
+                      "no models yet" state on `degraded.length === 0`, so an empty library behind
+                      a backend that was down fell through to "No chat models match the selected
+                      tags" — with no tag selected, and nothing to clear. The question is whether a
+                      filter is hiding them, and only `filtered` vs `models` answers that. Both
+                      states wear the same box; an empty list is the same kind of statement
+                      whichever emptied it. */}
+                  {models.length === 0 ? (
+                    <EmptyState>
+                      No chat models yet. Pull one with <code className="font-mono">stabbur pull</code>.
+                    </EmptyState>
+                  ) : filtered.length === 0 ? (
+                    <EmptyState>
+                      No chat models match the selected tags.{" "}
+                      <button
+                        type="button"
+                        onClick={() => setActiveTags(new Set())}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        Clear the filter
+                      </button>
+                      .
+                    </EmptyState>
+                  ) : null}
+                  {/* A backend that could not be listed still gets its block, empty library or not:
+                      that row IS the explanation for why the list is short. */}
+                  {shape.kind === "formats"
+                    ? shape.groups.length > 0 && <FormatGroups groups={shape.groups} ctx={ctx} />
+                    : shape.sections.map((s) => <BackendGroup key={s.backend} section={s} ctx={ctx} />)}
                 </div>
               )}
             </section>
@@ -825,11 +964,6 @@ export function LibraryView({
               </section>
             )}
           </div>
-        )}
-        {locked && (
-          <p className="mt-4 text-sm text-muted-foreground">
-            The server is locked to a single model; switching is disabled.
-          </p>
         )}
       </div>
       </div>
