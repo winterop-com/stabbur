@@ -174,6 +174,95 @@ def test_result_content_extracts_image_blocks() -> None:
     assert tr.images == ["data:image/png;base64,QUJD"]
 
 
+# Stands in for a screenshot's payload: long enough that finding it in a message is unambiguous.
+_IMAGE_B64 = "QUJD" * 64
+
+
+class _ImageOnlyResult:
+    """A fastmcp ``CallToolResult`` for an image-only tool return.
+
+    The exact shape that used to reach the last rung of ``_result_text``: fastmcp leaves ``data``
+    and ``structured_content`` ``None`` for an image return, and an ``ImageContent`` block has no
+    ``.text`` — so every rung falls through. Its repr inlines the whole base64 payload, which is
+    what the old ``str(result)`` fallback fed the model.
+    """
+
+    data = None
+    structured_content = None
+
+    def __init__(self) -> None:
+        self.content = [type("I", (), {"type": "image", "data": _IMAGE_B64, "mimeType": "image/png"})()]
+
+    def __repr__(self) -> str:
+        return f"CallToolResult(content=[ImageContent(type='image', data='{_IMAGE_B64}')])"
+
+
+def _image_only_toolset() -> tools.MCPToolset:
+    """A real toolset (so ``_result_content`` runs) whose one tool returns only an image."""
+
+    class _Client:
+        async def call_tool(self, name: str, arguments: dict[str, Any], timeout: float | None = None) -> Any:
+            return _ImageOnlyResult()
+
+    toolset = tools.MCPToolset()
+    toolset._owner["b__shot"] = (_Client(), "shot")  # type: ignore[assignment]
+    return toolset
+
+
+def test_result_text_is_empty_for_an_image_only_result() -> None:
+    # No textual content means no text. The old fallback was str(result) — a dataclass repr with
+    # the full base64 inlined, which then reached the model as a wall of base64.
+    tr = tools._result_content(_ImageOnlyResult())
+    assert tr.text == ""
+    assert tr.images == [f"data:image/png;base64,{_IMAGE_B64}"]  # the pixels are still kept
+
+
+async def test_agent_sends_an_image_only_result_once_to_a_vision_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A vision model must get the image exactly once — as the follow-up user image message — with
+    # the tool message left a short marker. It used to get it twice: base64 repr text *and* image.
+    monkeypatch.setattr(agent, "_stream_turn", _one_tool_then_done())
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "screenshot it"}]
+    await agent.run("http://runtime", messages, _image_only_toolset(), vision=True)
+
+    tool_msg = next(m for m in messages if m["role"] == "tool")
+    assert _IMAGE_B64 not in tool_msg["content"]
+    assert tool_msg["content"] == "[image returned by the tool; shown in the next message]"
+    parts = [m for m in messages if m["role"] == "user" and isinstance(m["content"], list)][-1]["content"]
+    urls = [p["image_url"]["url"] for p in parts if p.get("type") == "image_url"]
+    assert urls == [f"data:image/png;base64,{_IMAGE_B64}"]
+
+
+async def test_agent_only_notes_an_image_only_result_for_a_text_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A text-only model gets the note INSTEAD of the image, never the base64 as well — that wall
+    # typically blows the context window, and the model can't read it anyway.
+    monkeypatch.setattr(agent, "_stream_turn", _one_tool_then_done())
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "screenshot it"}]
+    await agent.run("http://runtime", messages, _image_only_toolset(), vision=False)
+
+    tool_msg = next(m for m in messages if m["role"] == "tool")
+    assert _IMAGE_B64 not in tool_msg["content"]
+    assert tool_msg["content"] == "[a tool returned an image, but this model cannot view images]"
+    assert not any(m["role"] == "user" and isinstance(m["content"], list) for m in messages)
+
+
+async def test_agent_caps_an_oversized_tool_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A tool's output is unbounded but the model's context is not: an oversized result is cut with
+    # an explicit marker, so the model is told it is reading a fragment rather than the whole thing.
+    class _HugeToolset:
+        schemas: list[dict[str, Any]] = []
+
+        async def call(self, name: str, args: dict[str, Any], timeout: float | None = None) -> tools.ToolResult:
+            return tools.ToolResult(text="x" * (agent._MAX_TOOL_RESULT + 5_000))
+
+    monkeypatch.setattr(agent, "_stream_turn", _one_tool_then_done())
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "read it"}]
+    await agent.run("http://runtime", messages, _HugeToolset(), vision=False)  # type: ignore[arg-type]
+
+    content = next(m for m in messages if m["role"] == "tool")["content"]
+    assert content.endswith(agent._TOOL_TRUNCATED)
+    assert len(content) == agent._MAX_TOOL_RESULT + len(agent._TOOL_TRUNCATED)
+
+
 def test_result_text_dumps_dict_data_as_compact_json() -> None:
     # A dict payload must reach the model/SSE as compact JSON, not a Python repr.
     result = type("R", (), {"structured_content": None, "data": {"count": 1332, "ok": True}})()

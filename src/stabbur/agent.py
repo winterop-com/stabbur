@@ -17,6 +17,16 @@ from stabbur.tools import MCPToolset, ToolResult
 # vision model reads them as its own multimodal input right after the tool results.
 _TOOL_IMAGE_PREAMBLE = "Image(s) returned by the tool call(s) above:"
 
+# Cap on the text a tool result feeds back to the model, matching the page-action cap
+# (``pageactions._MAX_RESULT``) — this is the loop-wide backstop for every *other* tool result.
+# An MCP tool's output is unbounded (a whole file, a long HTTP body, a directory listing), and
+# unlike an SSE detail — which is only ever *displayed*, and is capped separately — this text is
+# spent from the model's context window, where overflowing it fails the whole turn rather than
+# one tool call. Generous enough that a normal result arrives whole, and the marker says plainly
+# that something was cut so the model doesn't read a severed result as the complete one.
+_MAX_TOOL_RESULT = 50_000
+_TOOL_TRUNCATED = "\n[truncated: tool result exceeded the size a single tool result may return]"
+
 # Callbacks: on_event(kind, detail) for tool activity; on_token(text) for streamed reply.
 # Sinks may be sync (TUI/CLI append to a buffer) or async (the /api/chat SSE path uses an
 # async sink so a full, bounded queue back-pressures generation instead of buffering the
@@ -43,6 +53,17 @@ def _needs_confirm(policy: Literal["all", "writes", "none"], toolset: MCPToolset
     if policy == "writes":
         return not toolset.is_readonly(name)
     return False
+
+
+def _capped(text: str) -> str:
+    """A tool result's text, cut to ``_MAX_TOOL_RESULT`` with an explicit truncation marker.
+
+    Applied to every tool result the loop feeds back — MCP, page action, and the loop's own error
+    strings alike — so one oversized result can't consume the whole context window. A page action
+    caps its own text first (same size), so re-capping one is a no-op in substance: its marker is
+    simply replaced by this one.
+    """
+    return text if len(text) <= _MAX_TOOL_RESULT else text[:_MAX_TOOL_RESULT] + _TOOL_TRUNCATED
 
 
 async def _emit(sink: Callable[..., None | Awaitable[None]] | None, *args: Any) -> None:
@@ -309,7 +330,7 @@ async def run(
                             result = ToolResult(text=f"error: {exc}")
                 display = result.text + (f"  [+{len(result.images)} image(s)]" if result.images else "")
                 await _emit(on_event, "result", display)
-                content = result.text
+                content = _capped(result.text)
                 if result.images and vision:
                     # Feed the pixels back below; leave the tool message a short marker so the
                     # tool_call_id still has content and the model knows where the image came from.

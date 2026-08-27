@@ -131,7 +131,16 @@ def _result_text(result: Any) -> str:
        -> a compact JSON dump, so the model and SSE get JSON rather than a ``Root(exit_code=0, ...)``
        repr wall.
     3. Fallbacks: ``str(data)`` when data is some other non-None object, then joined content text
-       parts, then ``str(result)``.
+       parts, then **empty**.
+
+    That last rung is deliberately empty rather than ``str(result)``. An image-only result (a
+    screenshot tool: fastmcp leaves ``data`` and ``structured_content`` ``None``, and an
+    ``ImageContent`` block has no ``.text``) falls through every rung, and the result's repr
+    inlines the whole base64 payload — so a repr fallback fed the model a wall of base64: a
+    context-blowing one for a text-only model, and the same image *twice* for a vision model
+    (once as repr text, once as the follow-up image message). No textual content means no text;
+    :func:`_result_content` keeps the image itself, and the agent loop turns an empty text plus
+    images into exactly one representation of the image.
     """
     data = getattr(result, "data", None)
     if isinstance(data, (str, int, float, bool)):
@@ -142,7 +151,7 @@ def _result_text(result: Any) -> str:
     if data is not None:
         return str(data)
     parts = [c.text for c in getattr(result, "content", []) if getattr(c, "text", None)]
-    return "\n".join(parts) or str(result)
+    return "\n".join(parts)
 
 
 class ToolResult(BaseModel):
