@@ -198,8 +198,14 @@ so an existing client works. See [Voice](voice.md).
 ## Access
 
 A loopback server is reachable by anything on the machine. `sb config set host` and
-`--host` control the bind address; a non-loopback bind should carry a token, and the
-browser guard that protects `/api` against drive-by cross-site calls is described in
-[the architecture notes](../architecture.md). Do not expose an unauthenticated stabbur to a
-network you do not control — it can load models, run MCP tools, and read whatever those
-tools reach.
+`--host` control the bind address; the browser guard that protects `/api` against drive-by
+cross-site calls is described in [the architecture notes](../architecture.md).
+
+Anything that is not provably this machine counts as exposed — an any-address bind
+(`0.0.0.0`, `::`, or an empty host, all of which mean *every* interface), a LAN address, or a
+hostname. Such a bind always comes up with a bearer token: `serve` uses `auth_token` if one is
+configured and generates a random one otherwise, prints it, and then requires it on `/api`,
+`/v1`, `/models` and on `/docs`, `/redoc`, `/openapi.json`. On the loopback default no token is
+required unless you set one. Still: do not expose stabbur to a network you do not control — the
+token is all that stands between a reachable port and loading models, running MCP tools, and
+reading whatever those tools reach.

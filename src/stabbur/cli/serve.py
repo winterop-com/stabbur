@@ -60,6 +60,17 @@ def _export_serve_env(
         os.environ["STABBUR_BACKENDS"] = json.dumps([spec.model_dump() for spec in backends])
 
 
+def _link(url: str) -> str:
+    """Rich markup for a clickable URL, degrading to plain text where Rich cannot take one.
+
+    Rich reads ``[`` as the start of markup, and an IPv6 URL is made of them
+    (``http://[::1]:2222``). Escaping the visible text is easy; escaping a tag's *value* is not —
+    an escaped bracket inside ``[link=...]`` stops the whole thing parsing as a tag — so such a
+    URL is printed plain rather than crashing the banner with a MarkupError.
+    """
+    return f"[link={url}]{url}[/]" if "[" not in url else escape(url)
+
+
 def _port_free(host: str, port: int) -> bool:
     """Whether ``port`` can be bound on ``host`` right now (a pre-flight, so the failure is ours).
 
@@ -200,13 +211,22 @@ def serve(
             f"[cyan]stabbur config set port <number>[/]."
         )
         raise typer.Exit(1)
-    base = f"http://{bind_host}:{bind_port}"
 
     # Binding a non-loopback address exposes model control + MCP tool execution (arbitrary code
     # via stabbur-mcp-exec) to the LAN. Never leave that unauthenticated: auto-generate a bearer
     # token if one isn't configured, so a client must present it (V-14). An explicitly-set
     # STABBUR_AUTH_TOKEN is honored as-is (and enforced even on loopback, for deliberate opt-in).
-    loopback = bind_host in ("127.0.0.1", "localhost", "::1", "")
+    loopback = config.is_loopback_bind(bind_host)
+    # What to print in a URL, which is not always the bind address. An any-address bind has no
+    # single address to open ("" printed as `http://:2222`), so name the loopback route to the
+    # same server; the exposure line below names the bind itself. An IPv6 literal needs brackets
+    # or the port reads as another group (`http://::1:2222`).
+    url_host = bind_host.strip()
+    if url_host.lower() in config.ANY_ADDRESS_SPELLINGS:
+        url_host = "127.0.0.1"
+    elif ":" in url_host and not url_host.startswith("["):
+        url_host = f"[{url_host}]"
+    base = f"http://{url_host}:{bind_port}"
     auth_token = settings.auth_token
     if not loopback and not auth_token:
         auth_token = secrets.token_urlsafe(24)
@@ -215,8 +235,10 @@ def serve(
 
     console.print("\n[bold]stabbur[/]")
     if not loopback:
+        # An empty host is INADDR_ANY, not "nowhere": say the address uvicorn will actually bind.
+        where = bind_host or "0.0.0.0 (all interfaces)"  # noqa: S104 - printed, not bound
         console.print(
-            f"  [yellow]Exposed on {bind_host}[/] — anyone who can reach this host can control models and run tools."
+            f"  [yellow]Exposed on {where}[/] — anyone who can reach this host can control models and run tools."
         )
     if auth_token:
         console.print("  Auth:     [bold]bearer token required[/] [dim](Authorization: Bearer <token>)[/]")
@@ -242,11 +264,11 @@ def serve(
     ui_url = f"{base}/?token={auth_token}" if auth_token else base
     if ui:
         if settings.frontend_dir.is_dir():
-            console.print(f"  UI:       [link={ui_url}]{ui_url}[/]")
+            console.print(f"  UI:       {_link(ui_url)}")
         else:
             console.print(f"  [yellow]UI not built[/] — expected at [dim]{settings.frontend_dir}[/]; serving API only")
-    console.print(f"  API:      [link={base}]{base}[/]")
-    console.print(f"  Docs:     [link={base}/docs]{base}/docs[/]")
+    console.print(f"  API:      {_link(base)}")
+    console.print(f"  Docs:     {_link(f'{base}/docs')}")
     if auth_token:
         console.print(f"  [dim]Token:[/]    [dim]{auth_token}[/]")
     console.print("  [dim]Ctrl-C to stop[/]\n")

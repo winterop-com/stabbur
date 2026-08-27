@@ -16,6 +16,12 @@ router = APIRouter(tags=["serving"])
 # Hop-by-hop headers that must not be forwarded through the proxy.
 _DROP_HEADERS = {"content-length", "transfer-encoding", "connection", "host"}
 
+# Additionally stripped from the OUTBOUND request. These are credentials for *this* server, and
+# the runtime we forward to is a different trust domain — a remote box with ``--upstream``, which
+# has its own auth story and no use for ours. Forwarding them leaked stabbur's own bearer token
+# and the browser's cookies for the stabbur origin to that host on every proxied call.
+_DROP_REQUEST_HEADERS = _DROP_HEADERS | {"authorization", "proxy-authorization", "cookie"}
+
 
 def get_manager(request: Request) -> Backends:
     """Dependency: the app's backend facade (wrapping a local runtime, or a remote upstream)."""

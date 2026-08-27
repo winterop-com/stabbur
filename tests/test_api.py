@@ -128,6 +128,72 @@ async def test_no_auth_required_by_default(client: AsyncClient) -> None:
     assert (await client.get("/api/status")).status_code != 401
 
 
+async def test_non_ascii_authorization_header_is_a_clean_401() -> None:
+    # An Authorization header is attacker-controlled, and secrets.compare_digest raises TypeError
+    # on a str holding any non-ASCII character — so a byte of UTF-8 in the header used to be an
+    # unhandled 500 (an auth check that crashes instead of denying). Sent as raw bytes because
+    # that is what a client can put on the wire; Starlette decodes headers as latin-1.
+    app = create_app(Settings(serve_model=None, auth_token="s3cret"))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        r = await inner.get("/api/status", headers={b"authorization": "Bearer tökén".encode()})
+        assert r.status_code == 401
+        assert r.headers["www-authenticate"] == "Bearer"
+
+    # A non-ASCII token in the config is the same trap from the other side: it must still reject
+    # a wrong token and accept the right one, not 500 on every guarded request.
+    app = create_app(Settings(serve_model=None, auth_token="pässord"))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        assert (await inner.get("/api/status", headers={b"authorization": b"Bearer nope"})).status_code == 401
+        # latin-1 because that is the encoding Starlette decodes header bytes with, so this is
+        # the byte sequence that round-trips to the configured token.
+        right = await inner.get("/api/status", headers={b"authorization": "Bearer pässord".encode("latin-1")})
+        assert right.status_code != 401
+
+
+async def test_rejections_carry_cors_headers_for_an_allowlisted_origin() -> None:
+    # The rejection must be READABLE by an allow-listed caller (the Chrome extension is the
+    # documented one): without Access-Control-Allow-Origin on the 401 its browser refuses the
+    # response body and the user sees an opaque network error instead of "authentication
+    # required". This is what the middleware ordering in create_app buys.
+    app = create_app(Settings(serve_model=None, auth_token="s3cret", cors_origins=["http://ext.local"]))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        r = await inner.get("/api/status", headers={"origin": "http://ext.local"})
+        assert r.status_code == 401
+        assert r.headers["access-control-allow-origin"] == "http://ext.local"
+
+    # Same for the cross-site 403. A wildcard CORS config still does not exempt the mutating
+    # call (see the test above) — it only makes the refusal legible.
+    app = create_app(Settings(serve_model=None, cors_origins=["*"]))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        r = await inner.post(
+            "/api/load/ghost",
+            headers={"sec-fetch-site": "cross-site", "origin": "https://evil.example"},
+        )
+        assert r.status_code == 403
+        assert r.headers["access-control-allow-origin"] == "*"
+
+
+async def test_api_docs_are_behind_the_token_when_one_is_set() -> None:
+    # /docs, /redoc and /openapi.json describe every route and body shape — including the ones
+    # that load models and run tools. On an exposed bind they must not be readable without the
+    # token; on the loopback default (no token) they stay open like everything else.
+    app = create_app(Settings(serve_model=None, auth_token="s3cret"))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert (await inner.get(path)).status_code == 401, path
+            assert (await inner.get(path, headers={"authorization": "Bearer s3cret"})).status_code == 200, path
+
+    app = create_app(Settings(serve_model=None))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as inner:
+        assert (await inner.get("/openapi.json")).status_code == 200
+
+
 async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
     # ServerManager has no internal lock, so two /api/load calls must not run
     # manager.load() at the same time (interleaving corrupts its process state).
