@@ -175,12 +175,15 @@ def test_gguf_bare_mmproj_defaults_to_vision(tmp_path: Path) -> None:
     assert caps.audio is False
 
 
-def test_read_gguf_string_caps_a_bogus_length() -> None:
-    # N-L1: a bit-flipped uint64 length must not slurp gigabytes — read is capped.
+def test_read_gguf_string_rejects_a_bogus_length() -> None:
+    # N-L1: a bit-flipped uint64 length must not slurp gigabytes. It is now bounded by the end of
+    # the file, so it aborts the parse (read_metadata returns what it had) instead of allocating.
     import io
-    import struct
+
+    import pytest
 
     from stabbur import gguf
 
-    fh = io.BytesIO(struct.pack("<Q", 10**10) + b"hello")  # claims 10 GB, has 5 bytes
-    assert gguf._read_string(fh) == "hello"
+    data = struct.pack("<Q", 10**10) + b"hello"  # claims 10 GB, has 5 bytes
+    with pytest.raises(ValueError, match="past end of file"):
+        gguf._read_string(io.BytesIO(data), len(data))
