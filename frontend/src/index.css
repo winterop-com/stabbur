@@ -79,6 +79,17 @@
   --warning-ink: oklch(0.565 0.13 75);
   --good-ink: oklch(0.545 0.14 155);
   --info: oklch(0.55 0.11 240);
+  /* WHAT A MODEL CAN DO, which is not a state and not a format. The tools / vision / audio
+     markers used to be written as literals — the same cyan as the `gguf` badge and the same
+     fuchsia as `mlx`, so one hue meant two unrelated things on a single card, and the cyan
+     measured 3.62:1 as 12px text on white. The literals carve-out below covers format badges
+     alone, so these are a token; ONE token, because hue in this app already means state and
+     format, and a third meaning for it would weaken both. The icon says WHICH capability.
+
+     No `-ink` twin: it is only ever text (an icon and a word, never a fill), so it is tuned as
+     text in every theme — the same reason `--critical` and `--info` have none. Every value here
+     clears 4.5:1 against its own theme's ground. */
+  --capability: oklch(0.49 0.1 215);
   /* Source colours, spent by the `.hljs-*` rules at the foot of this file (that
      is where the role-by-role argument for them is). Deliberately narrow in
      chroma: a code block sits inside a chat turn, and a rainbow would make the
@@ -132,6 +143,7 @@
   --warning-ink: var(--warning);
   --good-ink: var(--good);
   --info: oklch(0.72 0.14 240);
+  --capability: oklch(0.76 0.11 215);
   --code-keyword: oklch(0.78 0.13 300);
   --code-operator: oklch(0.78 0.08 25);
   --code-string: oklch(0.78 0.13 150);
@@ -188,6 +200,7 @@
   --color-warning-ink: var(--warning-ink);
   --color-good-ink: var(--good-ink);
   --color-info: var(--info);
+  --color-capability: var(--capability);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -384,6 +397,7 @@ html[data-theme='indigo'] {
   --warning-ink: oklch(0.56 0.13 75);
   --good-ink: oklch(0.535 0.14 158);
   --info: oklch(0.52 0.13 262);
+  --capability: oklch(0.485 0.1 218);
   --code-keyword: oklch(0.46 0.15 300);
   --code-operator: oklch(0.48 0.08 25);
   --code-string: oklch(0.45 0.12 150);
@@ -430,6 +444,7 @@ html.dark[data-theme='indigo'] {
   --warning-ink: var(--warning);
   --good-ink: var(--good);
   --info: oklch(0.73 0.13 262);
+  --capability: oklch(0.77 0.11 218);
   --code-keyword: oklch(0.78 0.13 300);
   --code-operator: oklch(0.78 0.08 25);
   --code-string: oklch(0.78 0.13 150);
@@ -476,6 +491,7 @@ html[data-theme='paper'] {
   --warning-ink: oklch(0.555 0.13 70);
   --good-ink: oklch(0.535 0.13 152);
   --info: oklch(0.5 0.1 250);
+  --capability: oklch(0.485 0.09 212);
   --code-keyword: oklch(0.46 0.15 300);
   --code-operator: oklch(0.48 0.08 25);
   --code-string: oklch(0.45 0.12 150);
@@ -522,6 +538,7 @@ html.dark[data-theme='paper'] {
   --warning-ink: var(--warning);
   --good-ink: var(--good);
   --info: oklch(0.73 0.1 252);
+  --capability: oklch(0.77 0.1 212);
   --code-keyword: oklch(0.78 0.13 300);
   --code-operator: oklch(0.78 0.08 25);
   --code-string: oklch(0.78 0.13 150);
@@ -568,6 +585,7 @@ html[data-theme='contrast'] {
   --warning-ink: oklch(0.565 0.14 75);
   --good-ink: oklch(0.54 0.15 152);
   --info: oklch(0.49 0.15 262);
+  --capability: oklch(0.46 0.11 215);
   --code-keyword: oklch(0.46 0.15 300);
   --code-operator: oklch(0.48 0.08 25);
   --code-string: oklch(0.45 0.12 150);
@@ -614,6 +632,7 @@ html.dark[data-theme='contrast'] {
   --warning-ink: var(--warning);
   --good-ink: var(--good);
   --info: oklch(0.75 0.14 262);
+  --capability: oklch(0.79 0.12 215);
   --code-keyword: oklch(0.78 0.13 300);
   --code-operator: oklch(0.78 0.08 25);
   --code-string: oklch(0.78 0.13 150);
@@ -660,6 +679,7 @@ html[data-theme='terminal'] {
   --warning-ink: oklch(0.555 0.13 75);
   --good-ink: oklch(0.525 0.15 162);
   --info: oklch(0.52 0.1 230);
+  --capability: oklch(0.48 0.1 200);
   --code-keyword: oklch(0.46 0.15 300);
   --code-operator: oklch(0.48 0.08 25);
   --code-string: oklch(0.45 0.12 150);
@@ -706,6 +726,7 @@ html.dark[data-theme='terminal'] {
   --warning-ink: var(--warning);
   --good-ink: var(--good);
   --info: oklch(0.72 0.11 230);
+  --capability: oklch(0.78 0.11 200);
   --code-keyword: oklch(0.78 0.13 300);
   --code-operator: oklch(0.78 0.08 25);
   --code-string: oklch(0.78 0.13 150);

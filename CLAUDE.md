@@ -207,7 +207,8 @@ Non-obvious landmines that aren't self-evident from the code:
   specialists.
 - **Two model families.** Chat (text in/out; some read vision/audio, some call tools) and
   Voice (TTS speaks, STT transcribes; audio in/out, not chat). Voice runs on demand, never in
-  the chat runtime — the top-bar "No chat model" badge is Chat-only.
+  the chat runtime — the composer's model picker offers Chat models only, and the Library lists
+  Voice under its own heading with its own count.
 
 ## Dev workflow
 
