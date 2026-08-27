@@ -158,9 +158,16 @@ def mcp_add(
         console.print(f"  [yellow]not installed[/] — reports 0 tools until you {setup}")
     elif setup:
         console.print(f"  [yellow]setup:[/] {setup}")
-    # `project show` needs a project; a global add is machine-wide, so point at `doctor` (its
-    # Tools row lists the resolved servers) which works anywhere.
-    console.print(f"[dim]Check it:[/] {'stabbur doctor' if to_global else 'stabbur project show'}")
+    # Point at a command that actually works from here. `project show` needs a stabbur.toml, and this
+    # .mcp.json is resolved from the cwd whether or not one exists — so outside a project the hint used
+    # to send people to a command that just answers "No stabbur.toml here." A global add is machine-wide,
+    # so it gets `doctor` (its Tools row lists the resolved servers); `mcp list` marks what's switched
+    # on and needs neither a project nor a library.
+    if to_global:
+        check = "stabbur doctor"
+    else:
+        check = "stabbur project show" if Path("stabbur.toml").is_file() else "stabbur mcp list"
+    console.print(f"[dim]Check it:[/] {check}")
 
 
 @mcp_app.command("remove")
