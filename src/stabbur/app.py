@@ -13,13 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
-from stabbur import config, mcp_catalog, mcpservers, project, runtime
+from stabbur import backends, mcp_catalog, mcpservers, project, runtime
 from stabbur import library as library_ops
 from stabbur import tools as mcp_tools
+from stabbur.backends import Backends
 from stabbur.config import Settings, get_settings
 from stabbur.routers import catalog, health, serving
 from stabbur.runtime import supervisor
-from stabbur.server import ServerManager, UpstreamManager
 from stabbur.targets import AssistantRegistry
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -91,7 +91,7 @@ def _auth_failed(request: Request, token: str) -> bool:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Start a shared HTTP client, runtime manager, and MCP tools; clean up after."""
     settings: Settings = app.state.settings
-    manager: ServerManager | UpstreamManager = app.state.manager
+    manager: Backends = app.state.manager
 
     # Reclaim any runtime orphaned by a previously-crashed stabbur before we start ours (A4).
     try:
@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001 - a sweep failure must never block startup
         pass
 
-    if isinstance(manager, UpstreamManager):
+    if manager.is_upstream:
         if settings.serve_model:
             # Locked upstream serve: the name must match one of the remote's ids — fail
             # startup with the remote's own list otherwise (parity with the local check).
@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # default (`stabbur config set model`), so free-play serve --ui still opens on a model.
         # In upstream mode those are library names the remote won't know: auto-load the
         # already-selected remote model instead (the upstream's loaded one, or the lock).
-        if isinstance(manager, UpstreamManager):
+        if manager.is_upstream:
             app.state.project_model = manager.current.name if manager.current is not None else None
         else:
             app.state.project_model = project.resolve_model(None, proj)
@@ -210,14 +210,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
-    if settings.upstream:
-        # Remote backend (`serve --upstream`): no local runtime is ever spawned — the
-        # manager selects among the remote's /v1 models and the proxy targets its URL.
-        app.state.manager = UpstreamManager(settings.upstream)
-    else:
-        # Honor the passed settings' runtime_port; the CLI --runtime-port override
-        # (process-global) still wins when set. None → ServerManager auto-picks.
-        app.state.manager = ServerManager(port=config.runtime_port_override() or settings.runtime_port)
+    # Exactly one backend today, but the routes only ever see the facade — so the day a
+    # second one arrives, the change lands in Backends rather than in every serving route.
+    app.state.manager = backends.build(settings.upstream, settings.runtime_port)
     # Serializes model load/unload so two concurrent requests can't interleave and
     # corrupt the manager's process state (ServerManager has no internal lock, and
     # load/unload now run in worker threads). Async, so waiting doesn't block the loop.

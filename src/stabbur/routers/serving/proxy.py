@@ -18,7 +18,6 @@ from stabbur.routers.serving._base import (  # shared router + request deps
     _release_runtime,
     router,
 )
-from stabbur.server import UpstreamManager
 
 
 def _library_as_models() -> Response:
@@ -54,7 +53,7 @@ async def proxy_v1(path: str, request: Request, manager: ManagerDep, client: Htt
     # can list one, and the docs tell people to point any OpenAI client at this base URL. Answer
     # it without a loaded model — every other path still requires one.
     discovery = path == "models" and request.method == "GET"
-    if discovery and manager.current is None and not isinstance(manager, UpstreamManager):
+    if discovery and manager.current is None and not manager.is_upstream:
         return _library_as_models()
 
     body = await request.body()

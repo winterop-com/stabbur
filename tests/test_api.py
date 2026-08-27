@@ -152,7 +152,9 @@ async def test_concurrent_loads_are_serialized(app: FastAPI, monkeypatch: pytest
         with guard:
             active -= 1
 
-    monkeypatch.setattr(app.state.manager, "load", slow_load)
+    # Patch the wrapped backend, not the facade: patching Backends.load would shadow the
+    # delegation under test and prove nothing about the seam the route actually calls through.
+    monkeypatch.setattr(app.state.manager.backend, "load", slow_load)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -169,8 +171,8 @@ async def test_load_and_unload_rejected_while_generating(
     fake = LibraryModel(name="m", model_format=ModelFormat.gguf, path=Path("/x"), load_target=Path("/x/m.gguf"))
     monkeypatch.setattr("stabbur.routers.serving.chat.library_ops.find", lambda name: [fake])
     monkeypatch.setattr("stabbur.routers.serving.chat.runtime.runnable_error", lambda m: None)
-    monkeypatch.setattr(app.state.manager, "load", lambda *a, **k: None)
-    monkeypatch.setattr(app.state.manager, "stop", lambda *a, **k: None)
+    monkeypatch.setattr(app.state.manager.backend, "load", lambda *a, **k: None)
+    monkeypatch.setattr(app.state.manager.backend, "stop", lambda *a, **k: None)
 
     app.state.active_generations = 1
     assert (await client.post("/api/load/m")).status_code == 409
@@ -211,11 +213,11 @@ async def test_load_unrunnable_model_is_422_not_500(
 
 def test_create_app_honors_settings_runtime_port() -> None:
     # The factory must use the runtime_port from the settings it's given.
-    assert create_app(Settings(runtime_port=8123)).state.manager._port == 8123
+    assert create_app(Settings(runtime_port=8123)).state.manager.backend._port == 8123
 
 
 def test_create_app_autopicks_when_runtime_port_none() -> None:
-    assert create_app(Settings(runtime_port=None)).state.manager._port > 0
+    assert create_app(Settings(runtime_port=None)).state.manager.backend._port > 0
 
 
 def test_reload_worker_honors_runtime_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,7 +230,7 @@ def test_reload_worker_honors_runtime_port_env(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("STABBUR_RUNTIME_PORT", "8124")
     get_settings.cache_clear()
     try:
-        assert create_app().state.manager._port == 8124
+        assert create_app().state.manager.backend._port == 8124
     finally:
         get_settings.cache_clear()
 
@@ -363,6 +365,7 @@ async def test_api_unload_stops_the_runtime(app: FastAPI, client: AsyncClient) -
         current = None
         n_ctx = None
         last_error = None
+        is_upstream = False  # /api/status reports base_url only for an upstream backend
 
         def stop(self) -> None:
             stopped["n"] += 1
@@ -1310,6 +1313,7 @@ async def test_v1_models_lists_the_library_when_nothing_is_loaded(
     class FakeManager:
         current = None
         base_url = "http://runtime"
+        is_upstream = False  # a local backend is what makes discovery fall back to the library
 
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     model = LibraryModel(

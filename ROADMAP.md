@@ -112,11 +112,21 @@ Today a server is one or the other: `app.py` picks `UpstreamManager(settings.ups
 is invisible (`/api/library` returns the remote's ids). Asked for by a user who wants a laptop's
 library and one or more remote hosts in the same picker.
 
-The manager is a narrow seam, which is what makes this tractable: four files consume it
-(`routers/serving/{proxy,chat,core,_base}.py`) and the whole surface is `current`, `base_url`,
-`n_ctx`, `last_error`, `state`, `models`, `load_by_name`, `load`, `stop`, `touch`. A facade
-implementing exactly that and delegating to the selected backend drops in without touching the
-routes.
+The manager is a narrow seam, but **not a free one** — two things found by building step 1
+that the first draft of this plan got wrong:
+
+The two managers do not share an interface. They share a *core* of seven members (`base_url`,
+`current`, `last_error`, `n_ctx`, `ready`, `state`, `stop`) plus an asymmetric half: `load` is
+local-only, and `load_by_name`, `models`, `select_loaded`, `touch` are upstream-only. Every call
+site for the asymmetric half already sits behind a type check, so "harmonizing" the two onto one
+flat surface silently reroutes the routers. A facade must model the asymmetry, not erase it.
+
+And a facade does **not** drop in without touching the routes. Eight sites branch on the backend
+*type* (`app.py` x2, `proxy.py`, `core.py` x4, `chat.py`), and the moment the manager is wrapped
+every one of them goes False — silently. That is a wrong-answer failure, not a crash: status
+stops reporting `upstream`, `/api/library` lists the wrong collection, `/v1/models` changes
+branch. Converting them to ask the facade instead is mechanical but mandatory, and it is why
+step 1 is only done once the seam is actually in use.
 
 **Identity is the hard part, not plumbing.** A model is `ModelRef(name, model_format)` today;
 two hosts both serving `gemma-4-12b` collide the moment they are listed together.

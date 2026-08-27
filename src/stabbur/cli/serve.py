@@ -124,12 +124,14 @@ def serve(
         # here, not a uvicorn "Application startup failed" traceback from the app lifespan. In
         # upstream mode the name must match one of the REMOTE's ids, not a library model.
         if upstream_url is not None:
-            from stabbur.server import UpstreamManager  # noqa: PLC0415
+            from stabbur import backends  # noqa: PLC0415
 
             try:
                 # Name check only: this pre-flight runs before the server exists, so loading
                 # here would evict the remote's resident model for a process about to exit.
-                UpstreamManager(upstream_url).load_by_name(locked_model, warmup=False)
+                # Built through the shared factory rather than a bare manager, so this and the
+                # app agree on what "the backend for this configuration" means.
+                backends.build(upstream_url).load_by_name(locked_model, warmup=False)
             except RuntimeError as exc:
                 console.print(f"[red]{exc}[/]")
                 raise typer.Exit(1) from exc
