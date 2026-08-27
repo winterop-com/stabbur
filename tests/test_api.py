@@ -1299,6 +1299,41 @@ async def test_spa_index_is_revalidated_but_hashed_assets_are_immutable(tmp_path
         assert "cache-control" not in api.headers
 
 
+async def test_spa_client_routes_serve_the_shell_without_shadowing_the_api(tmp_path: Path) -> None:
+    """/chat and /settings are routes inside the bundle, not files — they must load the app.
+
+    FastAPI's frontend(fallback="index.html") does not cover them (it only applies within the
+    static mount, which never matches a path that isn't a file), so a deep link or a refresh
+    answered 404. The fallback belongs where a request lands only after everything else has
+    missed, which is what this pins: API routes and real files still win, and an API 404 stays
+    JSON rather than becoming HTML a fetch() would choke on.
+    """
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>stabbur</title>")
+    (dist / "assets" / "index-abc123.js").write_text("console.log(1)")
+
+    app = create_app(Settings(serve_model=None, serve_ui=True, frontend_dir=dist))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for path in ("/chat", "/settings", "/some/deep/link"):
+            page = await client.get(path)
+            assert page.status_code == 200, path
+            assert page.headers["content-type"].startswith("text/html"), path
+            assert "<title>stabbur</title>" in page.text
+
+        asset = await client.get("/assets/index-abc123.js")  # a real file still wins
+        assert asset.status_code == 200
+        assert asset.text == "console.log(1)"
+
+        assert (await client.get("/api/status")).status_code == 200  # an API route still wins
+        missing_api = await client.get("/api/no-such-endpoint")  # and a missing one stays an API 404
+        assert missing_api.status_code == 404
+        assert missing_api.headers["content-type"].startswith("application/json")
+        missing_asset = await client.get("/assets/gone.js")  # a stale bundle reference stays a 404
+        assert missing_asset.status_code == 404
+
+
 async def test_unconfigured_library_answers_with_its_hint_not_a_500(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

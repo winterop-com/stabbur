@@ -66,6 +66,18 @@ def _capped(text: str) -> str:
     return text if len(text) <= _MAX_TOOL_RESULT else text[:_MAX_TOOL_RESULT] + _TOOL_TRUNCATED
 
 
+def _exc_text(exc: BaseException) -> str:
+    """Describe an exception for the model, never as an empty string.
+
+    A whole class of failures a tool call can hit carries no message at all — a bare
+    ``TimeoutError``, a closed anyio stream — so ``f"{exc}"`` alone produced a bare ``error:``. The
+    model then retried blind against a failure it had been told nothing about. The type name is
+    the only fact those exceptions have, so it stands in when there is no message.
+    """
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
 async def _emit(sink: Callable[..., None | Awaitable[None]] | None, *args: Any) -> None:
     """Call an optional sync-or-async sink, awaiting it when it returns an awaitable."""
     if sink is None:
@@ -327,7 +339,7 @@ async def run(
                         try:
                             result = await toolset.call(c["name"], args, timeout=tool_timeout)
                         except Exception as exc:  # noqa: BLE001 - report tool failures (incl. timeout) to the model
-                            result = ToolResult(text=f"error: {exc}")
+                            result = ToolResult(text=f"error: {_exc_text(exc)}")
                 display = result.text + (f"  [+{len(result.images)} image(s)]" if result.images else "")
                 await _emit(on_event, "result", display)
                 content = _capped(result.text)

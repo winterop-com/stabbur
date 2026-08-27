@@ -36,6 +36,10 @@ _DOC_PATHS = ("/docs", "/redoc", "/openapi.json")  # a prefix match, so /docs/oa
 
 _AUTH_PREFIXES = _GUARDED_PREFIXES + _DOC_PATHS
 
+# Every path prefix this server answers itself, rather than handing to the SPA. Used by the
+# SPA 404 fallback so a missing endpoint keeps answering as an endpoint (JSON), never as HTML.
+_API_PREFIXES = _AUTH_PREFIXES + ("/health",)
+
 
 def _side_effectful_read(request: Request) -> bool:
     """Whether this GET actually *runs* something, so the guard must treat it as a mutation.
@@ -358,8 +362,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(serving.router)
 
     # Serve the SPA via FastAPI's first-party frontend() when enabled and built.
-    # API path operations are matched first; fallback="index.html" supports the
-    # SPA's client-side routing.
+    # API path operations are matched first; a 404 handler below (not frontend()'s own
+    # fallback=, which does not cover them) serves index.html for the SPA's client-side routes.
     if settings.serve_ui and settings.frontend_dir.is_dir():
         # Browsers probe /favicon.ico regardless of the declared <link> icons; serve a real
         # icon for it so it doesn't 404 (the SPA fallback would hand back HTML instead).
@@ -394,6 +398,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return response
 
         app.frontend("/", directory=str(settings.frontend_dir), fallback="index.html")
+
+        # The SPA owns /chat, /settings and friends: they are routes inside the bundle, not files
+        # on disk, so nothing serves them and a deep link or a refresh answered 404. FastAPI's
+        # fallback="index.html" does not cover them (it applies within the static mount, which
+        # never matches a path that isn't a file), so the fallback belongs where a request lands
+        # only after everything else has missed: the 404 handler. Precedence is therefore
+        # unchanged — an API route wins, then a real file, and the shell is the last resort.
+        index_html = settings.frontend_dir / "index.html"
+
+        @app.exception_handler(404)
+        async def _spa_fallback(request: Request, exc: Exception) -> Response:
+            path = request.url.path
+            # An API 404 stays a 404: handing HTML to a fetch() would turn "no such endpoint" into
+            # a JSON parse error three layers away. /assets/ likewise — a missing hashed bundle is
+            # a real failure, and answering it with the page that asked for it only loops.
+            api_path = path.startswith(_API_PREFIXES) or path.startswith("/assets/")
+            if request.method in ("GET", "HEAD") and not api_path and index_html.is_file():
+                return FileResponse(index_html, media_type="text/html")
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     return app
 

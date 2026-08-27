@@ -1222,3 +1222,60 @@ def test_main_formats_manifest_warnings_as_one_line(monkeypatch: pytest.MonkeyPa
     # Anything else keeps the developer-facing format, which names where it came from.
     dev = warnings.formatwarning("an internal note", DeprecationWarning, "project.py", 12)
     assert "project.py" in dev and "DeprecationWarning" in dev
+
+
+def test_voice_speak_rejects_an_out_of_range_speed() -> None:
+    """The engine's own ValueError reached the terminal as a traceback; catch it at the flag."""
+    result = runner.invoke(cli.app, ["voice", "speak", "--speed", "9", "hello"])
+    assert result.exit_code == 1
+    assert "--speed must be between 0.5 and 2.0" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_voice_speak_rejects_a_speed_the_help_used_to_advertise() -> None:
+    """0.25-0.49 was documented and guaranteed to crash: the engine's floor is 0.5."""
+    result = runner.invoke(cli.app, ["voice", "speak", "--speed", "0.3", "hello"])
+    assert result.exit_code == 1
+    assert "0.5" in result.output
+
+
+def test_install_to_ollama_says_the_model_lacks_a_gguf_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An MLX-only model is in the library; --to ollama must not claim otherwise.
+
+    `--to ollama` pins the lookup to GGUF, so an MLX-only model resolved to nothing and the
+    generic resolver reported "is not in the library" — false, and it sends the reader hunting
+    for a model that is sitting right there.
+    """
+    mlx = _lib_model("pub/Only-MLX", fmt=ModelFormat.mlx)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [mlx] if k.get("model_format") is None else [])
+    result = runner.invoke(cli.app, ["library", "install", "pub/Only-MLX", "--to", "ollama"])
+    assert result.exit_code == 1
+    assert "not in the library" not in result.output
+    assert "no GGUF build" in result.output
+    assert "mlx" in result.output and "--to lmstudio" in result.output
+
+
+def test_doctor_table_does_not_let_rich_eat_an_install_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The MLX hint's own command contains `[mlx]`, which Rich reads as a style tag and swallows —
+    # doctor and setup printed `uv tool install --force -e "."`, a command that installs stabbur
+    # without the MLX extra, in the very row that exists to fix a missing MLX runtime.
+    from stabbur import doctor as doctor_mod
+    from stabbur import host
+    from stabbur.cli import health
+
+    monkeypatch.setattr(health.console, "width", 300)  # one line per row, so nothing wraps mid-hint
+    report = doctor_mod.DoctorReport(
+        checks=[
+            doctor_mod.Check(
+                name="MLX text (mlx-lm)",
+                status=doctor_mod.CheckStatus.warn,
+                detail="'mlx_lm.server' not found",
+                hint=host.install_hints()["mlx_lm.server"],
+            )
+        ]
+    )
+    health._print_doctor_table(report)
+    out = capsys.readouterr().out
+    assert '".[mlx]"' in out  # the extra survives, so the printed command actually installs it

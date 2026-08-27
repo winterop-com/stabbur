@@ -54,6 +54,15 @@ def test_synthesize_rejects_unknown_voice() -> None:
         kokoro.synthesize("hello", "not_a_voice")
 
 
+def test_synthesize_rejects_a_speed_the_engine_would_reject() -> None:
+    # kokoro-onnx raises a bare ValueError outside 0.5-2.0 mid-synthesis; the range is checked
+    # here so the failure is this function's documented RuntimeError, not a surprise type.
+    with pytest.raises(RuntimeError):
+        kokoro.synthesize("hello", "af_heart", speed=9.0)
+    with pytest.raises(RuntimeError):
+        kokoro.synthesize("hello", "af_heart", speed=0.3)
+
+
 # ---------------------------------------------------------------------------
 # First-use concurrency: the download + engine build
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ identically for GGUF and MLX.
 """
 
 import os
+import shlex
 import shutil
 import sys
 import time
@@ -93,6 +94,23 @@ def runnable_error(model: LibraryModel) -> str | None:
     return None
 
 
+def runtime_binary(model: LibraryModel) -> str | None:
+    """The runtime executable that would be spawned for ``model``, or ``None`` if there is none.
+
+    The one place that answers "what does running this need" without spawning anything, so a
+    health check can cross-check a library against the binaries actually installed instead of
+    calling every model in it runnable. ``None`` means stabbur cannot run the model at all
+    (:func:`runnable_error` says why) — a different state from "runnable, but the binary is
+    missing", which is a real binary name whose lookup fails.
+    """
+    if runnable_error(model) is not None:
+        return None
+    try:
+        return build_command(model, "127.0.0.1", 0)[0]
+    except ValueError:
+        return None
+
+
 def _early_exit_error(cmd: list[str], code: int | None, log_path: Path | None, port: int) -> RuntimeError:
     """Build a RuntimeError explaining why the runtime exited during startup.
 
@@ -153,14 +171,18 @@ def start(model: LibraryModel) -> RuntimeProc:
     if resolved is None:
         raise RuntimeError(f"{binary!r} not found on PATH. {_INSTALL_HINTS.get(binary, '')}".strip())
     debug = debug_enabled()
-    if debug:
-        _status_console.print(f"[dim]runtime →[/] {' '.join(build_command(model, '127.0.0.1', 0))}")
 
     def _command(port: int) -> list[str]:
         # Spawn the resolved path, not the bare name: it may live in stabbur's own environment
         # rather than on PATH, which the child process would not search the same way.
         cmd = build_command(model, "127.0.0.1", port)
         cmd[0] = resolved
+        # --debug promises "the exact model-runtime command". Printing it here, from inside the
+        # factory the supervisor calls, is the only way to keep that promise: the port is chosen
+        # by the supervisor (and re-chosen on a bind collision), so a line built before the spawn
+        # advertised port 0 and the bare binary name — neither of which was ever run.
+        if debug:
+            _status_console.print(f"[dim]runtime →[/] {shlex.join(cmd)}")
         return cmd
 
     # Pinned port (if any) is honored; otherwise the supervisor auto-picks and retries on collision.

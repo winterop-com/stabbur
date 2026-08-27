@@ -264,16 +264,18 @@ sb voice voices                            # id · name · language · gender
 
 ## `sb voice speak <text...>`
 
-Text-to-speech. `--voice`/`-v` picks a **Kokoro** voice (multi-voice engine; run
-`sb voice voices` to list them, model downloaded on first use). Otherwise it uses
-`llama-tts`/OuteTTS — the default, or `--model` for a library TTS model (see
-`sb library pull --vocoder`). Markdown/code in the text is reduced to prose first.
+Text-to-speech. The default engine is **Kokoro (ONNX)** — cross-platform, built in,
+its model fetched on first use; `--voice`/`-v` picks one of its named voices (run
+`sb voice voices` to list them). `--model` uses a registry voice model through the
+mlx-audio runtime instead (`sb voice list`), where `--ref-audio` + `--ref-text` clone
+a voice and `--seed` pins a seeded model's otherwise-random one. `--speed` takes
+0.5-2.0. Markdown/code in the text is reduced to prose first.
 
 ```bash
-sb voice speak hello there                 # default voice, play aloud (macOS)
+sb voice speak hello there                 # default Kokoro voice, play aloud
 sb voice speak -v af_heart "hello there"   # a specific Kokoro voice
 sb voice speak "some text" -o out.wav      # write a WAV instead of playing
-sb voice speak hi --model OuteTTS-0.2-500M-GGUF   # a specific library OuteTTS model
+sb voice speak hi --model <voice-id> --seed 10    # a registry voice model, seed pinned
 ```
 
 ## `sb setup`
@@ -328,11 +330,14 @@ STABBUR_UPSTREAM=http://gpu-box:8080 sb doctor  # also check the remote backend
 
 ## `sb serve`
 
-Run the web server (browse API + `/v1` proxy; browser UI with `--ui`).
+Run the web server (browse API + `/v1` proxy; browser UI with `--ui`). The port is
+**fixed** (2222 by default) so the URL is stable across restarts — if it's already
+taken, `serve` says so and stops rather than quietly moving to another one. Pass
+`--port`, or set a new default with `sb config set port`.
 
 ```bash
-sb serve --ui                       # browse + chat, switch models (auto-picks a free port)
-sb serve --ui --port 2222           # pin the port for a stable URL
+sb serve --ui                       # browse + chat, switch models (port 2222 by default)
+sb serve --ui --port 8080           # a different port
 sb serve --ui --model <name>        # locked single-model mode (extension backend)
 sb serve --reload                   # dev auto-reload
 ```

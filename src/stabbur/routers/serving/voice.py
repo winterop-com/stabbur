@@ -161,7 +161,7 @@ class SpeakRequest(BaseModel):
 
     text: str
     voice: str | None = None  # "kokoro:<name>"; None → the default Kokoro voice
-    speed: float | None = None  # playback speed multiplier (0.25-2.0); None → 1.0
+    speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
 
 
 @router.post("/api/speak")
@@ -195,15 +195,19 @@ class AudioSpeechRequest(BaseModel):
     ref_audio_b64: str | None = None
     ref_text: str | None = None
     seed: int | None = None  # pin a seeded model's otherwise-random voice for reproducibility
-    speed: float | None = None  # playback speed multiplier (0.25-2.0); None → 1.0
+    speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
 
 
 def _validated_speed(speed: float | None) -> float:
-    """Clamp-check a requested speed multiplier (422 outside 0.25-2.0); None -> 1.0."""
+    """Clamp-check a requested speed multiplier (422 outside the engine's range); None -> 1.0.
+
+    The bound is Kokoro's own (:mod:`stabbur.voice.kokoro`), not a number chosen here: a request
+    the validator waved through only for the engine to reject was a 500, not a 422.
+    """
     if speed is None:
         return 1.0
-    if not 0.25 <= speed <= 2.0:
-        raise HTTPException(status_code=422, detail="speed must be between 0.25 and 2.0")
+    if not kokoro.SPEED_MIN <= speed <= kokoro.SPEED_MAX:
+        raise HTTPException(status_code=422, detail=f"speed must be between {kokoro.SPEED_MIN} and {kokoro.SPEED_MAX}")
     return speed
 
 

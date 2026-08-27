@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 from rich import box
+from rich.markup import escape
 from rich.table import Table
 
 from stabbur import (
@@ -28,20 +29,26 @@ _DOCTOR_STYLE = {
 
 
 def _print_doctor_table(report: doctor.DoctorReport) -> None:
-    """Render a doctor report as the shared status table (used by `doctor` and `setup`)."""
+    """Render a doctor report as the shared status table (used by `doctor` and `setup`).
+
+    A check's own text is *data*, escaped before it meets Rich's markup. The rows carry install
+    commands and filesystem paths, and an unescaped ``[...]`` is read as a style tag and swallowed:
+    the MLX hint's ``uv tool install -e ".[mlx]"`` printed as ``-e "."`` — an install command that
+    silently installs the wrong thing, in the row whose whole job is to fix a missing runtime.
+    """
     table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False)
     table.add_column("", width=4)
     table.add_column("Check", style="bold")
     table.add_column("Detail", overflow="fold")
     for check in report.checks:
         color, label = _DOCTOR_STYLE[check.status]
-        detail = check.detail
+        detail = escape(check.detail)
         if check.hint:
-            detail += f"\n[dim]{check.hint}[/]"
+            detail += f"\n[dim]{escape(check.hint)}[/]"
         # A grouped row belongs under its parent, not beside it (Check.group). The table has no
         # tree, so indent the name — the terminal's version of the nesting the web UI renders.
-        name = f"  {check.name}" if check.group else check.name
-        table.add_row(f"[{color}]{label}[/]", name, detail)
+        name = escape(check.name)
+        table.add_row(f"[{color}]{label}[/]", f"  {name}" if check.group else name, detail)
     console.print(table)
 
 
@@ -132,7 +139,15 @@ def _setup_ui(build_ui: bool | None, yes: bool) -> None:
 
     dist = config.Settings().frontend_dir
     if (dist / "index.html").is_file():
-        console.print(f"[green]Web UI[/]  built -> {dist}")
+        # Report what is true, not what this run did: an already-built UI was built by an earlier
+        # run or by packaging, and saying "built ->" after `--no-build-ui` claimed a build that was
+        # explicitly declined.
+        console.print(f"[green]Web UI[/]  already built -> {dist}")
+        return
+    if build_ui is False:
+        # Declined explicitly: say the UI is missing and how to get it, rather than going quiet and
+        # leaving `serve --ui` to 404 with no explanation.
+        console.print("[dim]Web UI[/]  not built (--no-build-ui) — run `make frontend` when you want it.")
         return
     frontend_src = Path(__file__).resolve().parent.parent.parent / "frontend"
     if not (frontend_src / "package.json").is_file():

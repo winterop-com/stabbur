@@ -302,22 +302,73 @@ def check_library(settings: Settings) -> list[Check]:
     )
 
     models = [m for m in library_ops.scan() if m.generative and not m.is_ollama]
+    if not models:
+        checks.append(
+            Check(
+                name="Runnable models",
+                status=CheckStatus.warn,
+                detail="0 (none)",
+                hint="Pull one with `stabbur library pull` (or `stabbur library sources` to see local caches).",
+                group=LIBRARY_GROUP,
+            )
+        )
+        return checks
+
+    # "Runnable" has to mean runnable *on this machine*. Counting every generative GGUF/MLX build
+    # called a library of MLX-only models runnable on a box with no mlx_lm.server installed — a
+    # green doctor followed by `stabbur chat` dying on "not found on PATH", which is exactly the
+    # thing a pre-flight exists to catch. So each model's format is crossed against the binary it
+    # would actually spawn (see runtime.runtime_binary), and only the ones with that binary
+    # present are counted.
+    runnable, blocked = _partition_by_runtime(models)
     by_format: dict[str, int] = {}
-    for m in models:
+    for m in runnable:
         by_format[m.model_format.value] = by_format.get(m.model_format.value, 0) + 1
-    summary = ", ".join(f"{n} {fmt}" for fmt, n in sorted(by_format.items())) if models else "none"
+    summary = ", ".join(f"{n} {fmt}" for fmt, n in sorted(by_format.items())) if runnable else "none"
+    detail = f"{len(runnable)} ({summary})" if not blocked else f"{len(runnable)} of {len(models)} ({summary})"
     checks.append(
         Check(
             name="Runnable models",
-            status=CheckStatus.ok if models else CheckStatus.warn,
-            detail=f"{len(models)} ({summary})",
-            hint=None
-            if models
-            else "Pull one with `stabbur library pull` (or `stabbur library sources` to see local caches).",
+            status=CheckStatus.ok if runnable and not blocked else CheckStatus.warn,
+            detail=detail,
+            hint=None if not blocked else _missing_runtime_hint(blocked),
             group=LIBRARY_GROUP,
         )
     )
     return checks
+
+
+def _partition_by_runtime(
+    models: list[library_ops.LibraryModel],
+) -> tuple[list[library_ops.LibraryModel], dict[str, int]]:
+    """Split models into those whose runtime binary is installed and a count of those blocked by binary.
+
+    The second half is keyed by the *missing* binary, because that is what a hint has to name:
+    "install this one thing and N of your models start working".
+    """
+    runnable: list[library_ops.LibraryModel] = []
+    blocked: dict[str, int] = {}
+    present: dict[str, bool] = {}  # resolve each binary once, not once per model
+    for m in models:
+        binary = runtime.runtime_binary(m)
+        if binary is None:
+            continue  # not runnable by stabbur at all; it was never a candidate
+        if binary not in present:
+            present[binary] = runtime.resolve_binary(binary) is not None
+        if present[binary]:
+            runnable.append(m)
+        else:
+            blocked[binary] = blocked.get(binary, 0) + 1
+    return runnable, blocked
+
+
+def _missing_runtime_hint(blocked: dict[str, int]) -> str:
+    """Say which binary is missing and how many models are waiting on it."""
+    parts = [
+        f"{n} model{'' if n == 1 else 's'} need{'s' if n == 1 else ''} {binary!r}, which isn't installed"
+        for binary, n in sorted(blocked.items())
+    ]
+    return "; ".join(parts) + " — see the Runtimes rows above for how to install it."
 
 
 def check_model(settings: Settings, *, loaded: LoadedModel | None = None, resident: str | None = None) -> list[Check]:
@@ -377,14 +428,35 @@ def check_model(settings: Settings, *, loaded: LoadedModel | None = None, reside
         ]
     resolved = library_ops.find(default_model)
     source = "project default" if (proj and proj.model) else "machine default"
+    if not resolved:
+        return [
+            Check(
+                name=MODEL_ROW,
+                status=CheckStatus.warn,
+                detail=f"{default_model} - {source}, not in library",
+                hint=f"Pull it: `stabbur library pull huggingface {default_model}`.",
+            )
+        ]
+    # Present is not the same as runnable: the default model can sit right there on the drive and
+    # still be unstartable because the runtime its format needs isn't installed. That is precisely
+    # what `stabbur chat` fails with a moment later, so say it here instead of reporting ok.
+    missing = _missing_binary(resolved[0])
     return [
         Check(
             name=MODEL_ROW,
-            status=CheckStatus.ok if resolved else CheckStatus.warn,
-            detail=f"{default_model} - {source}" + ("" if resolved else ", not in library"),
-            hint=None if resolved else f"Pull it: `stabbur library pull huggingface {default_model}`.",
+            status=CheckStatus.ok if missing is None else CheckStatus.warn,
+            detail=f"{default_model} - {source}" + ("" if missing is None else f", but {missing!r} isn't installed"),
+            hint=None if missing is None else runtime._INSTALL_HINTS.get(missing),
         )
     ]
+
+
+def _missing_binary(model: library_ops.LibraryModel) -> str | None:
+    """The runtime binary ``model`` needs and this machine lacks, or ``None`` when it can run."""
+    binary = runtime.runtime_binary(model)
+    if binary is None or runtime.resolve_binary(binary) is not None:
+        return None
+    return binary
 
 
 def check_project(settings: Settings) -> list[Check]:
