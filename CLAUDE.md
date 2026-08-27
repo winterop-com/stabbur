@@ -76,7 +76,10 @@ Two distinct, composable concepts (see `stabbur.library.roots`):
   archive. `[project]` (model + system prompt) and `[voice]` define the assistant; **tools
   live in `.mcp.json`** (standard `mcpServers` JSON, see below), not in `stabbur.toml`. A project
   references models **by name**, never by path — so it's portable/committable. Outside a
-  project, just the default library is used.
+  project, just the default library is used. The manifest is found by **walking up** from the cwd
+  (`project.discover`; stops at home, at a mount boundary, never searches `/`), so every
+  project-relative path — `libraries`, `.mcp.json` — resolves against the *manifest's* directory,
+  never the cwd. `project init` still scaffolds where you stand, warning when that nests.
 
 `library.scan()` reads across the resolved libraries (first match wins); each model
 records its `library_root` so tags read/write against the right library. All **portable

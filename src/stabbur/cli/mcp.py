@@ -10,6 +10,7 @@ from rich.table import Table
 
 from stabbur import (
     mcpservers,
+    project,
 )
 from stabbur.cli._app import mcp_app
 from stabbur.cli._common import (
@@ -114,10 +115,12 @@ def mcp_add(
 ) -> None:
     """Add an MCP server to the standard ``mcpServers`` JSON (idempotent — replaces by name).
 
-    Targets this directory's ``.mcp.json`` by default, or the machine-global
-    ``~/.config/stabbur/mcp.json`` with ``--global`` (tools every free-play chat gets). Resolves
-    ``name`` against installed first-party plugins first, then the external catalog; edit the
-    entry afterwards if its command has a placeholder (path/profile).
+    Targets the project's ``.mcp.json`` by default — the one beside the ``stabbur.toml`` found by
+    walking up from here, so adding a tool from a subdirectory extends *this* project rather than
+    scattering a second file. Outside a project it is this directory's ``./.mcp.json``, as before.
+    ``--global`` writes ``~/.config/stabbur/mcp.json`` instead (tools every free-play chat gets).
+    Resolves ``name`` against installed first-party plugins first, then the external catalog; edit
+    the entry afterwards if its command has a placeholder (path/profile).
     """
     from stabbur import plugins  # noqa: PLC0415
 
@@ -145,8 +148,10 @@ def mcp_add(
         return
 
     # In a uv *project* (pyproject.toml present, not --global) the server is a pinned dependency,
-    # so drop the runtime `uvx` fetch from the command and add the package to pyproject.toml.
-    pyproject = Path("pyproject.toml")
+    # so drop the runtime `uvx` fetch from the command and add the package to pyproject.toml. The
+    # pyproject that counts is the discovered project's own, not whatever sits in the cwd — the
+    # .mcp.json being written is that project's, so the dependency has to be pinned in the same one.
+    pyproject = (project.project_root() or Path.cwd()) / "pyproject.toml"
     uv_project = not to_global and pyproject.is_file()
     mcpservers.add(_to_mcp_server(entry_name, scaffold.strip_uvx(command) if uv_project else command), glob=to_global)
     console.print(f"[green]Added[/] [cyan]{entry_name}[/] to {target}")
@@ -167,7 +172,7 @@ def mcp_add(
     if to_global:
         check = "stabbur doctor"
     else:
-        check = "stabbur project show" if Path("stabbur.toml").is_file() else "stabbur mcp list"
+        check = "stabbur project show" if project.discover() is not None else "stabbur mcp list"
     console.print(f"[dim]Check it:[/] {check}")
 
 

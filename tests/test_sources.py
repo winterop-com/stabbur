@@ -606,8 +606,10 @@ def test_scan_spans_multiple_libraries(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_roots_resolves_project_libraries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A project's `libraries` list resolves relative paths against the cwd and the
-    # `@shared` token to the machine default (library_root); no project → just the default.
+    # A project's `libraries` list resolves relative paths against the project's own directory
+    # (`Project.directory` — the cwd for an in-memory Project with no manifest, as here; see
+    # tests/test_project_discovery.py for the on-disk case) and the `@shared` token to the machine
+    # default (library_root); no project → just the default.
     from stabbur import project
 
     shared = tmp_path / "shared"

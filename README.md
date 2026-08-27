@@ -186,7 +186,8 @@ Two separate concepts:
 
 - **A project** (`stabbur.toml`, via `sb project init` / `sb project new <dir>`) — a
   purpose-built **assistant**: `[project].model` + `system_prompt`, with tools in a sibling
-  `.mcp.json` (standard `mcpServers`). In a project, `sb serve` / `sb chat` bind to that
+  `.mcp.json` (standard `mcpServers`). In a project — or any subdirectory of one, since the
+  manifest is found by walking up like `git` finds `.git` — `sb serve` / `sb chat` bind to that
   model (like `--model`, with its tools + prompt); **outside** a project it's free-play
   (pick/switch any model). A project uses the machine library by default.
 

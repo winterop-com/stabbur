@@ -15,12 +15,21 @@ This module is the **single owner** of the project side of ``stabbur.toml`` (A1)
 ``stabbur.toml`` has two readers by design: *machine* settings (env-overridable, per-machine) live in
 :class:`stabbur.config.Settings`; the *portable* assistant manifest (``[project]`` / ``[voice]`` /
 ``[assistant]`` / ``libraries``) lives here. Same file, two purposes, one parser.
+
+The manifest is found by **walking up** from the working directory (:func:`discover`), the way ``git``,
+``npm`` and every ``.mcp.json``-reading tool find theirs — see that function for the exact rule and its
+boundaries. Because a project is therefore usually *above* the cwd, everything a manifest names is
+resolved **relative to the manifest's own directory** (:attr:`Project.directory`), never to the cwd:
+its ``libraries`` entries (:func:`stabbur.library.roots`) and its ``.mcp.json``
+(:func:`stabbur.mcpservers.project_path`). A relative path in a manifest means what the scaffold
+comment says it means — "relative to this file" — from anywhere inside the project.
 """
 
 import json
 import re
 import tomllib
 import warnings
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +48,81 @@ _DEFAULT_PATH = Path("stabbur.toml")
 def _manifest_path(base: Path = Path()) -> Path:
     """The manifest to read under ``base``."""
     return base / _DEFAULT_PATH
+
+
+def _home() -> Path | None:
+    """The user's home directory, resolved — ``None`` when it can't be determined.
+
+    Only a discovery *boundary* (see :func:`_search_dirs`), so an environment without a usable home
+    (no ``HOME``, no passwd entry) must degrade to "one fewer stopping rule", never to a crash.
+    """
+    try:
+        return Path.home().resolve()
+    except (RuntimeError, OSError):
+        return None
+
+
+def _device(path: Path) -> int | None:
+    """``path``'s filesystem device id, or ``None`` if it can't be stat'd (treated as "unknown")."""
+    try:
+        return path.stat().st_dev
+    except OSError:
+        return None
+
+
+def _search_dirs(start: Path) -> Iterator[Path]:
+    """Yield ``start`` and each parent that discovery is allowed to look in, nearest first.
+
+    The walk stops on the first of three boundaries, so a manifest far away from where you stand can
+    never quietly claim your shell:
+
+    * **the filesystem root is never searched** — a ``stabbur.toml`` in ``/`` applies to nothing;
+    * **home is the ceiling** — home itself is searched, its parent (``/Users``, ``/home``) is not;
+    * **mount boundaries** — a ``st_dev`` change stops the walk, so standing in a project on an
+      external drive never reaches back into the machine's own filesystem.
+    """
+    home = _home()
+    start_device = _device(start)
+    current = start
+    while current.parent != current:  # the root itself is never a candidate
+        yield current
+        if home is not None and current.resolve() == home:
+            return
+        if start_device is not None and _device(current.parent) != start_device:
+            return
+        current = current.parent
+
+
+def discover(start: Path | None = None) -> Path | None:
+    """The nearest ``stabbur.toml`` at or above ``start`` (default: the working directory).
+
+    Discovery walks up from ``start`` and returns the **first** directory's manifest, the way ``git``
+    finds ``.git`` and every ``.mcp.json``-reading tool finds its config — so ``stabbur chat`` in
+    ``myproject/src/`` binds to ``myproject``'s assistant instead of silently dropping to free-play.
+    Returns ``None`` when no manifest is in scope. See :func:`_search_dirs` for the boundaries.
+
+    The result is **absolute**, so a caller can always say *which* project applies — with one
+    deliberate exception: a manifest in the working directory itself, found by the no-argument call,
+    comes back as the plain relative ``Path("stabbur.toml")``. That is what every error message and
+    hint printed before walk-up existed, and standing in the project root is the case where the full
+    path adds nothing. Pass ``start`` explicitly to get an absolute path unconditionally.
+    """
+    bare = start is None
+    start = Path.cwd() if start is None else start
+    for index, directory in enumerate(_search_dirs(start)):
+        candidate = _manifest_path(directory)
+        if candidate.is_file():
+            return _DEFAULT_PATH if bare and index == 0 else candidate.resolve()
+    return None
+
+
+def project_root(start: Path | None = None) -> Path | None:
+    """The directory holding the nearest ``stabbur.toml``, or ``None`` outside a project.
+
+    The base every project-relative path resolves against — ``libraries`` entries and ``.mcp.json``.
+    """
+    found = discover(start)
+    return None if found is None else found.resolve().parent
 
 
 _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+\Z")
@@ -339,6 +423,21 @@ class Project(BaseModel):
     # ``None`` / empty when no ``[assistant]`` or ``[[assistants]]`` block is present.
     assistant: AssistantInfo | None = None
     registry: AssistantRegistry = Field(default_factory=AssistantRegistry)
+    manifest_path: Path | None = None
+    """Where this manifest was found — set by :func:`load`, ``None`` for a hand-built ``Project``.
+
+    Carried on the model because the manifest is usually *above* the cwd (:func:`discover`), so
+    "relative to the project" and "relative to where I am" are different answers; consumers resolve
+    against :attr:`directory`."""
+
+    @property
+    def directory(self) -> Path:
+        """The directory every project-relative path resolves against.
+
+        The manifest's own directory (so ``libraries = ["models"]`` means ``<project>/models`` from
+        any subdirectory), falling back to the working directory for a ``Project`` built in memory.
+        """
+        return Path.cwd() if self.manifest_path is None else self.manifest_path.resolve().parent
 
     @model_validator(mode="after")
     def _sync_assistant_and_registry(self) -> "Project":
@@ -368,9 +467,12 @@ def read_raw(path: Path | None = None) -> dict[str, Any]:
     Returns ``{}`` if the file doesn't exist. Both :func:`load` (the manifest) and
     :mod:`stabbur.config` (the machine settings) call this, so malformed TOML raises a single
     :class:`ProjectError` from one place instead of crashing differently in each reader.
+
+    With no ``path`` the manifest is the discovered one (:func:`discover`) — the machine settings a
+    project carries apply from its subdirectories too, exactly as its ``[project]`` block does.
     """
-    path = _manifest_path() if path is None else path
-    if not path.is_file():
+    path = discover() if path is None else path
+    if path is None or not path.is_file():
         return {}
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
@@ -448,14 +550,19 @@ def _warn_legacy_tools(data: dict[str, Any], path: Path) -> None:
 
 
 def load(path: Path | None = None) -> Project | None:
-    """Load the project manifest from ``path``, or ``None`` if the file doesn't exist.
+    """Load the project manifest from ``path``, or ``None`` if there is no project in scope.
+
+    With no ``path`` the manifest is the discovered one (:func:`discover`) — the nearest
+    ``stabbur.toml`` at or above the working directory — and the loaded :class:`Project` remembers
+    where it came from (:attr:`Project.manifest_path`), so its relative paths resolve against the
+    project rather than against wherever the command happened to be run.
 
     Raises :class:`ProjectError` (with a readable message) on malformed TOML or a bad manifest —
     users hand-edit this file, so a typo must not crash every command. A wrong-*typed* value is a
     typo too, so it fails the same way rather than being coerced or dropped.
     """
-    path = _manifest_path() if path is None else path
-    if not path.is_file():
+    path = discover() if path is None else path
+    if path is None or not path.is_file():
         return None
     data = read_raw(path)
     project = _require_table(data.get("project", {}), "[project]", path)
@@ -478,6 +585,7 @@ def load(path: Path | None = None) -> Project | None:
             voice_enabled=_require_bool(voice.get("enabled", True), "[voice] enabled", path),
             libraries=libraries,
             registry=registry,
+            manifest_path=path,
         )
     except (TypeError, ValidationError) as exc:
         raise ProjectError(f"{path} has an invalid value: {exc}") from exc

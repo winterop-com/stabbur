@@ -172,6 +172,40 @@ def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.Monk
     assert "today" in result.output  # the real tool name, not just "datetime"
 
 
+def test_project_show_from_a_subdirectory_names_the_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Run from a subdirectory, `show` binds to the project found above — and says which one, since
+    # "Project (stabbur.toml)" would name a file that isn't in this directory at all.
+    from stabbur import mcpservers
+
+    (tmp_path / "stabbur.toml").write_text('[project]\nmodel = "unsloth/X-GGUF"\nsystem_prompt = "Be concise."\n')
+    sub = tmp_path / "src"
+    sub.mkdir()
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
+    monkeypatch.setattr(mcpservers, "resolve", lambda *a, **k: [])  # hermetic: no MCP servers to spawn
+    monkeypatch.chdir(sub)
+    result = runner.invoke(cli.app, ["project", "show"])
+    assert result.exit_code == 0, result.output
+    assert str(tmp_path / "stabbur.toml") in result.output
+    assert "Be concise." in result.output  # it really loaded the parent's project
+
+
+def test_project_init_warns_when_it_nests_inside_a_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `init` scaffolds where you stand, always — but inside an existing project that shadows the
+    # outer assistant from here down, which is worth a word rather than a silent surprise.
+    monkeypatch.setattr(library_ops, "configured", lambda *a, **k: True)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
+    monkeypatch.setattr(cli.project, "_pick_tools_interactive", lambda: [])
+    (tmp_path / "stabbur.toml").write_text('[project]\nmodel = "unsloth/X-GGUF"\n')
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
+
+    result = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
+    assert result.exit_code == 0, result.output
+    assert "inside an existing project" in result.output
+    assert (sub / "stabbur.toml").is_file()  # scaffolded here, not redirected up to the outer project
+
+
 def test_project_show_without_manifest_hints_init(monkeypatch: pytest.MonkeyPatch) -> None:
     from stabbur import project as project_mod
 
@@ -374,6 +408,22 @@ def test_mcp_add_hint_matches_where_you_are(tmp_path: Path, monkeypatch: pytest.
     in_project = runner.invoke(cli.app, ["mcp", "add", "datetime"])
     assert in_project.exit_code == 0, in_project.output
     assert "stabbur project show" in in_project.output
+
+
+def test_mcp_add_writes_into_the_discovered_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # From a subdirectory, `mcp add` extends *this* project's toolset instead of dropping a second
+    # .mcp.json where you happen to be standing — which the project would never read.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    (tmp_path / "stabbur.toml").write_text("[project]\n")
+    sub = tmp_path / "src" / "deep"
+    sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+
+    result = runner.invoke(cli.app, ["mcp", "add", "datetime"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".mcp.json").is_file()
+    assert not (sub / ".mcp.json").exists()
+    assert "stabbur project show" in result.output  # a project is in scope, so that hint applies
 
 
 def test_voice_import_rejects_all_with_ids() -> None:
