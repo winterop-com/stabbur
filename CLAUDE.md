@@ -208,6 +208,15 @@ Non-obvious landmines that aren't self-evident from the code:
 
 ## Dev workflow
 
+- **Branch and PR, never straight to `main`.** Every change goes on a `<type>/<short-description>`
+  branch and lands through a pull request — including one-line fixes and docs. `main` is public and
+  published from: a tag on it publishes to PyPI, and its README is the PyPI project page, so a
+  mistake there is visible to everyone before anyone can review it. A PR is also where a reviewer
+  can see the reasoning; a direct push has no such place.
+- **Merge a PR once its checks are green.** Do not let green PRs queue up: each one that waits is
+  a branch drifting from `main`, and stacked branches turn one conflict into several. Merge in
+  dependency order when two touch the same lines, and rebase the loser rather than resolving a
+  conflict blind.
 - `make check` is the CI gate (read-only, also run in `.github/workflows/ci.yml`); `make lint`
   mutates locally. Run `make lint` and `make test` before committing.
 - The gate covers the **SPA** too: `oxlint` (`frontend/.oxlintrc.json`, via `bun run lint`) for its
