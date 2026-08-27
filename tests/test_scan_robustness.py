@@ -59,6 +59,78 @@ def test_copy_verified_matches_and_detects_drift(tmp_path: Path) -> None:
     assert base.copy_verified(src, dest) is False
 
 
+def test_copy_verified_compares_bytes_not_just_sizes(tmp_path: Path) -> None:
+    # A same-size, different-bytes copy (a bad write on the no-journaling drive) is not a copy:
+    # sizes alone said "verified" and licensed deleting the good source.
+    src, dest = tmp_path / "src", tmp_path / "dest"
+    _gguf(src, "m.gguf", b"good-weights")
+    _gguf(dest, "m.gguf", b"BAD!-weights")  # identical length
+    assert base.copy_verified(src, dest) is False
+    _gguf(dest, "m.gguf", b"good-weights")
+    assert base.copy_verified(src, dest) is True
+
+
+def test_copy_verified_refuses_vacuous_matches(tmp_path: Path) -> None:
+    # copy_verified is the permit to delete the *only other* copy, so nothing-vs-nothing must be
+    # False. Every case here used to answer True and hand a caller that permit.
+    empty_src, empty_dest = tmp_path / "empty-src", tmp_path / "empty-dest"
+    empty_src.mkdir()
+    empty_dest.mkdir()
+    assert base.copy_verified(empty_src, empty_dest) is False  # empty vs empty
+
+    hollow_src, hollow_dest = tmp_path / "hollow-src", tmp_path / "hollow-dest"
+    _gguf(hollow_src, "m.gguf", b"")  # files, but no content at all
+    _gguf(hollow_dest, "m.gguf", b"")
+    assert base.copy_verified(hollow_src, hollow_dest) is False
+
+    missing = tmp_path / "not-there"
+    assert base.copy_verified(hollow_src, missing) is False  # a dest that isn't there
+    real = tmp_path / "real"
+    _gguf(real, "m.gguf", b"weights")
+    assert base.copy_verified(real, real) is False  # a dir is not a backup of itself
+
+
+def test_copy_verified_follows_symlinks_like_dir_stats(tmp_path: Path) -> None:
+    # The measuring side (dir_stats) followed symlinks while the verifying side skipped them, so a
+    # symlinked source (the HF cache's snapshots/ layout) measured as "no files" and an EMPTY dest
+    # verified clean — after which --move / migrate deleted the only real copy.
+    blob = tmp_path / "blob.bin"
+    blob.write_bytes(b"weights" * 512)
+    src, dest = tmp_path / "src", tmp_path / "dest"
+    src.mkdir()
+    dest.mkdir()
+    (src / "model.gguf").symlink_to(blob)
+
+    assert base.dir_stats(src) == (blob.stat().st_size, 1)  # measured: one file with content
+    assert base.copy_verified(src, dest) is False  # ... so an empty dest is not a copy of it
+
+    (dest / "model.gguf").write_bytes(blob.read_bytes())  # what copy_tree(symlinks=False) writes
+    assert base.copy_verified(src, dest) is True
+    assert base.dir_stats(src) == base.dir_stats(dest)  # measure and verify agree
+
+
+def test_stats_skip_dirs_match_relative_to_the_measured_root(tmp_path: Path) -> None:
+    # S-M2: the skip-dirs were matched against the ABSOLUTE path's parts, so a library root that
+    # itself sits under a `.stabbur/` or `.cache/` ancestor (a project's
+    # ``libraries = [".stabbur/library"]``) measured every model as zero files — which made
+    # copy_verified vacuously true for it.
+    src = tmp_path / ".stabbur" / "library" / "gguf" / "pub" / "Foo-GGUF"
+    _gguf(src, "m.gguf", b"weights")
+    assert base.dir_stats(src) == (7, 1)
+
+    dest = tmp_path / ".cache" / "other-lib" / "gguf" / "pub" / "Foo-GGUF"
+    _gguf(dest, "m.gguf", b"DIFFERE")  # same size, different bytes
+    assert base.copy_verified(src, dest) is False
+    _gguf(dest, "m.gguf", b"weights")
+    assert base.copy_verified(src, dest) is True
+
+    # Still relative, so a model's own sidecar/bookkeeping is skipped as before.
+    _gguf(src / ".stabbur", "metadata.json", b"{}")
+    _gguf(src / ".cache", "download.lock", b"lock")
+    assert base.dir_stats(src) == (7, 1)
+    assert base.copy_verified(src, dest) is True
+
+
 # --- C-N2: remove reports nothing freed when the files can't be deleted ---
 
 
@@ -119,6 +191,56 @@ def test_migrate_move_does_not_nest_into_a_racing_dest(tmp_path: Path) -> None:
     library.apply_migration(plan)
     assert not (tmp_path / "gguf" / "pub" / "Bar-GGUF" / "Bar-GGUF").exists()  # no nesting
     assert (hf / "m.gguf").exists()  # conflict → hf copy left untouched
+
+
+def _symlinked_hf_model(tmp_path: Path, content: bytes = b"complete-weights") -> Path:
+    """An old-layout ``huggingface/`` model whose weight file is a symlink into a blob."""
+    blob = tmp_path / "blob.gguf"
+    blob.write_bytes(content)
+    hf = tmp_path / "huggingface" / "pub" / "Foo-GGUF"
+    hf.mkdir(parents=True)
+    (hf / "m.gguf").symlink_to(blob)
+    return hf
+
+
+def test_migrate_move_keeps_a_symlinked_source_when_the_racing_dest_is_empty(tmp_path: Path) -> None:
+    # The data-loss path: the verifier skipped symlinks while dir_stats followed them, so a
+    # symlinked source measured as "no files" and matched an existing-but-EMPTY bucket dir (an
+    # interrupted pull). apply_migration then deleted the source — the only copy — as a dup.
+    hf = _symlinked_hf_model(tmp_path)
+    plan = library.plan_migration(tmp_path)
+    assert plan and plan[0].kind == "move"
+    (tmp_path / "gguf" / "pub" / "Foo-GGUF").mkdir(parents=True)  # empty dir appears before apply
+
+    assert library.apply_migration(plan) == (0, 0, 0)  # nothing moved, nothing deduped
+    assert (hf / "m.gguf").read_bytes() == b"complete-weights"  # the only copy survives
+
+
+def test_migrate_does_not_plan_a_dedup_against_an_empty_bucket_dir(tmp_path: Path) -> None:
+    # Same measurement hole seen at plan time: an empty dir in the bucket must never be planned
+    # as a "verified duplicate" that licenses deleting the huggingface/ copy.
+    hf = _symlinked_hf_model(tmp_path)
+    (tmp_path / "gguf" / "pub" / "Foo-GGUF").mkdir(parents=True)
+
+    plan = library.plan_migration(tmp_path)
+    assert plan == []  # unverified conflict: left alone entirely
+    library.apply_migration(plan)
+    assert (hf / "m.gguf").read_bytes() == b"complete-weights"
+
+
+def test_migrate_dedup_reverifies_the_bucket_copy_before_deleting(tmp_path: Path) -> None:
+    # The dedup branch re-verifies at apply time: if the bucket copy was emptied in between (a
+    # concurrent remove), the huggingface/ copy is the last one and must not be deleted.
+    hf = tmp_path / "huggingface" / "pub" / "Foo-GGUF"
+    bucket = tmp_path / "gguf" / "pub" / "Foo-GGUF"
+    _gguf(hf, "m.gguf", b"complete-weights")
+    _gguf(bucket, "m.gguf", b"complete-weights")
+    plan = library.plan_migration(tmp_path)
+    assert plan and plan[0].kind == "dedup"
+    (bucket / "m.gguf").unlink()  # bucket copy gutted between plan and apply
+
+    assert library.apply_migration(plan) == (0, 0, 0)
+    assert (hf / "m.gguf").read_bytes() == b"complete-weights"
 
 
 # --- A3: ModelRef identity + per-item fault isolation in scan ---

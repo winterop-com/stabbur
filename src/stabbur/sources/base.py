@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 
@@ -30,29 +31,99 @@ def safe_join(root: Path, name: str) -> Path:
 # recorded sizes accurate — otherwise the transient `.cache/` blobs+metadata inflate the count.
 _STATS_SKIP_DIRS = frozenset({".cache", ".stabbur"})
 
+# Read size for the byte-for-byte compare. Model weights run to many gigabytes on a slow
+# external drive, so the comparison streams a chunk at a time and never holds a file in memory.
+_COMPARE_CHUNK = 1 << 20  # 1 MiB
 
-def _real_file_sizes(path: Path) -> dict[str, int]:
-    """``{relative_posix_path: size}`` of a tree's real files (skipping ``.cache``/``.stabbur``/``._``)."""
-    out: dict[str, int] = {}
+
+def _is_bookkeeping(child: Path, root: Path) -> bool:
+    """Whether a walked path is bookkeeping rather than model content.
+
+    The skip-dir match is made against the path **relative to** ``root``, never its absolute
+    parts: a library whose own root sits under a ``.cache/`` or ``.stabbur/`` ancestor (e.g. a
+    project with ``libraries = [".stabbur/library"]``) would otherwise have every one of its
+    models measured as zero files — which in turn makes :func:`copy_verified` vacuously true.
+    """
+    if child.name.startswith("._"):
+        return True
+    try:
+        relative = child.relative_to(root)
+    except ValueError:  # vanished/renamed mid-walk; not something we can attribute to root
+        return True
+    return bool(_STATS_SKIP_DIRS.intersection(relative.parts))
+
+
+def _walk_real_files(path: Path) -> Iterator[Path]:
+    """Yield the model-content files under ``path`` (skipping ``.cache``/``.stabbur``/``._``).
+
+    Symlinks are followed when they resolve (the HF cache stores real blobs behind symlinked
+    snapshots); broken links and files that vanish mid-walk are skipped. This is the single
+    walker behind both :func:`dir_stats` and :func:`copy_verified`, so the side that *measures*
+    a tree and the side that *verifies* it can never disagree about which files count.
+    """
     for child in path.rglob("*"):
-        if child.name.startswith("._") or _STATS_SKIP_DIRS.intersection(child.parts):
+        if _is_bookkeeping(child, path):
             continue
         try:
-            if child.is_file() and not child.is_symlink():
-                out[child.relative_to(path).as_posix()] = child.stat().st_size
+            if child.is_file():
+                yield child
+        except OSError:
+            continue
+
+
+def _real_file_sizes(path: Path) -> dict[str, int]:
+    """``{relative_posix_path: size}`` of a tree's model-content files."""
+    out: dict[str, int] = {}
+    for child in _walk_real_files(path):
+        try:
+            out[child.relative_to(path).as_posix()] = child.stat().st_size
         except OSError:
             continue
     return out
 
 
-def copy_verified(src: Path, dest: Path) -> bool:
-    """Whether ``dest`` holds exactly ``src``'s real files (same relative paths and sizes).
+def _same_bytes(left: Path, right: Path) -> bool:
+    """Whether two files hold identical bytes, compared a chunk at a time."""
+    try:
+        with left.open("rb") as lhs, right.open("rb") as rhs:
+            while True:
+                chunk = lhs.read(_COMPARE_CHUNK)
+                if chunk != rhs.read(_COMPARE_CHUNK):
+                    return False
+                if not chunk:
+                    return True
+    except OSError:
+        return False
 
-    Stronger than an aggregate-byte total — it catches a missing/extra file and a per-file
-    truncation, not just a different grand total. Used to gate ``--move`` before deleting the
-    source on the no-journaling exFAT target (a same-total but different file set won't pass).
+
+def copy_verified(src: Path, dest: Path) -> bool:
+    """Whether ``dest`` is a byte-for-byte copy of every model-content file under ``src``.
+
+    This is the gate that licenses deleting the *only other* copy of a model (``pull --move``,
+    the migration's dedup branch), so it is deliberately unforgiving:
+
+    * both sides must be existing, distinct directories — a dest that is the src, or isn't
+      there, verifies nothing;
+    * ``src`` must actually hold content. An empty tree, or one whose files are all zero bytes,
+      returns False rather than "everything matched" — otherwise nothing-vs-nothing would read
+      as a successful copy and license the delete;
+    * the relative-path/size maps must match exactly (a missing, extra or truncated file fails);
+    * every pair is then compared byte for byte, streamed in chunks — same-size-different-bytes
+      (a corrupt copy on the no-journaling exFAT target) fails too.
     """
-    return _real_file_sizes(src) == _real_file_sizes(dest)
+    if not src.is_dir() or not dest.is_dir():
+        return False
+    try:
+        if src.resolve() == dest.resolve():
+            return False
+    except OSError:
+        return False
+    src_files = _real_file_sizes(src)
+    if not src_files or not any(src_files.values()):
+        return False
+    if src_files != _real_file_sizes(dest):
+        return False
+    return all(_same_bytes(src / relative, dest / relative) for relative in src_files)
 
 
 def dir_stats(path: Path) -> tuple[int, int]:
@@ -70,20 +141,8 @@ def dir_stats(path: Path) -> tuple[int, int]:
     """
     if not path.is_dir():
         return (0, 0)
-
-    total_bytes = 0
-    file_count = 0
-    for child in path.rglob("*"):
-        if child.name.startswith("._") or _STATS_SKIP_DIRS.intersection(child.parts):
-            continue
-        try:
-            if child.is_file():
-                total_bytes += child.stat().st_size
-                file_count += 1
-        except OSError:
-            # Broken symlink or vanished file mid-walk; ignore it.
-            continue
-    return (total_bytes, file_count)
+    sizes = _real_file_sizes(path)
+    return (sum(sizes.values()), len(sizes))
 
 
 def copy_tree(src: Path, dest: Path) -> tuple[int, int]:

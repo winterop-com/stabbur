@@ -85,4 +85,7 @@ def pull(
                 destination=res.dest,
                 size_bytes=res.copied_bytes,
                 file_count=res.file_count,
+                # Carry the import's own verdict: dropping it made every voice --move report
+                # "local copy KEPT" even when the cache copy had in fact been deleted.
+                source_removed=res.cache_pruned,
             )

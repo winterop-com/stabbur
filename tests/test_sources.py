@@ -275,6 +275,30 @@ def test_lmstudio_backup_move_removes_source(tmp_path: Path) -> None:
     assert (library_root / "gguf" / "pub" / "Model-GGUF" / "model.gguf").is_file()
     assert not model_dir.exists()  # local source removed after verified copy
     assert result.size_bytes == 4096
+    assert result.source_removed is True
+
+
+def test_lmstudio_move_keeps_source_when_the_copy_is_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # --move deletes the only other copy, so a copy that lands with the right size but the wrong
+    # bytes (a bad write on the drive) must keep the source and say so.
+    store = tmp_path / "lmstudio"
+    model_dir = store / "pub" / "Model-GGUF"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.gguf").write_bytes(b"w" * 4096)
+    library_root = tmp_path / "backup"
+
+    real_copy_tree = lmstudio.copy_tree
+
+    def corrupting_copy_tree(src: Path, dest: Path) -> tuple[int, int]:
+        stats = real_copy_tree(src, dest)
+        (dest / "model.gguf").write_bytes(b"x" * 4096)  # same size, different bytes
+        return stats
+
+    monkeypatch.setattr(lmstudio, "copy_tree", corrupting_copy_tree)
+    result = lmstudio.pull("pub/Model-GGUF", library_root, models_dir=store, move=True)
+
+    assert result.source_removed is False
+    assert (model_dir / "model.gguf").read_bytes() == b"w" * 4096  # source kept, intact
 
 
 def _make_library(root: Path) -> None:

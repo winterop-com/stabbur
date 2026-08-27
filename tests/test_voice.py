@@ -82,6 +82,65 @@ def test_import_copies_from_cache_and_prunes(tmp_path: Path, monkeypatch: object
     assert next(p for p in voice.discover(lib) if p.spec.id == "kokoro").location == "library"
 
 
+def test_import_keeps_the_cache_copy_when_the_library_copy_is_short(tmp_path: Path, monkeypatch: object) -> None:
+    # The prune used to be gated on an aggregate byte total with 5% slack, which cannot tell a
+    # complete copy from a short one. A copy that isn't byte-for-byte keeps the cache copy.
+    import shutil
+
+    import pytest
+
+    assert isinstance(monkeypatch, pytest.MonkeyPatch)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    repo_cache = voice.hf_hub_cache() / "models--mlx-community--Kokoro-82M-bf16"
+    (repo_cache / "snapshots" / "abc123").mkdir(parents=True)
+    (repo_cache / "snapshots" / "abc123" / "model.bin").write_bytes(b"x" * 4096)
+    (repo_cache / "refs").mkdir()
+    (repo_cache / "refs" / "main").write_text("abc123")
+    lib = tmp_path / "lib"
+
+    from stabbur.voice import importer
+
+    real_copytree = shutil.copytree
+
+    def short_copytree(
+        src: Path | str, dst: Path | str, *, symlinks: bool = False, dirs_exist_ok: bool = False
+    ) -> Path | str:
+        out = real_copytree(src, dst, symlinks=symlinks, dirs_exist_ok=dirs_exist_ok)
+        (Path(dst) / "model.bin").write_bytes(b"x" * 4000)  # 96 bytes short: within the old 5% slack
+        return out
+
+    monkeypatch.setattr(shutil, "copytree", short_copytree)
+    presence = next(p for p in voice.discover(lib) if p.spec.id == "kokoro")
+    result = importer.import_to_library(presence, lib, prune_cache=True)
+
+    assert result.cache_pruned is False
+    assert repo_cache.exists()  # the cache copy is the only complete one — keep it
+
+
+def test_voice_pull_move_reports_the_cache_prune_honestly(tmp_path: Path, monkeypatch: object) -> None:
+    # catalog.pull's voice branch dropped ImportResult.cache_pruned, so ``library pull voice
+    # --move`` printed "local copy KEPT - copy could not be verified" for a prune that happened.
+    import pytest
+
+    assert isinstance(monkeypatch, pytest.MonkeyPatch)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    repo_cache = voice.hf_hub_cache() / "models--mlx-community--Kokoro-82M-bf16"
+    (repo_cache / "snapshots" / "abc123").mkdir(parents=True)
+    (repo_cache / "snapshots" / "abc123" / "model.bin").write_bytes(b"x" * 4096)
+    (repo_cache / "refs").mkdir()
+    (repo_cache / "refs" / "main").write_text("abc123")
+    lib = tmp_path / "lib"
+
+    from stabbur import catalog
+    from stabbur.models import ModelSource
+
+    result = catalog.pull(ModelSource.voice, "kokoro", library_root=lib, move=True)
+
+    assert result.source_removed is True  # the cache copy really was pruned
+    assert not repo_cache.exists()
+    assert result.file_count == 1 and result.size_bytes == 4096
+
+
 def test_pull_copies_from_another_library_without_downloading(tmp_path: Path, monkeypatch: object) -> None:
     # A model already in @shared must be copied into the project-local library, not re-downloaded.
     import pytest
