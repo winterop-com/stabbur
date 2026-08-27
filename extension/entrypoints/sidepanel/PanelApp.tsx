@@ -13,6 +13,7 @@ import { migrateLegacyRecords } from "../../lib/binding";
 import { activeBackend, normalizeBaseUrl, setSettings, watchSettings, type Settings } from "../../lib/settings";
 import { getTabUrl, selectTarget, subscribeTabUrl } from "../../lib/tabTarget";
 import { collect, formatPageContext } from "../../lib/pageContext";
+import { executePageAction, type PageActionOutcome } from "../../lib/pageActions";
 import { requestHostAccess } from "../../lib/hostAccess";
 import { formatSessionContext, whoAmIResolved, type SessionResult } from "../../lib/sessionReads";
 import { ConnectionGate } from "../../components/ConnectionGate";
@@ -25,6 +26,19 @@ async function activeTabId(): Promise<number | null> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     return tab?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The active tab's id AND url from ONE query. A page action must gate on the same tab it acts
+ *  in, so it cannot read the url from the tracked-url store (which lags, and deliberately holds
+ *  the last *web* tab) and the id from a separate lookup. */
+async function activeTabWithUrl(): Promise<{ id: number; url: string } | null> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id === undefined || !tab.url) return null;
+    return { id: tab.id, url: tab.url };
   } catch {
     return null;
   }
@@ -223,6 +237,31 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     if (granted) setProbeEpoch((e) => e + 1);
   }
 
+  // Run one page action the model asked for (WEBMCP.md 5b). This function is the whole of rule 3
+  // ("the bound/matched tab only") on the client: the tab is resolved HERE, from the browser, and
+  // the action name is the only thing that crosses from the message. Nothing in the frame names a
+  // tab, and nothing here would read it if it did.
+  //
+  // Which tab is allowed:
+  //   - No registry (a generic backend with no declared targets) -> the active web tab. There is
+  //     no binding to violate, and the generic flavour is where page actions matter most: for an
+  //     arbitrary site the DOM is the only interface there is.
+  //   - A registry -> the tab must fall under at least one declared target. Re-derived from the
+  //     freshly queried url rather than trusting the tracked one, so the check and the injection
+  //     cannot disagree about which page this is. This covers both "browsed off to another site"
+  //     and the unresolved-tie state, where `activeTarget` is null but the tab is still bound.
+  //
+  // Always returns an outcome, never throws: the server is holding the turn on it.
+  async function runPageAction(action: string): Promise<PageActionOutcome> {
+    const tab = await activeTabWithUrl();
+    if (!tab) return { ok: false, error: "no active browser tab to act on" };
+    if (targets.length > 0 && selectTarget(tab.url, targets).matches.length === 0) {
+      const names = targets.map((t) => t.name || t.base_url || t.id).join(", ");
+      return { ok: false, error: `the active tab is not a page of the bound target (${names}); page actions are limited to it` };
+    }
+    return executePageAction(tab.id, action);
+  }
+
   async function onWhoAmI(): Promise<SessionResult> {
     const tabId = await activeTabId();
     if (tabId === null) return null;
@@ -354,6 +393,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
               onTogglePageText={(v) => void saveSettings({ pageTextEnabled: v })}
               getContextBlock={getContextBlock}
               onEnsurePageAccess={ensurePageAccess}
+              runPageAction={runPageAction}
             />
           </div>
         </div>

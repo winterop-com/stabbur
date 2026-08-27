@@ -11,7 +11,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from stabbur import agent, backends, capabilities, runtime
+from stabbur import agent, backends, capabilities, pageactions, runtime
 from stabbur import library as library_ops
 from stabbur.backends import Backends
 from stabbur.config import Settings
@@ -99,6 +99,12 @@ class ChatRequest(BaseModel):
     # thinking budget (512/2048/8192 tokens), "max" thinks unbounded. ``None`` (absent) leaves
     # the model's default behavior untouched. llama-server dialect; others ignore it.
     reasoning: agent.ReasoningLevel | None = None
+    # Browser-executed page actions this client can run in the user's tab (WEBMCP.md 5b). The
+    # client declares what its executor implements; the server exposes exactly those to the model
+    # and blocks on the client's answer. Absent — a plain browser tab, curl, the CLI — means none:
+    # a tool nobody is listening for is a guaranteed timeout, not a capability. Names stabbur does
+    # not know are ignored, so a newer client degrades instead of failing the turn.
+    page_actions: list[str] | None = None
 
 
 @router.post("/api/chat")
@@ -160,6 +166,12 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     # top of any target narrowing above).
     if req.enabled_tools is not None:
         toolset = toolset.subset(set(req.enabled_tools))
+    # Page actions the client says it can execute, resolved once per turn. Attached to the toolset
+    # last (inside ``events()``, where the channel closure lives) — the narrowing above selects
+    # among a project's MCP servers, while what can run in the tab is decided by the client's
+    # executor, not by that list. Off with ``use_tools`` off: an untrained model regurgitates tool
+    # schemas as text, and a page action is one more schema to regurgitate.
+    page_specs = pageactions.resolve(req.page_actions) if req.use_tools else []
 
     # System prompt precedence: an explicit ``system_prompt`` from the client is
     # authoritative — including "" for *no* system prompt (a roleplay model then
@@ -230,6 +242,37 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                 with suppress(asyncio.QueueFull):
                     queue.put_nowait({"type": "confirm_resolved", "id": cid, "approved": approved, "reason": reason})
 
+        async def on_page_action(
+            action: pageactions.PageActionName, args: pageactions.PageActionArgs
+        ) -> pageactions.PageActionResult:
+            # Deliberately the same shape as on_confirm above: mint an unguessable id, register a
+            # future, stream the typed frame, and BLOCK until the client POSTs to
+            # /api/chat/page-action. Fail-safe in every direction — a timeout, a panel that was
+            # closed, or a cancelled stream resolves as a FAILURE the model can read, never as a
+            # silent success and never as a hang. The id is always popped in `finally`, so a late
+            # answer finds nothing to resolve and 404s instead of resurrecting a finished action.
+            pid = uuid4().hex
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[pageactions.PageActionResult] = loop.create_future()
+            request.app.state.pending_page_actions[pid] = fut
+            frame = pageactions.PageActionFrame(id=pid, action=action, args=args)
+            try:
+                # The put is inside the try, not before it: a queue that blocks on a slow consumer
+                # is exactly where a cancellation lands, and an id registered outside the `finally`
+                # would then outlive the stream that could ever answer it.
+                await queue.put(frame.model_dump())
+                return await asyncio.wait_for(fut, timeout=pageactions.timeout_seconds(request.app.state.settings))
+            except asyncio.TimeoutError:
+                return pageactions.PageActionResult(
+                    ok=False, error=f"the browser did not answer the {action} request in time"
+                )
+            finally:
+                request.app.state.pending_page_actions.pop(pid, None)
+
+        # One toolset for this turn: the MCP tools plus whatever the client can run in its tab.
+        # The agent loop is unchanged by page actions — it calls a tool and gets a result.
+        turn_toolset = pageactions.PageActionToolset(toolset, page_specs, on_page_action) if page_specs else toolset
+
         # Reserve the runtime for the whole stream so a load/unload can't swap or kill
         # it mid-generation; read the current model/URL *inside* the reservation.
         async with _reserve_runtime(request):
@@ -273,7 +316,7 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                     await agent.run(
                         base,
                         messages,
-                        toolset,
+                        turn_toolset,
                         eff_max_tokens,
                         on_event,
                         on_token,
@@ -339,6 +382,36 @@ async def chat_confirm(req: ConfirmRequest, request: Request) -> dict[str, bool]
     if fut is None or fut.done():
         raise HTTPException(status_code=404, detail="no pending confirmation")
     fut.set_result(req.approve)
+    return {"ok": True}
+
+
+class PageActionReport(BaseModel):
+    """A client's report of one browser-executed page action (WEBMCP.md 5b's POST body)."""
+
+    id: str
+    ok: bool
+    # Whatever the client's executor produced. Opaque JSON by design: what a page read *means* is
+    # the client's decision, and the server's job is to carry it to the model, not to schematize
+    # the shape of every site. Untrusted content either way — it is page text reaching a model.
+    result: Any = None
+    error: str = ""
+
+
+@router.post("/api/chat/page-action")
+async def chat_page_action(req: PageActionReport, request: Request) -> dict[str, bool]:
+    """Resolve a pending page action for the streaming agent loop.
+
+    The mirror image of :func:`chat_confirm`, and authorized the same way: the ``id`` is an
+    unguessable server-minted uuid delivered only over the SSE stream, so holding it is the
+    authorization to answer that one action, and the route inherits the app-level cross-site +
+    bearer guard on ``/api``. An unknown or already-resolved id — a double answer, or an action
+    that timed out or whose stream disconnected while the client was still working — is a 404:
+    that action is over, and a late success must not be able to un-fail it.
+    """
+    fut = request.app.state.pending_page_actions.get(req.id)
+    if fut is None or fut.done():
+        raise HTTPException(status_code=404, detail="no pending page action")
+    fut.set_result(pageactions.PageActionResult(ok=req.ok, result=req.result, error=req.error))
     return {"ok": True}
 
 

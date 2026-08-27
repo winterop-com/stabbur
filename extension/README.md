@@ -9,6 +9,11 @@ diagrams, tool-call chips) and the API/HTTP client are the same code the web UI
 ships. The panel is one workspace in the repo-root Bun monorepo, so its React and
 other shared deps are hoisted and deduped against the frontend.
 
+It is also the only surface that can run **page actions** — tools the model calls that
+execute in the user's tab rather than on the server (`lib/pageActions.ts`; design and
+safety model in [`WEBMCP.md`](../WEBMCP.md) section 5b). The web UI has no tab to act on,
+so it parses the frames but never declares itself able to run any.
+
 ## Develop
 
 From the repo root (installs the whole Bun workspace, including this package):
