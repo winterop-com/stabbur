@@ -8,7 +8,11 @@ to a sibling app unchanged. stabbur's visual family is
 disagree, this page is stabbur's answer and the reasoning is stated, because the
 sibling is a codebase, not a specification.
 
-Scope: `frontend/` (the SPA served by `sb serve --ui`). See
+Scope: `frontend/` (the SPA served by `sb serve --ui`) and `extension/` (the Chrome
+MV3 side panel, which imports the same stylesheet and several of the same
+components). Both are inside the check's roots. The panel is a **narrow** surface
+and gets exactly one carve-out for it — see
+[The narrow-surface step](#the-narrow-surface-step). See
 [Not yet swept](#not-yet-swept) for what this does not cover.
 
 ---
@@ -33,6 +37,41 @@ Two things follow from the table and are worth saying outright:
   not a reason to shrink the sentence. (The sibling's 221 `text-xs` to 171
   `text-sm` split is the same call made independently; its footer prose measures
   14px/20px/400, which is `text-sm` exactly.)
+
+### The narrow-surface step
+
+One carve-out, and it is a step *on* the scale rather than off it. **The Chrome side
+panel renders chat body prose at `text-sm`, not `text-base`.** That is the whole of
+it: the panel's labels, chips, notes and controls take exactly the sizes the table
+gives them, and the web app's chat body stays `text-base`.
+
+The reason is measure, not preference. `text-base` was chosen for a chat column
+around 700px wide, where 16px sets a line of roughly 75-90 characters — the width
+prose is comfortable at. Chrome's side panel is a ~400px strip, and the same 16px
+there buys about half of that: a 40-character line, which reads as though the text
+had been enlarged, and turns any answer of substance into a scroll. At 400px, 14px
+lands back near the measure 16px has at 700px. **A size is not a property of the
+text alone; it is a property of the text and the column under it** — and the panel's
+column is a different column, so the same table entry does not answer both.
+
+Two things this is not:
+
+- **Not a licence for a hand-written size.** The panel spends `var(--text-sm)` — the
+  same token `text-sm` compiles to — in exactly one declaration, in
+  `extension/entrypoints/sidepanel/style.css`. It is written there rather than at the
+  call site because the size lives inside a shared component (`Markdown.tsx`) that
+  both surfaces import and neither may fork. `text-[15px]` is as banned as it ever
+  was, and there is still nothing between the three sizes to pick from.
+- **Not a second scale, and not a precedent for shrinking prose.** `text-sm` remains
+  the floor for a sentence; the panel lands exactly *on* it rather than under it, and
+  `text-base → text-sm` is the only step this carve-out has. The rail rule above
+  stands unchanged: a 320px rail is still a reason to change the rail, not to shrink
+  the sentence inside it.
+
+What makes the panel different from that rail is that its width is not ours to
+change — 400px is the frame Chrome hands us, and no amount of redesign widens it.
+That is the test for whether this applies anywhere else: a surface whose measure is
+fixed by something outside the app, not any surface that happens to be narrow today.
 
 **Weight and case carry the rest of the hierarchy, not size.** A section heading is
 `text-xs font-semibold uppercase tracking-wide`; a panel title is `text-sm
@@ -343,6 +382,13 @@ class it found, and the class to use instead. It is deliberately narrow: one rul
 zero false positives, and no allowlist. Run it alone with
 `uv run python scripts/check_ui_classes.py`.
 
+It reads `.ts`/`.tsx` only, so a size written in **CSS** is outside it by
+construction — including [the panel's one](#the-narrow-surface-step). That is not a
+loophole to route around the check through: a declaration in a stylesheet is
+reviewed by a human reading this page, which is a higher bar than the check's, not a
+lower one. A hand-written pixel size does not become acceptable by being moved into
+a `.css` file.
+
 **Neither check enforces the rest of this page.** Whether a sentence got `text-sm`
 or `text-xs`, whether a fill token was used as text, whether a new chip matched the
 recipe, whether a fact ended up stated twice — those are review, and this document
@@ -366,8 +412,9 @@ query nor failing to answer its own prefix.
 
 ### Not yet swept
 
-Nothing. Both former gaps are closed, and the check now covers 118 files across
-both SPAs with no skips:
+Nothing. Both former gaps are closed, and the check now covers both SPAs with no
+skips (it prints the file count it reached; that number is the check's to state, not
+this page's to copy):
 
 - **`extension/`** (the Chrome MV3 side panel) held 12 hand-written sizes. Two were
   complete sentences explaining a settings field and became `text-sm`; the other ten

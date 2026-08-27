@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
-import { normalizeBaseUrl, validateBaseUrl, type Backend, type Settings } from "../lib/settings";
+import {
+  MODES,
+  THEMES,
+  normalizeBaseUrl,
+  validateBaseUrl,
+  type Backend,
+  type Mode,
+  type Settings,
+  type Theme,
+} from "../lib/settings";
 import { probeStatusAt } from "../lib/connection";
 import { CopyLine } from "./CopyLine";
 
@@ -8,6 +17,10 @@ interface SettingsViewProps {
   settings: Settings;
   extensionId: string;
   onSave: (patch: Partial<Settings>) => void;
+  /** Persist a patch WITHOUT leaving the view. Appearance is the one setting whose effect is the
+   *  screen you are looking at, so it applies on pick — a theme you must save to see is a theme
+   *  you cannot choose between. Everything else still commits through Save. */
+  onApply: (patch: Partial<Settings>) => void;
   onClose: () => void;
 }
 
@@ -23,7 +36,7 @@ function newBackend(): Backend {
 
 /** Editable list of named backends (each its own base URL + token, one active), plus
  *  the page-context toggles, the cors_origins hint, and a per-entry "test connection". */
-export function SettingsView({ settings, extensionId, onSave, onClose }: SettingsViewProps) {
+export function SettingsView({ settings, extensionId, onSave, onApply, onClose }: SettingsViewProps) {
   const [backends, setBackends] = useState<Backend[]>(() => settings.backends.map((b) => ({ ...b })));
   const [activeId, setActiveId] = useState(settings.activeBackendId);
   const [pageContextEnabled, setPageContextEnabled] = useState(settings.pageContextEnabled);
@@ -31,6 +44,9 @@ export function SettingsView({ settings, extensionId, onSave, onClose }: Setting
   // Per-backend URL errors and test state, keyed by backend id.
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tests, setTests] = useState<Record<string, TestState>>({});
+  // Read straight off the prop, with no local mirror: appearance is applied on pick, so the
+  // persisted value IS the current one and a second copy here could only go stale.
+  const themeHint = THEMES.find((t) => t.name === settings.theme)?.hint ?? "";
 
   function patchBackend(id: string, patch: Partial<Backend>): void {
     setBackends((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
@@ -227,6 +243,51 @@ export function SettingsView({ settings, extensionId, onSave, onClose }: Setting
             className="h-4 w-4 disabled:opacity-40"
           />
         </label>
+
+        {/* Appearance. Both axes come from the shared frontend (THEMES is the web UI's own list),
+            so the panel offers exactly the palettes index.css defines and a theme added there is
+            offered here without touching this file. Applied on pick, not on Save. */}
+        <div className="space-y-2">
+          <span className="text-xs font-medium text-[var(--muted-foreground)]">Appearance</span>
+
+          <label className="flex items-center justify-between gap-2">
+            <span className="text-sm">Theme</span>
+            <select
+              data-testid="theme-picker"
+              value={settings.theme}
+              onChange={(e) => onApply({ theme: e.target.value as Theme })}
+              className="max-w-[9rem] min-w-0 truncate rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-1 text-sm"
+            >
+              {THEMES.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {themeHint ? <p className="text-sm text-[var(--muted-foreground)]">{themeHint}</p> : null}
+
+          <label className="flex items-center justify-between gap-2">
+            <span className="text-sm">
+              Light / dark
+              <span className="block text-sm text-[var(--muted-foreground)]">
+                System follows the browser's own setting.
+              </span>
+            </span>
+            <select
+              data-testid="mode-picker"
+              value={settings.mode}
+              onChange={(e) => onApply({ mode: e.target.value as Mode })}
+              className="max-w-[9rem] min-w-0 truncate rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-1 text-sm"
+            >
+              {MODES.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-[var(--muted-foreground)]">Extension ID</span>

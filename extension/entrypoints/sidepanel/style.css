@@ -7,3 +7,21 @@
 @import "../../../frontend/src/index.css";
 @source "../../../frontend/src";
 @source "../..";
+
+/* CHAT BODY, ONE STEP DOWN, BECAUSE THE COLUMN IS HALF THE WIDTH.
+   The shared <Markdown> carries `text-base` — the scale's chat-body size, chosen for the web app's
+   ~700px chat column. The side panel is ~400px, and the same 16px there spans roughly half the
+   words per line, so the transcript reads oversized and scrolls twice as often. The panel takes
+   the next step down instead. This is the one rule the panel restates; everything else it inherits
+   (docs/ui-conventions.md, "The narrow-surface step").
+
+   Written here rather than at the call site because the size lives inside a shared component the
+   panel imports and must not fork. It is a step ON the scale, not off it: `var(--text-sm)` is the
+   same token `text-sm` spends, so nothing new is introduced and the panel's chat body now matches
+   the user bubble and the composer beside it, which were already `text-sm`.
+
+   line-height is deliberately untouched — 1.65 is the prose measure `.prose-chat` sets for reading,
+   not a companion of the font size. Unlayered, so it wins over Tailwind's layered `.text-base`. */
+.prose-chat {
+  font-size: var(--text-sm);
+}
