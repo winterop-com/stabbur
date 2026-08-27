@@ -1,16 +1,19 @@
-"""Tests for the single-backend facade (step 1: a no-op seam in front of the managers)."""
+"""Tests for the backend facade: one active backend, several declared, one merged listing."""
 
 import inspect
+import threading
+import time
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 from stabbur import backends
-from stabbur.backends import Backends
+from stabbur import library as library_ops
+from stabbur.backends import Backends, BackendSpec
 from stabbur.library import LibraryModel
 from stabbur.models import ModelFormat
-from stabbur.server import ServerManager, ServerState, UpstreamManager
+from stabbur.server import ServerManager, ServerState, UpstreamManager, UpstreamModel
 
 # The surface ROADMAP.md names as "the whole surface" the serving routes consume. Spelled
 # out here rather than derived, so adding a member to a manager without teaching the facade
@@ -191,3 +194,174 @@ def test_local_only_narrowing_names_the_member_that_was_called() -> None:
     remote = backends.build("http://remote:1234/v1")
     with pytest.raises(AttributeError, match=r"load\(\) is local-only"):
         remote.load(cast(LibraryModel, object()))
+
+
+# --- several declared, exactly one active -------------------------------------------------
+
+_LOCAL_ONLY = BackendSpec(name="local")
+_MSAI = BackendSpec(name="msai", url="http://msai:1234/v1")
+_BOX = BackendSpec(name="box", url="http://box:9000")
+
+
+def test_declare_holds_every_spec_with_the_first_one_active() -> None:
+    held = backends.declare([_LOCAL_ONLY, _MSAI, _BOX])
+
+    assert held.names == ("local", "msai", "box")  # declaration order is priority order
+    assert held.specs == (_LOCAL_ONLY, _MSAI, _BOX)
+    assert held.name == "local"
+    assert not held.is_upstream  # the scalar surface follows the ACTIVE backend, not the set
+
+
+def test_declare_rejects_a_declaration_it_cannot_honour() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        backends.declare([])
+    with pytest.raises(ValueError, match="duplicate backend name"):
+        backends.declare([_MSAI, BackendSpec(name="msai", url="http://other:1234")])
+    # Two local backends would race for one runtime port and one library; several library
+    # ROOTS are a thing, several local BACKENDS are not.
+    with pytest.raises(ValueError, match="only one local backend"):
+        backends.declare([_LOCAL_ONLY, BackendSpec(name="local2")])
+
+
+def test_activate_moves_the_scalar_surface_and_nothing_else() -> None:
+    held = backends.declare([_LOCAL_ONLY, _MSAI])
+
+    held.activate("msai")
+    assert held.name == "msai"
+    assert held.is_upstream
+    assert held.base_url == "http://msai:1234"
+    assert held.names == ("local", "msai")  # the declared set is unchanged by activating
+
+    held.activate("local")
+    assert not held.is_upstream
+
+    with pytest.raises(KeyError, match="no backend named 'nope'"):
+        held.activate("nope")
+
+
+def test_build_names_the_single_backend_after_its_host() -> None:
+    # The name is the qualifier in model@backend, and --upstream carries none — so it is
+    # derived rather than left blank, or every row from a flag-declared backend would be
+    # unqualifiable.
+    assert backends.build("http://msai:1234/v1").names == ("msai",)
+    assert backends.build(None).names == ("local",)
+
+
+# --- the merged listing: concurrent, per-backend timeout, failures as data -----------------
+
+
+def _remote_rows(*names: str) -> list[UpstreamModel]:
+    return [UpstreamModel(name=n) for n in names]
+
+
+def _stub_upstreams(monkeypatch: pytest.MonkeyPatch, behaviour: dict[str, object]) -> None:
+    """Make ``UpstreamManager.models`` answer per host: rows, an exception, a sleep, or a hang.
+
+    An Event hangs until the test sets it — a probe that is still running when the listing
+    comes back, which is precisely the case the timeout exists for, and which a fixed sleep
+    would instead make the test pay for at teardown.
+    """
+
+    def _models(self: UpstreamManager) -> list[UpstreamModel]:
+        outcome = behaviour[self.base_url]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if isinstance(outcome, threading.Event):
+            assert outcome.wait(30), "the hung probe was never released"
+            return []
+        if isinstance(outcome, float):
+            time.sleep(outcome)
+            return []
+        return cast(list[UpstreamModel], outcome)
+
+    monkeypatch.setattr(UpstreamManager, "models", _models)
+
+
+async def test_listings_merges_every_backend_in_declaration_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(library_ops, "scan", lambda: [_model(tmp_path)])
+    _stub_upstreams(
+        monkeypatch,
+        {"http://msai:1234": _remote_rows("gemma-4-12b"), "http://box:9000": _remote_rows("qwen3-coder")},
+    )
+
+    listings = await backends.declare([_LOCAL_ONLY, _MSAI, _BOX]).listings()
+
+    assert [listing.backend for listing in listings] == ["local", "msai", "box"]
+    assert [listing.error for listing in listings] == [None, None, None]
+    assert [[m.name for m in listing.models] for listing in listings] == [
+        ["pub/Foo"],
+        ["gemma-4-12b"],
+        ["qwen3-coder"],
+    ]
+    # The local backend's rows stay library models (path, size, format) and a remote's stay
+    # ids — the union is the point, and flattening would have to invent the missing halves.
+    assert isinstance(listings[0].models[0], LibraryModel)
+    assert isinstance(listings[1].models[0], UpstreamModel)
+    assert listings[1].url == "http://msai:1234/v1"  # as declared, so a row maps back to config
+
+
+async def test_a_dead_backend_degrades_to_a_row_and_the_healthy_ones_still_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(library_ops, "scan", lambda: [_model(tmp_path)])
+    _stub_upstreams(
+        monkeypatch,
+        {
+            "http://msai:1234": RuntimeError("upstream http://msai:1234 unreachable: [Errno 61] refused"),
+            "http://box:9000": _remote_rows("qwen3-coder"),
+        },
+    )
+
+    listings = await backends.declare([_LOCAL_ONLY, _MSAI, _BOX]).listings()
+
+    assert [listing.backend for listing in listings] == ["local", "msai", "box"]
+    assert listings[1].models == [] and "refused" in (listings[1].error or "")
+    # The requirement that matters: the dead one costs its own rows and nothing else.
+    assert [m.name for m in listings[0].models] == ["pub/Foo"]
+    assert [m.name for m in listings[2].models] == ["qwen3-coder"]
+
+
+async def test_an_unreachable_backend_is_bounded_by_its_own_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A powered-off host black-holes the connection rather than refusing it, so nothing fails
+    # fast and only the deadline ends the wait. The probe here is still running when the
+    # assertions below hold — which is the point: the listing does not wait for it.
+    hung = threading.Event()
+    _stub_upstreams(monkeypatch, {"http://msai:1234": hung, "http://box:9000": _remote_rows("qwen3-coder")})
+    try:
+        started = time.monotonic()
+        listings = await backends.declare([_MSAI, _BOX]).listings(timeout=0.2)
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.0, f"a black-holed backend stalled the whole listing ({elapsed:.2f}s)"
+        assert listings[0].error == "did not answer within 0.2s"
+        assert [m.name for m in listings[1].models] == ["qwen3-coder"]
+    finally:
+        hung.set()  # let the worker thread finish; wait_for cancelled the await, not the thread
+
+
+async def test_backends_are_probed_concurrently_not_one_after_another(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Serially these three cost 0.9s and every extra host adds its own latency to every
+    # listing; concurrently they cost the slowest one. Measured rather than asserted about,
+    # since "concurrent" is invisible in the returned value.
+    _stub_upstreams(monkeypatch, {"http://msai:1234": 0.3, "http://box:9000": 0.3, "http://third:9000": 0.3})
+
+    started = time.monotonic()
+    await backends.declare([_MSAI, _BOX, BackendSpec(name="third", url="http://third:9000")]).listings()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.75, f"probes look serial ({elapsed:.2f}s for 3 x 0.3s)"
+
+
+async def test_an_unconfigured_library_is_not_degraded_into_a_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    # LibraryNotConfigured is a RuntimeError like an unreachable upstream, and must NOT be
+    # caught with one: it is missing setup, not an outage, and its message is the hint naming
+    # the variable to set. The route turns it into a 503 carrying that hint.
+    def _unconfigured() -> list[LibraryModel]:
+        raise library_ops.LibraryNotConfigured
+
+    monkeypatch.setattr(library_ops, "scan", _unconfigured)
+
+    with pytest.raises(library_ops.LibraryNotConfigured):
+        await backends.declare([_LOCAL_ONLY]).listings()

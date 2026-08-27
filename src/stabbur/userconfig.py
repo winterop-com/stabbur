@@ -8,9 +8,12 @@ Three config layers, kept distinct on purpose:
   shell export or cwd ``.env``;
 - ``~/.stabbur`` — ephemeral runtime state (pidfiles/logs), which must never travel.
 
-It's a flat TOML file of scalar ``field = value`` lines whose keys are :class:`stabbur.config.Settings`
+It's a TOML file of scalar ``field = value`` lines whose keys are :class:`stabbur.config.Settings`
 field names, fed in as the lowest-priority settings source (a real ``STABBUR_*`` env var or a project
-``stabbur.toml`` still wins). Reads go through :mod:`stabbur.config`; writes go through :func:`set_value`.
+``stabbur.toml`` still wins). Hand-editing may add ``[[backends]]`` sections (the machine's own remote
+backends — see :func:`stabbur.config.declared_backends`), which writes preserve but do not create:
+``stabbur config set`` writes scalars only. Reads go through :mod:`stabbur.config`; writes go through
+:func:`set_value`.
 """
 
 import json
@@ -92,20 +95,49 @@ def read() -> dict[str, Any]:
         raise ValueError(f"{path} is not valid TOML: {exc}") from exc
 
 
+def _dump(data: dict[str, Any]) -> str:
+    """Serialize the machine config: scalars as flat keys, table arrays as ``[[key]]`` sections.
+
+    A JSON-encoded scalar is also a valid TOML value, so ``json.dumps`` is the serializer for the
+    flat majority. It is *not* one for a table array — ``[[backends]]`` reads back as
+    ``[{"name": ...}]``, which is valid JSON and invalid TOML — so those are re-emitted as
+    sections. Without that, declaring one backend here would make every later ``stabbur config
+    set`` refuse to write (the caller's re-parse guard), for no reason the user could see.
+    Sections come last: in TOML every flat key after a ``[[table]]`` header would belong to it.
+    """
+    flat: list[str] = []
+    sections: list[str] = []
+    for key, val in sorted(data.items()):
+        if isinstance(val, list) and val and all(isinstance(item, dict) for item in val):
+            table: dict[str, Any]
+            for table in val:
+                body = "".join(f"{k} = {json.dumps(v)}\n" for k, v in table.items())
+                sections.append(f"[[{key}]]\n{body}")
+        else:
+            flat.append(f"{key} = {json.dumps(val)}\n")
+    return "".join(flat) + "\n".join(sections)
+
+
 def set_value(field: str, value: str | int) -> Path:
     """Set one top-level ``field`` (a :class:`Settings` field name) in the machine config.
 
-    Rewrites the whole flat file with the updated value, re-parsing the result before it
-    touches disk so a bad value never corrupts the file (mirrors how ``stabbur.toml`` is edited).
-    A JSON-encoded scalar is a valid TOML value, so ``json.dumps`` is the serializer.
+    Rewrites the whole file with the updated value (see :func:`_dump`), re-parsing the result
+    before it touches disk so a bad value never corrupts the file (mirrors how ``stabbur.toml``
+    is edited).
 
     Returns:
         The path written.
+
+    Raises:
+        ValueError: If the rewritten file would not parse — the file on disk is left untouched.
     """
     data = read()
     data[field] = value
-    text = "".join(f"{key} = {json.dumps(val)}\n" for key, val in sorted(data.items()))
-    tomllib.loads(text)  # validate the result before writing
+    text = _dump(data)
+    try:
+        tomllib.loads(text)  # validate the result before writing
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"refusing to write {config_path()}: the result would not parse ({exc})") from exc
     path = config_path()
     fsatomic.write_text(path, text)
     return path

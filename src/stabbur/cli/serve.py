@@ -1,10 +1,12 @@
 """`stabbur serve` - run the web API + browser UI, optionally locked to one model."""
 
+import json
 import os
 import secrets
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
+from rich.markup import escape
 
 from stabbur import (
     config,
@@ -19,9 +21,18 @@ from stabbur.cli._common import (
 )
 from stabbur.config import get_settings
 
+if TYPE_CHECKING:  # stabbur.backends pulls in the server + library; keep it off the CLI's import path
+    from stabbur.backends import BackendSpec
+
 
 def _export_serve_env(
-    *, ui: bool, model: str | None, runtime_port: int | None, debug: bool, upstream: str | None = None
+    *,
+    ui: bool,
+    model: str | None,
+    runtime_port: int | None,
+    debug: bool,
+    upstream: str | None = None,
+    backends: "list[BackendSpec] | None" = None,
 ) -> None:
     """The one place ``serve`` hands its config to the app — the deliberate env-as-API (A8).
 
@@ -42,6 +53,11 @@ def _export_serve_env(
         os.environ["STABBUR_DEBUG"] = "true"
     if upstream is not None:
         os.environ["STABBUR_UPSTREAM"] = upstream
+    if backends is not None:
+        # The already-resolved list, not just the flags: STABBUR_BACKENDS outranks the project's
+        # own [[backends]] (env beats file), so exporting only what --upstream added would *hide*
+        # the declared ones from the reloaded worker.
+        os.environ["STABBUR_BACKENDS"] = json.dumps([spec.model_dump() for spec in backends])
 
 
 def _port_free(host: str, port: int) -> bool:
@@ -83,12 +99,12 @@ def serve(
         typer.Option("--model", help="Lock the server to one model (extension backend); no switching."),
     ] = None,
     upstream: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
             "--upstream",
             help="Front a remote OpenAI-compatible /v1 (e.g. a llama-server router: http://gpu-box:8080) "
             "instead of spawning local runtimes — the agent loop, tools, and UI run here; the models "
-            "run there.",
+            "run there. Repeatable: each one is declared as a backend named after its host.",
         ),
     ] = None,
     host: Annotated[str | None, typer.Option("--host", help="Bind address (default 127.0.0.1).")] = None,
@@ -109,7 +125,11 @@ def serve(
 
     import uvicorn  # noqa: PLC0415
 
-    upstream_url = _normalize_server_url(upstream)
+    upstream_urls = [url for url in (_normalize_server_url(raw) for raw in (upstream or [])) if url]
+    # The first --upstream is *the* upstream, exactly as a single one always was: it is what the
+    # /v1 proxy forwards to and what a locked --model is checked against. The rest are declared
+    # (below) but not yet served — routing across several backends is the next ROADMAP step.
+    upstream_url = upstream_urls[0] if upstream_urls else None
     if upstream_url is None:
         library_ops.roots()  # fail fast + clean if no library is configured (rather than 500ing per request)
 
@@ -137,6 +157,23 @@ def serve(
                 raise typer.Exit(1) from exc
         else:
             _resolve_library_model(locked_model, None)
+
+    # Resolve the declared backends before anything is served, so a bad [[backends]] entry or a
+    # pair of --upstream flags that cannot both be named is a clean line here rather than a
+    # surprise from the picker later. Read before the export below: the declaration comes from the
+    # config files and the flags, never from STABBUR_BACKENDS (which this then writes).
+    get_settings.cache_clear()
+    # Snapshot before the export below writes STABBUR_BACKENDS, which would otherwise read back
+    # as "the files declared backends" and turn a plain single --upstream into a new-style run.
+    declared_in_files = bool(get_settings().backends)
+    try:
+        declared = config.declared_backends(upstream_urls)
+    except config.BackendDeclarationError as exc:
+        # Escaped: these messages name `[[backends]]`, which Rich would otherwise read as markup
+        # and swallow — leaving the user a fix that omits the very thing they must type.
+        console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(1) from exc
+
     # Hand the serve config to the (possibly reloaded) worker process — one documented env API.
     _export_serve_env(
         ui=ui,
@@ -144,6 +181,9 @@ def serve(
         runtime_port=config.runtime_port_override(),
         debug=config.debug_enabled(),
         upstream=upstream_url,
+        # Only when the command line added something: without a flag the worker reads the same
+        # files this process did and resolves the identical list on its own.
+        backends=declared if upstream_urls else None,
     )
 
     get_settings.cache_clear()
@@ -182,6 +222,19 @@ def serve(
         console.print("  Auth:     [bold]bearer token required[/] [dim](Authorization: Bearer <token>)[/]")
     if upstream_url is not None:
         console.print(f"  Upstream: [bold]{upstream_url}[/] [dim]· remote models, no local runtimes[/]")
+    # One --upstream and nothing else declared is the old single-backend invocation; the Upstream
+    # line above already says everything, so it keeps its exact banner. Anything more is a real
+    # declaration, and then the names are worth showing — they are what a `model@backend` id is
+    # written with.
+    legacy_single = upstream_url is not None and len(upstream_urls) == 1 and not declared_in_files
+    if len(declared) > 1 and not legacy_single:
+        listing = ", ".join(f"{spec.name} [dim]({spec.url or 'local library'})[/]" for spec in declared)
+        console.print(f"  Backends: {listing}")
+    if len(upstream_urls) > 1:
+        console.print(
+            "  [yellow]Serving the first upstream only[/] [dim]· the rest are declared; "
+            "routing across backends is not wired up yet[/]"
+        )
     if locked_model is not None:
         console.print(f"  Locked:   [bold]{locked_model}[/] [dim]· {'project' if locked_by_project else '--model'}[/]")
     # A tokenized URL lets the user just open the SPA: it captures ?token= into the browser and
