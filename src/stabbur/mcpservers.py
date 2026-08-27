@@ -13,9 +13,20 @@ the effective set (a project excluding an unwanted machine-global tool). :func:`
 effective set — global first, then project (a project name overrides *or disables* a global one); the
 CLI's ``--mcp`` is layered on top by the caller. This is deliberately separate from ``stabbur.toml``, which
 stays the portable assistant manifest (model + prompt + libraries) and no longer carries tools.
+
+Two properties matter because this file is **hand-edited and shared with other tools**:
+
+- **The writer preserves what it doesn't model.** :func:`add` / :func:`remove` are a read-modify-write
+  over the raw JSON: they touch exactly one ``mcpServers`` key and hand everything else back verbatim —
+  ``$schema``, ``inputs``, disable markers on *other* names, and per-server fields stabbur has no opinion
+  about (``autoApprove``, ``timeout``, …). It never rebuilds the file from stabbur's own model.
+- **One bad entry never takes down the file.** An entry stabbur can't run — a remote/HTTP server
+  (``{"type": "http", "url": ...}``), or something malformed — is skipped with a warning, so the
+  servers around it keep working. Skipped entries are still preserved on write.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,6 +34,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from stabbur import fsatomic, userconfig
 
 PROJECT_FILE = ".mcp.json"
+
+_log = logging.getLogger(__name__)
 
 
 class McpConfigError(RuntimeError):
@@ -74,25 +87,63 @@ def _is_disabled(entry: object) -> bool:
     return entry is None or (isinstance(entry, dict) and entry.get("disabled") is True)
 
 
+def _raw_document(path: Path) -> dict[str, object]:
+    """The file's raw top-level JSON object — ``{}`` if it doesn't exist.
+
+    The single read used by *both* the parser and the writers, so what :func:`add` writes back is
+    exactly what was on disk plus one changed key. Everything outside ``mcpServers`` (``$schema``,
+    ``inputs``, anything a sibling tool put there) rides along in this dict untouched.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise McpConfigError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise McpConfigError(f"{path}: the top level must be a JSON object")
+    return data
+
+
+def _raw_servers(path: Path, data: dict[str, object]) -> dict[str, object]:
+    """``data``'s ``mcpServers`` object — ``{}`` when absent, an error when it's the wrong type.
+
+    Returns the *live* sub-object when there is one, so a writer mutating it mutates ``data`` and the
+    surrounding keys (and the order of the servers already there) are preserved on the way back out.
+    """
+    servers_obj = data.get("mcpServers")
+    if servers_obj is None:
+        return {}  # a valid JSON object without mcpServers is just "no servers"
+    if not isinstance(servers_obj, dict):
+        raise McpConfigError(f"{path}: 'mcpServers' must be an object")
+    return servers_obj
+
+
+def _warn_unrunnable(path: Path, name: str, entry: object) -> None:
+    """Warn that one entry is being skipped, saying *why* in one line — never raise.
+
+    A whole ``mcp.json`` used to fail on the first entry without a ``command``, which killed every
+    other server in it (and, for the global file, in every project). The two shapes that land here are
+    a **remote/HTTP server** (``{"type": "http", "url": ...}`` — an ecosystem-standard entry stabbur
+    can't spawn yet) and a genuinely malformed one; both are named so the user can find them.
+    """
+    if isinstance(entry, dict) and entry.get("url"):
+        _log.warning("%s: remote MCP servers are not supported yet: %r (skipped)", path, name)
+    else:
+        _log.warning("%s: MCP server %r has no 'command' — skipped", path, name)
+
+
 def _parse_file(path: Path) -> tuple[list[McpServer], set[str]]:
     """Parse one ``mcp.json`` into ``(servers, disabled_names)`` — ``([], set())`` if it doesn't exist.
 
     Enabled servers are the usual ``command`` + ``args`` + ``env`` entries; ``disabled_names`` are the
     names carrying a disable marker (``null`` / ``{"disabled": true}``), tolerated here (never an error)
-    so :func:`resolve` can drop the matching server. The two writers (:func:`add` / :func:`remove`) read
-    only the servers side, so a disable marker is inert to them.
+    so :func:`resolve` can drop the matching server. An entry stabbur can't run (remote/HTTP, or
+    malformed) is **skipped with a warning**, not raised — see :func:`_warn_unrunnable`; only a file
+    that isn't parseable at all is a :class:`McpConfigError`. The writers (:func:`add` / :func:`remove`)
+    work on the raw JSON, so both disable markers and skipped entries survive a write untouched.
     """
-    if not path.is_file():
-        return [], set()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise McpConfigError(f"{path} is not valid JSON: {exc}") from exc
-    servers_obj = data.get("mcpServers") if isinstance(data, dict) else None
-    if not isinstance(servers_obj, dict):
-        if servers_obj is None:
-            return [], set()  # a valid JSON object without mcpServers is just "no servers"
-        raise McpConfigError(f"{path}: 'mcpServers' must be an object")
+    servers_obj = _raw_servers(path, _raw_document(path))
     out: list[McpServer] = []
     disabled: set[str] = set()
     for name, entry in servers_obj.items():
@@ -100,7 +151,8 @@ def _parse_file(path: Path) -> tuple[list[McpServer], set[str]]:
             disabled.add(str(name))
             continue
         if not isinstance(entry, dict) or "command" not in entry:
-            raise McpConfigError(f"{path}: server {name!r} must be an object with a 'command'")
+            _warn_unrunnable(path, str(name), entry)
+            continue
         command = str(entry["command"])
         out.append(
             McpServer(
@@ -146,27 +198,57 @@ def resolve(project_dir: Path | None = None) -> list[McpServer]:
     return list(by_name.values())
 
 
-def _write_file(path: Path, servers: list[McpServer]) -> None:
-    """Write servers to ``path`` as an ``mcpServers`` object (pretty JSON), creating parents."""
-    text = json.dumps({"mcpServers": {s.name: s.to_entry() for s in servers}}, indent=2) + "\n"
-    fsatomic.write_text(path, text)
+def _write_file(path: Path, data: dict[str, object]) -> None:
+    """Write the whole raw document back to ``path`` as pretty JSON, creating parents.
+
+    Not key-sorted: this file is hand-edited, so the author's own ordering is part of it and a write
+    that reshuffles it turns a one-key change into a whole-file diff.
+    """
+    fsatomic.write_text(path, json.dumps(data, indent=2) + "\n")
+
+
+def _merged_entry(existing: object, server: McpServer) -> dict[str, object]:
+    """``server`` as an ``mcpServers`` value, keeping fields stabbur doesn't model from ``existing``.
+
+    ``command`` / ``args`` / ``env`` are exactly what the caller asked for (an empty ``args`` or ``env``
+    *removes* the key rather than keeping the old value), while anything else the entry carried —
+    ``autoApprove``, ``timeout``, a sibling tool's field — is written back untouched. A disable marker
+    is replaced outright: an explicit ``add`` of that name is a deliberate re-enable.
+    """
+    entry = server.to_entry()
+    if isinstance(existing, dict) and not _is_disabled(existing):
+        entry |= {k: v for k, v in existing.items() if k not in {"command", "args", "env"}}
+    return entry
 
 
 def add(server: McpServer, *, glob: bool, project_dir: Path | None = None) -> Path:
-    """Add (or replace, by name) ``server`` in the global or project ``mcp.json``. Returns the path."""
+    """Add (or replace, by name) ``server`` in the global or project ``mcp.json``. Returns the path.
+
+    A read-modify-write of one key: every other entry — including a disable marker on another name,
+    and a remote/HTTP entry stabbur can't run — plus every top-level key outside ``mcpServers`` is
+    written back exactly as it was found.
+    """
     path = global_path() if glob else project_path(project_dir)
-    servers = [s for s in _read_file(path) if s.name != server.name]
-    servers.append(server)
-    _write_file(path, servers)
+    data = _raw_document(path)
+    servers = _raw_servers(path, data)
+    servers[server.name] = _merged_entry(servers.get(server.name), server)
+    data["mcpServers"] = servers
+    _write_file(path, data)
     return path
 
 
 def remove(name: str, *, glob: bool, project_dir: Path | None = None) -> Path | None:
-    """Remove the named server from the global or project ``mcp.json``. Returns the path, or None if absent."""
+    """Remove the named server from the global or project ``mcp.json``. Returns the path, or None if absent.
+
+    Preserving in the same way :func:`add` is: only ``name``'s key is deleted. A name carrying a
+    disable marker counts as absent — the marker is a deliberate "off", not a server to delete.
+    """
     path = global_path() if glob else project_path(project_dir)
-    servers = _read_file(path)
-    kept = [s for s in servers if s.name != name]
-    if len(kept) == len(servers):
+    data = _raw_document(path)
+    servers = _raw_servers(path, data)
+    if _is_disabled(servers.get(name)):  # covers both "missing" (None) and an explicit disable marker
         return None
-    _write_file(path, kept)
+    del servers[name]
+    data["mcpServers"] = servers
+    _write_file(path, data)
     return path

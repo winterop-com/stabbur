@@ -360,6 +360,21 @@ def test_mcp_list_shows_optional_web_with_install_hint(monkeypatch: pytest.Monke
     assert "web" in result.stdout and "install-web" in result.stdout  # discoverable with a hint
 
 
+def test_mcp_add_hint_matches_where_you_are(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Outside a project the old hint pointed at `project show`, which only answers "No stabbur.toml here."
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    bare = runner.invoke(cli.app, ["mcp", "add", "datetime"])
+    assert bare.exit_code == 0, bare.output
+    assert "stabbur mcp list" in bare.output and "project show" not in bare.output
+    # With a stabbur.toml present, `project show` is the right place to look again.
+    (tmp_path / "stabbur.toml").write_text("[project]\n")
+    (tmp_path / ".mcp.json").unlink()
+    in_project = runner.invoke(cli.app, ["mcp", "add", "datetime"])
+    assert in_project.exit_code == 0, in_project.output
+    assert "stabbur project show" in in_project.output
+
+
 def test_voice_import_rejects_all_with_ids() -> None:
     # C-9: --all combined with explicit ids is a contradiction (like `library pull`) → exit 2.
     result = runner.invoke(cli.app, ["voice", "import", "--all", "kokoro"])

@@ -95,6 +95,23 @@ One heavier first-party server is **optional**:
 }
 ```
 
+### Hand-editing the file
+
+These files are yours to edit, and `sb mcp add` / `sb mcp remove` are careful with what they
+find there: they change exactly the one entry you named and write the rest of the file back
+byte for byte — a `$schema`, an `inputs` block, per-server fields stabbur has no opinion about
+(`autoApprove`, `timeout`), your key order, and the entries for every other server.
+
+Two things that follow from that:
+
+- **Disabling a server.** A project can switch off a machine-global server by name, with either
+  `"playwright": null` or `"playwright": { "disabled": true }`. Adding some *other* server
+  afterwards leaves that marker alone, so a tool you deliberately turned off stays off.
+- **Entries stabbur can't run yet.** A remote/HTTP server (`{ "type": "http", "url": "…" }`) is
+  **skipped with a warning**, not an error — every other server in the file keeps working, and the
+  entry itself is preserved on write, ready for when stabbur grows a remote transport. The same
+  goes for an entry that's simply malformed: it names the culprit and moves on.
+
 ### Settings, without editing JSON
 
 Several of these servers read environment variables that decide **what they can reach** —
