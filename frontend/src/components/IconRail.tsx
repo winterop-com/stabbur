@@ -1,5 +1,6 @@
 import { AudioLines, Boxes, PanelLeft, SquarePen } from "lucide-react";
 
+import { RAIL_RING } from "@/components/Sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,8 @@ export function IconRail({
             // here: at 36px square there is no text to hold still, and an edge marker on a
             // 48px rail reads as a stripe down the window rather than as part of the button.
             "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+            // The rail's own ring, not the page's — see RAIL_RING in Sidebar.tsx.
+            RAIL_RING,
             active
               ? "bg-sidebar-accent text-sidebar-accent-foreground"
               : "text-sidebar-muted-foreground hover:bg-sidebar-wash hover:text-sidebar-foreground",

@@ -208,6 +208,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   // Record your own voice as the reference clip. Uses the shared VAD recorder, so it
   // auto-stops after a short silence (or click Stop).
   const cloneRec = useRef<Recording | null>(null);
+  const clipInput = useRef<HTMLInputElement>(null);
   const [cloneRecording, setCloneRecording] = useState(false);
   const [cloneStream, setCloneStream] = useState<MediaStream | null>(null); // shared with the visualizer
   const stopCloneRecording = async () => {
@@ -435,17 +436,31 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
             <Wand2 className="h-3.5 w-3.5" /> Clone a voice (optional)
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50">
+            {/* A real button in front of an `sr-only` input, the composer's pattern. The input
+                used to be `display:none` inside a label, which takes it out of the tab order and
+                the a11y tree — and a label is not focusable either, so the control could not be
+                reached by keyboard at all. `sr-only` keeps it in the layout tree so `.click()`
+                reliably opens the native picker, without a stray "Choose File" beside the button. */}
+            <input
+              ref={clipInput}
+              type="file"
+              accept="audio/*"
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+              onChange={(e) => {
+                if (e.target.files?.[0]) onPickClip(e.target.files[0]);
+                e.target.value = ""; // allow re-picking the same clip
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => clipInput.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50"
+            >
               <Upload className="h-3.5 w-3.5" />
               {refName || "Upload clip"}
-              <input
-                type="file"
-                accept="audio/*"
-                className="hidden"
-                aria-label="Reference clip"
-                onChange={(e) => e.target.files?.[0] && onPickClip(e.target.files[0])}
-              />
-            </label>
+            </button>
             <button
               type="button"
               onClick={toggleCloneRecording}
@@ -626,6 +641,7 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
   const [recording, setRecording] = useState(false);
   const [recStream, setRecStream] = useState<MediaStream | null>(null); // shared with the visualizer
   const recRef = useRef<Recording | null>(null);
+  const audioInput = useRef<HTMLInputElement>(null);
 
   const model = sttModels[0];
 
@@ -689,23 +705,31 @@ function TranscribePanel({ sttModels }: { sttModels: VoiceModelInfo[] }) {
         <span className="text-xs text-muted-foreground">{model?.display_name}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50">
+        {/* Same pattern as the clone panel above: `sr-only` input, real button. */}
+        <input
+          ref={audioInput}
+          type="file"
+          accept="audio/*"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = ""; // allow re-picking the same file
+            if (f) {
+              setFileName(f.name);
+              void run(f, f.name);
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => audioInput.current?.click()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent/50"
+        >
           <Upload className="h-3.5 w-3.5" />
           {fileName || "Upload audio"}
-          <input
-            type="file"
-            accept="audio/*"
-            className="hidden"
-            aria-label="Audio to transcribe"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) {
-                setFileName(f.name);
-                void run(f, f.name);
-              }
-            }}
-          />
-        </label>
+        </button>
         <Button
           variant="outline"
           size="sm"
