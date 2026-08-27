@@ -26,6 +26,8 @@ this class's job: it belongs wherever a model is named — ``/api/load/{name:pat
 OpenAI ``model`` field, the SPA picker. This seam only has to survive that change.
 """
 
+from pydantic import BaseModel, ConfigDict
+
 from stabbur.library import LibraryModel
 from stabbur.server import ServerManager, ServerState, UpstreamManager, UpstreamModel
 
@@ -34,6 +36,24 @@ from stabbur.server import ServerManager, ServerState, UpstreamManager, Upstream
 # read surface and almost nothing else (no process, no library model, no context window),
 # and inventing a Protocol now would have to lie about the members they do not share.
 Backend = ServerManager | UpstreamManager
+
+
+class BackendSpec(BaseModel):
+    """One declared backend: a name, and where it lives.
+
+    The name is the qualifier in a ``model@backend`` id (ROADMAP), so it is part of a public
+    contract rather than a label: it appears in the OpenAI ``model`` field, in
+    ``/api/load/{name:path}``, and in the picker. Frozen because a declared backend is
+    configuration, not state — what is *loaded* is tracked separately, and stays singular.
+
+    ``url`` of ``None`` means the local library: it is a backend like any other in the
+    listing, but the only one stabbur can spawn a runtime for.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    url: str | None = None
 
 
 def build(upstream: str | None, runtime_port: int | None = None) -> "Backends":
