@@ -271,7 +271,18 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
 
         # One toolset for this turn: the MCP tools plus whatever the client can run in its tab.
         # The agent loop is unchanged by page actions — it calls a tool and gets a result.
-        turn_toolset = pageactions.PageActionToolset(toolset, page_specs, on_page_action) if page_specs else toolset
+        #
+        # `on_confirm` and `policy` are handed over so the toolset can raise the gate on an acting
+        # page action that `policy` would have let through (5b rule 2: a page action that acts is
+        # confirmed regardless of policy, and "none" is the default on the generic no-project site
+        # this is most for). The full sink is passed, not the `policy != "none"` one below: that
+        # substitution is what turns the loop's gate off, and the page-action gate is not the
+        # loop's. MCP tools are untouched by this — the toolset only intercepts its own actions.
+        turn_toolset = (
+            pageactions.PageActionToolset(toolset, page_specs, on_page_action, on_confirm, policy)
+            if page_specs
+            else toolset
+        )
 
         # Reserve the runtime for the whole stream so a load/unload can't swap or kill
         # it mid-generation; read the current model/URL *inside* the reservation.

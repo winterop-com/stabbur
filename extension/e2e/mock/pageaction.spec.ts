@@ -49,7 +49,7 @@ const PAGE_MARKUP = `
 interface ReadResult {
   url: string;
   title: string;
-  headings: { ref: string; name: string; level: number }[];
+  headings: { ref: string; name: string; level: number; inferred?: true }[];
   links: { ref: string; name: string; href?: string }[];
   buttons: { ref: string; name: string; tag: string; disabled?: boolean }[];
   fields: {
@@ -62,7 +62,7 @@ interface ReadResult {
     options?: string[];
   }[];
   text: string;
-  truncated: { headings: number; links: number; buttons: number; fields: number; text: boolean };
+  truncated: Partial<Record<"headings" | "links" | "buttons" | "fields" | "text", { shown: number; total: number }>>;
 }
 
 async function openReady(context: import("@playwright/test").BrowserContext, extensionId: string) {
@@ -78,15 +78,39 @@ async function openReady(context: import("@playwright/test").BrowserContext, ext
 async function openContentTab(
   context: import("@playwright/test").BrowserContext,
   markup: string,
+  title = "Quarterly Report",
 ): Promise<import("@playwright/test").Page> {
   const tab = await context.newPage();
   await tab.goto(`${mock.baseUrl()}/data-entry`);
-  await tab.evaluate((m) => {
-    document.title = "Quarterly Report";
-    document.body.innerHTML = m;
-  }, markup);
+  await tab.evaluate(
+    ([m, t]) => {
+      document.title = t;
+      document.body.innerHTML = m;
+    },
+    [markup, title] as const,
+  );
   await tab.bringToFront();
   return tab;
+}
+
+/** Drive one page action to completion and hand back what the server was told. */
+async function runRead(
+  context: import("@playwright/test").BrowserContext,
+  extensionId: string,
+  markup: string,
+  title?: string,
+): Promise<(typeof mock.state.pageActionCalls)[number]> {
+  mock.state.chatFrames = [
+    { type: "page_action", id: "pa-read", action: "page_read", args: {} },
+    { type: "token", text: "Read it." },
+    { type: "done" },
+  ];
+  const panel = await openReady(context, extensionId);
+  const tab = await openContentTab(context, markup, title);
+  await send(panel, "what is on this page?");
+  await expect.poll(() => mock.state.pageActionCalls.length, { timeout: 20_000 }).toBe(1);
+  await tab.close();
+  return mock.state.pageActionCalls[0];
 }
 
 async function send(panel: import("@playwright/test").Page, text: string): Promise<void> {
@@ -146,9 +170,11 @@ test("page_read reports the page's structure back to the server", async ({ conte
   for (const ref of refs) expect(ref).toMatch(/^e\d+$/);
   expect(new Set(refs).size).toBe(refs.length);
 
-  // The prose still rides along, and nothing was cut on a page this small.
+  // The prose still rides along — the groups carry names only, so this is the page's ONLY content.
   expect(result.text).toContain("Some readable prose about the reporting period.");
-  expect(result.truncated).toEqual({ headings: 0, links: 0, buttons: 0, fields: 0, text: false });
+  // Nothing was cut on a page this small, and "nothing was cut" is the empty object: a group that
+  // fit is absent, so there is no zero for the model to mistake for a count.
+  expect(result.truncated).toEqual({});
 
   // The turn resumed after the answer, and the panel shows what it did in the tab.
   await expect(panel.getByText("Read it.")).toBeVisible({ timeout: 15_000 });
@@ -194,6 +220,131 @@ test("an unknown action is refused, not executed", async ({ context, extensionId
   const chip = panel.getByTestId("page-action-chip");
   await expect(chip).toHaveAttribute("data-status", "failed");
   await expect(chip).toContainText("unknown page action");
+});
+
+test("a read that saw nothing fails instead of succeeding empty", async ({ context, extensionId }) => {
+  // What a bot check, a consent wall or a half-booted app shell leaves behind: a real document
+  // with a title and one sentence, and no structure whatsoever. Reported as a success it is
+  // indistinguishable from a page that is genuinely blank, and the model answers "the page is
+  // empty" with a successful tool call behind it. So this must not be a success.
+  const call = await runRead(context, extensionId, "<p>Enable JavaScript and cookies to continue.</p>", "reuters.com");
+
+  expect(call.ok).toBe(false);
+  expect(call.result).toBeUndefined();
+  expect(call.error).toContain("saw nothing");
+  // The wall's own words ride along — usually the only evidence of WHY — labelled as page content.
+  expect(call.error).toContain("Enable JavaScript and cookies to continue.");
+  expect(call.error).toContain("untrusted page content");
+  // ...and the message refuses to draw the conclusion the model would otherwise draw for itself.
+  expect(call.error).toContain("does NOT establish that the page is blank");
+
+  // A read that failed for lack of host access must still be a DIFFERENT message: "I may not look"
+  // and "I looked and saw nothing" are different situations with different next moves.
+  expect(call.error).not.toContain("no page access");
+});
+
+test("one paragraph of prose is a sparse page, not a failed read", async ({ context, extensionId }) => {
+  // The other side of the threshold. A page really can be nothing but text, and a read that
+  // returned that text has done its job — failing here would turn a working read into an error.
+  const prose = `<p>${"A genuinely sparse page that is nothing but prose. ".repeat(6)}</p>`;
+  const call = await runRead(context, extensionId, prose, "Notes");
+
+  expect(call.ok).toBe(true);
+  const result = call.result as ReadResult;
+  expect(result.text).toContain("nothing but prose");
+  expect(result.headings).toEqual([]);
+});
+
+/** A table-era front page: titles in `<td><span><a>`, with no `<h*>` and no role="heading" —
+ *  plus the two things that must NOT be promoted to headings alongside them. */
+const TABLE_MARKUP = `
+  <table>
+    <tr><td class="title"><span class="titleline">
+      <a href="https://example.com/a">Decompiling a Nintendo 64 game in eighty four days</a>
+      <span class="sitebit"> (example.com)</span>
+    </span></td></tr>
+    <tr><td class="subtext"><a href="https://example.com/c1">42 comments</a></td></tr>
+    <tr><td class="title"><span class="titleline">
+      <a href="https://example.com/b">Saving a hundred terabytes of memory by optimizing a cache</a>
+      <span class="sitebit"> (example.com)</span>
+    </span></td></tr>
+    <tr><td><a href="https://example.com/login">login</a></td></tr>
+  </table>
+  <p>A paragraph of ordinary running prose that happens to contain
+     <a href="https://example.com/full">a link to the full article here</a>
+     somewhere in the middle of the sentence it belongs to.</p>
+  <nav><a href="https://example.com/nav">Browse every past submission by date</a></nav>
+`;
+
+test("a page that declares no outline gets one inferred, and says so", async ({ context, extensionId }) => {
+  const call = await runRead(context, extensionId, TABLE_MARKUP, "Table News");
+  expect(call.ok).toBe(true);
+  const result = call.result as ReadResult;
+
+  // The titles are recovered — without this the whole front page is undifferentiated links and
+  // the model cannot tell a headline from "login".
+  const names = result.headings.map((h) => h.name);
+  expect(names).toContain("Decompiling a Nintendo 64 game in eighty four days");
+  expect(names).toContain("Saving a hundred terabytes of memory by optimizing a cache");
+
+  // And every one of them is marked as a guess, so an inferred outline can never be read as a
+  // page's own markup.
+  for (const h of result.headings) expect(h.inferred).toBe(true);
+
+  // A ref the read already handed back, so the pair addresses the same element: the inferred
+  // heading does not invent a handle, it re-labels a link the model was given anyway.
+  const first = result.headings[0];
+  expect(result.links.some((l) => l.ref === first.ref)).toBe(true);
+
+  // THE PART THAT MATTERS MORE THAN THE RECALL. Mislabelling navigation or a mid-sentence
+  // reference as a headline is worse than having no outline, so each guard gets its own check:
+  // an inline prose link is a small fraction of its paragraph's text...
+  expect(names).not.toContain("a link to the full article here");
+  // ...a link inside a landmark is navigation however long its label is...
+  expect(names).not.toContain("Browse every past submission by date");
+  // ...and a short label is not a title.
+  expect(names).not.toContain("login");
+  expect(names).not.toContain("42 comments");
+});
+
+test("a page with real headings is never second-guessed", async ({ context, extensionId }) => {
+  // Same markup, one real heading added. The fallback is a fallback: a document that declared an
+  // outline gets exactly that outline, even where a guess would have found more.
+  const call = await runRead(context, extensionId, `<h1>Front page</h1>${TABLE_MARKUP}`, "Table News");
+  expect(call.ok).toBe(true);
+  const result = call.result as ReadResult;
+
+  expect(result.headings).toEqual([expect.objectContaining({ name: "Front page", level: 1 })]);
+  for (const h of result.headings) expect(h.inferred).toBeUndefined();
+});
+
+test("truncation says how much was cut, not merely that it was", async ({ context, extensionId }) => {
+  // 200 distinct links against a cap of 150, plus 30 repeats of one of them. A model told only
+  // "the links were trimmed" cannot tell a couple of lost entries from a page it is seeing a
+  // fraction of, and the second is when it must stop trusting the list.
+  const distinct = Array.from(
+    { length: 200 },
+    (_, i) => `<a href="https://example.com/p${i}">Destination number ${i}</a>`,
+  ).join("");
+  const repeats = `<a href="https://example.com/p0">Destination number 0</a>`.repeat(30);
+  const call = await runRead(context, extensionId, `<h1>Index</h1>${distinct}${repeats}`, "Index");
+  expect(call.ok).toBe(true);
+  const result = call.result as ReadResult;
+
+  // Shown out of held — the ratio is the signal, and 30 repeats of one link are not 30 links the
+  // model is missing, so they are counted as neither shown nor total.
+  expect(result.truncated.links).toEqual({ shown: 150, total: 200 });
+  expect(result.links).toHaveLength(150);
+
+  // A link listed once, however many times the page repeats it: same words, same destination, so
+  // a ref to either does the identical thing and the extra entries buy the model nothing.
+  expect(result.links.filter((l) => l.name === "Destination number 0")).toHaveLength(1);
+
+  // Groups that fit are absent rather than zero, so `truncated` costs nothing to report when
+  // there is nothing to report.
+  expect(result.truncated.headings).toBeUndefined();
+  expect(result.truncated.buttons).toBeUndefined();
+  expect(result.truncated.fields).toBeUndefined();
 });
 
 test("a tab outside the bound target is refused", async ({ context, extensionId }) => {
