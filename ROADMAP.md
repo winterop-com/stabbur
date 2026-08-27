@@ -133,8 +133,13 @@ two hosts both serving `gemma-4-12b` collide the moment they are listed together
 
 **Decided: `model@backend`, split on the LAST `@`.** Used everywhere a model is named —
 `/api/load/{name:path}`, the OpenAI `model` field (so `/v1` clients can select a backend too),
-and the SPA's picker. An unqualified name resolves when exactly one backend serves it, and
-fails with a 409 naming both candidates when more than one does — never a silent pick.
+and the SPA's picker. An unqualified name resolves within the ACTIVE backend, and fails with a 409 naming both
+candidates as qualified ids when several backends serve it — never a silent pick.
+
+An earlier draft said a bare name should resolve to whichever single backend serves it. Building
+it showed why that is wrong: one `/api/load` would then silently repoint `/v1` and `/api/chat` at
+another host, which is a far larger side effect than "resolve a name". Switching backends should
+take saying so.
 
 The separator is forced, not chosen. Both obvious ones are already spoken for: `/` by
 publisher/repo (`unsloth/Qwen3.5-4B-GGUF`) and `:` by Ollama tags (`gemma4:12b-mlx`). An earlier
