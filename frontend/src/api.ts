@@ -166,6 +166,11 @@ export interface ChatOptions {
    *  null narrows to the primary target's servers + shared. Omit entirely (undefined) to leave routing
    *  to the server default (the full-library web app does this). */
   target?: string | null;
+  /** Action names this client can execute in the user's tab (WEBMCP.md 5b). The server exposes
+   *  exactly these to the model, so declaring one the executor does not implement buys a
+   *  guaranteed timeout. Omit for a client with no tab to act on — the web app — and the model
+   *  is never offered a tool nobody would answer. */
+  pageActions?: string[];
 }
 
 /** A parsed /api/chat SSE event. */
@@ -496,6 +501,7 @@ export async function* streamChat(
     confirm_tools?: "all" | "writes" | "none";
     target?: string | null;
     reasoning?: "off" | "low" | "medium" | "high" | "max";
+    page_actions?: string[];
   } = { messages, use_tools: options.useTools ?? true };
   if (options.maxTokens != null) body.max_tokens = options.maxTokens;
   if (options.temperature != null) body.temperature = options.temperature;
@@ -511,6 +517,10 @@ export async function* streamChat(
   // Send `target` whenever the caller sets it (including an explicit null = narrow to primary+shared);
   // undefined means "leave routing to the server" (the full-library web app), so omit it then.
   if (options.target !== undefined) body.target = options.target;
+  // Guard on length, not null: an empty list and an omitted field mean the same thing to the
+  // server (expose nothing), and omitting keeps a client with no executor — the web app —
+  // sending the request it sends today, byte for byte.
+  if (options.pageActions?.length) body.page_actions = options.pageActions;
   // Omit confirm_tools unless explicitly overridden so the server derives the policy from the
   // bound assistant (the extension always omits it).
   if (options.confirmTools != null) body.confirm_tools = options.confirmTools;
