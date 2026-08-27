@@ -22,7 +22,7 @@ from stabbur.library import LibraryModel
 LOCAL_LIBRARY = "library"
 
 
-def heim_repo_root() -> Path:
+def stabbur_repo_root() -> Path:
     """The stabbur source checkout (repo root), for pinning stabbur in a project's pyproject."""
     return Path(__file__).resolve().parents[2]
 
@@ -109,7 +109,7 @@ def render_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: l
     extras_spec = f"[{','.join(sorted(all_extras))}]" if all_extras else ""
     deps = [f"stabbur{extras_spec}", *pip_deps_from_mcp(mcp)]
     dep_lines = "".join(f"    {json.dumps(d)},\n" for d in deps)
-    heim_root = json.dumps(str(heim_repo_root()))
+    repo_root = json.dumps(str(stabbur_repo_root()))
     return (
         "[project]\n"
         f"name = {json.dumps(pkg_name)}\n"
@@ -122,7 +122,7 @@ def render_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: l
         "[tool.uv.sources]\n"
         "# stabbur is not yet on PyPI; pin the local checkout (editable). This line is\n"
         "# machine-specific -- replace it with a version once stabbur publishes.\n"
-        f"stabbur = {{ path = {heim_root}, editable = true }}\n"
+        f"stabbur = {{ path = {repo_root}, editable = true }}\n"
     )
 
 

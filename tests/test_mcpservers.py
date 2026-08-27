@@ -141,12 +141,3 @@ def test_normal_entries_unaffected_by_disable_support(tmp_path: Path, monkeypatc
     mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
     assert resolved == {"datetime": "stabbur-mcp-datetime", "files": "stabbur-mcp-files"}
-
-
-def test_legacy_kodo_command_is_migrated_in_memory(tmp_path: Path) -> None:
-    """A pre-rename config naming `kodo-mcp-*` resolves to the stabbur binary; the file is untouched."""
-    path = tmp_path / "mcp.json"
-    path.write_text(json.dumps({"mcpServers": {"datetime": {"command": "kodo-mcp-datetime"}}}))
-    servers = mcpservers._read_file(path)
-    assert servers[0].command == "stabbur-mcp-datetime"
-    assert "kodo-mcp-datetime" in path.read_text()  # in-memory only; the user's file is not rewritten

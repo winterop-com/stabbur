@@ -134,7 +134,7 @@ class Dhis2StateReader:
         invisible to both this sweep and the absent-at-end check — suite authors must keep rename
         targets within the ``STABBUR_`` prefix (the shipped suite does).
         """
-        # Hard invariant: only ever sweep a STABBUR_-scoped prefix. An empty / non-HEIM prefix (a future
+        # Hard invariant: only ever sweep a STABBUR_-scoped prefix. An empty / non-STABBUR_ prefix (a future
         # caller's bug) would make ``startswith`` trivially true and turn the safety net into a no-op.
         if not prefix.startswith(STABBUR_PREFIX):
             return []

@@ -265,7 +265,7 @@ async def test_upstream_ready_paces_probes_and_forgives_jitter() -> None:
     assert not await manager.ready()
 
 
-def test_resolve_binary_prefers_heims_own_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_binary_prefers_stabburs_own_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The MLX runtimes are stabbur extras, so they land in stabbur's own environment where a
     # `uv tool install` exposes nothing on PATH. Look beside the interpreter first, so
     # installing the extra "into stabbur" works without a global install.

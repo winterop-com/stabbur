@@ -218,7 +218,7 @@ def test_read_suite_scoring_unchanged_with_result_key_present() -> None:
     assert core.score_tool(problem, calls, "It's a Saturday.", 0.1).passed
 
 
-def test_sweep_only_touches_heim_prefixed_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sweep_only_touches_stabbur_prefixed_objects(monkeypatch: pytest.MonkeyPatch) -> None:
     from stabbur.benchmark import dhis2_state
 
     reader = dhis2_state.Dhis2StateReader(
@@ -227,7 +227,7 @@ def test_sweep_only_touches_heim_prefixed_objects(monkeypatch: pytest.MonkeyPatc
     # `like` is a substring match, so a non-STABBUR_ object can slip into the candidate list.
     found = [
         {"id": "u1", "name": "STABBUR_DE1"},
-        {"id": "u2", "name": "ORG_HEIM_DE1"},  # contains STABBUR_ but does NOT start with it
+        {"id": "u2", "name": "ORG_STABBUR_DE1"},  # contains STABBUR_ but does NOT start with it
         {"id": "u3", "name": "STABBUR_DE2"},
     ]
     deleted: list[str] = []

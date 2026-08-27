@@ -29,7 +29,7 @@ def test_pinned_runtime_port_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config._runtime_port_override is None
 
 
-def test_settings_read_library_root_from_heim_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_read_library_root_from_stabbur_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # stabbur.toml is the primary config: a top-level key maps to a Settings field.
     _write_toml(tmp_path, 'library_root = "/data/library"\n[project]\nmodel = "x"\n')
     monkeypatch.chdir(tmp_path)
@@ -38,7 +38,7 @@ def test_settings_read_library_root_from_heim_toml(tmp_path: Path, monkeypatch: 
     assert Settings().library_root == Path("/data/library")
 
 
-def test_heim_toml_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stabbur_toml_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # stabbur.toml outranks .env, so a stale .env cannot shadow the primary config.
     _write_toml(tmp_path, 'library_root = "/from/toml"\n')
     (tmp_path / ".env").write_text("STABBUR_LIBRARY_ROOT=/from/dotenv\n")
@@ -48,7 +48,7 @@ def test_heim_toml_overrides_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert Settings().library_root == Path("/from/toml")
 
 
-def test_env_var_overrides_heim_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_env_var_overrides_stabbur_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A real environment variable is the per-machine escape hatch and still wins.
     _write_toml(tmp_path, 'library_root = "/from/toml"\n')
     monkeypatch.chdir(tmp_path)
@@ -105,7 +105,7 @@ def test_machine_config_supplies_defaults(tmp_path: Path, monkeypatch: pytest.Mo
     assert settings.default_model == "gemma"
 
 
-def test_heim_toml_overrides_machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stabbur_toml_overrides_machine_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A project pins its own model/library, so stabbur.toml outranks the machine default.
     _machine_config(tmp_path, monkeypatch, 'library_root = "/from/machine"\n')
     proj = tmp_path / "proj"

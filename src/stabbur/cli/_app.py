@@ -141,7 +141,7 @@ class _HostContext:
                     recorded = dict(args)
                     calls.append((name, recorded))
                     result = await original(name, args, timeout=timeout)
-                    recorded["__heim_tool_result__"] = result.text
+                    recorded["__stabbur_tool_result__"] = result.text
                     return result
 
                 toolset.call = _recording_call  # type: ignore[assignment]

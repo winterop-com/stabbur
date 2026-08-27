@@ -151,7 +151,7 @@ function escapeHtml(s: string): string {
 async function markdownToHtml(content: string): Promise<string> {
   const { renderToStaticMarkup } = await import("react-dom/server");
   const diagrams: string[] = [];
-  const token = (i: number) => `heimmermaidplaceholder${i}stabbur`;
+  const token = (i: number) => `stabburmermaidplaceholder${i}end`;
   const src = content.replace(/```mermaid[^\n]*\n([\s\S]*?)```/g, (_m, code: string) => {
     const i = diagrams.length;
     diagrams.push(code);

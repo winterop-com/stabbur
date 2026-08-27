@@ -36,7 +36,6 @@ coverage.xml
 # Personal per-machine config (holds absolute library paths). The committed
 # template is stabbur.toml.example; each checkout keeps its own stabbur.toml.
 /stabbur.toml
-/heim.toml  # a checkout that predates the rename
 
 # Editors / OS
 .idea/
