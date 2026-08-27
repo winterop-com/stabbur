@@ -88,4 +88,7 @@ def pull(
                 # Carry the import's own verdict: dropping it made every voice --move report
                 # "local copy KEPT" even when the cache copy had in fact been deleted.
                 source_removed=res.cache_pruned,
+                # And distinguish "nothing to copy, it was already here" from "the copy failed
+                # to verify" — both leave source_removed False, but only one is a warning.
+                already_present=res.already_present,
             )

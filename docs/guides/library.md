@@ -110,9 +110,12 @@ sb library uninstall Qwen3.5-4B-GGUF --from ollama     # ollama rm the imported 
 ```
 
 `installed` cross-references the drive against LM Studio (a stabbur symlink pointing into the
-library) and Ollama (a model whose deterministic install name is present). `uninstall` removes
-only what stabbur put there — it never deletes a real LM Studio download, and never touches the
-library copy.
+library) and Ollama (a model held under the deterministic install name, or under a name the
+model's sidecar recorded — that's how an `install --name qwen-fast` stays findable, since Ollama
+copies the GGUF into its own store and keeps no pointer back to the library). `uninstall` picks
+the same way, so it removes the right Ollama model without you having to remember the name.
+It removes only what stabbur put there — never a real LM Studio download, and never the library
+copy.
 
 ## Which formats to keep
 
@@ -148,11 +151,18 @@ sb library verify --deep     # also re-hash Ollama blobs against their sha256
 Ollama's store is content-addressed, so `--deep` gives true content integrity there. HF/LM Studio
 pulls carry no per-file checksums, so their check is structural (present + non-empty).
 
+A model marked `~` passed, with a note: its sidecar was written before stabbur stopped counting
+download bookkeeping (`.cache/`, `.stabbur/`, macOS `._` files) in the recorded totals, so it now
+measures a few small files short. That is how the numbers were recorded, not damage to the model,
+and it doesn't make `verify` exit non-zero. Two bounds keep that narrow — the missing bytes have to
+average small per missing file *and* be a rounding error against the model — so a truncated pull, or
+a small model that lost most of itself, still fails loudly.
+
 ## Rebuild a drive
 
 Because every model already records where it came from, the library **is** its own manifest.
 `sb library manifest --save models.toml` writes a portable want list — a `[[model]]` entry per
-model (source + name + format). Keep that file anywhere (commit it to a repo, drop it on another
+model (source + name + format, plus the `include` globs a partial pull used). Keep that file anywhere (commit it to a repo, drop it on another
 machine); nothing is stored back in the library. On a fresh or replacement drive, point
 `STABBUR_LIBRARY_ROOT` at it and run `sb library sync models.toml`: it diffs the list against what's
 present and re-pulls only what's missing, via the normal per-source paths (`--dry-run` first to

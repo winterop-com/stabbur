@@ -1,6 +1,5 @@
 """Library mutation: remove a model, plan/apply the layout migration, and verify integrity."""
 
-import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -173,6 +172,25 @@ class VerifyResult(BaseModel):
     checked: str  # what was verified: "size+files+card", "blobs (N)", "blobs+sha256 (N)", or "—"
     issues: list[str] = []
 
+    notes: list[str] = []
+    """Things worth saying that are **not** damage — the model still counts as ok.
+
+    Kept apart from ``issues`` on purpose: a note must never turn a healthy drive into a non-zero
+    exit. See :func:`_stats_issues` for the one case that produces them today.
+    """
+
+
+# A sidecar written before ``dir_stats`` learned to exclude bookkeeping (huggingface_hub's
+# ``.cache/``, stabbur's own ``.stabbur/``, macOS ``._`` AppleDouble files on exFAT) recorded those
+# files in its totals, so a perfectly healthy old pull now measures a handful of files short and a
+# few dozen KB light. Two bounds have to hold before a difference is written off that way, because
+# either alone can be talked into excusing real loss: the missing bytes must average small **per
+# missing file entry** (a weight file is orders of magnitude bigger than any bookkeeping file), and
+# they must be a rounding error **against the model as a whole** (so a small model losing most of
+# itself is still reported, however few file entries that took).
+_BOOKKEEPING_MAX_BYTES = 1 << 20  # 1 MiB per missing file entry
+_BOOKKEEPING_MAX_FRACTION = 0.05  # and at most this share of the recorded total
+
 
 def _weights_issues(model: LibraryModel) -> list[str]:
     """Problems with a format model's on-disk weights: missing, empty, or (MLX) no ``.safetensors``."""
@@ -194,24 +212,53 @@ def _weights_issues(model: LibraryModel) -> list[str]:
     return issues
 
 
-def _stats_issues(path: Path, meta: dict[str, Any]) -> list[str]:
+def _size_mismatch(size: int, recorded: int) -> str:
+    """Phrase a size mismatch, falling back to exact byte counts when both round to the same words.
+
+    ``_human_size`` keeps one decimal, so a 45 KB gap in a 16 GB model renders as
+    "size 16.3 GB != recorded 16.3 GB" — a line that reads as a bug in stabbur rather than a
+    finding about the model. When the two sides look identical, say the actual numbers.
+    """
+    on_disk, was = _human_size(size), _human_size(recorded)
+    if on_disk == was:
+        return f"size {size:,} bytes != recorded {recorded:,} bytes"
+    return f"size {on_disk} != recorded {was}"
+
+
+def _stats_issues(path: Path, meta: dict[str, Any]) -> tuple[list[str], list[str]]:
     """Compare the sidecar's recorded size and file count against what is on disk now.
 
     This is what catches a *truncated* pull: the weights file still exists and is non-empty, so
     the structural checks pass, but it is short. Both sides are measured with :func:`dir_stats`,
-    which skips the sidecar itself, so they count the same files. A sidecar that never recorded
-    the numbers (older pulls) is skipped rather than reported as damaged.
+    which skips bookkeeping and the sidecar itself, so they count the same files. A sidecar that
+    never recorded the numbers (older pulls) is skipped rather than reported as damaged.
+
+    Returns ``(issues, notes)``. A model can also be short of *file entries* — that happens when the
+    sidecar predates the bookkeeping exclusions (see :data:`_BOOKKEEPING_MAX_BYTES`) and never when
+    a download stops partway, which shortens a file rather than removing one. When the missing bytes
+    are small enough on both bounds to be exactly those entries, that is reported as a note, not an
+    issue: the recorded numbers are stale, the model is not damaged.
     """
     recorded_size, recorded_files = meta.get("size_bytes"), meta.get("file_count")
     if not isinstance(recorded_size, int) or recorded_size <= 0:
-        return []
+        return [], []
     size, files = dir_stats(path)
+    counted: int | None = recorded_files if isinstance(recorded_files, int) and recorded_files > 0 else None
+    missing_files = counted - files if counted is not None else 0
+    shortfall = recorded_size - size
+    bookkeeping_sized = 0 <= shortfall <= missing_files * _BOOKKEEPING_MAX_BYTES
+    negligible = shortfall <= _BOOKKEEPING_MAX_FRACTION * recorded_size
+    if missing_files > 0 and bookkeeping_sized and negligible:
+        return [], [
+            f"metadata counted differently — recorded {counted} files / {_human_size(recorded_size)}, "
+            f"on disk {files} / {_human_size(size)}; weights intact"
+        ]
     issues: list[str] = []
     if size != recorded_size:
-        issues.append(f"size {_human_size(size)} != recorded {_human_size(recorded_size)}")
-    if isinstance(recorded_files, int) and recorded_files > 0 and files != recorded_files:
-        issues.append(f"{files} files != recorded {recorded_files}")
-    return issues
+        issues.append(_size_mismatch(size, recorded_size))
+    if counted is not None and files != counted:
+        issues.append(f"{files} files != recorded {counted}")
+    return issues, []
 
 
 def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
@@ -223,6 +270,9 @@ def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
     declared weights (and projector) exist and are non-empty, and the recorded card is present —
     and against the size and file count their sidecar recorded at pull time, which is what
     catches a pull that stopped partway.
+
+    A recorded count that predates the bookkeeping exclusions is reported through
+    :attr:`VerifyResult.notes` and leaves the model ``ok`` — see :func:`_stats_issues`.
     """
     if model.is_ollama:
         models_dir = model.library_root / "ollama"
@@ -232,20 +282,19 @@ def verify(model: LibraryModel, deep: bool = False) -> VerifyResult:
         )
 
     issues = _weights_issues(model)
+    notes: list[str] = []
     checked = "weights+card"
-    meta_path = cards.sidecar_dir(model.path) / "metadata.json"
-    if meta_path.is_file():
-        try:
-            meta = json.loads(meta_path.read_text())
-        except (OSError, ValueError):
+    sidecar = cards.sidecar_dir(model.path)
+    if (sidecar / "metadata.json").is_file():
+        meta = cards.read_metadata(sidecar)
+        if not meta:
             issues.append("unreadable .stabbur/metadata.json")
         else:
-            card = meta.get("card") if isinstance(meta, dict) else None
+            card = meta.get("card")
             if isinstance(card, str) and not (model.path / card).is_file():
                 issues.append(f"card {card!r} missing")
-            if isinstance(meta, dict):
-                stats = _stats_issues(model.path, meta)
-                issues += stats
-                if stats or "size_bytes" in meta:
-                    checked = "weights+size+card"
-    return VerifyResult(name=model.name, ok=not issues, checked=checked, issues=issues)
+            stats, notes = _stats_issues(model.path, meta)
+            issues += stats
+            if stats or notes or "size_bytes" in meta:
+                checked = "weights+size+card"
+    return VerifyResult(name=model.name, ok=not issues, checked=checked, issues=issues, notes=notes)

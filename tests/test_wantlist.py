@@ -31,6 +31,24 @@ def _hf_model(root: Path, repo: str, *, fmt: str = "gguf", source: str = "huggin
     (sidecar / "metadata.json").write_text(json.dumps(meta))
 
 
+def _quant_subdir_model(root: Path, repo: str, quant: str, *, include: list[str] | None = None) -> None:
+    """A repo whose quant lives in its own folder — the sidecar sits on the *repo* dir, one level up.
+
+    This is the layout multi-quant GGUF publishers use, and the one that produced want-list names
+    like ``pub/Repo-GGUF/UD-Q3_K_XL``: three segments, so no such Hugging Face repo exists.
+    """
+    repo_dir = root / "gguf" / repo
+    (repo_dir / quant).mkdir(parents=True)
+    (repo_dir / quant / f"model-{quant}.gguf").write_bytes(b"w" * 100)
+    (repo_dir / "README.md").write_text("# card")
+    sidecar = repo_dir / ".stabbur"
+    sidecar.mkdir()
+    meta: dict[str, object] = {"source": "huggingface", "name": repo, "size_bytes": 100, "file_count": 1}
+    if include is not None:
+        meta["include"] = include
+    (sidecar / "metadata.json").write_text(json.dumps(meta))
+
+
 def _ollama_model(root: Path, name: str) -> None:
     """Create a minimal restorable Ollama model (manifest + one blob) under ``<root>/ollama``."""
     blob = "sha256-" + "a" * 64
@@ -88,6 +106,84 @@ def test_render_parse_round_trip(tmp_path: Path) -> None:
 def test_parse_rejects_incomplete_entry() -> None:
     with pytest.raises(ValueError, match="source"):
         wantlist.parse('[[model]]\nname = "foo"\n')
+
+
+def test_parse_rejects_a_bad_include() -> None:
+    with pytest.raises(ValueError, match="include"):
+        wantlist.parse('[[model]]\nsource = "huggingface"\nname = "pub/Foo"\ninclude = "*Q4*"\n')
+
+
+# --- partial pulls: the include globs that make a rebuild faithful -------------------------------
+
+
+def test_include_recorded_at_pull_time_is_exported(tmp_path: Path) -> None:
+    # Without this the want list only names the repo, so a rebuild re-downloads every quant of a
+    # multi-quant repo to recreate the one copy on the drive.
+    _hf_model(tmp_path, "pub/Multi-GGUF")
+    sidecar = tmp_path / "gguf" / "pub" / "Multi-GGUF" / ".stabbur" / "metadata.json"
+    sidecar.write_text(json.dumps(json.loads(sidecar.read_text()) | {"include": ["*Q4_K_M*"]}))
+
+    (entry,) = wantlist.collect(library_ops.scan(root=tmp_path))[0]
+    assert entry.name == "pub/Multi-GGUF"
+    assert entry.include == ["*Q4_K_M*"]
+    assert 'include = ["*Q4_K_M*"]' in wantlist.render([entry])
+    assert wantlist.parse(wantlist.render([entry]))[0].include == ["*Q4_K_M*"]
+
+
+def test_a_quant_subdirectory_exports_a_real_repo_id_plus_a_glob(tmp_path: Path) -> None:
+    # The library name has three segments (pub/Repo/quant); emitting that as the want-list name
+    # produced an entry no source could pull, because there is no such repo.
+    _quant_subdir_model(tmp_path, "pub/Repo-GGUF", "UD-Q3_K_XL")
+    (entry,) = wantlist.collect(library_ops.scan(root=tmp_path))[0]
+    assert entry.name == "pub/Repo-GGUF"  # a valid two-segment repo id
+    assert entry.include == ["UD-Q3_K_XL/*"]
+
+
+def test_a_quant_subdirectory_prefers_the_recorded_include(tmp_path: Path) -> None:
+    # What the pull asked for beats what the layout implies.
+    _quant_subdir_model(tmp_path, "pub/Repo-GGUF", "UD-Q3_K_XL", include=["*UD-Q3_K_XL*"])
+    (entry,) = wantlist.collect(library_ops.scan(root=tmp_path))[0]
+    assert entry.name == "pub/Repo-GGUF"
+    assert entry.include == ["*UD-Q3_K_XL*"]
+
+
+def test_two_quants_of_one_repo_stay_distinct_entries(tmp_path: Path) -> None:
+    _quant_subdir_model(tmp_path, "pub/Repo-GGUF", "UD-Q3_K_XL")
+    quant = tmp_path / "gguf" / "pub" / "Repo-GGUF" / "UD-Q8_0"
+    quant.mkdir(parents=True)
+    (quant / "model-UD-Q8_0.gguf").write_bytes(b"w" * 100)
+
+    entries, _ = wantlist.collect(library_ops.scan(root=tmp_path))
+    assert [e.name for e in entries] == ["pub/Repo-GGUF", "pub/Repo-GGUF"]
+    assert sorted(tuple(e.include) for e in entries) == [("UD-Q3_K_XL/*",), ("UD-Q8_0/*",)]
+
+
+def test_a_sidecar_without_include_still_means_the_whole_repo(tmp_path: Path) -> None:
+    # Backward compatibility: pulls that predate the recording keep today's behaviour.
+    _hf_model(tmp_path, "pub/Whole-GGUF")
+    (entry,) = wantlist.collect(library_ops.scan(root=tmp_path))[0]
+    assert entry.include == []
+    assert "include" not in wantlist.render([entry])
+
+
+def test_pull_entry_passes_include_through(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from stabbur import catalog
+
+    captured: dict[str, object] = {}
+
+    def fake_pull(source: ModelSource, name: str, **kwargs: object) -> PullResult:
+        captured.update({"source": source, "name": name, **kwargs})
+        return PullResult(source=source, name=name, destination=tmp_path)
+
+    monkeypatch.setattr(catalog, "pull", fake_pull)
+    wantlist.pull_entry(
+        wantlist.WantModel(source="huggingface", name="pub/Repo-GGUF", include=["UD-Q3_K_XL/*"]), tmp_path
+    )
+    assert captured["include"] == ["UD-Q3_K_XL/*"]
+
+    # Ollama has no include; passing one would raise in catalog.pull.
+    wantlist.pull_entry(wantlist.WantModel(source="ollama", name="gemma3:latest"), tmp_path)
+    assert captured["include"] is None
 
 
 # --- diff / sync --------------------------------------------------------------------------------
