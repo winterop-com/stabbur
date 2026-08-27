@@ -15,6 +15,7 @@ from stabbur import agent, backends, capabilities, pageactions, runtime
 from stabbur import library as library_ops
 from stabbur.backends import Backends
 from stabbur.config import Settings
+from stabbur.library import LibraryModel
 from stabbur.routers.serving._base import (  # shared router + request deps
     ConfDep,
     LockDep,
@@ -30,17 +31,85 @@ from stabbur.tools import MCPToolset, TargetRouting, narrow_to_servers
 
 _MAX_DETAIL = 2000  # cap on a tool SSE detail so one giant result can't flood the stream / the UI
 _MAX_DETAIL_STR = 200  # per-string cap when re-dumping a large JSON detail so it stays parseable
+# Per-string cap for a CONFIRM frame's arguments, two orders of magnitude above the display cap.
+# What a confirm frame shows is what the user consents to, so it has to be the call itself and
+# not a preview of it; this is set where nothing consequential can hide past the boundary, while
+# still keeping one unbounded blob out of the queue and the browser.
+_MAX_CONFIRM_STR = 10_000
+_CONFIRM_TRUNCATED = " [TRUNCATED — this value continues beyond what is shown]"
+
+# What the client is told when the runtime cut the reply at max_tokens. Written for a reader
+# rather than a log: it names the setting to change, because "the reply stops mid-sentence" and
+# "the reply is empty" are the same cause and neither looks like a limit from the outside.
+_TRUNCATED = (
+    "The reply was cut off: the model reached its token limit before finishing. "
+    "Raise max_tokens, or lower the reasoning effort if the budget went to thinking."
+)
 
 
-def _cap_strings(value: Any) -> Any:
-    """Recursively cap every string in a JSON-decoded value to ``_MAX_DETAIL_STR`` chars."""
+def _done_frame(finish_reason: str | None) -> dict[str, str]:
+    """The terminating ``done`` frame, carrying ``finish_reason`` when the runtime reported one.
+
+    Additive on purpose: the frame stays ``{"type": "done"}`` when nothing is known, and every
+    existing parser ignores the extra field, so a client learns about truncation only if it looks.
+    """
+    return {"type": "done", "finish_reason": finish_reason} if finish_reason else {"type": "done"}
+
+
+def _cap_strings(value: Any, limit: int = _MAX_DETAIL_STR, marker: str = "...") -> Any:
+    """Recursively cap every string in a JSON-decoded value to ``limit`` chars.
+
+    Args:
+        value: A JSON-decoded value (str / list / dict / scalar).
+        limit: Per-string character budget. Defaults to the display cap.
+        marker: Appended to any string that was cut, so a reader can tell.
+
+    Returns:
+        The value with every over-long string capped.
+    """
     if isinstance(value, str):
-        return value if len(value) <= _MAX_DETAIL_STR else value[:_MAX_DETAIL_STR] + "..."
+        return value if len(value) <= limit else value[:limit] + marker
     if isinstance(value, list):
-        return [_cap_strings(v) for v in value]
+        return [_cap_strings(v, limit, marker) for v in value]
     if isinstance(value, dict):
-        return {k: _cap_strings(v) for k, v in value.items()}
+        return {k: _cap_strings(v, limit, marker) for k, v in value.items()}
     return value
+
+
+def _confirm_args(args: dict[str, Any]) -> dict[str, Any]:
+    """The arguments shown on a confirm frame — what the user is actually approving.
+
+    A confirm frame is not a trace line, and the display cap that is right for one is a security
+    bug on the other: at 200 characters per string the user approved a *summary*, and a call whose
+    consequential part sat past that boundary was invisible at the moment of consent — the exact
+    payload the gate exists to show them. So this cap is set where it cannot plausibly hide the
+    substance of a call, and anything it does cut says so in words rather than with an ellipsis
+    that reads like formatting.
+
+    It is still a cap rather than none at all: the frame goes through a bounded queue into a
+    browser, and one unbounded argument (a base64 blob, a whole file) would flood both. Approving
+    what you cannot see is the failure being fixed, so the marker has to be legible as a warning.
+    """
+    capped: dict[str, Any] = _cap_strings(args, _MAX_CONFIRM_STR, _CONFIRM_TRUNCATED)
+    return capped
+
+
+def _local_profile(model: LibraryModel) -> tuple[bool, sampling.ModelSampling]:
+    """A local model's vision capability and recommended sampling. **Blocking** — call in a thread.
+
+    Both halves read the disk: capability detection parses the GGUF header on a cache miss (and
+    writes the sidecar it caches into), and the recommendation reads ``generation_config.json``.
+    Run on the event loop — as they were — every chat turn began by stalling the loop for the
+    length of a header parse on an external drive, which is also what the UI's status polls were
+    queued behind.
+
+    Detection is best-effort: a failure disables image feedback rather than failing the turn.
+    """
+    try:
+        vision = capabilities.capabilities(model).vision  # feed tool images back only if seen
+    except Exception:  # noqa: BLE001 - detection is best-effort; a failure just disables image feedback
+        vision = False
+    return vision, sampling.recommended(model)
 
 
 def _truncate_detail(detail: str) -> str:
@@ -112,9 +181,11 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
     """Run the agent loop (MCP tools + the loaded model) and stream typed SSE.
 
     Events: ``{"type":"token","text":...}``, ``{"type":"tool","kind":"call"|"result",
-    "detail":...}``, ``{"type":"error","detail":...}``, ``{"type":"done"}``. Unlike
-    the raw ``/v1`` proxy, this executes tool calls server-side so the web UI and
-    extension get tools — and surfaces tool activity the proxy can't.
+    "detail":...}``, ``{"type":"error","detail":...}``, and a terminating
+    ``{"type":"done","finish_reason":...}`` (the field is present only when the runtime reported
+    one; see :func:`_done_frame`). Unlike the raw ``/v1`` proxy, this executes tool calls
+    server-side so the web UI and extension get tools — and surfaces tool activity the proxy
+    can't. The full frame list is in CHROME.md.
     """
     if manager.current is None:
         raise HTTPException(status_code=409, detail="No model loaded")
@@ -200,6 +271,13 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         # (TCP backpressure to llama-server) instead of buffering the whole reply in RAM (V-12).
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=512)
         done = {"type": "done"}
+        # How the last round ended, as the runtime reported it. Written by the producer task and
+        # read once the stream has drained, so it never travels through the queue (the `done`
+        # frame is emitted by the consumer, after the sentinel).
+        finished: dict[str, str] = {}
+
+        def on_finish(reason: str) -> None:
+            finished["reason"] = reason  # last round wins: it is the one that ended the turn
 
         async def on_event(kind: str, detail: str) -> None:
             await queue.put({"type": "tool", "kind": kind, "detail": _truncate_detail(detail)})
@@ -225,7 +303,8 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
             loop = asyncio.get_running_loop()
             fut: asyncio.Future[bool] = loop.create_future()
             request.app.state.pending_confirmations[cid] = fut
-            await queue.put({"type": "confirm", "id": cid, "tool": name, "args": _cap_strings(args)})
+            # ``_confirm_args``, NOT the display cap: this frame is the thing the user approves.
+            await queue.put({"type": "confirm", "id": cid, "tool": name, "args": _confirm_args(args)})
             reason = "user"
             try:
                 return await asyncio.wait_for(fut, timeout=request.app.state.settings.confirm_timeout)
@@ -303,12 +382,10 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                 rec = sampling.defaults()
             else:
                 model_target = current.load_target
-                try:
-                    model_vision = capabilities.capabilities(current).vision  # feed tool images back only if seen
-                except Exception:  # noqa: BLE001 - detection is best-effort; a failure just disables image feedback
-                    model_vision = False
-                # Model-recommended sampling (LM Studio parity); an explicit request value wins.
-                rec = sampling.recommended(current)
+                # Capability detection + model-recommended sampling (LM Studio parity) both hit
+                # the disk, so they go to a worker thread together; an explicit request value
+                # still wins over the recommendation below.
+                model_vision, rec = await asyncio.to_thread(_local_profile, current)
                 model_field = str(model_target) if model_target else None
             eff_temperature = req.temperature if req.temperature is not None else rec.temperature
             eff_top_p = req.top_p if req.top_p is not None else rec.top_p
@@ -347,6 +424,12 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                         confirm_policy=policy,
                         reasoning=req.reasoning,
                         response_format=req.response_format,
+                        on_finish=on_finish,
+                        # The app's shared client, not a fresh one per turn: the loop opened (and
+                        # tore down) its own pool for every message, paying a new TCP+TLS
+                        # handshake to the runtime each time and keeping none of the keep-alive
+                        # the /v1 proxy already maintains to the same host.
+                        http=request.app.state.http,
                     )
                 except Exception as exc:  # noqa: BLE001 - surface any runtime/tool failure to the client
                     await queue.put({"type": "error", "detail": str(exc)})
@@ -360,7 +443,15 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
                     if item is done:
                         break
                     yield f"data: {json.dumps(item)}\n\n"
-                yield 'data: {"type": "done"}\n\n'
+                reason = finished.get("reason")
+                if reason == "length":
+                    # A truncated reply is otherwise indistinguishable from a complete one — and
+                    # when the whole budget went to reasoning_content, from an empty one: the
+                    # stream carries zero token frames and then a clean `done`. Say so in the
+                    # frame every client already renders, rather than only in `done`, which older
+                    # clients read as a bare end-of-stream.
+                    yield f"data: {json.dumps({'type': 'error', 'detail': _TRUNCATED})}\n\n"
+                yield f"data: {json.dumps(_done_frame(reason))}\n\n"
             finally:
                 if not task.done():
                     task.cancel()  # client disconnected → cancel the in-flight generation
@@ -441,6 +532,15 @@ async def load(
 
     ``n_ctx`` sets the context window (GGUF/llama.cpp only); changing it reloads
     the model since context is fixed at load time.
+
+    **The whole read-activate-load-release sequence runs under the lifecycle lock**, because the
+    four steps are only correct as one unit. Previously just the load's mutation took the lock,
+    and two concurrent qualified loads for different backends interleaved catastrophically: both
+    read the same ``previous``, the second's ``activate`` moved the pointer while the first was
+    still resolving against it, so the first 404'd a model that exists (it resolved on the wrong
+    backend) *and* both then released the local backend — killing the runtime one of them had
+    just spawned. Serializing costs a concurrent second load its wait; it buys a load that means
+    what it says.
     """
     if settings.serve_model is not None:
         raise HTTPException(status_code=409, detail="Server is locked to a single model")
@@ -448,31 +548,36 @@ async def load(
         raise HTTPException(status_code=422, detail="n_ctx must be a positive integer")
     requested = backends.parse_id(name)
     if requested.backend is None:
+        # Outside the lock, deliberately: this is an advisory probe that dials every declared
+        # backend (up to PROBE_TIMEOUT each) and mutates nothing, so holding the lifecycle lock
+        # across it would stall every load and generation on an unrelated host being slow.
         await _reject_if_ambiguous(manager, requested)
-        return await _load_on_active(requested.model, manager, settings, lock, request, n_ctx)
-    previous = manager.name
-    try:
-        manager.activate(requested.backend)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No backend named {requested.backend!r} — declared: {', '.join(manager.names)}",
-        ) from exc
-    try:
-        status = await _load_on_active(requested.model, manager, settings, lock, request, n_ctx)
-    except Exception:
-        # A load that failed must not leave the server pointed somewhere it holds nothing: /v1,
-        # /api/chat and /api/status all read the ACTIVE backend, so an unwound qualifier would
-        # cost the caller the model it still had running. Put the pointer back and report the
-        # failure, not a second one. Nothing is released on this path — the caller's model is
-        # still the loaded one.
-        manager.activate(previous)
-        raise
-    await _release_outgoing(manager, previous, lock)
-    return status
+        async with lock:
+            return await _load_on_active(requested.model, manager, settings, request, n_ctx)
+    async with lock:
+        previous = manager.name
+        try:
+            manager.activate(requested.backend)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No backend named {requested.backend!r} — declared: {', '.join(manager.names)}",
+            ) from exc
+        try:
+            status = await _load_on_active(requested.model, manager, settings, request, n_ctx)
+        except Exception:
+            # A load that failed must not leave the server pointed somewhere it holds nothing: /v1,
+            # /api/chat and /api/status all read the ACTIVE backend, so an unwound qualifier would
+            # cost the caller the model it still had running. Put the pointer back and report the
+            # failure, not a second one. Nothing is released on this path — the caller's model is
+            # still the loaded one.
+            manager.activate(previous)
+            raise
+        await _release_outgoing(manager, previous)
+        return status
 
 
-async def _release_outgoing(manager: Backends, previous: str, lock: asyncio.Lock) -> None:
+async def _release_outgoing(manager: Backends, previous: str) -> None:
     """Free the backend the load just switched away from, now that the new one is loaded.
 
     ROADMAP.md's "loaded stays singular" is a claim about RAM; without this it was only a claim
@@ -494,15 +599,19 @@ async def _release_outgoing(manager: Backends, previous: str, lock: asyncio.Lock
     active* backend — ``/api/chat`` and the ``/v1`` proxy both go through ``manager.base_url`` —
     so no stream can be reading from the runtime being stopped. Checking would only let an
     unrelated generation turn an already-successful load into an error, leaving the leak in place.
+
+    **The caller holds the lifecycle lock** (:func:`load` holds it across the whole sequence), so
+    ``previous`` is still the backend this load actually left. Re-acquiring here would be a
+    deadlock, and taking it only here — as this used to — was the bug: between the activate and
+    this call another load could move the pointer, and the check below then read as "somebody
+    else's backend is live" and freed the runtime this very load had just started.
     """
-    async with lock:
-        # Under the lock, since a concurrent load may have switched back in the window after the
-        # one above released it — in which case ``previous`` is the live backend, not the left one.
-        if previous == manager.name:
-            return
-        # Terminating a process group waits on it (up to 10s), so it goes to a worker thread for
-        # the same reason ``manager.load`` does: status polling must not stall behind a swap.
-        await asyncio.to_thread(manager.release, previous)
+    # A load that stayed put has nothing to release — the model it just loaded is right there.
+    if previous == manager.name:
+        return
+    # Terminating a process group waits on it (up to 10s), so it goes to a worker thread for
+    # the same reason ``manager.load`` does: status polling must not stall behind a swap.
+    await asyncio.to_thread(manager.release, previous)
 
 
 async def _reject_if_ambiguous(manager: Backends, requested: backends.ModelId) -> None:
@@ -527,38 +636,44 @@ async def _reject_if_ambiguous(manager: Backends, requested: backends.ModelId) -
 
 
 async def _load_on_active(
-    name: str, manager: Backends, settings: Settings, lock: asyncio.Lock, request: Request, n_ctx: int | None
+    name: str, manager: Backends, settings: Settings, request: Request, n_ctx: int | None
 ) -> ServerStatus:
-    """Load ``name`` on the active backend: select a remote id, or run a library model locally."""
+    """Load ``name`` on the active backend: select a remote id, or run a library model locally.
+
+    The caller must hold the lifecycle lock — see :func:`load`. This function reads the active
+    backend, resolves ``name`` against it, and mutates it; the pointer must not move underneath
+    any of those three.
+    """
     if manager.is_upstream:
         # Upstream mode: "loading" selects one of the remote's ids (matched exactly, case-
         # insensitively, or by basename); the remote itself loads it on the next request.
         # ``n_ctx`` is decided by the remote's own presets, so it is ignored here.
         try:
-            async with lock:
-                _reject_if_generating(request)  # don't repoint the backend under a live generation
-                await asyncio.to_thread(manager.load_by_name, name)
+            _reject_if_generating(request)  # don't repoint the backend under a live generation
+            await asyncio.to_thread(manager.load_by_name, name)
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return await _status(manager, settings)
-    matches = library_ops.find(name)
+    # A full multi-root library scan (a filesystem walk per root, plus sidecar reads) — worth a
+    # worker thread on its own: run on the loop it stalled every other request for the duration,
+    # including the /api/status polls the UI uses to render this very load.
+    matches = await asyncio.to_thread(library_ops.find, name)
     if not matches:
         raise HTTPException(status_code=404, detail=f"No library model matches {name!r}")
     if len(matches) > 1:
         raise HTTPException(status_code=409, detail=f"{name!r} is ambiguous across formats")
-    reason = runtime.runnable_error(matches[0])
+    reason = await asyncio.to_thread(runtime.runnable_error, matches[0])
     if reason is not None:
         raise HTTPException(status_code=422, detail=reason)
     try:
         # load() spawns the runtime but first stops any current one (a terminate
         # that can wait up to 10s) — run it off the event loop so status polling and
-        # other requests don't stall during a slow model swap. The asyncio lock
+        # other requests don't stall during a slow model swap. The caller's asyncio lock
         # serializes the normal path (and avoids flooding the threadpool with queued
         # loads); ServerManager's own thread lock is the actual guarantee if a
         # request is cancelled while its worker thread is still inside load().
-        async with lock:
-            _reject_if_generating(request)  # don't swap the runtime under a live generation
-            await asyncio.to_thread(manager.load, matches[0], n_ctx)
+        _reject_if_generating(request)  # don't swap the runtime under a live generation
+        await asyncio.to_thread(manager.load, matches[0], n_ctx)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return await _status(manager, settings)

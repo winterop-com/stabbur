@@ -45,6 +45,11 @@ _ROUTE_SURFACE = {
 # manager.state()``, so a facade that exposes ``current`` as a method (or ``state`` as a
 # plain attribute) type-checks at the import site and fails at request time.
 _SHARED_SURFACE = {
+    # Shutdown, and shared for a reason the type split hides: locally there is a child process
+    # to terminate, upstream a keep-alive client to close. ``Backends.aclose`` calls this on
+    # EVERY declared backend without asking which kind it is, so a manager that loses it (or
+    # turns it back into a sync method) leaks whatever it was holding, silently, at exit.
+    "aclose": "async method",
     "base_url": "property",
     "current": "property",
     "last_error": "property",
