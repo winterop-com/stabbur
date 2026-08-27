@@ -195,6 +195,10 @@ use `/v1` otherwise.
 `POST /v1/audio/speech` and `POST /v1/audio/transcriptions` follow the OpenAI shapes,
 so an existing client works. See [Voice](voice.md).
 
+Both are size-capped, since their payloads are the largest thing the API accepts: 20 000
+characters of text to speak, and 25 MB for an uploaded clip or a base64 voice-cloning
+reference. Past either, the request is refused with `413` naming the limit.
+
 ## Access
 
 A loopback server is reachable by anything on the machine. `sb config set host` and

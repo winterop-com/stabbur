@@ -5,10 +5,12 @@ these cover the backend-dispatch branches those don't reach, by monkeypatching t
 modules (``kokoro`` / ``tts`` / ``voice_runtime`` / ``audio_export``) rather than requiring
 real, platform-gated engines. They pin down: engine routing (kokoro vs mlx), the
 503-when-uninstalled gates, the 404 for a voice/repo not in the library, temp-WAV cleanup,
-the 422 for unspeakable input, and the non-WAV transcode path.
+the 422 for unspeakable input, the non-WAV transcode path, the request-size caps, and the
+error shapes the two TTS routes must share.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -16,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 
 from stabbur.app import create_app
 from stabbur.config import Settings
+from stabbur.routers.serving import voice as voice_router
 
 
 @pytest.fixture
@@ -131,6 +134,96 @@ async def test_audio_speech_mlx_backend_unavailable_is_503(
 
 
 # ---------------------------------------------------------------------------
+# Shared behaviour across the two TTS routes, and the request-size caps
+# ---------------------------------------------------------------------------
+
+
+async def test_unknown_voice_is_the_same_422_on_both_tts_routes(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both TTS routes synthesize through one helper, so an unknown voice id is a client error
+    # with the same shape on each. The /v1 route used to hand the id straight to the engine and
+    # answer 500 for what /api/speak already called a clean 422.
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.voices", lambda: [SimpleNamespace(id="af_heart")])
+
+    def never(text: str, voice: str, out_path: Path | None = None, speed: float = 1.0) -> Path:
+        raise AssertionError("synthesis must not start for an unknown voice")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.synthesize", never)
+    speak = await client.post("/api/speak", json={"text": "hello", "voice": "kokoro:not_a_voice"})
+    openai = await client.post(
+        "/v1/audio/speech", json={"model": "kokoro", "input": "hello", "voice": "kokoro:not_a_voice"}
+    )
+    assert speak.status_code == 422
+    assert openai.status_code == 422
+    assert speak.json()["detail"] == openai.json()["detail"] == "unknown Kokoro voice 'not_a_voice'"
+
+
+async def test_engine_unavailable_is_the_same_503_on_both_tts_routes(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Same for the "engine isn't installed" gate: one message, both routes.
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: False)
+    speak = await client.post("/api/speak", json={"text": "hello"})
+    openai = await client.post("/v1/audio/speech", json={"model": "kokoro", "input": "hello"})
+    assert speak.status_code == 503
+    assert openai.status_code == 503
+    assert speak.json()["detail"] == openai.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [("/api/speak", {"text": "x"}), ("/v1/audio/speech", {"model": "kokoro", "input": "x"})],
+)
+async def test_oversized_text_is_413_on_both_tts_routes(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, path: str, body: dict[str, str]
+) -> None:
+    # Text is synthesized wholesale, so an unbounded body is a memory fault rather than a slow
+    # request. Both routes cap it, and the rejection names the limit.
+    def never(text: str, voice: str, out_path: Path | None = None, speed: float = 1.0) -> Path:
+        raise AssertionError("synthesis must not start for an oversized request")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.synthesize", never)
+    key = "text" if path == "/api/speak" else "input"
+    r = await client.post(path, json={**body, key: "a" * (voice_router._MAX_TEXT_CHARS + 1)})
+    assert r.status_code == 413
+    assert str(voice_router._MAX_TEXT_CHARS) in r.json()["detail"]
+
+
+async def test_oversized_reference_clip_is_413(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A cloning reference clip arrives base64 in the JSON body; cap the encoded string so the
+    # decode (and the copy it allocates) can't be driven arbitrarily large.
+    monkeypatch.setattr(voice_router, "_MAX_AUDIO_BYTES", 2 * 1024 * 1024)
+    monkeypatch.setattr(voice_router, "_MAX_REF_AUDIO_B64", 1024)
+    r = await client.post(
+        "/v1/audio/speech",
+        json={"model": "spark", "input": "hello", "ref_audio_b64": "A" * 2048, "ref_text": "hi"},
+    )
+    assert r.status_code == 413
+    assert "ref_audio_b64" in r.json()["detail"]
+
+
+async def test_malformed_reference_clip_is_422(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A reference clip that isn't valid base64 is the caller's mistake: 422, not the 500 a raw
+    # decode error would produce.
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="tts", load_target=tmp_path / "tts-model")],
+    )
+    r = await client.post(
+        "/v1/audio/speech",
+        json={"model": "spark", "input": "hello", "ref_audio_b64": "not base64!!", "ref_text": "hi"},
+    )
+    assert r.status_code == 422
+    assert "base64" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
 # /v1/audio/transcriptions
 # ---------------------------------------------------------------------------
 
@@ -146,6 +239,61 @@ async def test_transcriptions_runtime_unavailable_is_503(client: AsyncClient, mo
     )
     assert r.status_code == 503
     assert "mlx-audio" in r.json()["detail"].lower()
+
+
+async def test_transcriptions_within_the_cap_reach_the_runtime(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The upload is streamed to a temp clip in chunks; a normal-sized one must arrive intact
+    # at the runtime (the chunking must not truncate or reorder it) and be cleaned up after.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="stt", load_target=tmp_path / "stt-model")],
+    )
+
+    def fake_transcribe(model: Path, clip: Path, language: str | None = None) -> str:
+        seen["bytes"] = clip.read_bytes()
+        seen["clip"] = clip
+        return "transcribed"
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.transcribe", fake_transcribe)
+    payload = bytes(range(256)) * 4096  # 1 MB: more than one read chunk
+    r = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("clip.wav", payload, "audio/wav")},
+        data={"model": "whisper"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"text": "transcribed"}
+    assert seen["bytes"] == payload  # streamed through whole, in order
+    assert not Path(str(seen["clip"])).exists()  # temp clip removed
+
+
+async def test_transcriptions_oversized_upload_is_413(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An upload past the cap must be refused with 413 before it is all in memory — an
+    # unbounded read of a multi-gigabyte body is an OOM, not an error response.
+    monkeypatch.setattr(voice_router, "_MAX_AUDIO_BYTES", 2 * 1024 * 1024)
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="stt", load_target=tmp_path / "stt-model")],
+    )
+
+    def never(model: Path, clip: Path, language: str | None = None) -> str:
+        raise AssertionError("transcription must not run on an oversized upload")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.transcribe", never)
+    r = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("clip.wav", b"\x00" * (3 * 1024 * 1024), "audio/wav")},
+        data={"model": "whisper"},
+    )
+    assert r.status_code == 413
+    assert "2 MB" in r.json()["detail"]  # the limit is stated, not just "too large"
 
 
 async def test_transcriptions_unknown_stt_model_is_404(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
