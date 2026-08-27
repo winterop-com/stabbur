@@ -21,6 +21,7 @@ import { SettingsView } from "../../components/SettingsView";
 import { TargetBanner } from "../../components/TargetBanner";
 import type { BindBackendTarget } from "../../components/BindFlow";
 import { ChatView } from "../../components/ChatView";
+import { applyAppearance, watchSystemMode } from "./appearance";
 
 async function activeTabId(): Promise<number | null> {
   try {
@@ -133,6 +134,14 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
   // Keep settings in sync with storage (edits here or elsewhere) — the single state-update
   // path; saveSettings only writes storage and lets this watcher deliver the new value.
   useEffect(() => watchSettings(setSettingsState), []);
+
+  // Paint the chosen appearance and follow the OS while the mode is "system". main.tsx already
+  // stamped the stored pair before first render; this re-stamps on every later change, so a pick
+  // in the settings view repaints the panel under it rather than on the next open.
+  useEffect(() => {
+    applyAppearance(settings.theme, settings.mode);
+    return watchSystemMode(settings.theme, settings.mode);
+  }, [settings.theme, settings.mode]);
 
   // Track the active web tab for the TargetBanner.
   useEffect(() => subscribeTabUrl(setTabUrl), []);
@@ -311,6 +320,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
           void saveSettings(patch);
           setShowSettings(false);
         }}
+        onApply={(patch) => void saveSettings(patch)}
         onClose={() => setShowSettings(false)}
       />
     );
