@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from huggingface_hub import HfApi, scan_cache_dir, snapshot_download
+from huggingface_hub.errors import GatedRepoError, HfHubHTTPError, RepositoryNotFoundError
 
 from stabbur import arch, cards
 from stabbur.models import HubModel, ModelEntry, ModelFormat, ModelSource, PullResult
@@ -18,6 +19,11 @@ from stabbur.sources.base import dir_stats, safe_join
 # Preferred GGUF quant when a repo ships several (mirrors the library's pick), used
 # to estimate what a pull would actually download rather than the whole repo.
 _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
+
+# The Hub answers "no such repo" and "you may not see this repo" identically — a 401 with
+# "Invalid username or password" — because saying which would leak the existence of private
+# repos. Raw, that reads as "stabbur has bad credentials"; it almost always means a typo.
+_ACCESS_STATUSES = frozenset({401, 403, 404})
 
 
 def _pull_size(repo: str) -> int:
@@ -141,6 +147,37 @@ def hub_format(repo_id: str, token: str | None = None) -> ModelFormat:
     return ModelFormat.unknown
 
 
+def _access_error(repo_id: str, exc: Exception) -> Exception:
+    """Map a Hub download failure to a one-line message, or hand back the original error.
+
+    Only the "can't get at this repo" family is rewritten (missing, gated, or unauthorized); a disk
+    error, a network drop or a checksum failure keeps its own message, which is the useful one.
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(exc, RepositoryNotFoundError | GatedRepoError) or (
+        isinstance(exc, HfHubHTTPError) and status in _ACCESS_STATUSES
+    ):
+        return RuntimeError(f"repo not found or requires authentication: {repo_id}")
+    return exc
+
+
+def _prune_empty(leaf: Path, stop: Path) -> None:
+    """Remove ``leaf`` and its now-empty parents up to (never including) ``stop``.
+
+    Rolls back the directory tree a failed pull created: a bad repo id used to leave an empty
+    ``<bucket>/<org>/<repo>/`` behind, which then showed up as litter in the library. Uses
+    ``rmdir``, which refuses a directory with anything in it — so a pull that got *some* files
+    down, or a dir that already held another model, is never removed.
+    """
+    current = leaf
+    while current != stop and stop in current.parents:
+        try:
+            current.rmdir()
+        except OSError:
+            return  # not empty (or not removable) — stop, and leave everything above it alone
+        current = current.parent
+
+
 def pull(
     repo_id: str,
     library_root: Path,
@@ -166,6 +203,9 @@ def pull(
 
     Returns:
         A :class:`PullResult` describing what was written.
+
+    Raises:
+        RuntimeError: The repo doesn't exist, is gated, or needs a token stabbur doesn't have.
     """
     # Pick the format bucket from the Hub's file list; unknown → the source bucket (old layout).
     fmt = model_format or hub_format(repo_id, token)
@@ -176,12 +216,16 @@ def pull(
     dest = safe_join(library_root, f"{bucket}/{repo_id}")
     dest.mkdir(parents=True, exist_ok=True)
     allow_patterns = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
-    snapshot_download(
-        repo_id=repo_id,
-        local_dir=dest,
-        token=token,
-        allow_patterns=allow_patterns,
-    )
+    try:
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=dest,
+            token=token,
+            allow_patterns=allow_patterns,
+        )
+    except Exception as exc:
+        _prune_empty(dest, library_root)  # roll back the tree we just made, if nothing landed in it
+        raise _access_error(repo_id, exc) from exc
     size_bytes, file_count = dir_stats(dest)
 
     # The snapshot already ships the model card as README.md; record it and a
@@ -192,6 +236,9 @@ def pull(
         {
             "source": ModelSource.huggingface.value,
             "name": repo_id,
+            # What this pull actually fetched. Without it a want list can only say "the repo", so
+            # `library sync` re-downloads every quant of a multi-quant repo to rebuild one of them.
+            "include": list(include) if include else None,
             "size_bytes": size_bytes,
             "file_count": file_count,
             "card": card_path.name if card_path else None,
@@ -225,9 +272,13 @@ def pull_tts(
     dest = safe_join(library_root, f"tts/{repo_id}")  # keep the write under the library root
     dest.mkdir(parents=True, exist_ok=True)
     allow = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
-    snapshot_download(repo_id=repo_id, local_dir=dest, token=token, allow_patterns=allow)
-    # Co-locate the vocoder GGUF so the scan pairs them into one TTS model.
-    snapshot_download(repo_id=vocoder_repo, local_dir=dest, token=token, allow_patterns=["*.gguf"])
+    try:
+        snapshot_download(repo_id=repo_id, local_dir=dest, token=token, allow_patterns=allow)
+        # Co-locate the vocoder GGUF so the scan pairs them into one TTS model.
+        snapshot_download(repo_id=vocoder_repo, local_dir=dest, token=token, allow_patterns=["*.gguf"])
+    except Exception as exc:
+        _prune_empty(dest, library_root)  # same rollback as `pull`: never leave an empty tree behind
+        raise _access_error(repo_id, exc) from exc
     size_bytes, file_count = dir_stats(dest)
     card_path = cards.find_card(dest)
     metadata_path = cards.write_metadata(
@@ -236,6 +287,7 @@ def pull_tts(
             "source": ModelSource.huggingface.value,
             "name": repo_id,
             "vocoder": vocoder_repo,
+            "include": list(include) if include else None,
             "size_bytes": size_bytes,
             "file_count": file_count,
             "card": card_path.name if card_path else None,

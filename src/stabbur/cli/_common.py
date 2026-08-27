@@ -170,13 +170,50 @@ def _cli_mcp_spec(value: str) -> tuple[str | None, list[str], dict[str, str]]:
     return name, shlex.split(cmd), env
 
 
-def _library_names() -> set[str]:
-    """Names of models already in the library, plus their bare repo/tag forms."""
-    names: set[str] = set()
-    for m in library_ops.scan():
-        names.add(m.name.lower())
-        names.add(m.name.rsplit("/", 1)[-1].lower())
-    return names
+# How far two measurements of the *same* copy may drift and still count as one artifact. A source
+# store and the library count slightly different things (bookkeeping files, AppleDouble noise), so
+# the gap is never exactly zero; two quants of one repo are far further apart than this — even the
+# closest neighbours (Q4_K_S vs Q4_K_M) differ by several percent.
+_SAME_COPY_TOLERANCE = 0.02
+
+IN_LIBRARY_SAME = "same"
+IN_LIBRARY_OTHER_QUANT = "other-quant"
+IN_LIBRARY_OTHER_FORMAT = "other-format"
+
+
+def _library_index(models: "list[library_ops.LibraryModel] | None" = None) -> dict[str, list[tuple[str, int]]]:
+    """``{name: [(format, size_bytes), ...]}`` for every library copy, under full and bare names.
+
+    Pass an already-scanned list to reuse it: a scan measures every file on the drive, so a caller
+    that has one must not pay for a second.
+    """
+    index: dict[str, list[tuple[str, int]]] = {}
+    for m in library_ops.scan() if models is None else models:
+        for key in {m.name.lower(), m.name.rsplit("/", 1)[-1].lower()}:
+            index.setdefault(key, []).append((m.model_format.value, m.size_bytes))
+    return index
+
+
+def _in_library(name: str, model_format: ModelFormat, size_bytes: int, index: dict[str, list[tuple[str, int]]]) -> str:
+    """Classify a source-store model against the library index.
+
+    Returns :data:`IN_LIBRARY_SAME`, :data:`IN_LIBRARY_OTHER_QUANT`, :data:`IN_LIBRARY_OTHER_FORMAT`,
+    or ``""`` for nothing. Matching on the name alone used to tick a 17 GB source copy against a
+    26 GB library copy of the same repo — a *different quant*, which the library does not have and
+    which the tick said it did.
+    """
+    copies = index.get(name.lower()) or index.get(name.rsplit("/", 1)[-1].lower()) or []
+    if not copies:
+        return ""
+    fmt = model_format.value
+    same_format = [size for copy_format, size in copies if model_format is ModelFormat.unknown or copy_format == fmt]
+    if not same_format:
+        return IN_LIBRARY_OTHER_FORMAT
+    if not size_bytes or any(
+        abs(size - size_bytes) <= _SAME_COPY_TOLERANCE * max(size, size_bytes) for size in same_format
+    ):
+        return IN_LIBRARY_SAME  # a match, or a source that reports no size — fall back to name+format
+    return IN_LIBRARY_OTHER_QUANT
 
 
 def _pull_voice_all(root: Path | None, move: bool) -> None:

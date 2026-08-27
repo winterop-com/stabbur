@@ -17,9 +17,10 @@ sb library sources
 ```
 
 `sb library sources` shows models in your app caches with an **IN LIBRARY** column
-(✓ = already pulled) and a summary like `12 models · 3 already in library · 9 to
-pull`. It's the "what can I pull" view; [`sb library ls`](library.md) is the "what
-do I have" (your library) view.
+(✓ = already pulled; `~ other quant` / `~ other format` = the library has that
+model, but not this copy) and a summary like `12 models · 3 already in library ·
+9 to pull`. It's the "what can I pull" view; [`sb library ls`](library.md) is the
+"what do I have" (your library) view.
 
 ## Move instead of copy
 

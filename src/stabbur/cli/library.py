@@ -23,13 +23,17 @@ from stabbur import library as library_ops
 from stabbur.cli._app import library_app
 from stabbur.cli._common import (
     _FORMAT_STYLE,
+    IN_LIBRARY_OTHER_FORMAT,
+    IN_LIBRARY_OTHER_QUANT,
+    IN_LIBRARY_SAME,
     FormatOption,
     SourceOption,
     _caps_label,
     _count,
     _fmt_cell,
     _fmt_ctx,
-    _library_names,
+    _in_library,
+    _library_index,
     _print_model_card,
     _pull_voice_all,
     _resolve_library_model,
@@ -281,6 +285,21 @@ def install(
         )
 
 
+def _ollama_uninstall_name(query: str, known: library_ops.LibraryModel | None) -> str:
+    """The Ollama name to remove for ``query``: a recorded install name Ollama still holds, else derived.
+
+    ``install --to ollama --name custom`` registers a name nothing derives, so an uninstall that
+    only ever guessed ``ollama_name(model)`` could not remove it. Prefer a recorded name that Ollama
+    actually has; fall back to the derived one so the old behaviour (and models no longer in the
+    library) still works.
+    """
+    if known is None:
+        return consumers.ollama_name(query)
+    present = consumers.ollama_installed_names()
+    recorded = consumers.recorded_install_names(known, "ollama")
+    return next((n for n in recorded if n in present), consumers.ollama_name(known.name))
+
+
 @library_app.command("uninstall")
 def uninstall(
     model: Annotated[str, typer.Argument(help="Library model name (or the Ollama name, for --from ollama).")],
@@ -293,7 +312,8 @@ def uninstall(
     """Remove a model from a runtime (undo `stabbur library install`). The library copy is kept.
 
     ``--from lmstudio`` removes only stabbur's symlink (never a real LM Studio download); ``--from
-    ollama`` runs ``ollama rm`` on the registered name (derived from the model, or ``--name``).
+    ollama`` runs ``ollama rm`` on the registered name — ``--name``, else a name the model's sidecar
+    recorded at install time, else the one derived from the model's name.
     """
     if from_ not in ("ollama", "lmstudio"):
         console.print(f"[red]Unsupported runtime {from_!r}[/] — use [bold]ollama[/] or [bold]lmstudio[/].")
@@ -301,8 +321,14 @@ def uninstall(
     try:
         if from_ == "ollama":
             # Don't require the model to still be in the library — you may want to drop the Ollama
-            # copy of a model you've already removed from the drive.
-            result = consumers.uninstall_ollama(name or consumers.ollama_name(model))
+            # copy of a model you've already removed from the drive — but use it when it's there,
+            # for its record of the name the install actually used.
+            matches = library_ops.find(model, model_format=model_format)
+            known = matches[0] if len(matches) == 1 else None
+            target = name or _ollama_uninstall_name(model, known)
+            result = consumers.uninstall_ollama(target)
+            if known is not None:
+                consumers.forget_install(known, "ollama", target)
         else:
             resolved = _resolve_library_model(model, model_format)
             result = consumers.uninstall_lmstudio(resolved)
@@ -329,9 +355,13 @@ def installed() -> None:
     lines: list[str] = []
     for m in sorted(models, key=lambda x: x.name.lower()):
         targets = []
-        # Ollama imports GGUF only; a match is our deterministic install name being present.
-        if m.model_format is ModelFormat.gguf and not m.is_ollama and consumers.ollama_name(m.name) in ollama_names:
-            targets.append(f"ollama [dim]({consumers.ollama_name(m.name)})[/]")
+        # Ollama imports GGUF only. A match is our deterministic install name, or any name the
+        # model's sidecar recorded — without the latter an `install --name custom` is invisible here.
+        if m.model_format is ModelFormat.gguf and not m.is_ollama:
+            candidates = {consumers.ollama_name(m.name), *consumers.recorded_install_names(m, "ollama")}
+            hits = sorted(c for c in candidates if c in ollama_names)
+            if hits:
+                targets.append(f"ollama [dim]({', '.join(hits)})[/]")
         if m.name in linked:
             targets.append("lmstudio")
         if targets:
@@ -460,6 +490,9 @@ def verify_library(
     Verifies each model's total size, file count, and card against its ``.stabbur/metadata.json``
     (catches truncated/incomplete pulls or deleted files). Ollama models are content-addressed,
     so their blobs are checked for existence — and with ``--deep``, re-hashed against their sha256.
+
+    A model whose sidecar merely *counted* differently — recorded before stabbur stopped counting
+    download bookkeeping — is reported as a note and still passes; only real damage exits non-zero.
     """
     models = library_ops.find(query) if query else library_ops.scan()
     if not models:
@@ -471,15 +504,26 @@ def verify_library(
     table.add_column("MODEL", style="cyan")
     table.add_column("CHECKED", style="dim")
     table.add_column("ISSUES")
-    ok_count = 0
+    ok_count = noted = 0
     for m in sorted(models, key=lambda x: x.name):
         r = library_ops.verify(m, deep=deep)
         ok_count += r.ok
-        mark = "[green]✓[/]" if r.ok else "[red]✗[/]"
-        table.add_row(mark, m.name, r.checked, "[green]ok[/]" if r.ok else f"[red]{'; '.join(r.issues)}[/]")
+        noted += bool(r.notes)
+        if not r.ok:
+            mark, detail = "[red]✗[/]", f"[red]{'; '.join(r.issues)}[/]"
+        elif r.notes:
+            mark, detail = "[yellow]~[/]", f"[yellow]{'; '.join(r.notes)}[/]"
+        else:
+            mark, detail = "[green]✓[/]", "[green]ok[/]"
+        table.add_row(mark, m.name, r.checked, detail)
     console.print(table)
     bad = len(models) - ok_count
-    console.print(f"\n[bold]{ok_count}/{len(models)} ok[/]" + (f" · [red]{bad} with issues[/]" if bad else ""))
+    summary = f"\n[bold]{ok_count}/{len(models)} ok[/]"
+    if noted:
+        summary += f" · [yellow]{noted} with stale recorded counts[/]"
+    if bad:
+        summary += f" · [red]{bad} with issues[/]"
+    console.print(summary)
     if bad:
         raise typer.Exit(1)
 
@@ -578,7 +622,8 @@ def sync(
         console.print(f"\n[bold]{len(sp.missing)} to pull[/] [dim](dry run)[/]:")
         for w in sp.missing:
             fmt = f" [dim]{w.model_format}[/]" if w.model_format else ""
-            console.print(f"  [cyan]{w.source}[/] {w.name}{fmt}")
+            globs = f" [dim]include {' '.join(w.include)}[/]" if w.include else ""
+            console.print(f"  [cyan]{w.source}[/] {w.name}{fmt}{globs}")
         console.print("\n[dim]Re-run without --dry-run to download them.[/]")
         return
 
@@ -670,16 +715,24 @@ def _pull_all(source: ModelSource, root: Path | None, move: bool) -> None:
     # Skip on exact identity only: a source model imports to the same library name,
     # so bare-name aliasing (which would wrongly skip bob/Foo when alice/Foo exists)
     # must not be used here.
-    lib_names = {m.name.lower() for m in library_ops.scan()}
-
-    def in_library(nm: str) -> bool:
-        return nm.lower() in lib_names
+    scanned = library_ops.scan()
+    lib_names = {m.name.lower() for m in scanned}
+    index = _library_index(scanned)
 
     imported = skipped = failed = 0
     for entry in sorted(entries, key=lambda e: e.name):
-        if in_library(entry.name):
+        if entry.name.lower() in lib_names:
             skipped += 1
-            console.print(f"[dim]— skip[/] {entry.name} [dim](already in library)[/]")
+            # A source copy that is a *different* quant of a model already on the drive is still
+            # skipped: it imports to the same library path, so pulling it would replace the copy
+            # that's there. Say which case this is instead of implying stabbur already has it.
+            verdict = _in_library(entry.name, entry.model_format, entry.size_bytes, index)
+            why = (
+                "already in library"
+                if verdict == IN_LIBRARY_SAME
+                else "a different quant/format of it is in the library — pull it by name to replace that copy"
+            )
+            console.print(f"[dim]— skip[/] {entry.name} [dim]({why})[/]")
             continue
         try:
             result = catalog_ops.pull(source, entry.name, library_root=root, move=move)
@@ -762,13 +815,27 @@ def pull(
     except Exception as exc:  # noqa: BLE001 - a pull can fail many ways (disk, network, HF Hub); surface it cleanly
         typer.secho(f"Pull failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
-    if move and not result.source_removed:
-        suffix = " [yellow](local copy KEPT — copy could not be verified)[/]"
-    elif result.source_removed:
+    if result.source_removed:
         suffix = " (local copy removed)"
+    elif move and result.already_present:
+        # Nothing was copied, so there was nothing to verify — saying the copy failed verification
+        # here reads as a warning about a model that is simply already where it belongs.
+        suffix = " [dim](already in the library — local copy kept)[/]"
+    elif move:
+        suffix = " [yellow](local copy KEPT — copy could not be verified)[/]"
     else:
         suffix = ""
     console.print(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")
+
+
+# What the IN LIBRARY column shows per :func:`_in_library` verdict. A plain tick is reserved for
+# the copy the library actually holds; "~" means the same model is there in another shape.
+_IN_LIBRARY_MARK = {
+    IN_LIBRARY_SAME: "[green]✓[/]",
+    IN_LIBRARY_OTHER_QUANT: "[yellow]~ other quant[/]",
+    IN_LIBRARY_OTHER_FORMAT: "[yellow]~ other format[/]",
+    "": "[dim]—[/]",
+}
 
 
 @library_app.command()
@@ -793,16 +860,16 @@ def sources(
             console.print(f"[dim]({hidden} embedding / vision / partial entries — use --all to see them)[/]")
         return
 
-    lib = _library_names()
+    index = _library_index()
+    status = {e.name: _in_library(e.name, e.model_format, e.size_bytes, index) for e in shown}
 
-    def in_library(name: str) -> bool:
-        return name.lower() in lib or name.rsplit("/", 1)[-1].lower() in lib
-
-    pulled = sum(1 for e in shown if in_library(e.name))
+    pulled = sum(1 for e in shown if status[e.name] == IN_LIBRARY_SAME)
+    differing = sum(1 for e in shown if status[e.name] in (IN_LIBRARY_OTHER_QUANT, IN_LIBRARY_OTHER_FORMAT))
     shown_total = _human_size(sum(e.size_bytes for e in shown))
+    differs_note = f" · {differing} a different quant/format" if differing else ""
     console.print(
         f"\n[bold]{_count(len(shown), 'model')} · {shown_total}[/] in local app caches "
-        f"[dim]· {pulled} already in your library · {len(shown) - pulled} to pull[/]"
+        f"[dim]· {pulled} already in your library{differs_note} · {len(shown) - pulled} to pull[/]"
     )
     console.print(
         "[dim]Caches on this machine, not your library — see[/] stabbur library ls [dim]for your library.[/]\n"
@@ -810,17 +877,22 @@ def sources(
     for src in sorted({e.source for e in shown}, key=lambda s: s.value):
         rows = sorted((e for e in shown if e.source is src), key=lambda e: e.name)
         table = Table(box=box.SIMPLE_HEAD, title=f"[bold]{src.value}[/]", title_justify="left", pad_edge=False)
-        table.add_column("IN LIBRARY", justify="center")
+        table.add_column("IN LIBRARY")
         table.add_column("FORMAT")
         table.add_column("SIZE", justify="right")
         table.add_column("NAME", style="white")
         if show_all:
             table.add_column("CHAT?", justify="center")
         for e in rows:
-            mark = "[green]✓[/]" if in_library(e.name) else "[dim]—[/]"
+            mark = _IN_LIBRARY_MARK[status[e.name]]
             extra = (["[green]chat[/]" if e.generative else "[dim]no[/]"]) if show_all else []
             table.add_row(mark, _fmt_cell(e.model_format), e.size_human, e.name, *extra)
         console.print(table)
+    if differing:
+        console.print(
+            "\n[dim]~ = the library has this model under a different quant or format, not this copy. "
+            "Pulling it would replace the copy already there — remove that one first if you mean to.[/]"
+        )
     if hidden and not show_all:
         console.print(
             f"\n[dim]{hidden} non-chat (embedding/vision) or partial entries hidden — use --all to show them.[/]"

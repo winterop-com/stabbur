@@ -335,6 +335,131 @@ def test_sources_hides_non_chat_by_default(monkeypatch: pytest.MonkeyPatch) -> N
     assert "all-MiniLM" in everything.output  # shown with --all
 
 
+def _sized_entry(name: str, size_bytes: int, fmt: ModelFormat = ModelFormat.gguf) -> ModelEntry:
+    return ModelEntry(
+        source=ModelSource.lmstudio, name=name, model_format=fmt, path=Path("/tmp") / name, size_bytes=size_bytes
+    )
+
+
+def test_sources_marks_a_different_quant_apart_from_a_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The IN LIBRARY tick matched on name alone, so a 17.5 GB source copy was ticked against the
+    # library's 26.4 GB copy of the same repo — a quant the library does not have.
+    in_library = _lib_model("pub/Repo-GGUF")
+    in_library.size_bytes = 26_400_000_000
+    same = _lib_model("pub/Same-GGUF")
+    same.size_bytes = 4_000_000_000
+    monkeypatch.setattr(library_ops, "scan", lambda: [in_library, same])
+    monkeypatch.setattr(
+        catalog_ops,
+        "list_models",
+        lambda *a, **k: Catalog(
+            entries=[
+                _sized_entry("pub/Repo-GGUF", 17_500_000_000),
+                _sized_entry("pub/Same-GGUF", 4_000_000_000),
+                _sized_entry("pub/Absent-GGUF", 1_000_000_000),
+            ]
+        ),
+    )
+    result = runner.invoke(cli.app, ["library", "sources"])
+    assert result.exit_code == 0, result.output
+    assert "other quant" in result.output
+    assert "1 already in your library" in result.output  # only the size-compatible copy counts
+    assert "1 a different quant/format" in result.output
+
+
+def test_sources_marks_a_different_format_apart_from_a_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    mlx_copy = _lib_model("pub/Repo", fmt=ModelFormat.mlx)
+    mlx_copy.size_bytes = 4_000_000_000
+    monkeypatch.setattr(library_ops, "scan", lambda: [mlx_copy])
+    monkeypatch.setattr(
+        catalog_ops,
+        "list_models",
+        lambda *a, **k: Catalog(entries=[_sized_entry("pub/Repo", 4_000_000_000, ModelFormat.gguf)]),
+    )
+    result = runner.invoke(cli.app, ["library", "sources"])
+    assert "other format" in result.output
+
+
+def test_installed_finds_an_ollama_install_made_with_a_custom_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `install --to ollama --name custom-name` succeeded but `library installed` showed nothing,
+    # so there was no way to discover what to uninstall.
+    from stabbur import consumers
+
+    model_dir = tmp_path / "gguf" / "pub" / "Repo-GGUF"
+    model_dir.mkdir(parents=True)
+    (model_dir / "w.gguf").write_bytes(b"w")
+    model = LibraryModel(
+        name="pub/Repo-GGUF",
+        model_format=ModelFormat.gguf,
+        path=model_dir,
+        load_target=model_dir / "w.gguf",
+        library_root=tmp_path,
+    )
+    consumers.record_install(model, "ollama", "custom-name")
+
+    monkeypatch.setattr(library_ops, "scan", lambda: [model])
+    monkeypatch.setattr(library_ops, "roots", lambda *a, **k: [tmp_path])
+    monkeypatch.setattr(consumers, "ollama_installed_names", lambda: {"custom-name"})
+    monkeypatch.setattr(consumers, "lmstudio_linked_names", lambda roots: set())
+
+    result = runner.invoke(cli.app, ["library", "installed"])
+    assert result.exit_code == 0, result.output
+    assert "pub/Repo-GGUF" in result.output
+    assert "custom-name" in result.output
+
+
+def test_uninstall_ollama_prefers_a_recorded_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from stabbur import consumers
+
+    model_dir = tmp_path / "gguf" / "pub" / "Repo-GGUF"
+    model_dir.mkdir(parents=True)
+    (model_dir / "w.gguf").write_bytes(b"w")
+    model = LibraryModel(
+        name="pub/Repo-GGUF",
+        model_format=ModelFormat.gguf,
+        path=model_dir,
+        load_target=model_dir / "w.gguf",
+        library_root=tmp_path,
+    )
+    consumers.record_install(model, "ollama", "custom-name")
+    removed: list[str] = []
+
+    def _rm(name: str) -> consumers.InstallResult:
+        removed.append(name)
+        return consumers.InstallResult(runtime="ollama", name=name, detail="removed from Ollama")
+
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [model])
+    monkeypatch.setattr(consumers, "ollama_installed_names", lambda: {"custom-name"})
+    monkeypatch.setattr(consumers, "uninstall_ollama", _rm)
+
+    result = runner.invoke(cli.app, ["library", "uninstall", "pub/Repo-GGUF", "--from", "ollama"])
+    assert result.exit_code == 0, result.output
+    assert removed == ["custom-name"]  # not the derived "repo", which Ollama never held
+    assert consumers.recorded_install_names(model, "ollama") == []  # and the record is cleared
+
+
+def test_pull_move_distinguishes_already_present_from_unverified(monkeypatch: pytest.MonkeyPatch) -> None:
+    # source_removed=False alone can't tell "nothing was copied" from "the copy failed to verify";
+    # reporting the second for the first warned the user about a model that was simply already there.
+    def already_there(*_a: object, **_k: object) -> PullResult:
+        return PullResult(source=ModelSource.voice, name="kokoro", destination=Path("/tmp/lib"), already_present=True)
+
+    monkeypatch.setattr(catalog_ops, "pull", already_there)
+    result = runner.invoke(cli.app, ["library", "pull", "voice", "kokoro", "--move"])
+    assert result.exit_code == 0, result.output
+    assert "already in the library" in result.output
+    assert "could not be verified" not in result.output
+
+    def unverified(*_a: object, **_k: object) -> PullResult:
+        return PullResult(source=ModelSource.voice, name="kokoro", destination=Path("/tmp/lib"))
+
+    monkeypatch.setattr(catalog_ops, "pull", unverified)
+    kept = runner.invoke(cli.app, ["library", "pull", "voice", "kokoro", "--move"])
+    assert "could not be verified" in kept.output
+
+
 def test_split_input_images_detects_dropped_paths(tmp_path: Path) -> None:
     # A terminal drag-drop inserts the file path as text; the REPL should peel it
     # out and attach it, leaving the remaining words as the message.

@@ -128,8 +128,10 @@ sb library rm Qwen3.6-27B --format mlx           # disambiguate when kept in two
 
 Browse models sitting in your **app caches** (Hugging Face cache, Ollama, LM
 Studio) that you could pull into the library. The IN LIBRARY column marks what
-you already have. Non-chat (embedding/vision) and partial entries are hidden
-unless `--all`.
+you already have: `✓` is the same copy (matched on name, format **and** size),
+`~ other quant` / `~ other format` means the library has that model in a shape
+this isn't — a tick there would claim you had a quant you don't. Non-chat
+(embedding/vision) and partial entries are hidden unless `--all`.
 
 ```bash
 sb library sources
@@ -167,7 +169,10 @@ sb library pull huggingface OuteAI/OuteTTS-0.2-500M-GGUF --include '*Q4_K_M*' \
 
 Export your library as a **want list** — a portable, human-editable TOML file of `[[model]]`
 entries (source + name + format), one per model, enough to re-pull each. Reads each model's
-recorded source from its `.stabbur/` sidecar (inferring it for older pulls). Prints to stdout by
+recorded source from its `.stabbur/` sidecar (inferring it for older pulls). A model pulled with
+`--include` also carries those globs, so a rebuild fetches the one quant you keep rather than
+every quant in a multi-quant repo; entries with no `include` mean the whole repo, as before.
+Prints to stdout by
 default; `--save <file>` writes it. No state is kept in the library — the manifest is generated
 on demand, so you keep the file wherever you like (commit it to a repo, copy it to another drive).
 

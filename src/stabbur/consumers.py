@@ -22,12 +22,20 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from stabbur import cards
 from stabbur.library import LibraryModel
 from stabbur.models import ModelFormat
 
 # Ollama model names are lowercase; the tag defaults to ``latest``. Anything outside
 # ``[a-z0-9._-]`` is collapsed to a single ``-`` so a repo tail becomes a valid name.
 _OLLAMA_NAME_STRIP = re.compile(r"[^a-z0-9._-]+")
+
+# Sidecar key holding ``{runtime: [name, ...]}`` — the names a model has been installed under.
+# Ollama keeps no back-reference to the library path once it has copied a GGUF into its blob
+# store, so a ``--name`` install is otherwise undiscoverable: nothing derives it, and nothing
+# else records it. It belongs in the library sidecar because it is portable data — carry the
+# drive to another machine that also runs Ollama and the names still describe the same imports.
+_INSTALLS_KEY = "installed_as"
 
 
 class InstallResult(BaseModel):
@@ -69,6 +77,57 @@ def ollama_name(model_name: str) -> str:
     tail = re.sub(r"-gguf$", "", tail, flags=re.IGNORECASE)
     name = _OLLAMA_NAME_STRIP.sub("-", tail.lower()).strip("-")
     return name or "model"
+
+
+def recorded_install_names(model: LibraryModel, runtime: str = "ollama") -> list[str]:
+    """Names ``model`` has been installed into ``runtime`` under, as recorded in its sidecar.
+
+    Empty for a model with no sidecar, an unreadable one, or one installed before stabbur started
+    recording — callers combine this with the derived default name rather than replacing it.
+    """
+    recorded = cards.read_metadata(cards.sidecar_dir(model.path)).get(_INSTALLS_KEY)
+    if not isinstance(recorded, dict):
+        return []
+    names = recorded.get(runtime)
+    return [str(n) for n in names] if isinstance(names, list) else []
+
+
+def _set_install_names(model: LibraryModel, runtime: str, names: list[str]) -> None:
+    """Write ``runtime``'s recorded install names back to the sidecar, dropping the key when empty."""
+    sidecar = cards.sidecar_dir(model.path)
+    recorded = cards.read_metadata(sidecar).get(_INSTALLS_KEY)
+    installs = dict(recorded) if isinstance(recorded, dict) else {}
+    if names:
+        installs[runtime] = names
+    else:
+        installs.pop(runtime, None)
+    cards.update_metadata(sidecar, {_INSTALLS_KEY: installs or None})
+
+
+def record_install(model: LibraryModel, runtime: str, name: str) -> None:
+    """Remember that ``model`` was installed into ``runtime`` as ``name``. Best-effort.
+
+    A read-only drive (or a model with nowhere to put a sidecar) must not turn a successful install
+    into a failure — the install already happened; only the bookkeeping is lost.
+    """
+    known = recorded_install_names(model, runtime)
+    if name in known:
+        return
+    try:
+        _set_install_names(model, runtime, [*known, name])
+    except OSError:
+        return
+
+
+def forget_install(model: LibraryModel, runtime: str, name: str) -> None:
+    """Drop ``name`` from ``model``'s recorded installs into ``runtime``. Best-effort (see above)."""
+    known = recorded_install_names(model, runtime)
+    if name not in known:
+        return
+    try:
+        _set_install_names(model, runtime, [n for n in known if n != name])
+    except OSError:
+        return
 
 
 def build_modelfile(model: LibraryModel, system: str | None = None) -> str:
@@ -128,6 +187,9 @@ def install_ollama(model: LibraryModel, *, name: str | None = None, system: str 
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
         raise RuntimeError(f"`ollama create {target}` failed: {err}")
+    # Record it so `library installed` / `library uninstall` can find an install made under a
+    # --name that no rule derives from the model's own name.
+    record_install(model, "ollama", target)
     return InstallResult(runtime="ollama", name=target, detail=modelfile)
 
 
@@ -221,8 +283,9 @@ def ollama_installed_names() -> set[str]:
     """Base names (``:tag`` stripped) of the models currently in Ollama; empty if Ollama is down.
 
     Ollama copies a GGUF into its own blob store on ``ollama create``, so it doesn't retain the
-    library path — a library model is considered "installed into Ollama" when Ollama holds a model
-    named :func:`ollama_name` for it (the deterministic default name).
+    library path. A library model is considered "installed into Ollama" when Ollama holds a model
+    under its :func:`ollama_name` default *or* under a name its sidecar records
+    (:func:`recorded_install_names`) — which is how an ``install --name custom`` stays findable.
     """
     if not ollama_daemon_up():
         return set()

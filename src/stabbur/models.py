@@ -101,6 +101,14 @@ class PullResult(BaseModel):
     source_removed: bool = False
     """True only if ``--move`` actually deleted the local source after a verified copy."""
 
+    already_present: bool = False
+    """True when the model was already in the target library, so this pull copied nothing.
+
+    ``source_removed=False`` alone can't tell "nothing was copied" from "the copy failed to
+    verify" — and reporting the second for the first told the user their copy was suspect when
+    stabbur had simply found the model already there.
+    """
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def size_human(self) -> str:

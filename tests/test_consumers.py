@@ -263,3 +263,42 @@ def test_uninstall_ollama_surfaces_failure(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(consumers.subprocess, "run", lambda *a, **k: _FakeProc(returncode=1))
     with pytest.raises(RuntimeError, match="ollama rm"):
         consumers.uninstall_ollama("ghost")
+
+
+# --- a --name install stays discoverable (the sidecar remembers what nothing derives) ---
+
+
+def test_install_ollama_records_a_custom_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `install --to ollama --name custom` registers a name no rule derives from the model's own,
+    # so without a record `library installed` shows nothing and there is no way to find what to
+    # uninstall. Ollama keeps no back-reference to the library copy, so the record has to be ours.
+    model = _lms_model(tmp_path / "lib")
+    monkeypatch.setattr(consumers, "ollama_available", lambda: True)
+    monkeypatch.setattr(consumers, "ollama_daemon_up", lambda: True)
+    monkeypatch.setattr(consumers.subprocess, "run", lambda *a, **k: _FakeProc())
+
+    consumers.install_ollama(model, name="my-assistant")
+    assert consumers.recorded_install_names(model, "ollama") == ["my-assistant"]
+
+    # A second install under another name is remembered too, and neither is duplicated.
+    consumers.install_ollama(model, name="my-other")
+    consumers.install_ollama(model, name="my-assistant")
+    assert consumers.recorded_install_names(model, "ollama") == ["my-assistant", "my-other"]
+
+    consumers.forget_install(model, "ollama", "my-assistant")
+    assert consumers.recorded_install_names(model, "ollama") == ["my-other"]
+
+
+def test_recording_an_install_keeps_the_rest_of_the_sidecar(tmp_path: Path) -> None:
+    from stabbur import cards
+
+    model = _lms_model(tmp_path / "lib")
+    cards.write_metadata(cards.sidecar_dir(model.path), {"source": "huggingface", "name": model.name})
+    consumers.record_install(model, "ollama", "custom")
+    meta = cards.read_metadata(cards.sidecar_dir(model.path))
+    assert meta["name"] == model.name  # the provenance the pull recorded survives
+    assert meta["installed_as"] == {"ollama": ["custom"]}
+
+
+def test_recorded_install_names_is_empty_without_a_sidecar(tmp_path: Path) -> None:
+    assert consumers.recorded_install_names(_lms_model(tmp_path / "lib"), "ollama") == []

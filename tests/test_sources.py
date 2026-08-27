@@ -426,6 +426,83 @@ def test_hf_pull_include_sets_allow_patterns(tmp_path: Path, monkeypatch: pytest
     assert captured["allow_patterns"] is None
 
 
+def _repo_not_found() -> Exception:
+    """The error the Hub raises for a repo that doesn't exist (or that you may not see).
+
+    It carries a 401 "Invalid username or password" response, because saying "no such repo" would
+    leak the existence of private ones — which is why the raw message is so misleading.
+    """
+    import httpx  # noqa: PLC0415 - only needed to build the fake response
+    from huggingface_hub.errors import RepositoryNotFoundError  # noqa: PLC0415
+
+    response = httpx.Response(401, request=httpx.Request("GET", "https://example.com/api/models/pub/Nope"))
+    return RepositoryNotFoundError("401 Client Error ... Invalid username or password", response=response)
+
+
+def test_hf_pull_records_the_include_in_the_sidecar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The globs a partial pull used are what `library manifest` needs to describe the copy; nothing
+    # else on disk says which quant of a multi-quant repo this is.
+    monkeypatch.setattr(huggingface, "snapshot_download", lambda **k: str(k["local_dir"]))
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.gguf)
+
+    res = huggingface.pull("pub/Repo-GGUF", tmp_path, include=["*Q4_K_M*"])
+    assert res.metadata_path is not None
+    assert json.loads(res.metadata_path.read_text())["include"] == ["*Q4_K_M*"]
+
+    plain = huggingface.pull("pub/Whole-GGUF", tmp_path)
+    assert plain.metadata_path is not None
+    assert json.loads(plain.metadata_path.read_text())["include"] is None
+
+
+def test_hf_pull_maps_a_missing_repo_and_removes_the_empty_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A typo'd repo id used to surface the Hub's raw "401 ... Invalid username or password" (the
+    # Hub can't say "no such repo" without leaking private repos) and left an empty
+    # <bucket>/<org>/<repo>/ behind, which then read as a model in the library.
+    def boom(**kwargs: object) -> str:
+        raise _repo_not_found()
+
+    monkeypatch.setattr(huggingface, "snapshot_download", boom)
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.gguf)
+
+    with pytest.raises(RuntimeError, match="repo not found or requires authentication: pub/Nope"):
+        huggingface.pull("pub/Nope", tmp_path)
+    assert not (tmp_path / "gguf").exists()  # the whole tree this pull created is gone
+
+
+def test_hf_pull_keeps_a_directory_that_has_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The rollback removes only what it created and only while empty — a pull that got some files
+    # down, or a sibling model already in the bucket, must survive the failure untouched.
+    (tmp_path / "gguf" / "pub" / "Other").mkdir(parents=True)
+    (tmp_path / "gguf" / "pub" / "Other" / "model.gguf").write_bytes(b"w")
+
+    def half_then_boom(**kwargs: object) -> str:
+        (Path(str(kwargs["local_dir"])) / "partial.gguf").write_bytes(b"w")
+        raise _repo_not_found()
+
+    monkeypatch.setattr(huggingface, "snapshot_download", half_then_boom)
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.gguf)
+
+    with pytest.raises(RuntimeError, match="repo not found"):
+        huggingface.pull("pub/Half", tmp_path)
+    assert (tmp_path / "gguf" / "pub" / "Half" / "partial.gguf").is_file()
+    assert (tmp_path / "gguf" / "pub" / "Other" / "model.gguf").is_file()
+
+
+def test_hf_pull_leaves_other_failures_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Only the "can't get at this repo" family is rewritten; a disk or network error keeps its own
+    # message, which is the one that says what to do about it.
+    def boom(**kwargs: object) -> str:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(huggingface, "snapshot_download", boom)
+    monkeypatch.setattr(huggingface, "hub_format", lambda *a, **k: ModelFormat.gguf)
+
+    with pytest.raises(OSError, match="No space left on device"):
+        huggingface.pull("pub/Repo-GGUF", tmp_path)
+
+
 def _fake_hfapi(files: list[str]) -> object:
     """An HfApi() stand-in whose list_repo_files returns ``files`` (no network)."""
 

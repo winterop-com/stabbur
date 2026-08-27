@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from stabbur import fsatomic
+
 SIDECAR_DIR = ".stabbur"
 """Name of the per-model sidecar directory (what a new pull writes)."""
 
@@ -32,6 +34,34 @@ def write_metadata(sidecar_dir: Path, data: dict[str, Any]) -> Path:
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     path = sidecar_dir / "metadata.json"
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def read_metadata(sidecar_dir: Path) -> dict[str, Any]:
+    """Read a sidecar's ``metadata.json``, or ``{}`` when it's absent, unreadable, or not an object.
+
+    The single reader for the sidecar: verification, the want list and the consumer bookkeeping all
+    go through it, so a hand-edited or half-written file degrades to "nothing recorded" everywhere
+    rather than raising in one caller and silently passing in another.
+    """
+    try:
+        data = json.loads((sidecar_dir / "metadata.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def update_metadata(sidecar_dir: Path, updates: dict[str, Any]) -> Path:
+    """Merge ``updates`` into a sidecar's ``metadata.json`` and return its path.
+
+    Read-modify-write, so recording one new fact (e.g. the name a model was installed into a
+    runtime under) keeps everything the pull recorded. Written atomically — the sidecar is the only
+    record of a model's provenance, and an unclean eject mid-write must not truncate it.
+    """
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    path = sidecar_dir / "metadata.json"
+    merged = read_metadata(sidecar_dir) | updates
+    fsatomic.write_text(path, json.dumps(merged, indent=2, default=str))
     return path
 
 
