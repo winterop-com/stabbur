@@ -84,6 +84,60 @@ the per-action confirmation gate that already exists across all surfaces.
 **Build order:** read-only navigation first; mutating clicks only if a real case appears that
 REST cannot serve.
 
+## 5b. The channel, and the safety model (decided 2026-08-27)
+
+Section 4 says we are not blocked externally, which is true but incomplete. There is a second
+obstacle it does not name: **stabbur's agent loop runs server-side and MCP tools execute
+server-side, while the DOM is in the browser.** Page text works today only because it is folded
+into the user turn as text — a one-way push the model cannot call.
+
+**That gap is already closed for something else.** `on_confirm` mints an id, registers a future,
+streams a `confirm` event, and BLOCKS the agent loop until the client POSTs a decision, with a
+fail-safe timeout that denies. A browser-executed tool is the same shape: emit, block, wait for
+the client to report a result. Page actions are a second consumer of a mechanism that is already
+load-bearing, not a new architecture.
+
+### The wire contract
+
+Server streams, mid-turn, exactly as it does for a confirmation:
+
+```
+{"type": "page_action", "id": "<hex>", "action": "navigate", "args": {...}}
+```
+
+The client executes it in the target tab and answers:
+
+```
+POST /api/chat/page-action  {"id": "<hex>", "ok": true, "result": {...}}
+                            {"id": "<hex>", "ok": false, "error": "..."}
+```
+
+### Safety model
+
+Five rules. The first is the one everything else rests on.
+
+1. **Typed actions only; the server never sends code.** The wire carries an action NAME and
+   arguments, never JavaScript. The extension owns every implementation, so the set of things a
+   model can do in your tab is fixed at extension-build time and reviewable — not synthesised per
+   turn by a model. An `eval`-shaped channel would make every other rule here decorative.
+2. **Reads and navigation are ungated; anything that mutates rides the existing confirm gate.**
+   Same gate as MCP writes, so there is one place a user says yes, not two.
+3. **The bound/matched tab only.** Never an arbitrary tab id from the model, or a page action
+   becomes a way to reach any tab the browser has open.
+4. **Fail-safe, inherited.** A timeout, a closed panel or a cancelled stream resolves as failure,
+   never as success — the confirm gate's rule, for the same reason.
+5. **Same-origin as the bound target.** A navigation the model constructs may not leave the
+   origin the user bound; a cross-origin hop is how "open the data entry app" becomes
+   "open the attacker's page and type your session into it".
+
+### Where section 5 is wrong
+
+Section 5 rates acting "high risk, low marginal value" because REST does it better. That holds
+for DHIS2 and only for DHIS2 — it reasons from the flavour that has an API. **The generic build
+has no REST at all**: for an arbitrary site the DOM is the only interface, so acting is not a
+worse version of the API, it is the entire ceiling. Acting should therefore ship in the GENERIC
+flavour first, where it is the only option, rather than in DHIS2 where `d2w` is genuinely better.
+
 ## 6. If we ever did want page-declared tools
 
 Three routes, in decreasing appeal:
