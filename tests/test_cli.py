@@ -1166,12 +1166,12 @@ def test_remote_model_id_matches_router_ids(monkeypatch: pytest.MonkeyPatch) -> 
 
     # A llama-server router (or LM Studio) lists its own model ids, which need not exist in
     # the local library: the remote one-shot resolves the requested name against that listing.
-    listing = {"data": [{"id": "gemma-4-12b-qat"}, {"id": "qwen3-coder-next-q6"}]}
+    listing = {"data": [{"id": "example-remote-model"}, {"id": "other-remote-model"}]}
     monkeypatch.setattr(chat_cli, "_probe_json", lambda url: listing)
-    assert chat_cli._remote_model_id("http://x", None) == "gemma-4-12b-qat"  # no name -> first listed
-    assert chat_cli._remote_model_id("http://x", "gemma-4-12b-qat") == "gemma-4-12b-qat"
-    assert chat_cli._remote_model_id("http://x", "GEMMA-4-12B-QAT") == "gemma-4-12b-qat"  # case-insensitive
-    assert chat_cli._remote_model_id("http://x", "org/gemma-4-12b-qat") == "gemma-4-12b-qat"  # basename match
+    assert chat_cli._remote_model_id("http://x", None) == "example-remote-model"  # no name -> first listed
+    assert chat_cli._remote_model_id("http://x", "example-remote-model") == "example-remote-model"
+    assert chat_cli._remote_model_id("http://x", "EXAMPLE-REMOTE-MODEL") == "example-remote-model"  # case-insensitive
+    assert chat_cli._remote_model_id("http://x", "org/example-remote-model") == "example-remote-model"  # basename match
     with pytest.raises(typer.Exit):  # unknown name -> exit listing what IS available
         chat_cli._remote_model_id("http://x", "not-served")
 
@@ -1193,7 +1193,7 @@ def test_remote_model_id_prefers_loaded_model(monkeypatch: pytest.MonkeyPatch) -
     # so with no name given the currently loaded model wins over the first listed one.
     listing = {
         "data": [
-            {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
+            {"id": "example-remote-model", "status": {"value": "unloaded"}},
             {"id": "some-remote-model", "status": {"value": "loaded"}},
         ]
     }
@@ -1212,7 +1212,7 @@ def test_probe_remote_attach_prefers_loaded_model(monkeypatch: pytest.MonkeyPatc
             return None  # not a stabbur serve
         return {
             "data": [
-                {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
+                {"id": "example-remote-model", "status": {"value": "unloaded"}},
                 {"id": "some-remote-model", "status": {"value": "loaded"}},
             ]
         }

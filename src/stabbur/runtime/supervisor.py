@@ -26,6 +26,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import secrets
 import shutil
 import signal
 import socket
@@ -49,6 +50,21 @@ _live: set[RuntimeHandle] = set()
 
 def _runtimes_root() -> Path:
     return get_settings().runtime_state_dir
+
+
+def _state_dir_name(port: int, attempt: int) -> str:
+    """A per-spawn directory name: readable prefix, random suffix.
+
+    The suffix is what makes it *per spawn* rather than per ``(pid, port, attempt)``. One stabbur
+    spawns runtimes from several worker threads (``ServerManager.load``), and two concurrent
+    :func:`find_free_port` calls can hand back the same port — the probe socket is closed before
+    either binds. Two spawns sharing one state dir is a real fault, not a cosmetic one: the first
+    :meth:`RuntimeHandle.stop` rmtree's the directory out from under the other's
+    :func:`_write_meta` (a ``FileNotFoundError`` raised on a worker thread), and only one
+    ``meta.json`` survives — so the runtime it does not describe can never be reclaimed by
+    :func:`sweep_orphans` if this stabbur is killed.
+    """
+    return f"{os.getpid()}-{port}-{attempt}-{secrets.token_hex(4)}"
 
 
 def find_free_port() -> int:
@@ -233,8 +249,8 @@ def spawn(
     for attempt in range(1 if pinned else _PORT_RETRIES):
         chosen = port if port is not None else find_free_port()
         cmd = cmd_for_port(chosen)
-        state_dir = root / f"{os.getpid()}-{chosen}-{attempt}"
-        state_dir.mkdir(parents=True, exist_ok=True)
+        state_dir = root / _state_dir_name(chosen, attempt)
+        state_dir.mkdir(parents=True, exist_ok=False)
         log_fh: IO[bytes] | None = None
         stderr_target: IO[bytes] | None = None  # None → inherit (stream to terminal)
         if not stream_logs:

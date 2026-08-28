@@ -76,7 +76,7 @@ def test_load_is_serialized_across_threads(tmp_path: Path, monkeypatch: pytest.M
 _ROUTER_LISTING = {
     "data": [
         {
-            "id": "gemma-4-12b-qat",
+            "id": "example-remote-model",
             "status": {"value": "unloaded"},
             "architecture": {"input_modalities": ["text", "image", "audio"]},
         },
@@ -116,7 +116,7 @@ def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(server_mod.httpx, "get", lambda url, timeout=None: _FakeResponse(_ROUTER_LISTING))
 
     rows = manager.models()
-    assert [r.name for r in rows] == ["gemma-4-12b-qat", "qwen3-coder"]
+    assert [r.name for r in rows] == ["example-remote-model", "qwen3-coder"]
     assert rows[0].vision and rows[0].audio and not rows[0].loaded
     assert rows[1].loaded and not rows[1].vision
 
@@ -125,14 +125,14 @@ def test_upstream_manager_models_and_selection(monkeypatch: pytest.MonkeyPatch) 
 
     posted: list[dict[str, object]] = []
     monkeypatch.setattr(server_mod.httpx, "post", _recording_post(posted))
-    manager.load_by_name("GEMMA-4-12B-QAT")  # case-insensitive match
-    assert manager.current is not None and manager.current.name == "gemma-4-12b-qat"
+    manager.load_by_name("EXAMPLE-REMOTE-MODEL")  # case-insensitive match
+    assert manager.current is not None and manager.current.name == "example-remote-model"
     # The router has no load endpoint, so the switch must send a request naming the model —
     # otherwise stabbur reports it ready while the remote is still serving the old one.
-    assert posted and posted[0]["model"] == "gemma-4-12b-qat"
+    assert posted and posted[0]["model"] == "example-remote-model"
     assert posted[0]["max_tokens"] == 1
 
-    with pytest.raises(RuntimeError, match="available: gemma-4-12b-qat, qwen3-coder"):
+    with pytest.raises(RuntimeError, match="available: example-remote-model, qwen3-coder"):
         manager.load_by_name("not-served")
     assert manager.current is not None  # a failed switch keeps the selection
 
@@ -170,7 +170,7 @@ def test_upstream_failed_warmup_keeps_the_previous_selection(monkeypatch: pytest
 
     monkeypatch.setattr(server_mod.httpx, "post", _boom)
     with pytest.raises(RuntimeError, match="could not be loaded"):
-        manager.load_by_name("gemma-4-12b-qat")
+        manager.load_by_name("example-remote-model")
     assert manager.current.name == "qwen3-coder"  # unchanged, and not left mid-switch
     assert manager._loading is None
 
@@ -185,7 +185,7 @@ def test_upstream_warmup_is_skipped_for_the_name_only_preflight(monkeypatch: pyt
     posted: list[dict[str, object]] = []
     monkeypatch.setattr(server_mod.httpx, "post", _recording_post(posted))
 
-    manager.load_by_name("gemma-4-12b-qat", warmup=False)
+    manager.load_by_name("example-remote-model", warmup=False)
     assert posted == []
     with pytest.raises(RuntimeError, match="not served by"):
         manager.load_by_name("nope", warmup=False)
@@ -209,17 +209,17 @@ async def test_upstream_state_reports_loading_during_a_switch(monkeypatch: pytes
         return _FakeResponse({})
 
     monkeypatch.setattr(server_mod.httpx, "post", _post)
-    manager.load_by_name("gemma-4-12b-qat")
+    manager.load_by_name("example-remote-model")
 
     ((loading, current),) = mid_switch
-    assert loading is not None and loading.name == "gemma-4-12b-qat"
-    assert current is not None and current.name == "gemma-4-12b-qat"  # the UI names the incoming model
+    assert loading is not None and loading.name == "example-remote-model"
+    assert current is not None and current.name == "example-remote-model"  # the UI names the incoming model
     # state() reports `loading` purely from that flag — no upstream probe involved.
     manager._loading = loading
     assert await manager.state() is server_mod.ServerState.loading
     manager._loading = None
 
-    assert manager.current is not None and manager.current.name == "gemma-4-12b-qat"
+    assert manager.current is not None and manager.current.name == "example-remote-model"
     assert await manager.state() is server_mod.ServerState.ready
 
 

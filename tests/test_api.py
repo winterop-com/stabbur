@@ -1198,7 +1198,7 @@ def upstream_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     from stabbur.server import UpstreamManager, UpstreamModel
 
     rows = [
-        UpstreamModel(name="gemma-4-12b-qat", loaded=False, vision=True, audio=True),
+        UpstreamModel(name="example-remote-model", loaded=False, vision=True, audio=True),
         UpstreamModel(name="qwen3-coder", loaded=True),
     ]
     monkeypatch.setattr(UpstreamManager, "models", lambda self: list(rows))
@@ -1221,7 +1221,7 @@ async def test_upstream_library_lists_remote_models(upstream_client: AsyncClient
     # The picker rows are the remote's /v1/models: format "remote", modality flags from the
     # listing, and `loaded` marking what the remote has resident.
     body = (await upstream_client.get("/api/library")).json()
-    assert [m["name"] for m in body] == ["gemma-4-12b-qat", "qwen3-coder"]
+    assert [m["name"] for m in body] == ["example-remote-model", "qwen3-coder"]
     assert all(m["model_format"] == "remote" for m in body)
     assert body[0]["vision"] and body[0]["audio"] and body[0]["tags"] == []
     # A STATE, NOT A TAG: what the remote is doing with a model never enters the vocabulary a
@@ -1256,7 +1256,7 @@ async def test_upstream_load_selects_remote_id(upstream_app: FastAPI, upstream_c
 
 
 async def test_upstream_unload_clears_selection_only(upstream_client: AsyncClient) -> None:
-    await upstream_client.post("/api/load/gemma-4-12b-qat")
+    await upstream_client.post("/api/load/example-remote-model")
     r = await upstream_client.post("/api/unload")
     assert r.status_code == 200
     assert r.json()["model"] is None  # selection cleared; the remote itself is untouched

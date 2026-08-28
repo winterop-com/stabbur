@@ -55,8 +55,8 @@ Three surfaces, reachable from the sidebar (or the collapsed icon rail):
 - **Listen (text-to-speech)** — a speaker button on each reply reads it aloud
   (Markdown/code is stripped first so only the prose is spoken); the settings rail
   picks the **voice** — a picker of Kokoro's **54 built-in voices** across 9 languages
-  (grouped by language), since Kokoro ships built in. `llama-tts`/OuteTTS is available
-  as an alternate engine.
+  (grouped by language), since Kokoro ships built in. Heavier TTS models are used from
+  the Voice studio, never in chat.
 - **Mermaid diagrams** — ```` ```mermaid ```` fenced blocks render as live
   diagrams (theme-aware, lazy-loaded), with a source/diagram toggle and copy;
   invalid syntax falls back to the source.
