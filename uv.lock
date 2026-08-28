@@ -4119,7 +4119,7 @@ wheels = [
 
 [[package]]
 name = "stabbur"
-version = "0.8.1"
+version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
