@@ -1120,3 +1120,32 @@ async def test_the_footer_and_help_document_quit_and_multiline() -> None:
         helped = " ".join(str(w.render()) for w in app.query(Static))
     assert "ctrl+j" in helped  # multi-line input was undocumented
     assert "backslash" in helped
+
+
+@pytest.mark.asyncio
+async def test_intro_shows_badge_beside_wordmark() -> None:
+    """The startup block carries the half-block badge and still says who it is."""
+    from rich.console import Console
+
+    app = _app()
+    async with app.run_test(size=(100, 30)):
+        console = Console(width=100, force_terminal=True, color_system="truecolor")
+        with console.capture() as cap:
+            console.print(app._intro())
+        rendered = cap.get()
+    assert "stabbur" in rendered
+    assert "pub/Foo-GGUF" in rendered
+    # the badge: half blocks with colors, eight rows of them beside the text column
+    assert "▀" in rendered
+    assert rendered.count("\n") >= 8
+
+
+def test_logo_grid_shape() -> None:
+    """The generated grid stays renderable: even row count, uniform width, real colors."""
+    from stabbur.chat_tui._logo import LOGO_ROWS, logo_text
+
+    assert len(LOGO_ROWS) % 2 == 0
+    widths = {len(row) for row in LOGO_ROWS}
+    assert widths == {len(LOGO_ROWS[0])}
+    assert any(cell for row in LOGO_ROWS for cell in row)
+    assert logo_text().plain.count("\n") == len(LOGO_ROWS) // 2 - 1

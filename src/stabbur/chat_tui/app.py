@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel
-from rich.console import Group
+from rich.console import Group, RenderableType
 from rich.markdown import Markdown
+from rich.table import Table
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
@@ -21,6 +22,7 @@ from stabbur import agent, attach, capabilities, project, transcript
 from stabbur import library as library_ops
 from stabbur import runtime as runtime_mod
 from stabbur import tools as mcp_tools
+from stabbur.chat_tui._logo import logo_text
 from stabbur.chat_tui._util import _GERUNDS, _SAMPLING_FIELDS, _SLASH_COMMANDS, _SPINNER, _fmt_tokens
 from stabbur.chat_tui._widgets import ChatInput, ConfirmModal, ModelPickerModal, _StabburCommands
 from stabbur.runtime import sampling as sampling_mod
@@ -257,8 +259,8 @@ class ChatApp(App[None]):
 
     # -- status footer ---------------------------------------------------------
 
-    def _intro(self) -> Group:
-        """The welcome block shown on start: stabbur wordmark + version, then model + endpoint."""
+    def _intro(self) -> RenderableType:
+        """The welcome block shown on start: the badge beside the wordmark, model, endpoint."""
         from importlib.metadata import version as _pkg_version  # noqa: PLC0415
 
         try:
@@ -282,7 +284,13 @@ class ChatApp(App[None]):
         if self._remote is not None:
             api.append("   attached (remote)", style="grey35")
 
-        return Group(title, Text(), model, api)
+        # The badge (8 rows of half blocks) sits left of the text like a terminal app
+        # header; one leading blank line roughly centers four text rows against it.
+        intro = Table.grid(padding=(0, 2))
+        intro.add_column(no_wrap=True)
+        intro.add_column()
+        intro.add_row(logo_text(), Group(Text(), title, Text(), model, api))
+        return intro
 
     def _status_renderable(self) -> Group:
         line1 = Text()
