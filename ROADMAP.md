@@ -66,6 +66,37 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
   fulfill intercepted routes through the pinned httpx client (heavy; breaks streaming) —
   revisit only if the exposure model changes.
 
+- **`pull` can replace a different quant of the same repo.** A pull writes to the repo's
+  library path and the copy replaces the destination, so pulling one quant of a repo the
+  library already holds in another quant silently destroys the held one. `pull --all`
+  deliberately skips this case (and now says so); the by-name path still carries the hazard.
+  Real fix is per-quant destination paths, which touches library layout — decide before 1.0.0.
+
+- **Quant choice is invisible to Load.** The card and Details now tell the truth about
+  multi-quant repos ("2 quants · N GB total", file list marking what Load opens), but choosing
+  which quant to load still needs a control and an API.
+
+- **`benchmark run` requires a library model.** It ignores the configured upstream, so an
+  upstream-only setup cannot benchmark the models it actually uses.
+
+- **Import-time config defaults.** `frontend_dir`, `lmstudio_models_dir`, and
+  `runtime_state_dir` defaults evaluate when `stabbur.config` is imported, so XDG variables
+  set later in-process are ignored; `stabbur/__init__` also primes the settings cache at
+  import. Harmless for the CLI (env is set before Python starts), sharp-edged for embedders
+  and tests. Needs lazy defaults.
+
+- **Extension still verifies assistants via GET.** The guard now treats `?verify=1` as
+  mutating and POST routes exist; the extension works through its allow-listed origin but
+  should migrate to the POST shape.
+
+- **`/api/status` model id is unqualified.** In upstream locked mode it shows the remote id
+  rather than the stabbur name, and two backends serving the same name are indistinguishable —
+  wants the backend name alongside the model.
+
+- **Tinted light themes run `-ink` tokens slightly under contrast.** `--good-ink` and
+  `--warning-ink` clear 4.5:1 on white but land at ~3.9-4.1:1 on the indigo/paper/contrast/
+  terminal light grounds. Fixing it means re-tuning the ten theme blocks together.
+
 ## Voice follow-ups
 
 - **Scout the expressive TTS slot.** Nothing so far beats Kokoro's quality-per-millisecond
