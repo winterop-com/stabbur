@@ -93,7 +93,9 @@ class ChatApp(App[None]):
 
     CSS = """
     Screen { layers: base; }
-    #transcript { height: 1fr; padding: 1 2; scrollbar-size-vertical: 1; }
+    /* Right padding is wider than left: the scrollbar hugs the text there, so an equal
+       inset reads as none — one extra cell puts visible air between text and bar. */
+    #transcript { height: 1fr; padding: 1 3 1 2; scrollbar-size-vertical: 1; }
     #transcript > .user { color: $text-muted; margin-top: 2; }
     #transcript > .tools { color: $text-muted; }
     #transcript > .answer { margin-bottom: 1; }
