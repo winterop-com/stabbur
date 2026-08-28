@@ -1,5 +1,6 @@
 """`stabbur chat` - the terminal chat: interactive TUI, one-shot -p, tools, and serve-attach."""
 
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
@@ -73,6 +74,101 @@ def _resolve_target(proj: "project.Project | None", target_id: str | None) -> "t
 async def _approve_all(name: str, args: dict[str, Any]) -> bool:
     """A confirmation sink that approves every gated call (the ``--allow-writes`` opt-out)."""
     return True
+
+
+# The leading bytes of the image formats a vision model can actually be sent. Checked instead of
+# trusting the extension because the failure this prevents is silent and expensive: a non-image is
+# base64'd into the request anyway, and the runtime answers with an HTTP error about a payload,
+# never "that wasn't an image".
+_IMAGE_MAGIC: tuple[bytes, ...] = (
+    b"\x89PNG\r\n\x1a\n",  # PNG
+    b"\xff\xd8\xff",  # JPEG
+    b"GIF87a",
+    b"GIF89a",
+    b"BM",  # BMP
+    b"II*\x00",  # TIFF (little-endian)
+    b"MM\x00*",  # TIFF (big-endian)
+)
+
+
+def _looks_like_image(path: Path) -> bool:
+    """Whether ``path`` starts with a known image signature (RIFF/WebP handled separately)."""
+    try:
+        head = path.read_bytes()[:16]
+    except OSError:
+        return False
+    if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return True
+    return any(head.startswith(magic) for magic in _IMAGE_MAGIC)
+
+
+def _check_images(paths: list[Path]) -> None:
+    """Refuse a ``--image`` attachment that isn't a readable image, before anything is sent.
+
+    Nothing downstream checks: a PDF (or a typo'd path's neighbour) is base64'd into the request like
+    any other file, and the only symptom is the runtime's own HTTP error — which, for a locally spawned
+    runtime, names an ephemeral ``127.0.0.1`` port and says nothing about the attachment. Cheaper and
+    kinder to say which file is not an image, and to say "image file not found" in words a reader
+    recognizes (the shared media loader's ``kind`` names the *capability*, so it said "Vision not
+    found", which is not a thing anyone has).
+    """
+    for path in paths:
+        if not path.is_file():
+            console.print(f"[red]image file not found:[/] {path}")
+            raise typer.Exit(1)
+        if not _looks_like_image(path):
+            console.print(f"[red]not an image file:[/] {path} — expected PNG, JPEG, GIF, WebP, BMP or TIFF.")
+            raise typer.Exit(1)
+
+
+# A loopback URL in an error message: the runtime stabbur just spawned, on an ephemeral port. It is
+# noise to the reader and leaks nothing useful, so it is stripped — while a URL the *user* typed
+# (--server http://gpu-box:1234) is left alone, because there the host is the whole point.
+_LOOPBACK_URL = re.compile(r"\s*(?:for url\s+)?['\"]?https?://(?:127\.0\.0\.1|localhost|\[::1\]):\d+[^\s'\"]*['\"]?")
+
+
+def _clean_error(exc: Exception) -> str:
+    """A failed turn as one readable line, without the internal runtime URL.
+
+    httpx renders a status error as ``Client error '413 Payload Too Large' for url
+    'http://127.0.0.1:<port>/v1/chat/completions'`` — a port number the user never chose, attached to a
+    condition (an attachment the runtime won't accept) it never names. Answer with the condition.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 413:
+            return "the model runtime rejected the request as too large — try a smaller attachment."
+        return f"the model runtime returned HTTP {code} {exc.response.reason_phrase}".strip()
+    return _LOOPBACK_URL.sub("", str(exc)).strip() or type(exc).__name__
+
+
+def _extra_mcp_specs(
+    values: list[str], resolved: "list[mcpservers.McpServer]"
+) -> list[tuple[str | None, list[str], dict[str, str]]]:
+    """The ``--mcp`` servers worth adding on top of the configured ones, warning about unspawnable ones.
+
+    A ``--mcp`` naming a server the resolved ``mcp.json`` already configures **identically** (same
+    command, args and env) is dropped: spawning a second copy costs a process, gives the model the same
+    tools twice under two namespaces (``datetime__now`` and ``datetime2__now`` — one tester watched a
+    model deliberate over which to call), and shifts the configured server's prefix out from under the
+    ``--target`` routing table. Anything else is genuinely additional and is kept.
+
+    A command that resolves to no executable is still kept (:func:`stabbur.tools.connect` records the
+    real failure), but gets a warning on stderr first: a typo'd ``--mcp`` otherwise produces a session
+    with no tools and no message at all.
+    """
+    from stabbur import tools as mcp_tools  # noqa: PLC0415
+
+    configured = {(tuple([s.command, *s.args]), tuple(sorted(s.env.items()))) for s in resolved}
+    extras: list[tuple[str | None, list[str], dict[str, str]]] = []
+    for value in values:
+        spec = _cli_mcp_spec(value)
+        if (tuple(spec[1]), tuple(sorted(spec[2].items()))) in configured:
+            continue  # already configured, identically: reuse that one rather than spawn a duplicate
+        if spec[1] and not mcp_tools.command_found(spec[1][0]):
+            typer.secho(f"--mcp {value!r}: no such command {spec[1][0]!r} — it will have no tools.", err=True)
+        extras.append(spec)
+    return extras
 
 
 @app.command()
@@ -221,9 +317,16 @@ def chat(
     # (name, argv, env) per server. A bare --mcp value resolves against advertised servers
     # (so `--mcp datetime` finds stabbur-mcp-datetime), else it's used verbatim as a command;
     # the rest come from the resolved mcp.json layers (global + project, see stabbur.mcpservers).
+    #
+    # CONFIGURED SERVERS COME FIRST, and a --mcp that duplicates one is dropped. Prefixes are assigned
+    # in connect() order, so a leading --mcp copy of a configured server took the bare prefix and pushed
+    # the configured one to `datetime2` — which is not what build_target_routing (built from the resolved
+    # servers alone) predicts, so --target then scoped the target to the WRONG server, and the model saw
+    # the same tools twice under two namespaces. Ordering them last means an extra can only ever take a
+    # suffixed prefix; deduping means the ordinary `--mcp datetime` case adds nothing at all.
     resolved_servers = mcpservers.resolve() if tools else []
     mcp_servers: list[tuple[str | None, list[str], dict[str, str]]] = (
-        [_cli_mcp_spec(c) for c in mcp] + [s.to_spec() for s in resolved_servers] if tools else []
+        [s.to_spec() for s in resolved_servers] + _extra_mcp_specs(mcp, resolved_servers) if tools else []
     )
     # Per-target routing table (id -> owned tool prefixes); --target narrows the connected toolset to its
     # servers + shared ones. Built by the one production helper the serve lifespan uses, so the CLI and
@@ -236,6 +339,7 @@ def chat(
     system_prompt = system if system is not None else (proj.system_prompt if proj else "")
     # Capabilities are unknowable without a local copy (remote attach): load media unwarned.
     caps = capabilities.capabilities(model) if model is not None else None
+    _check_images(image)
     images = _load_media(image, model, kind="vision", default_mime="image/png", capable=caps.vision if caps else True)
     audios = _load_media(audio, model, kind="audio", default_mime="audio/wav", capable=caps.audio if caps else True)
 
@@ -304,7 +408,7 @@ def chat(
             if prompt is not None:
                 _save_transcript(save, model, remote_model_id, system_prompt, prompt, reply)
     except (RuntimeError, httpx.HTTPError) as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        typer.secho(_clean_error(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
 
@@ -700,6 +804,12 @@ def _chat_with_tools(
         nonlocal turn_labeled
         assert prompt is not None  # only entered when -p supplied a prompt
         async with mcp_tools.connect(servers) as toolset:
+            # connect() records a per-server failure instead of raising, and the one-shot path used to
+            # drop those on the floor: a bad --mcp meant no tools, no message, and exit 0 — the model
+            # simply answered without them. Meta, so stderr (stdout stays exactly the answer), one line
+            # per server, matching what the TUI posts in its transcript and `stabbur mcp tools` prints.
+            for label, why in toolset.errors:
+                err.print(f"[yellow]MCP server {label!r} did not start:[/] [grey62]{escape(why)}[/]")
             if target_routing is not None and target_id is not None:
                 toolset = mcp_tools.narrow_to_servers(toolset, target_routing, target_id)
             turn_labeled = True  # -p mode: stdout is just the answer, no label

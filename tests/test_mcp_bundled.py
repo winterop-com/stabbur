@@ -237,15 +237,20 @@ class _FakeClient:
         return self._tools
 
 
-def _bridge(*, fail: bool = False) -> tuple[tools.MCPBridge, list[str]]:
-    """A bridge whose ``_spawn`` adds a fake tool (or records a failure) instead of launching anything."""
+def _bridge(*, fail: bool = False, fail_first: bool = False) -> tuple[tools.MCPBridge, list[McpServer]]:
+    """A bridge whose ``_spawn`` adds a fake tool (or records a failure) instead of launching anything.
+
+    ``fail`` fails every spawn, ``fail_first`` only the first (the "install the extra, then toggle
+    again" retry). The returned list is the server spec of each attempt, so a test can check *what*
+    was spawned — an enable that carries settings must hand the spawn the new env, not the old one.
+    """
     toolset = tools.MCPToolset()
     bridge = tools.MCPBridge(toolset, AsyncExitStack())
-    spawned: list[str] = []
+    spawned: list[McpServer] = []
 
     async def fake_spawn(prefix: str, server: McpServer) -> bool:
-        spawned.append(prefix)
-        if fail:
+        spawned.append(server)
+        if fail or (fail_first and len(spawned) == 1):
             toolset.errors.append((server.name, "[Errno 2] no such file"))
             return False
         await toolset.add(_FakeClient("today"), prefix)  # type: ignore[arg-type]
@@ -265,7 +270,7 @@ async def test_add_server_attaches_live() -> None:
     assert bridge.is_live(server) is True
     # A second enable is a no-op, not a second namespace (`datetime2`).
     assert await bridge.add_server(server) == (True, "already attached")
-    assert spawned == ["datetime"]
+    assert [s.name for s in spawned] == ["datetime"]
 
 
 async def test_add_server_reports_a_spawn_failure() -> None:
@@ -273,6 +278,31 @@ async def test_add_server_reports_a_spawn_failure() -> None:
     attached, reason = await bridge.add_server(McpServer(name="web", command="stabbur-mcp-web"))
     assert attached is False and "Errno 2" in reason  # a real failure, never a fake success
     assert bridge.pending_prefixes == {"web"}  # stays pending -> the existing retry contract holds
+
+
+async def test_re_enabling_after_a_failed_spawn_actually_retries() -> None:
+    # The user's loop: switch on -> the spawn fails (a missing extra) -> install it -> switch on again.
+    # The second enable used to short-circuit on "already pending" and answer `deferred - spawns on
+    # first use`, which in free-play means never (ensure_target spawns nothing with empty routing) —
+    # so the API said applied, the panel showed on, and no tool ever appeared until a restart.
+    bridge, spawned = _bridge(fail_first=True)
+    server = McpServer(name="web", command="stabbur-mcp-web")
+    assert (await bridge.add_server(server))[0] is False
+    attached, reason = await bridge.add_server(server)
+    assert attached is True and reason == ""
+    assert [s.name for s in spawned] == ["web", "web"]  # it really tried again
+    assert bridge.toolset.names == ["web__today"]
+
+
+async def test_add_server_spawns_a_deferred_server_now() -> None:
+    # A prefix queued for a lazy first-use spawn: an explicit enable is a request for it *now*, and
+    # carries the config just written (the settings half of a one-call enable).
+    bridge, spawned = _bridge()
+    bridge._pending["files"] = McpServer(name="files", command="stabbur-mcp-files")
+    attached, _ = await bridge.add_server(McpServer(name="files", command="stabbur-mcp-files", env={"A": "1"}))
+    assert attached is True
+    assert bridge.toolset.names == ["files__today"]
+    assert [s.env for s in spawned] == [{"A": "1"}]  # the newest spec won, not the queued one
 
 
 # --- /api/mcp/servers routes ------------------------------------------------------------------------
@@ -435,6 +465,88 @@ async def test_env_on_an_unknown_server_is_404(client: AsyncClient) -> None:
 
 async def test_an_empty_change_is_400(client: AsyncClient) -> None:
     assert (await client.post("/api/mcp/servers/files", json={})).status_code == 400
+
+
+async def test_enable_and_settings_in_one_call(app: FastAPI, client: AsyncClient) -> None:
+    # The documented one-call flow. Applied env-first it was impossible: settings live *inside* the
+    # server's mcp.json entry, so writing them for a still-disabled server is exactly the state
+    # set_env refuses — a 409 "switch 'files' on before configuring it", with the enable dropped.
+    bridge, spawned = _bridge()
+    app.state.mcp_bridge = bridge
+    r = await client.post("/api/mcp/servers/files", json={"enabled": True, "env": {"STABBUR_FILES_ROOT": "/tmp"}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["applied"] is True and body["restart_required"] is False
+    assert body["server"]["enabled"] is True and body["server"]["env"] == {"STABBUR_FILES_ROOT": "/tmp"}
+    assert [s.env for s in spawned] == [{"STABBUR_FILES_ROOT": "/tmp"}]  # spawned WITH the new settings
+    assert bridge.toolset.names == ["files__today"]
+
+
+async def test_settings_alongside_a_disable_is_400(client: AsyncClient) -> None:
+    # Switching off deletes the entry the settings would live in, so honoring both would report a
+    # write that no longer exists. Refuse the combination instead of lying about half of it.
+    await client.post("/api/mcp/servers/files", json={"enabled": True})
+    r = await client.post("/api/mcp/servers/files", json={"enabled": False, "env": {"STABBUR_FILES_ROOT": "/tmp"}})
+    assert r.status_code == 400 and "switching" in r.json()["detail"]
+    assert [s.name for s in mcpservers.read_global()] == ["files"]  # nothing changed either way
+
+
+async def test_disable_unqueues_a_server_that_had_not_spawned_yet(app: FastAPI, client: AsyncClient) -> None:
+    # Persisting the "off" is only half: a server still queued for a lazy first-use spawn would
+    # otherwise attach the very tools that were just switched off.
+    bridge, _ = _bridge()
+    app.state.mcp_bridge = bridge
+    server = McpServer(name="files", command="stabbur-mcp-files")
+    mcpservers.add(server, glob=True)
+    bridge._pending["files"] = server
+    body = (await client.post("/api/mcp/servers/files", json={"enabled": False})).json()
+    assert body["applied"] is True and body["restart_required"] is False
+    assert bridge.pending_prefixes == set()  # the queued spawn is cancelled with the config
+
+
+# --- /api/mcp/servers: third-party servers are part of the picture ----------------------------------
+
+
+def _third_party(project_dir: Path) -> None:
+    """Configure a server stabbur does not ship, the way a user pasting a README snippet would."""
+    mcpservers.add(
+        McpServer(name="weather", command="uvx", args=["mcp-server-weather"]), glob=False, project_dir=project_dir
+    )
+
+
+async def test_get_lists_a_configured_third_party_server(isolated: Path, client: AsyncClient) -> None:
+    # `stabbur mcp list` has always shown these and the model can call their tools; leaving them out of
+    # the API made the browser and the CLI disagree about one file.
+    _third_party(isolated)
+    rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
+    assert rows["weather"]["bundled"] is False and rows["datetime"]["bundled"] is True
+    assert rows["weather"]["enabled"] is True and rows["weather"]["scope"] == "project"
+    assert rows["weather"]["command"] == "uvx mcp-server-weather"
+
+
+async def test_a_third_party_server_is_still_not_togglable(isolated: Path, client: AsyncClient) -> None:
+    # Listing it must not widen the POST: switching a server on means writing a command a request
+    # supplied, so that stays an allow-list over the shipped set.
+    _third_party(isolated)
+    assert (await client.post("/api/mcp/servers/weather", json={"enabled": False})).status_code == 404
+
+
+async def test_get_reports_what_is_actually_attached(app: FastAPI, client: AsyncClient) -> None:
+    # "Enabled" is the config; "live" is the process. A server that is switched on but never started
+    # is the difference between configured and working, and only the bridge knows it.
+    bridge, _ = _bridge()
+    app.state.mcp_bridge = bridge
+    await client.post("/api/mcp/servers/datetime", json={"enabled": True})
+    mcpservers.add(McpServer(name="git", command="stabbur-mcp-git"), glob=True)  # enabled, never spawned
+    rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
+    assert rows["datetime"]["live"] is True and rows["datetime"]["tools"] == 1
+    assert rows["git"]["enabled"] is True and rows["git"]["live"] is False and rows["git"]["tools"] == 0
+
+
+async def test_get_leaves_live_unknown_without_a_bridge(client: AsyncClient) -> None:
+    # No bridge = no MCP process here at all, so "off" would be a guess. null says "not asked".
+    rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
+    assert rows["datetime"]["live"] is None and rows["datetime"]["tools"] is None
 
 
 async def test_toggle_is_covered_by_the_cross_site_guard(client: AsyncClient) -> None:

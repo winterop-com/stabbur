@@ -14,6 +14,8 @@ the plugins' own advertisements, so there is no second hardcoded list) with thei
 state, and :func:`set_enabled` flips one by writing the machine-global ``mcp.json`` — the same file
 ``stabbur mcp add --global`` writes, so enabling from the web UI and from the CLI stay one source of
 truth. :func:`seed_global_defaults` is the fresh-machine seed behind :data:`DEFAULT_ENABLED`.
+:func:`catalog` widens that to everything ``mcp.json`` configures, bundled or not, so the web UI sees
+the same servers ``stabbur mcp list`` does instead of only the shipped ones.
 
 :func:`bundled` also resolves each server's declared **settings** (:class:`stabbur.models.McpSetting`) to
 the value actually in force, and :func:`set_env` writes one back. That closes a real gap: a server's
@@ -223,6 +225,52 @@ def bundled(project_dir: Path | None = None) -> list[BundledMcp]:
         for c in uninstalled_optional({s.name for s in advertised})
     ]
     return sorted(out, key=lambda s: s.name)
+
+
+class McpServerRow(BundledMcp):
+    """One row of the whole MCP catalogue: a bundled server, **or** a third-party one from ``mcp.json``.
+
+    :func:`bundled` answers "what does stabbur ship", which left a real blind spot: a server a user added
+    to ``.mcp.json`` themselves is spawned, shows up in ``stabbur mcp list``, and contributes the tools
+    the model calls — yet was absent from the API the web UI renders, so the CLI and the browser
+    disagreed about the same file. This adds those rows (``bundled=False``) rather than a second
+    endpoint, so one list is the whole picture.
+
+    Only the *bundled* rows are togglable: ``POST /api/mcp/servers/{name}`` stays an allow-list over the
+    shipped set (a third-party name is a 404), because switching one on means writing a command a
+    request supplied. A third-party row is therefore read-only — visible, and honest about being so.
+    """
+
+    bundled: bool = True  # False = a third-party server from mcp.json (listed, but not togglable here)
+    live: bool | None = None  # tools attached in this process right now; None = unknown (no bridge)
+    tools: int | None = None  # how many of its tools are attached; None when `live` is unknown
+
+
+def catalog(project_dir: Path | None = None) -> list[McpServerRow]:
+    """The bundled set (:func:`bundled`) plus every configured third-party server, sorted by name.
+
+    The third-party rows come from the same :func:`stabbur.mcpservers.resolve` the spawner reads, so a
+    server appears here exactly when stabbur would run it — ``scope`` names the file that did it, the
+    same way it does for a bundled row. They carry no ``description``/``settings``: nothing advertises
+    those for a server stabbur doesn't ship. ``live``/``tools`` are left ``None`` here (this module has
+    no process state); the route fills them in from the running bridge.
+    """
+    rows = [McpServerRow(**entry.model_dump()) for entry in bundled(project_dir)]
+    shipped = {row.name for row in rows}
+    in_project = {s.name for s in mcpservers.read_project(project_dir)}
+    rows += [
+        McpServerRow(
+            name=s.name,
+            command=shlex.join([s.command, *s.args]),  # re-splittable by to_server(), so live state can be read
+            enabled=True,  # it is in the resolved set; an unconfigured third-party server has no row at all
+            scope="project" if s.name in in_project else "global",
+            env=dict(s.env),
+            bundled=False,
+        )
+        for s in mcpservers.resolve(project_dir)
+        if s.name not in shipped
+    ]
+    return sorted(rows, key=lambda row: row.name)
 
 
 def set_enabled(name: str, enabled: bool, project_dir: Path | None = None) -> BundledMcp:

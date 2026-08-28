@@ -47,6 +47,7 @@ class _StubToolset:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.errors: list[tuple[str, str]] = []  # like the real toolset: the one-shot prints these
 
     @property
     def names(self) -> set[str]:

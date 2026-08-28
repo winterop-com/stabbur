@@ -98,6 +98,22 @@ def test_server_prefix_prefers_manifest_name() -> None:
     assert tools._server_prefix("  ", ["stabbur-mcp-datetime"]) == "datetime"
 
 
+def test_assign_prefixes_suffixes_duplicates_in_order() -> None:
+    specs: list[tools.McpSpec] = [("datetime", ["x"]), ("datetime", ["y"]), ("files", ["z"])]
+    assert tools.assign_prefixes(specs) == ["datetime", "datetime2", "files"]
+
+
+def test_prefix_by_name_is_the_assignment_connect_uses() -> None:
+    # Routing keys are built from _prefix_by_name, so it must not be a *second* copy of the rule:
+    # two names that slug alike ("a-b" / "a_b") have to disambiguate exactly as connect() does.
+    from stabbur.mcpservers import McpServer
+
+    servers = [McpServer(name="a-b", command="x"), McpServer(name="a_b", command="y")]
+    mapping = tools._prefix_by_name(servers)
+    assert mapping == {"a-b": "a_b", "a_b": "a_b2"}
+    assert list(mapping.values()) == tools.assign_prefixes([s.to_spec() for s in servers])
+
+
 async def test_agent_appends_final_answer_to_history(monkeypatch: pytest.MonkeyPatch) -> None:
     # A no-tool-call turn must record the assistant reply in ``messages`` so a
     # REPL keeps prior answers in context on the next turn.
