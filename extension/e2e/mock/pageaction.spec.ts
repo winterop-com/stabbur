@@ -1,4 +1,4 @@
-// The browser-executed page-action channel (WEBMCP.md 5b), client half. The mock streams a
+// The browser-executed page-action channel (PAGEACTIONS.md), client half. The mock streams a
 // `page_action` frame mid-turn and blocks; the panel runs it in the target tab and POSTs the
 // outcome to /api/chat/page-action, which the mock records verbatim so these tests assert the
 // real wire shape rather than a UI proxy for it.
@@ -349,7 +349,7 @@ test("truncation says how much was cut, not merely that it was", async ({ contex
 
 test("a tab outside the bound target is refused", async ({ context, extensionId }) => {
   // A registry whose only target lives on the target-site origin, while the user is looking at a
-  // page on a different one. WEBMCP.md 5b rule 3: the bound/matched tab only.
+  // page on a different one. PAGEACTIONS.md rule 3: the bound/matched tab only.
   mock.state.assistants = [bindAssistantTarget("play42", target.baseUrl(), { name: "play42" })];
   const frame: ChatFrame = { type: "page_action", id: "pa-offtarget", action: "page_read", args: {} };
   mock.state.chatFrames = [frame, { type: "done" }];

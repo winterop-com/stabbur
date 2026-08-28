@@ -1,4 +1,4 @@
-"""Tests for browser-executed page actions: the channel, and the ``page_read`` action (WEBMCP.md 5b).
+"""Tests for browser-executed page actions: the channel, and the ``page_read`` action (PAGEACTIONS.md).
 
 Three layers, because the interesting failures live at different ones:
 
@@ -222,8 +222,8 @@ def test_resolve_ignores_unknown_names_and_deduplicates() -> None:
 
 
 def test_page_read_is_declared_read_only() -> None:
-    # 5b rule 2: reads are ungated. is_readonly is also what the loop's "writes" policy reads, so
-    # a read stays ungated under that policy too (see test_read_is_not_gated_by_the_confirm_policy).
+    # PAGEACTIONS.md rule 2: reads are ungated. is_readonly is also what the loop's "writes" policy
+    # reads, so a read stays ungated under it too (see test_read_is_not_gated_by_the_confirm_policy).
     toolset = PageActionToolset(MCPToolset(), pageactions.resolve(["page_read"]), _never_invoked)
     assert toolset.is_readonly("page_read") is True
     assert toolset.is_readonly("some_mcp_tool") is False  # unknown → fail-safe, delegated to the base
@@ -264,7 +264,7 @@ def test_tool_schema_does_not_spend_the_model_s_context_on_docstrings() -> None:
     assert params["properties"]["url"]["description"]
 
 
-# --- 5b rule 2: an acting page action is gated regardless of policy ----------------------------
+# --- PAGEACTIONS.md rule 2: an acting page action is gated regardless of policy ---------------
 
 
 def _gating_toolset(
@@ -523,7 +523,7 @@ async def test_client_failure_report_reaches_the_model_as_an_error(
 async def test_read_is_not_gated_by_the_confirm_policy(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 5b rule 2: a read runs ungated even under a write-confirming policy — no confirm prompt.
+    # PAGEACTIONS.md rule 2: a read runs ungated even under a write-confirming policy — no confirm prompt.
     app.dependency_overrides[serving.get_manager] = lambda: FakeManager()
     captured: dict[str, Any] = {}
     _install_action_turn(monkeypatch, captured)
@@ -547,7 +547,7 @@ async def test_read_is_not_gated_by_the_confirm_policy(
 async def test_acting_is_gated_end_to_end_under_the_default_policy(
     app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """5b rule 2 through the real stack: no project, no policy, and the click still needs a human.
+    """PAGEACTIONS.md rule 2 through the real stack: no project, no policy, and the click still needs a human.
 
     ``confirm_tools`` is omitted, so this is the shipped default for a generic site — the case
     where riding the policy would have left an acting page action ungated.

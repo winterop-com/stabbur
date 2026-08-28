@@ -55,10 +55,11 @@ else has a home — put detail there, not here:
   Read it before touching `frontend/`.
 - **`ROADMAP.md`** — forward-looking plans (north-star DHIS2 assistant, phased build
   order, open issues). Update it when plans change.
-- **`CHROME.md`** — the Chrome/browser-extension design (side-panel client, `/api/chat`
-  contract, CORS vs cross-site guard, live-session SameSite analysis).
-- **`WEBMCP.md`** — page actions and the agentic web: why WebMCP inverts UI control rather
-  than providing it, its maturity, and the navigate-first build order for page actions.
+- **`CHROME.md`** — the browser-extension design (side-panel client, CORS vs cross-site guard,
+  the act-as-the-logged-in-user auth model, the `/api/chat` + confirm contract).
+- **`PAGEACTIONS.md`** — tools the model runs in the user's tab: the wire contract, the five
+  safety rules (typed actions, the forced gate), and what is built vs unbuilt.
+- **`WEBMCP.md`** — the WebMCP decision record: watch, don't build, and why.
 - **`docs/`** (mkdocs site) — `getting-started.md`, `cli.md`, `benchmarks.md`, guides.
 - **git history** — what shipped and when. Don't keep a changelog in this file.
 

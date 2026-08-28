@@ -1,1428 +1,367 @@
-# Chrome extension architecture notes
+# The browser extension
 
-These notes capture the current thinking for adding a Chrome/browser extension that
-drives stabbur with DHIS2 tools.
+stabbur ships a browser extension: an MV3 **side panel** that is a thin client for a locally (or
+remotely, over HTTPS) running `stabbur serve`. It lives in `extension/` (WXT + React, reusing the
+SPA's components and API client from `frontend/src` through an `@` alias). `extension/README.md`
+covers building and loading it; `docs/guides/extension.md` is the user-facing guide. This file is
+the design: why the pieces are arranged this way, and the contracts between them.
 
-Review status: this file has had two design-review passes, the second checked
-against the actual stabbur code (endpoints, cross-site guard, frontend api client).
-The key conclusion did not change: the first extension should be a side-panel
-client for local stabbur, and stabbur should reach DHIS2 through `d2w`/MCP rather than
-through browser-cookie relay. The second pass added the "Net-new stabbur work"
-section, the `/api/chat` request contract + 409 handling, and split the CORS vs
-cross-site-guard mechanics. A follow-up added "Driving the active DHIS2 login:
-feasibility and verdict" — the honest assessment of using the live browser session
-to drive the instance (the SameSite crux, the PAT-minting escape hatch, and the
-read-vs-write line). That section was then grounded in a **live measurement**
-(play's `JSESSIONID` is `SameSite=lax; HttpOnly; Secure`) and in how deployment /
-`dhis.conf` affect it (no SameSite key; set by the reverse proxy) — the practical
-conclusion is that the cross-site cookie path is off by default and the cookie only
-works from a same-origin DHIS2-tab content script. A "Screenshots, visual context,
-and Playwright" section was also added: native Chrome capture + DHIS2 PNG endpoints
-for runtime visuals, Playwright reserved for E2E tests and doc screenshots. An
-"Extension <-> backend auth" section clarifies that OIDC belongs to remote backends
-and the d2w<->DHIS2 hop, never the local extension<->stabbur hop. Later notes: tab
-grouping for the bound instance (`chrome.tabGroups`), and a "Publishing" section on
-shipping a Web Store extension that requires a user-run local service. The
-target-metadata endpoint was also de-DHIS2-ified: kept generic (`GET /api/assistant`
-from opaque project metadata + an MCP resource) so stabbur keeps zero DHIS2 logic,
-rather than a DHIS2-named `GET /api/dhis2/target`. A "Cross-browser" section notes
-WebExtensions/MV3 as the de facto standard (Chromium family free, Firefox modest via
-`sidebar_action` + polyfill, Safari a separate Xcode-wrapped effort). A third pass
-(2026-07-04) re-verified every API claim against the code, then fixed the gaps it
-surfaced: the model-load step now names `POST /api/load/{name}` (status only
-reports, it does not load); the vision/screenshot path is marked schema-accepted
-but runtime-unverified; the "credentialed reads in the service worker" instinct was
-corrected at its source (Option B) so `SameSite=Lax` reads run in the DHIS2-tab
-content script throughout; and Phase 1 gained conversation-history ownership and a
-graceful not-connected state.
+Companion docs: **[`PAGEACTIONS.md`](PAGEACTIONS.md)** (tools the model runs in the tab),
+**[`ROADMAP.md`](ROADMAP.md)** (open work), `docs/guides/browser-session-auth.md` (the measured
+evidence behind the auth model below).
 
-## Status (2026-07-10): built
+## Shape
 
-The extension described here now exists at `extension/` (WXT, MV3 side panel; see
-`extension/README.md` for setup). What shipped vs this design:
-
-- Phase 1 (side-panel client: status/load/409, tools, typed-SSE chat with client-owned
-  history, disconnected state) and Phase 2 (page context, target banner with
-  match/mismatch, generic `GET /api/assistant`) are implemented, plus a narrow
-  Phase-3-lite: fixed-endpoint same-origin session reads (`/api/me`, `/api/system/info`)
-  from the DHIS2 tab, and an opt-in truncated page-text capture.
-- The target-metadata endpoint landed as designed — generic `GET /api/assistant` echoing
-  an opaque `[assistant]` block from `stabbur.toml` — but the live `verified` block is
-  produced by a **generic MCP tool call** named in the block (`[assistant.verify]`,
-  e.g. the bridge's `dhis2_cli profile verify`), not by an MCP resource: none of the
-  dhis2w servers publish resources yet. The MCP-resource + generic-resource-proxy shape
-  remains the intended long-term design; adding a `dhis2://target` resource to the bridge
-  and a resource proxy to stabbur is a follow-up that can replace the tool-call path without
-  changing the endpoint contract.
-- Remote/cloud stabbur works via the existing bearer auth (`auth_token`) + `cors_origins`;
-  the panel requires https for non-loopback hosts.
-- Playwright E2E lives in `extension/e2e/` (mock tier + a live tier that runs the full
-  loop against a real model and play42, read-only). Verified prompts live in
-  `docs/guides/extension-prompts.md`.
-- Later, per this design: writes (per-action confirmation, PAT/profile channel only), Web Store
-  packaging, Firefox/Safari targets. (PAT-minting from the live session shipped read-only in round 2;
-  gated writes shipped in round 3 — see the later Status sections.)
-
-## Status (2026-07-11): round 2 — "Use my login" (PAT-first, read-only)
-
-The "drive the active DHIS2 login" verdict above (read-only first; mint a PAT from the live
-session; writes last) is now **implemented read-only**. What shipped on top of the round-1 base:
-
-- **"Use my login" bind flow** (`extension/components/BindFlow.tsx` + `TargetBanner.tsx`,
-  `lib/bindRecipe.ts`, `lib/binding.ts`, `lib/bindApi.ts`). When the active tab matches the
-  assistant target, the panel offers **Use my login**. A consent card states the scope in plain
-  words — **read-only (GET)**, **expires in 30 days**, **stored in the stabbur project's DHIS2
-  profile** — with no "allow writes" toggle for a read-only assistant. On confirm, a PAT is minted
-  **entirely in the target tab's own security context** (`chrome.scripting.executeScript`, MAIN
-  world, `POST /api/apiToken` with the live session cookie): the token never touches the service
-  worker or the page's JS — only the extracted `response.key` / `response.uid` come back. stabbur then
-  installs it via `POST /api/assistant/bind` (below). The banner shows **Acting as \<user\> (your
-  login)**, with **Unbind** (revoke in the tab + remove the profile) and **Rebind**.
-- **PAT-first, session fallback.** A `404/405/501` mint (PAT unavailable) offers a **session-cookie
-  fallback**: it requests the optional `cookies` permission (user gesture) for the target origin,
-  reads the `JSESSIONID` cookie, and installs it as an `auth = "session"` profile. `401` prompts
-  **"Sign in to \<name\> in this tab first"**. The fallback rides a **new `session` auth kind in
-  `dhis2w-client`/`d2w`** (see `../dhis2w-utils/REVIEW-SESSION-AUTH.md`); `d2w profile add … --auth
-  session` reads `DHIS2_SESSION_COOKIE` from the env, mirroring the PAT `DHIS2_PAT` path.
-- **Backend `bind`/`unbind` in stabbur, still domain-generic** (`routers/serving/assistant.py`).
-  `GET /api/assistant` now also echoes a **sanitized `[assistant.bind]` recipe** — the browser-side
-  mint paths/payload/extraction fields plus only the mode *names*; a mode's argv + `secret_env` stay
-  server-side. `POST /api/assistant/bind` / `/unbind` run the named mode's argv with the secret in
-  `secret_env` (never argv), redacted from captured output, serialized on a lock, verify-cache
-  invalidated after. stabbur still learns no DHIS2 — the recipe is opaque project config the DHIS2
-  template fills (`[assistant.bind]` / `[assistant.bind.modes.*]`).
-- **Declared probe recipes replace the round-1 hardcoded endpoints.** The "Who am I here?" session
-  read (`lib/sessionReads.ts`) now runs the project-declared `[assistant.probe]` (paths + dotted
-  field map + label) echoed by `GET /api/assistant`, instead of fixed `/api/me` + `/api/system/info`
-  literals — so stabbur core carries no DHIS2 paths.
-- **Identity labels.** Page context now distinguishes the **Browser session user** (who is viewing
-  the tab) from the **Tool account** (which credential the tools use), and the system prompt teaches
-  the model to answer "who am I" from the browser user while reporting the tool account only when
-  asked. After a bind the two converge (the PAT acts as the logged-in user).
-- **Tool results are compact.** Tool-call/result markers render as collapsed chips with compact JSON,
-  expandable on click, instead of dumping raw payloads inline.
-- **Backend switcher.** Settings can hold multiple stabbur backends (Add/Remove backend); the binding
-  record is scoped per-backend id.
-- **E2E:** a live-tier `binds to the browser login` spec (`extension/e2e/live/live.spec.ts`) drives
-  the whole flow against real play42: log in as admin, mint a read-only PAT in the tab, install it
-  (`profiles.toml` flips `auth = "pat"`), chat as the bound account, verify over the PAT profile,
-  then unbind (token revoked, profile removed). The raw token never leaves the browser, so the test
-  asserts the read-only scope via the consent copy + read-only chip rather than replaying the token.
-
-Still future after round 2: the `dhis2://target` MCP resource + generic resource proxy, and
-packaging (Web Store unlisted, pinned key, Firefox `sidebar_action`). **Writes** — the last item on
-the read-vs-write verdict — shipped in round 3; see the next Status section.
-
-## Status (2026-07-12): round 3 — writes, gated by per-action confirmation
-
-The "writes last, behind explicit per-action confirmation, PAT/profile channel, mind CSRF" verdict
-from "Driving the active DHIS2 login" is now **implemented**. What shipped:
-
-- **Per-action confirmation gate, every interactive chat surface.** A write-enabled assistant now
-  prompts the user to **Approve/Deny each gated tool call** before it executes — in the Chrome side
-  panel, the web UI (`stabbur serve --ui`), and the Textual TUI, from one backend mechanism. A declined
-  call returns `error: user declined this action` and the model continues (it can retry or explain,
-  it does not crash). This is the guardrail the "writes as the logged-in user" analysis called for:
-  the human, not the model, authorizes each mutation. The non-interactive `stabbur chat -p` one-shot has
-  no one to answer the prompt, so it **fail-safe denies** gated writes unless `--allow-writes` is
-  passed (a blanket auto-approve). The one deliberately ungated path is the programmatic eval harness
-  (`stabbur-benchmark`), whose self-cleaning write suites must run unattended.
-- **Generic, fail-safe policy — no DHIS2 logic in stabbur.** stabbur reads each MCP tool's `readOnlyHint`
-  and requires confirmation for any tool **not** marked read-only; an **unannotated** tool defaults
-  to needs-confirmation (fail-safe). The policy is a tri-state `all|writes|none` (request field
-  `confirm_tools`), defaulting from the assistant: readonly / free-play -> `none`, write-enabled ->
-  `writes`. Consequence to know: the default single-tool `dhis2w-mcp-bridge` (`dhis2_cli`) is
-  **unannotated**, so under a write-enabled assistant **every** dhis2 call prompts — reads included.
-  The typed **`dhis2w-mcp` (>= 1.3.0) now stamps `readOnlyHint`** per op (True on its ~104 reads,
-  False on writes), which stabbur's gate honors — so a write assistant on that server confirms only
-  writes. The default single-tool bridge can't be annotated per-op, and the router's generic
-  `call_tool` can't either, so on those the reads-also-prompt friction is inherent (tracked in
-  `ROADMAP.md`).
-- **Write-enabling bind.** The bind consent now mints a **read-write PAT** (`methods_full`) when the
-  assistant is write-enabled (the `bind-allow-writes` path); the binding records read-vs-write scope
-  and the extension's **Acting as** chip shows it. **PAT channel preferred; session-cookie writes
-  allowed but gated** — a session credential can't be method-scoped, so where the fallback is used
-  the confirmation gate is its only guardrail (never ambient authority without the per-action gate).
-- **CSRF double-submit.** An optional `X-XSRF-TOKEN` double-submit: at a session-write bind the
-  extension captures the `XSRF-TOKEN` cookie and passes it via `DHIS2_SESSION_XSRF` into the stored
-  d2w profile (implemented in dhis2w — client `SessionCookieAuth` + core `d2w profile`, across
-  v41/v42/v43). It is **inert** when the instance doesn't issue the cookie (standard DHIS2 API
-  writes don't enforce CSRF today), so it only future-proofs a hardened instance rather than being
-  required now.
-- **Where writes are tested.** Writes can't target play42 — it's a `DHIS2_MCP_PROTECTED_HOSTS` demo
-  host the bridge refuses writes to — so live write coverage runs against a local/non-protected
-  instance via the `dhis2-write` template, plus mock e2e and the `tools-dhis2-write` benchmark
-  (`docs/guides/dhis2-benchmark-report.md`). The benchmark is a sobering read: the best model
-  completes 4 of 7 write lifecycles and the read-only champion collapses to 1/7 — which is exactly
-  why the gate exists.
-
-### The confirmation SSE contract
-
-The gate rides the existing `/api/chat` SSE stream plus one resolving endpoint:
+The extension is a **client**, not a host. The agent loop, the MCP client, tool execution, and the
+model runtime all stay in stabbur:
 
 ```text
-POST /api/chat            (streaming; unchanged shape, one new event pair)
-  body adds: "confirm_tools": "all"|"writes"|"none"   // optional; defaults from the assistant
-  -> ...token/tool frames as before...
-     {"type":"confirm","id":"<call-id>","tool":"...","args":{...}}   // gated call pauses here
-     {"type":"confirm_resolved","id":"<call-id>","approved":true|false,"reason":"user"|"timeout"}
-     ...continues (tool runs, or "error: user declined this action" is fed back)...
-
-POST /api/chat/confirm    resolves the pending call for the in-flight generation
-  body: {"id":"<call-id>","approve":true|false}
+side panel  (chrome-extension://…)
+  -> http://127.0.0.1:<port>/api/chat
+      -> stabbur agent loop  ->  MCP servers over stdio  ->  the target's API
 ```
 
-Note the asymmetry, which is easy to get wrong from either end: the **request body** field is
-`approve`, while the `confirm_resolved` **frame** reports `approved` (plus `reason`, which says
-whether the user answered or the gate timed out). The `confirm` frame carries the call's `args`,
-not a `detail` — `detail` is the tool-activity frame's field.
+Two consequences worth stating, because both were live options:
 
-The backend holds a **per-generation future** for each gated call; `POST /api/chat/confirm`
-resolves it. If nothing resolves within 300s (`STABBUR_CONFIRM_TIMEOUT`) the call **auto-denies**
-(fail-safe). The scripted one-shot `stabbur chat -p` has no confirm channel, so it fail-safe denies
-gated writes unless `--allow-writes` is passed (which auto-approves). The panel renders a `confirm`
-frame as an Approve/Deny card and POSTs the user's choice to `/api/chat/confirm`.
+- **The extension is not an MCP host.** One agent loop, in stabbur, serving every surface (web,
+  panel, CLI, TUI) means tools behave identically everywhere and are testable without a browser.
+- **Browser session cookies are not the credential path.** See "Auth" below.
 
-## Status (2026-07-13): multi-target registry — server side landed
+The panel uses `POST /api/chat`, never raw `/v1/chat/completions`: the latter is the runtime proxy
+and does not run the MCP tool loop.
 
-The single `[assistant]` is now a **registry of targets** server-side, ahead of the extension
-wiring. What exists in stabbur today (extension still consumes the single-target `GET /api/assistant`):
+### Flavors
 
-- **N targets in `stabbur.toml`** — `[[assistants]]`, each an `[assistant]`-shaped block plus
-  `mcp_servers` (the `.mcp.json` bridges whose namespaced tools route to it). A single `[assistant]`
-  still loads as a one-target registry (compat), and `mcp_servers = []` keeps the owns-all rule.
-- **URL-aware endpoints** — `GET /api/assistants` (the sanitized registry) and
-  `GET /api/assistants?url=<tab>` (origin + longest-path-prefix match -> `selected` id or a tie list),
-  the Python twin of the extension's `tabTarget.match`, pinned to parity by mirrored fixtures. The
-  legacy `GET /api/assistant` stays byte-compatible for the current panel.
-- **Per-turn tool routing + confirm** — a chat turn carries a `target` id; tools are narrowed to that
-  target's `mcp_servers` (unowned/global servers stay shared into every turn), and the confirm-policy
-  default follows the selected target's `readonly`. A CLI `--target` picks one off-browser.
-- **`dhis2-multi` template** — two read-only play targets (play42 `/dev-2-42`, play41 `/dev-2-41`) on
-  one host, one bridge each, auto-selected by the active tab once the panel wiring lands.
-- **Project-level MCP disable** — `.mcp.json` honors `"<name>": null` / `{"disabled": true}` to drop a
-  machine-global server (e.g. a stray `playwright`) from a project's toolset.
+One codebase, two builds, selected by `STABBUR_FLAVOR` at build time and baked in as
+`__STABBUR_FLAVOR__` (`extension/lib/flavor.ts`): `generic` and `dhis2`. Every feature ships in
+both; only naming, branding and copy differ. Output goes to `.output/chrome-mv3` and
+`.output/chrome-mv3-dhis2` (plus a test-only `chrome-mv3-e2e` build that adds host permissions for
+the live e2e tier and is never shipped).
 
-**Next chunk: the extension.** Auto-select the target on tab switch, a small picker for ties, and
-per-target binding (composite `${backendId}:${targetId}` storage keys) — consuming `GET /api/assistants`
-with a fallback to the single-target endpoint for older stabbur.
+### The backend it expects
 
-## Short version
+Any `stabbur serve` will do, but the intended one is locked to a single model — either a project
+with `[project].model` set, or `stabbur serve --model <name>` — so the panel has no model picker
+and a stable `/v1`. Free-play model switching in the panel is out of scope. The panel's default
+backend is `http://127.0.0.1:2222`; `validateBaseUrl` (`extension/lib/settings.ts`) requires
+`https://` for any non-loopback host, since an extension page blocks mixed content. Settings hold
+several backends (id, name, base URL, bearer token) with one active; bindings are keyed per
+backend.
 
-Use the extension as a browser UI/client. Keep stabbur as the local backend, model
-runtime manager, MCP client, and tool executor.
+## CORS and the cross-site guard are two different mechanisms
 
-```text
-Chrome side panel
-  -> http://127.0.0.1:<pinned-port>/api/chat
-      -> stabbur agent loop
-          -> dhis2w-mcp-bridge/router over stdio
-              -> d2w profile
-                  -> DHIS2 Web API
-```
+Conflating them is the classic way to spend an afternoon on the wrong setting.
 
-Do not make the extension itself an MCP host for the first version. Do not pass
-browser session cookies down to stabbur as the primary DHIS2 credential path. Use
-`d2w` profiles and the DHIS2 Web API through the bridge/router.
+**Read visibility (CORS).** With host permissions for the stabbur origin, the extension's `fetch()`
+bypasses CORS entirely — it can read `GET /api/status` with no `cors_origins` entry at all.
+`cors_origins` (`STABBUR_CORS_ORIGINS`, empty by default, no CLI flag) exists to make responses
+readable to *ordinary web pages*, which the extension is not. Avoid `["*"]`.
 
-## What already exists in stabbur
+**Mutating requests (the cross-site guard).** `_cross_site_guard` in `src/stabbur/app.py` blocks
+`POST/PUT/PATCH/DELETE` under `/api`, `/v1` and `/models` when the request looks like a browser
+request from another site — and, deliberately, one *read* as well: `GET /api/assistant` or
+`/api/assistants/*` with a truthy `verify` query, because that spawns MCP subprocesses and calls
+the project's verify tool against the live instance. Without that, `<img
+src="…/api/assistants/x?verify=1">` on any page would fire a tool run with no preflight in sight.
 
-stabbur already has most of the backend shape needed for an extension:
-
-- `stabbur serve --ui --port <port>` gives a stable localhost origin.
-- A project with `[project].model` locks the server to that model automatically.
-- `stabbur serve --model <name>` can also lock the server explicitly.
-- `/api/chat` runs the server-side agent loop and MCP tool calls.
-- `/api/tools` exposes the attached tool list.
-- `/api/status` exposes locked/model/runtime state.
-- `/v1/*` is proxied to the loaded runtime, but raw `/v1/chat/completions` does
-  not run MCP tools itself. The extension should use `/api/chat` for assistant
-  chat.
-- `cors_origins` exists for explicit extension/dev origins.
-- Mutating `/api`, `/v1`, and `/models` browser requests marked cross-site are
-  blocked unless their exact `Origin` is allow-listed.
-
-That means the first extension does not need a new protocol. It can call the same
-API the web UI already uses, with a configurable base URL instead of same-origin
-`fetch("/api/...")`.
-
-## Net-new stabbur work (everything else is reuse)
-
-The chat path reuses existing endpoints, so it is tempting to read this as "no
-stabbur changes." That is true for chat, but two pieces must actually be *built* in
-stabbur before the target-instance UX (below) works. They are called out here so they
-are not discovered late:
-
-- **A target-metadata endpoint** — does not exist yet. Resolves the active DHIS2
-  target (profile, base URL, auth kind, read-only, optional verified block) so the
-  side panel does not have to reverse-engineer the MCP command or make the model
-  discover it. See "Target instance visibility" for the shape.
-
-  **Keep it generic — do not name it `GET /api/dhis2/target`.** Today stabbur has
-  *zero* DHIS2 logic (only a suggested `dhis2` MCP preset string in the `cli`
-  setup wizard); a DHIS2-named route that imports `dhis2w_core` and parses DHIS2
-  profiles would be the first DHIS2 *behavior* in stabbur core, breaking stabbur's own
-  boundary ("generic local-LLM host; DHIS2 knowledge lives in `d2w`") and inviting
-  `/api/jira/target`, `/api/github/target`, … next. Prefer a generic
-  `GET /api/assistant` (or `/api/context`) that merges two domain-free sources:
-  - **opaque project metadata** — a generic `[assistant]`/`[ui]` block in
-    `stabbur.toml` that stabbur echoes verbatim without understanding it (covers
-    `base_url`, `auth`, `readonly`, `source`); the DHIS2 project template fills it.
-  - **MCP-provided resources** — the DHIS2 bridge publishes target + live
-    `verified` (system/info + me) as an **MCP resource**, and stabbur exposes a
-    generic MCP-resource proxy. DHIS2 logic stays in `d2w`; stabbur just forwards.
-
-  This is the best fit with the stated architecture. Only fall back to a
-  DHIS2-named endpoint if the generic path proves impractical — a deliberate
-  boundary exception, not the default.
-
-- **A generic project metadata block** (not a DHIS2-named `[dhis2]` setting) — the
-  static source for the endpoint above, so stabbur reads UI metadata from config
-  instead of parsing `.mcp.json` server commands. Needs `config.py` / project-loading
-  changes, but kept domain-agnostic so stabbur never learns the word "dhis2".
-
-Per project rule 4, both the endpoint response and the `[dhis2]` config block must
-be **Pydantic models**, not dicts or `@dataclass`.
-
-Everything in Phase 1 (status/tools/chat/speak) is genuinely reuse; these two are
-the only real stabbur-side additions, and they are Phase 2 (page/target context), not
-Phase 1 blockers.
-
-## Localhost serving
-
-Serving stabbur on localhost should work well, and is the recommended first target.
-Use a pinned port so the extension can remember it:
-
-```bash
-stabbur serve --ui --port 8000
-```
-
-or run inside a DHIS2 stabbur project where `[project].model` is set:
-
-```bash
-stabbur serve --port 8000
-```
-
-Once the Chrome extension ID is known, allow-list its origin:
+A request is allowed through when its `Origin` is in `cors_origins` (exact match; a wildcard never
+bypasses the guard), when it is same-origin, or when it carries no `Sec-Fetch-Site` and no `Origin`
+at all — a non-browser client. So the reliable way to let the panel POST is to allow-list its exact
+origin:
 
 ```toml
-port = 8000
 cors_origins = ["chrome-extension://<extension-id>"]
 ```
 
-For an unpacked development extension, the extension ID can change if the extension
-is reloaded from a different path or generated key. Pin the extension key or be
-prepared to update `cors_origins` during development.
+An unpacked development extension changes id when loaded from a different path, so pin the
+manifest key or expect to update this during development.
 
-Two separate mechanisms are in play here; do not conflate them:
+**Accepted risk.** Because non-browser local clients are allowed through, any process on the
+machine can `POST /api/chat` and drive the tool loop. The mitigation when that matters is
+`auth_token` (`STABBUR_AUTH_TOKEN`): set it, and every `/api`, `/v1`, `/models` and docs request
+must carry `Authorization: Bearer <token>`. `serve` generates one automatically when binding a
+non-loopback address.
 
-- **Read visibility (CORS).** With `host_permissions` for the localhost origin
-  (see the manifest sketch), the extension's `fetch()` bypasses CORS entirely, so
-  the extension can already *read* `GET /api/status` etc. without any
-  `cors_origins` entry. `cors_origins` is about making responses readable to
-  ordinary web pages, which the extension does not need.
-- **Mutating cross-site guard.** `POST /api/chat` (and other mutating `/api`,
-  `/v1`, `/models` calls) go through stabbur's cross-site guard. The guard
-  short-circuits and allows the request as soon as the request `Origin` matches an
-  allow-listed entry — so allow-listing the exact `chrome-extension://<id>` origin
-  is the reliable way to let the extension's POSTs through.
+## Manifest and permissions
 
-Whether an un-allow-listed extension POST would *otherwise* be blocked depends on
-what Chrome sets for `Sec-Fetch-Site` on an extension-page fetch (it may be
-`none`, which the guard treats as non-browser and allows). Rather than rely on
-that browser-specific behavior, allow-list the origin explicitly — that path is
-deterministic regardless of how Chrome tags the request.
-
-Avoid `cors_origins = ["*"]` except for throwaway local read-only testing. A
-wildcard makes responses readable cross-origin and weakens the intended localhost
-protection, and it is not a substitute for allow-listing the extension origin for
-the mutating guard.
-
-## Target instance visibility
-
-Profiles are good for backend auth, but they are not enough for a browser
-extension UX. The extension must know, display, and navigate to the DHIS2 instance
-that stabbur is actually using. Otherwise the side panel is just a prettier terminal.
-
-The product should have an explicit "target instance" concept:
-
-```text
-Profile: play42
-URL: https://play.im.dhis2.org/dev-2-42
-Auth: basic / PAT / OAuth2
-Mode: read-only
-Status: verified as admin / failed / unknown
-```
-
-The side panel should show this target near the composer and provide at least:
-
-- **Open instance**: opens the profile `base_url` in a tab.
-- **Open current object**: when the current chat/page context identifies a UID and
-  type, deep-link to the relevant DHIS2 app/page where possible.
-- **Use this tab**: when the active browser tab is a DHIS2 instance, compare it
-  with the backend profile target and warn on mismatch.
-- **Verify**: ask stabbur to verify the target by calling the DHIS2 `/api/system/info`
-  and `/api/me` endpoints through `d2w` (distinct from stabbur's own `/api/*` routes
-  like `/api/status`; these are DHIS2 Web API paths reached via the bridge).
-- **Group the bound tab** (optional polish): put the DHIS2 tab(s) the assistant is
-  attached to into a named tab group so it is visible at a glance which tab stabbur is
-  operating on — the same UX as Claude-in-Chrome's working-tab group. Use
-  `chrome.tabs.group({ tabIds })` then `chrome.tabGroups.update(groupId, { title:
-  "stabbur · play42", color })`; needs the `tabGroups` permission. This reinforces the
-  mismatch signal (a tab on a *different* instance is visibly outside the group). It
-  is pure presentation — it changes nothing about auth or the tool loop — so keep it
-  opt-in and unobtrusive (do not reorganize the user's tabs aggressively), and treat
-  it as Phase 2+ alongside the page-context content script.
-
-This implies stabbur should expose target metadata to the extension instead of
-making the model discover it through a tool call. A small stabbur endpoint would be
-enough. **Name it generically** (`GET /api/assistant`), not `GET /api/dhis2/target`
-— see the boundary discussion under "Net-new stabbur work"; the payload below is the
-DHIS2 *shape* such a generic endpoint returns for a DHIS2 project, assembled from
-opaque project metadata plus an MCP resource, with no DHIS2 code in stabbur itself:
-
-```text
-GET /api/assistant   (generic route; DHIS2-shaped payload for a DHIS2 project)
-  -> {
-       "profile": "play42",
-       "base_url": "https://play.im.dhis2.org/dev-2-42",
-       "auth": "basic",
-       "readonly": true,
-       "source": "project-toml",
-       "verified": {
-         "ok": true,
-         "version": "2.42.x",
-         "username": "admin"
-       }
-     }
-```
-
-Where the fields come from (all keeping DHIS2 logic out of stabbur):
-
-- **Static fields** (`base_url`, `auth`, `readonly`, `source`) — from a generic,
-  opaque `[assistant]`/`[ui]` block in `stabbur.toml` that stabbur echoes without
-  interpreting. The DHIS2 project template writes it. Cleaner than stabbur parsing
-  `.mcp.json` server commands or `MCP_ROUTER_CONFIG` for `DHIS2_PROFILE=...`, and it
-  keeps the MCP command as pure execution detail.
-- **Dynamic `verified` block** (live version + username) — from an **MCP resource**
-  the DHIS2 bridge publishes (backed by `system/info` + `me`), which stabbur exposes
-  through a generic MCP-resource proxy. stabbur forwards; `d2w` owns the DHIS2 call.
-
-A DHIS2-named endpoint that imports `dhis2w_core.profile.resolve` directly is the
-fallback only if the generic path proves impractical — an explicit boundary
-exception, per "Net-new stabbur work".
-
-The extension should not silently assume that "current browser tab" and "backend
-profile" are the same instance. It should compare origins/base paths:
-
-```text
-active tab: https://play.im.dhis2.org/dev-2-42/...
-profile:    https://play.im.dhis2.org/dev-2-42
-status:     matched
-```
-
-If they differ, show a clear mismatch state:
-
-```text
-You are viewing play.im.dhis2.org/dev-2-41, but stabbur is connected to
-play.im.dhis2.org/dev-2-42.
-```
-
-That mismatch handling is where a pure profile-backed design otherwise falls
-down: the model may query one instance while the user is looking at another.
-
-## Ideal browser-first UX
-
-The ideal user flow is:
-
-```text
-1. User logs into a DHIS2 server in Chrome.
-2. User clicks the stabbur extension.
-3. The side panel opens attached to that DHIS2 tab.
-4. The panel says "Connected to <this instance>" and shows who the browser user is.
-5. stabbur either uses an existing matching backend profile or helps create/link one.
-```
-
-This is better than starting from a backend profile picker because the user can
-see the instance. The visible DHIS2 tab provides orientation, confidence, and a
-place to navigate after the assistant answers.
-
-Recommended click behavior:
-
-```text
-active tab is DHIS2
-  -> extension derives base URL from the tab
-  -> a narrow content script in the DHIS2 tab fetches <base>/api/system/info and <base>/api/me (same-origin, cookie rides along)
-  -> side panel shows instance name/version/user
-  -> side panel asks stabbur whether a backend target matches this base URL
-```
-
-The credentialed fetch (`fetch(url, { credentials: "include" })`) must run in the
-DHIS2-**tab** content script, not the service worker: only the same-site tab
-request carries a `SameSite=Lax` session cookie (play is `Lax`; measured). Keep
-that content script narrow — fixed endpoints, sanitized results — not an
-arbitrary-URL proxy. Full detail in "Driving the active DHIS2 login" below.
-
-Then branch:
-
-### Matching backend profile exists
-
-Use it.
-
-```text
-Browser tab: https://play.im.dhis2.org/dev-2-42
-stabbur target: profile play42 -> https://play.im.dhis2.org/dev-2-42
-status: matched
-```
-
-The extension can now provide both:
-
-- Visual/browser context from the active tab.
-- Real tool use through stabbur's `d2w` profile and MCP bridge/router.
-
-This is the best state.
-
-### No matching backend profile
-
-Do not silently fall back to an unrelated profile. Show a setup state:
-
-```text
-You are viewing https://dhis2.example.org, but stabbur has no matching DHIS2
-profile. Choose how to connect tools:
-
-[Use browser context only]
-[Link existing profile]
-[Create local profile for this instance]
-```
-
-`Use browser context only` is useful immediately, but limited: the extension can
-fetch a few allowlisted browser-authenticated reads and add them as prompt
-context. It should not pretend full MCP tool use is available.
-
-`Link existing profile` lets the user choose one of stabbur/d2w's known profiles if
-there is a base URL mismatch or naming mismatch.
-
-`Create local profile for this instance` is the smoother long-term path. There
-are two possible implementations:
-
-- Ask the user for a PAT/OAuth/basic credential and store it through `d2w profile`
-  locally.
-- If DHIS2 supports creating a PAT for the current user through the logged-in
-  browser session, the extension can request explicit confirmation, create the
-  token via a browser-authenticated API call, pass the token once to local stabbur,
-  and stabbur stores it as a `d2w` profile.
-
-The second option gives the desired "login, click extension, connect" flow
-without passing raw session cookies to stabbur. It is still sensitive because it
-mints a durable credential, so it needs an explicit confirmation screen and clear
-storage semantics.
-
-### Backend profile points somewhere else
-
-Warn hard, because this is the confusing/dangerous case:
-
-```text
-You are viewing https://play.im.dhis2.org/dev-2-42, but stabbur tools are connected
-to https://staging.example.org.
-
-[Open staging]
-[Switch/link profile]
-[Use browser context only]
-```
-
-Do not let the user casually ask "what am I looking at?" while the tools query a
-different server.
-
-## Driving the active DHIS2 login: feasibility and verdict
-
-A natural, ambitious framing of this product is: **the user is already logged into
-a DHIS2 server in Chrome; they click the extension; the AI drives *that* instance
-as *that* logged-in user, with no separate profile or credential setup.** This
-section is the honest feasibility assessment of that specific idea, because it is
-the most compelling version of the extension and also the one with the most
-subtle failure mode. It sits above Options A-D below: it is the *why* behind
-choosing among them.
-
-### The mechanism is real — but only from the DHIS2 tab
-
-The loop "logged into DHIS2 -> click -> AI acts on this instance as this user" is
-architecturally real. A Manifest V3 extension reads the active tab's URL, calls the
-DHIS2 Web API *as the logged-in browser user* (no separately-entered credential),
-and hands the results to an AI (local stabbur or a cloud model) that decides the next
-call. The AI does not run in the browser; the extension holds the session and the
-model drives it.
-
-The catch is **which layer** makes that credentialed call, and it turns on one
-cookie attribute: `SameSite`.
-
-### SameSite decides it — and the measured evidence says cross-site fails
-
-The whole "just use my existing login" appeal rests on the DHIS2 session cookie
-riding along on the fetch. A fetch from the extension's own origin
-(`chrome-extension://…`) to `https://play.dhis2.org` is **cross-site**; a fetch
-from a content script *running inside the DHIS2 tab* is **same-site**. A
-`SameSite=Lax` cookie rides only the same-site request — so the **service worker /
-side-panel page cannot use the login (401/login page), but a tab content script
-can**, even though both have host permissions. Host permissions grant cross-origin
-*access*, not a cookie on a cross-site request.
-
-**Measured on live play (2026-07-04, `https://play.im.dhis2.org/dev`):**
-
-```text
-Set-Cookie: JSESSIONID=...; Path=/dev; Secure; HttpOnly; SameSite=lax
-Set-Cookie: SESSION_EXPIRE=...; Path=/; Max-Age=3600; Secure; SameSite=lax
-```
-
-Three facts fall out of that one header:
-
-- **`SameSite=lax`** — not carried cross-site; carried from the tab content script.
-- **`HttpOnly`** — JS cannot read the cookie value at all (`chrome.cookies` only
-  with the `cookies` permission), so "extract and relay the cookie" (Option D) is
-  not even a clean read. The only viable path is *issuing the request from a context
-  the browser auto-attaches the cookie to*, not copying it.
-- **`Path=/dev`** — scoped to the instance sub-path, so any authenticated call must
-  preserve that base path.
-
-And `SameSite` is **not** a `dhis.conf` setting — it varies by deployment. DHIS2
-core sets no SameSite attribute; `server.https = on` only sets `Secure`. The
-`SameSite=lax` on play is added by the reverse proxy / servlet container (NGINX
-`proxy_cookie_path`, Tomcat `CookieProcessor sameSiteCookies`). Across deployments
-you see **no attribute** (Chrome defaults to Lax -> still not cross-site), **`Lax`**
-(play), or **`None; Secure`** (would work cross-site, but non-default and a
-deliberate CSRF-weakening opt-in — do not expect it). Net: for essentially every
-normal deployment the cross-site fetch will not carry the cookie. Treat "service
-worker uses my login" as *off the table by default*.
-
-### Confirm on the target instance (expect it to fail cross-site)
-
-Before building on the cookie path, measure it on the actual deployment at **both**
-layers, logged in in the same Chrome profile:
-
-```js
-// A) service worker / side panel  (cross-site) — expected: 401 / login on Lax
-const a = await fetch("https://<host>/<base>/api/me.json", { credentials: "include" });
-console.log("SW", a.status);
-
-// B) content script injected into the DHIS2 tab  (same-site) — expected: 200 on Lax
-const b = await fetch("/<base>/api/me.json", { credentials: "include" });
-console.log("CS", b.status);
-```
-
-- **A = 200** -> this deployment uses `SameSite=None; Secure`; the pure cross-site
-  path is unusually available. Rare; do not assume it elsewhere.
-- **A = 401, B = 200** (the play case) -> cookie auth only works from the tab
-  context; use it for narrow page reads, and use PAT-minting (below) for anything
-  durable.
-- **B = 401** -> not even same-origin works (Strict, or not logged in); go straight
-  to an explicit profile/PAT.
-
-### The robust escape hatch: mint a PAT from the live session
-
-If the cookie will not ride along cross-site (the default case, per the measured
-result above), there is a better path that preserves the same "I just logged in,
-now it works" UX **without** fragile cookie relay: use the live session *once* to
-mint a DHIS2 **Personal Access Token** (DHIS2 has had PATs since ~2.41/2.42), hand
-that token to local stabbur, and stabbur stores it as a `d2w` profile. After that, every
-tool call goes through stabbur's normal MCP path — reproducible from CLI/TUI/bench,
-independent of browser login state, and never touching an ambient cookie.
-
-Note the same layering constraint applies to the mint call: creating the PAT is
-itself an authenticated DHIS2 request, so on a `Lax` deployment it must be issued
-from the **DHIS2-tab context** (content script / `executeScript`), not the
-service worker — the tab request carries the cookie, the cross-site one does not.
-The content script makes exactly one narrow call (create token), passes the token
-value once to local stabbur, and does nothing else.
-
-This is the same flow sketched as "Create local profile for this instance" and is
-the section's verdict: it gives the zero-friction feel while dodging both the
-SameSite problem and the "an AI loop now holds your ambient browser session"
-problem. It is sensitive (it mints a durable credential), so gate it behind an
-explicit confirmation screen with clear storage semantics — a one-time gate, not
-per-request ambient authority.
-
-### Read vs write: where to draw the line
-
-- **Read-only, on the live session: yes, worth shipping.** Low risk, high value
-  ("what am I looking at?", "summarize this program", "is this data element used
-  anywhere?"). Even via the cookie path, the blast radius is reads.
-- **Writes as the logged-in user: possible, but this is the cautious zone.** It
-  hands full account authority — often an admin or superuser on a config/demo
-  instance — to an AI tool loop. A prompt injection off a viewed page, or one
-  confidently-wrong tool call, then executes *as the user* with no undo. Do it only
-  behind explicit per-action confirmation, add it last, and never route it through
-  ambient cookie auth (use the PAT/profile path so the tool channel stays the
-  auditable one). DHIS2 writes may also require CSRF handling, which the cookie
-  path does not get for free.
-
-### Where the AI runs matters too
-
-Driving the live instance says nothing about where the model runs. With **local
-stabbur** the story is "drive DHIS2 with a *local* model against your live session" —
-private, on-device. With a **cloud model**, DHIS2 data leaves the machine to a
-third party. For a health-data product that data-residency choice is not a detail;
-default to local stabbur and treat any cloud model as an explicit, separate decision.
-
-### Bottom line
-
-"Activate on a DHIS2 login and drive it" is the right north star — it is what makes
-this more than a generic chat box. The ambition is sound; the realism is that the
-cross-site cookie shortcut is off by default, so build it as:
-
-1. read-only first;
-2. **PAT-minted-from-the-live-session, from the DHIS2-tab content script**, as the
-   credential path — not cookie relay, not a service-worker cross-site fetch. This
-   is the robust version of the idea and it works on `Lax`;
-3. optionally, narrow same-origin content-script reads for live page context
-   (`/api/me`, `/api/system/info`) where a durable token is overkill;
-4. writes behind explicit per-action confirmation, added last, always via the
-   PAT/profile tool channel (never ambient cookie, and mind CSRF);
-5. run the two-layer confirm snippet on each new deployment, expecting A=401/B=200
-   — treat A=200 (`SameSite=None`) as the rare exception.
-
-## Browser session vs backend tool auth
-
-The extension should distinguish two channels:
-
-```text
-Browser channel:
-  active tab + browser credentials
-  good for: page context, /api/me, /api/system/info, selected object/page hints
-
-Tool channel:
-  stabbur + d2w profile + MCP bridge/router
-  good for: model-driven DHIS2 queries, multi-step metadata/analytics, repeatable CLI/TUI/tests
-```
-
-The browser channel makes the extension feel anchored to what the user sees. The
-tool channel makes the assistant actually useful beyond one-off page context. The
-best product uses both, with explicit matching between them.
-
-## Local dhis2w-utils wiring
-
-The local `d2w` and MCP bridge/router workspace is:
-
-```text
-/path/to/dhis2w-utils
-```
-
-For local development, point stabbur directly at that workspace rather than relying
-on a published `uvx` package:
-
-```json
-{
-  "mcpServers": {
-    "dhis2": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/dhis2w-utils", "run", "dhis2w-mcp-bridge"],
-      "env": { "DHIS2_PROFILE": "play42", "DHIS2_MCP_READONLY": "1" }
-    }
-  }
-}
-```
-
-For a mid-sized model, the router may be a better tradeoff than the single CLI
-bridge, but it is configured differently. The router fronts an upstream MCP
-server through `mcp-router.json` and uses `MCP_ROUTER_READONLY=1` for global
-read-only mode. Per-upstream read-only can also be set in the JSON config.
-
-Example `mcp-router.json`:
-
-```json
-{
-  "servers": [
-    {
-      "name": "dhis2",
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/path/to/dhis2w-utils",
-        "dhis2w-mcp"
-      ],
-      "env": { "DHIS2_PROFILE": "play42" },
-      "readonly": true
-    }
-  ]
-}
-```
-
-Then point stabbur at the router:
-
-```json
-{
-  "mcpServers": {
-    "dhis2": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/dhis2w-utils", "run", "dhis2w-mcp-router"],
-      "env": { "MCP_ROUTER_CONFIG": "mcp-router.json", "MCP_ROUTER_READONLY": "1" }
-    }
-  }
-}
-```
-
-The bridge is still the safest first target for smaller local models because it
-exposes one tool, `dhis2_cli`, and keeps the model's tool schema small.
-
-Bridge-specific useful env vars from the actual implementation:
-
-- `DHIS2_PROFILE`: selects the `d2w` profile.
-- `DHIS2_MCP_READONLY=1`: fail-closed allowlist of read commands.
-- `DHIS2_MCP_PROTECTED_HOSTS`: protected public hosts where writes are refused
-  regardless of read-only mode. Defaults include DHIS2 play/debug hosts.
-- `DHIS2_MCP_CLI_TIMEOUT`: per-command timeout, default `120` seconds.
-- `DHIS2_CLI_BIN`: explicit `d2w` executable override.
-
-## Extending dhis2w-utils if needed
-
-`dhis2w-utils` is a sibling project under the same ownership, so extending it is a
-first-class option rather than a fork-and-vendor last resort. The boundary to keep
-is: **DHIS2 domain knowledge lives in `d2w`, stabbur stays a generic local-LLM host,
-and the extension stays a thin client.** When the extension needs a DHIS2-specific
-capability that does not exist yet, add it in `dhis2w-utils` and expose it through
-the bridge/router (or a small `dhis2w-core` function stabbur calls), rather than
-reimplementing DHIS2 logic inside stabbur.
-
-Relevant packages (workspace at `/path/to/dhis2w-utils`):
-
-- `dhis2w-core` — profile discovery/resolution, auth factory, token store, the
-  first-party plugin registry. This is where target-metadata and credential work
-  belongs.
-- `dhis2w-mcp` / `dhis2w-mcp-bridge` / `dhis2w-mcp-router` — the tool surfaces
-  stabbur attaches to.
-- `dhis2w-client` — the async DHIS2 API client (Basic/PAT/OAuth2).
-- `dhis2w-bench` — the model-vs-tools benchmark harness.
-
-Likely additions, in the order the extension is likely to force them:
-
-1. **Target metadata — mostly already covered, confirm before adding.** The
-   generic `GET /api/assistant` endpoint (see "Net-new stabbur work"; not a
-   DHIS2-named route) gets its DHIS2 fields without stabbur owning DHIS2 logic: the
-   static part from an opaque project `[assistant]` block, and the `verified` block
-   (version + username) from a DHIS2 `system/info` + `me` read the bridge already
-   exposes via `dhis2_cli` — ideally surfaced as an **MCP resource** stabbur proxies
-   generically. The cleanest split is for the bridge/`dhis2w-core` to publish that
-   target resource, so stabbur forwards it rather than importing
-   `dhis2w_core.profile.resolve` itself. Add a small `dhis2w-core` helper here only
-   if that resource does not exist yet; avoid making stabbur parse DHIS2 profile files.
-
-2. **Programmatic profile creation for "create local profile for this instance".**
-   The ideal browser-first flow (login, click extension, connect) wants stabbur to
-   persist a credential without an interactive `d2w profile` prompt. If `d2w` has
-   no non-interactive "store this PAT/basic/OAuth credential as profile `<name>`"
-   entry point that stabbur can call, add one to `dhis2w-core` (writing through the
-   existing token store / profiles file), so stabbur never re-implements credential
-   storage. This is the most probable real d2w change the extension will need.
-
-3. **Read allowlist tuning.** Narrow browser-context reads (Option B) and the
-   Verify flow should already fit inside `DHIS2_MCP_READONLY=1`'s allowlist. If a
-   needed read command is missing from the read allowlist, widen it in the
-   bridge/router config rather than bypassing read-only mode.
-
-4. **Bench coverage.** When the extension exercises new tool-call patterns, add a
-   `dhis2w-bench` suite so model-vs-tools behavior stays verified against the same
-   bridge/router the extension drives.
-
-Guideline: if a change is "how DHIS2 auth/profiles/API work," it belongs in
-`dhis2w-utils`; if it is "how the local model server or extension client behaves,"
-it belongs in stabbur or the extension. Keep the MCP command as the execution detail
-and let `dhis2w-core` own the reusable primitives.
-
-## Recommended extension phases
-
-### Phase 1: side-panel client
-
-Build a Manifest V3 side panel that talks to local stabbur.
-
-Responsibilities:
-
-- Store the stabbur base URL, for example `http://127.0.0.1:8000`.
-- Test connectivity with `GET /api/status`; on failure/refused, show a graceful
-  "not connected — start stabbur" state rather than a blank panel (this is also the
-  #1 Web Store review-pass requirement — see "Publishing").
-- Load a model if `/api/status` reports none (`POST /api/load/{name}`), so the
-  first chat turn does not 409 (see "Handle 409" below).
-- List tools with `GET /api/tools`.
-- Own the conversation history: `/api/chat` is stateless (it takes the full
-  `messages` array each turn), so the panel accumulates prior turns and resends
-  them on every request.
-- Send chat turns to `POST /api/chat`.
-- Render typed SSE events from `/api/chat`: tokens, reasoning, tool calls, tool
-  results, errors, and done.
-- Optionally call `/api/speak` for local TTS.
-
-This phase does not need DHIS2 host permissions and does not need cookie access.
-
-`POST /api/chat` request/response contract (from `routers/serving/chat.py`):
-
-```text
-POST /api/chat
-  body: {
-    "messages": [{"role": "user"|"assistant"|"system", "content": "..."}],
-    "use_tools": true,                 // false → empty toolset (non-tool models)
-    "enabled_tools": ["dhis2_cli"],    // optional allow-list; omit for all tools
-    "system_prompt": null              // null → fall back to project prompt; "" → none
-  }
-  // `messages` is typed list[dict] (chat.py), so `content` may be a plain
-  // string OR an OpenAI content-part array (text + {"type":"image_url",...}) for
-  // vision models. The schema accepts image parts, but that they actually reach
-  // the mlx-vlm runtime is UNVERIFIED — confirm end-to-end before relying on it
-  // (see "Screenshots, visual context, and Playwright").
-  -> text/event-stream, one JSON object per `data:` frame:
-       {"type":"token","text":...}
-       {"type":"reasoning","text":...}
-       {"type":"tool","kind":"call"|"result","detail":...}
-       {"type":"usage","usage":{...}}      // per round; OpenAI usage + llama.cpp `timings`
-       {"type":"confirm","id":...,"tool":...,"args":{...}}   // gated write; awaits /api/chat/confirm
-       {"type":"confirm_resolved","id":...,"approved":...,"reason":"user"|"timeout"}
-       {"type":"page_action","id":...,"action":...,"args":{...}}  // runs in the TAB; see WEBMCP.md 5b
-       {"type":"error","detail":...}
-       {"type":"done","finish_reason":"stop"|"length"|"tool_calls"|...}
-```
-
-`done` is always the last frame. Its `finish_reason` is present only when the runtime reported
-one, so a parser that ignores unknown keys reads it exactly as the bare `{"type":"done"}` it read
-before. **`"length"` means the reply was cut off at `max_tokens`** — which from the frames alone
-is indistinguishable from a complete answer, and (when the whole budget went to
-`reasoning_content`) from an empty one: zero token frames, then a clean `done`. The server also
-emits a plain `error` frame saying so just before `done`, so a client that renders errors already
-shows the user what happened without reading `finish_reason` at all.
-
-The `confirm` / `confirm_resolved` pair is the round-3 per-action write gate; the panel renders a
-`confirm` frame as an Approve/Deny card and POSTs the choice to `POST /api/chat/confirm`
-(`{"id":..., "approve":...}` — the body field is `approve`, not `approved`; only the
-`confirm_resolved` *frame* spells it `approved`). Full contract in "Status (2026-07-12): round 3".
-
-**Handle 409 "No model loaded".** `POST /api/chat` returns 409 if no model is
-loaded. In a locked project the model loads at server startup; otherwise a model
-must be loaded explicitly via **`POST /api/load/{name}`** (`routers/serving/chat.py`;
-`GET /api/status` only *reports* state, it does not trigger a load — the web UI
-reads status then issues the load itself). The side panel must do the same:
-
-1. `GET /api/status`; if `state` is already loaded, proceed.
-2. Otherwise `POST /api/load/{project_model}` — the model name is in the status
-   payload as `project_model`.
-3. Poll `GET /api/status` until loaded, honoring `runtime_load_timeout` (in the
-   status payload, default 600s — a cold runtime start is slow).
-4. Only then send the first `POST /api/chat`.
-
-If there is no project model to load, surface a clear "no model" state instead of
-sending a chat turn — do not assume the first `POST /api/chat` will succeed.
-
-Scope note: v1 targets a locked-project assistant (`[project].model` set, no
-picker). Free-play model switching in the side panel is out of scope for the
-first extension.
-
-Streaming caveat: `/api/chat` is a `POST` that returns `text/event-stream`, so
-the side panel cannot use `EventSource` (GET-only). Read the stream with
-`fetch()` + `response.body.getReader()` and parse `data:` frames manually. The
-existing web SPA already does exactly this (the hand-rolled OpenAI SSE fetch
-loop); reuse that reader rather than reaching for `EventSource`.
-
-### Phase 2: DHIS2 page context
-
-Add content-script support on DHIS2 pages.
-
-Useful context to send to stabbur:
-
-- Current URL.
-- Selected text.
-- Current app/page route.
-- Visible UID or metadata object identifiers when parseable.
-- Non-secret page metadata.
-
-The extension should send this as ordinary prompt context. stabbur should still use
-the configured `d2w` profile and MCP bridge/router for authoritative DHIS2 API
-lookups.
-
-### Phase 3: constrained browser-authenticated reads, if needed
-
-If there is a real need to act as the currently logged-in browser user, prefer a
-small allowlisted read path over passing raw cookies to stabbur.
-
-The read must run in the **DHIS2-tab context** (a narrow content script or
-`chrome.scripting.executeScript`), not the service worker — only the tab's
-same-origin request carries a `SameSite=Lax` session cookie (see "Driving the
-active DHIS2 login"). Safety comes from making that content script narrow and
-fixed-endpoint, not from the layer it runs in.
-
-Example shape:
-
-```text
-side panel asks a narrow content script in the DHIS2 tab for a specific read
-  -> content script fetches "/<base>/api/me.json" same-origin (cookie rides along)
-      -> content script returns only the sanitized fields
-          -> side panel adds them as prompt context for stabbur
-```
-
-This keeps browser credentials inside Chrome. It still needs strict operation
-allowlists: the content script must expose only fixed, named reads, never an
-arbitrary-URL fetch the page (or an injected script) could abuse.
-
-A reverse direction is also possible:
-
-```text
-stabbur asks extension for a narrow operation
-  -> native messaging, local websocket, or polling bridge
-      -> extension performs the browser-authenticated read
-```
-
-That is a separate security design, not part of the first extension.
-
-## Cookie relay
-
-Passing a DHIS2 browser cookie down to stabbur is technically possible in a Chrome
-extension with the right permissions, but it is not the recommended primary
-design.
-
-Problems:
-
-- A session cookie is ambient browser auth. Sending it to localhost turns stabbur
-  into a bearer of the user's browser session.
-- It couples the assistant to browser login state, SameSite behavior, expiry,
-  DHIS2 frontend behavior, and domain rules.
-- It does not work cleanly for CLI, TUI, tests, or benchmarks.
-- It weakens reproducibility: the same prompt may behave differently depending on
-  which browser user is logged in.
-- It expands the blast radius of prompt/tool mistakes.
-
-Use `d2w` profiles with PAT/OAuth/basic demo credentials instead. Credentials stay
-in the local profile/env/token store, and the model only sees tool results.
-
-Cookie-aware behavior can be considered later for narrow page-context features,
-but it should not be the core DHIS2 credential path.
-
-For the fuller feasibility analysis of "drive the live login" — including the
-SameSite variable that decides whether a cross-site extension fetch even carries
-the cookie, and why minting a PAT from the live session beats relaying the cookie —
-see "Driving the active DHIS2 login: feasibility and verdict" above.
-
-## DHIS2 API route choices
-
-There are several meanings of "use the DHIS2 API route". They have different
-tradeoffs.
-
-### Option A: stabbur -> d2w -> DHIS2 Web API
-
-This is the preferred first route:
-
-```text
-stabbur -> dhis2w-mcp-bridge/router -> d2w -> DHIS2 Web API
-```
-
-This is better than cookie relay for the first product because it is:
-
-- Reproducible from the web UI, extension, TUI, CLI, and benchmark suite.
-- Compatible with read-only enforcement via `DHIS2_MCP_READONLY=1`.
-- Independent of browser login state.
-- Easier to test and debug.
-- Aligned with the existing stabbur MCP architecture.
-
-This route does not care whether the user has a DHIS2 tab open. The extension is
-just a client for local stabbur.
-
-### Option B: extension -> DHIS2 Web API -> prompt context
-
-The extension can make cross-origin requests from an extension page or service
-worker if the manifest has host permissions for the target DHIS2 origin — but that
-grants cross-origin *access*, not the session cookie. The split is:
-
-- **Unauthenticated / token-bearing reads** can run in the extension page or
-  service worker.
-- **Cookie-authenticated reads (using the live login) must run in a same-origin
-  content script in the DHIS2 tab** — a `SameSite=Lax` session cookie rides only a
-  same-site request, so the service-worker cross-site fetch will not carry it (the
-  measured play case; see "Driving the active DHIS2 login"). Keep that content
-  script narrow and fixed-endpoint, never an arbitrary-URL proxy.
-
-Potential use:
-
-```text
-side panel/background -> https://play.im.dhis2.org/.../api/me
-  -> sanitized JSON added to the user's prompt
-      -> stabbur answers with that context
-```
-
-This helps when the assistant needs quick page/user context from the active
-browser session. It does not replace the MCP route for general tool use unless the
-extension also becomes a full DHIS2 API proxy, which creates another tool surface
-to secure and test.
-
-Pros:
-
-- Can use the current browser login without copying cookies into stabbur.
-- Useful for "what page/user/object am I looking at?" context.
-- Keeps some browser-session concerns inside the extension.
-
-Cons:
-
-- Harder to reuse from CLI/TUI/benchmarks.
-- Requires DHIS2 host permissions.
-- Needs strict allowlists so a content script or compromised page cannot turn the
-  extension into an arbitrary cross-origin fetch proxy.
-- Produces prompt context, not true model-driven tools, unless substantial proxy
-  machinery is added.
-
-### Option C: DHIS2 `/api/routes` proxy route
-
-`dhis2w-utils` already has a `d2w route` plugin for DHIS2's `/api/routes`
-surface. This is a DHIS2-managed reverse proxy: DHIS2 stores a route target,
-auth scheme, optional headers, and authority gates; callers invoke
-`/api/routes/<uid>/run[/<sub_path>]`, and DHIS2 forwards the request with the
-stored upstream auth applied.
-
-That could provide an assistant or tool endpoint inside the DHIS2 auth boundary:
-
-```text
-DHIS2 /api/routes/<uid>/run
-  -> authenticated as current DHIS2 user
-      -> DHIS2 proxies to an external assistant/tool service
-          -> route injects upstream auth configured in DHIS2
-```
-
-This can help in managed deployments where using DHIS2's own session, RBAC, audit
-trail, and deployment controls matters more than local portability.
-
-Pros:
-
-- Clean current-user semantics.
-- DHIS2 can enforce its normal access control.
-- DHIS2 can broker upstream credentials so frontend code never sees them.
-- Easier to fit enterprise/admin expectations.
-- Avoids asking users to create local PAT/profile credentials.
-
-Cons:
-
-- Much heavier deployment story.
-- Not useful for the local-first CLI/TUI/benchmark workflow.
-- Requires DHIS2-side install/configuration.
-- If the target is the user's local stabbur, DHIS2 would need to reach that local
-  machine, which usually fails across NAT/firewalls and is the wrong direction
-  for a local-first extension.
-- If the target is a shared remote assistant backend, model/runtime isolation,
-  tenant boundaries, and data handling become a server product concern.
-- Moves the project away from the simple local assistant path.
-
-This is worth keeping as a future managed-deployment path, not the first browser
-extension path.
-
-### Option C2: DHIS2 app route returning selected API data
-
-A lighter DHIS2-side app route could return a small curated slice of current-user
-data, and the extension could add that to the prompt. This overlaps with Option B
-but moves the allowlist into DHIS2 instead of Chrome.
-
-This helps if administrators want to centrally control which DHIS2 data the
-assistant may see. It does not replace the local MCP bridge unless it grows into
-a full tool API.
-
-### Option D: pass browser cookies to stabbur
-
-This is the route to avoid as the default:
-
-```text
-extension extracts DHIS2 session cookie
-  -> passes cookie to localhost stabbur
-      -> stabbur calls DHIS2 as browser user
-```
-
-It can work technically, but it is the weakest design boundary. It transfers
-ambient browser authority into a local process and makes behavior depend on a
-mutable browser session. If browser-authenticated reads are required, prefer
-Option B's constrained extension fetches or a later explicit native-messaging
-design. If a durable "use my login" credential is the real goal, prefer minting a
-PAT from the live session (see "Driving the active DHIS2 login") over relaying the
-cookie — same UX, far stronger boundary.
-
-## Extension API surface
-
-The side panel should primarily use:
-
-```text
-GET  /api/status
-POST /api/load/{name}        load a model when status shows none (avoids the /api/chat 409)
-GET  /api/tools
-POST /api/chat
-POST /api/chat/confirm       resolve a gated write's Approve/Deny (round-3 confirmation gate)
-POST /api/speak              optional
-GET  /api/voices             optional
-POST /v1/audio/transcriptions optional
-```
-
-Avoid using raw `/v1/chat/completions` for the main assistant flow because that is
-only the runtime proxy. It does not execute stabbur's MCP tool loop.
-
-## Manifest permissions sketch
-
-Chrome's extension documentation supports this basic shape: side panels are a
-first-class extension UI, extension pages/service workers can perform cross-origin
-`fetch()` with host permissions, and cookie access requires the explicit `cookies`
-permission plus host permissions. Links:
-
-- <https://developer.chrome.com/docs/extensions/reference/api/sidePanel>
-- <https://developer.chrome.com/docs/extensions/develop/concepts/network-requests>
-- <https://developer.chrome.com/docs/extensions/reference/api/cookies>
-- <https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging>
-
-Phase 1:
+As built (`extension/wxt.config.ts`):
 
 ```json
 {
   "manifest_version": 3,
-  "permissions": ["sidePanel", "storage"],
-  "host_permissions": ["http://127.0.0.1:8000/*", "http://localhost:8000/*"]
+  "permissions": ["sidePanel", "storage", "tabs", "activeTab", "scripting"],
+  "optional_permissions": ["cookies"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"]
 }
 ```
 
-Phase 2 page context adds DHIS2 host permissions and a content script. The
-`https://play.im.dhis2.org/*` entry below is a demo-only pin; for arbitrary DHIS2
-hosts, request host access dynamically after a user gesture instead (see the
-`activeTab` + `chrome.scripting.executeScript()` note further down):
+The design rules behind that list:
 
-```json
-{
-  "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
-  "host_permissions": [
-    "http://127.0.0.1:8000/*",
-    "http://localhost:8000/*",
-    "https://play.im.dhis2.org/*"
-  ]
-}
+- **No site is in the static manifest.** Host access for a target site is requested at runtime on
+  a user gesture (`chrome.permissions.request`, `extension/lib/hostAccess.ts`), so the extension
+  works against any instance without shipping a list of them. `activeTab` grants a transient
+  version of the same thing, invisible to `chrome.permissions.contains` and revoked on navigation,
+  so every gesture path asks for the durable grant first.
+- **`cookies` is optional and requested only for the session fallback.** The PAT path needs no
+  cookie access at all, so the default install never holds it.
+- **Never expose an arbitrary-URL fetch or an arbitrary injection.** What runs in a tab is a named
+  operation implemented in the extension — see the probe reads below and
+  [`PAGEACTIONS.md`](PAGEACTIONS.md) rule 1.
+
+## Target visibility and matching
+
+A side panel that cannot tell you *which* instance it is talking to is a prettier terminal. So
+stabbur exposes target metadata to the panel rather than making the model discover it:
+
+```text
+GET /api/assistants            the sanitized registry
+GET /api/assistants?url=<tab>  origin + longest-path-prefix match -> a selected id, or a tie list
+GET /api/assistants/{id}       one target  (…?verify=1 runs the live verify probe)
+GET /api/assistant             the single-target legacy shape, byte-compatible for older panels
 ```
 
-The host permission path component is shown as `/*` for readability, but Chrome
-grants host access by scheme/host. Keep endpoint allowlists in extension code and
-stabbur, not in the manifest pattern.
+**This route is domain-generic on purpose.** stabbur has zero DHIS2 logic; a `GET
+/api/dhis2/target` that parsed DHIS2 profiles would be the first, and would invite
+`/api/jira/target` next. Instead the static fields come from an opaque `[assistant]` /
+`[[assistants]]` block in `stabbur.toml` that stabbur echoes without interpreting, and the live
+`verified` block comes from a **project-declared MCP tool call** (`[assistant.verify]`) whose
+result stabbur forwards. A `dhis2://target` MCP *resource* plus a generic resource proxy is the
+intended long-term replacement for that tool call; it can land without changing this contract
+(tracked in `ROADMAP.md`).
 
-If the DHIS2 origins are known ahead of time, declare a content script directly:
+The panel compares the active tab against the declared targets itself
+(`extension/lib/tabTarget.ts`): `match()` requires exact origin equality plus path containment,
+and `selectTarget()` ranks targets by longest matching base path, auto-selecting only a strictly
+unique top rank — a tie leaves the choice to the user. That comparison exists on both sides
+(`GET /api/assistants?url=` is its Python twin) and is pinned to parity by mirrored fixtures, so
+the panel and the server can never disagree about which instance a tab belongs to. Mismatch is a
+visible banner state, never a silent fallback: letting the user ask "what am I looking at?" while
+the tools query a different server is the failure this whole section exists to prevent.
 
-```json
-{
-  "content_scripts": [
-    {
-      "matches": ["https://play.im.dhis2.org/*"],
-      "js": ["content-script.js"]
-    }
-  ]
-}
+## Auth: act as whoever is logged into the tab
+
+**The verdict, decided and shipped: the cross-site cookie path is off by default, so mint a token
+from the live session instead of relaying a cookie.** A `SameSite=Lax` session cookie rides only a
+same-site request, so the service worker and side panel cannot use the login while an in-tab
+injection can — host permissions grant cross-origin *access*, not a cookie on a cross-site
+request. The measurement behind that, the deployment variables, and the probe to re-run on a new
+instance are in `docs/guides/browser-session-auth.md`.
+
+What that means in the shipped flow ("Use my login", `extension/components/BindFlow.tsx`,
+`lib/bindRecipe.ts`, `lib/binding.ts`, `lib/bindApi.ts`):
+
+1. When the active tab matches a target, the panel offers **Use my login** behind a consent card
+   that states the scope in plain words — read-only or read-write, its expiry, and where it is
+   stored.
+2. On confirm, the credential is minted **entirely in the target tab's own security context**
+   (`chrome.scripting.executeScript`, MAIN world, a fetch with `credentials: "include"` to the
+   path the project's bind recipe declares). The raw token never touches the service worker;
+   only the extracted status, token and credential id come back.
+3. The panel installs it through stabbur: `POST /api/assistants/{id}/bind` (compat:
+   `/api/assistant/bind`), which runs the named mode's argv with the secret passed in
+   `secret_env` — never in argv — redacted from captured output, serialized on a lock, with the
+   verify cache invalidated after. **stabbur still learns no DHIS2**: the mint paths, payload and
+   extraction fields are an opaque, sanitized recipe echoed from project config, and a mode's argv
+   and `secret_env` stay server-side.
+4. The banner then shows who the tools are acting as, with **Unbind** (revoke in the tab, remove
+   the profile) and **Rebind**.
+
+**PAT-first, session fallback.** A mint that comes back 404/405/501 (no PAT support) offers a
+session-cookie fallback: it requests the optional `cookies` permission on a user gesture, reads the
+session cookie, and installs it as a `session`-auth profile; a background listener refreshes that
+binding when the cookie changes and marks it stale when it disappears. A 401 means "sign in first".
+The fallback is second-class on purpose — a session credential cannot be method-scoped, so the
+confirmation gate is its only guardrail — and PAT scope is fixed at mint, so a read-only token
+cannot escalate: a write-enabled assistant triggers an explicit re-mint behind the allow-writes
+consent.
+
+**Two channels, kept distinct.** The *browser channel* (the tab, the live session) is good for page
+context and identity: who is viewing this tab. The *tool channel* (stabbur + profile + MCP) is what
+the model actually drives. The panel labels both, because after a bind they converge and before one
+they do not — "who am I" is answered from the browser user, while the tool account is reported only
+when asked.
+
+**Where OIDC fits: not here.** The extension↔stabbur hop is local, single-user, with no identity
+provider — bolting OIDC onto it would be over-engineering; localhost binding, the cross-site guard,
+and the optional bearer token are the whole mechanism. Identity complexity lives one hop further
+out, between `d2w` and the instance, where OAuth2/OIDC and PATs already exist. An OIDC-logged-in
+user mints a PAT exactly the same way, because the in-tab call rides whatever session the browser
+already has.
+
+**Writes** ride the per-action confirmation gate below, never ambient authority. An optional
+`X-XSRF-TOKEN` double-submit is captured at a session-mode write bind and passed into the stored
+profile; it is inert where the instance issues no such cookie, so it future-proofs a hardened
+deployment rather than being required today.
+
+## The `/api/chat` contract
+
+`POST /api/chat` (`src/stabbur/routers/serving/chat.py`) is stateless — it takes the full
+`messages` array every turn — so the panel owns conversation history and resends it.
+
+Request body (all optional except `messages`):
+
+```text
+messages          list of {role, content}; content may be a string or an OpenAI content-part array
+max_tokens        int; omitted -> the server's default cap (<=0 disables)
+temperature, top_p, top_k, min_p, repeat_penalty   omitted -> the model's recommended sampling
+response_format   OpenAI structured output; cannot be combined with use_tools (400)
+use_tools         bool, default true; false -> no toolset (non-tool models)
+enabled_tools     allow-list of namespaced tool names; omitted -> all
+target            registry target id this turn routes to; narrows tools, drives the confirm default
+system_prompt     string ("" for none) overrides the project prompt; omitted -> project default
+confirm_tools     "all" | "writes" | "none"; omitted -> the target's default
+reasoning         thinking budget for reasoning models
+page_actions      action names this client can execute in the tab (see PAGEACTIONS.md)
 ```
 
-If the user can point the extension at arbitrary DHIS2 hosts, keep the content
-script out of the static manifest and inject it only after a user gesture with
-`chrome.scripting.executeScript()` under `activeTab`. The content script collects
-page context (DOM/URL/selection). *Cookie-authenticated* DHIS2 reads run in that
-**narrow, fixed-endpoint content script**, not the service worker (only the
-same-origin tab request carries a `SameSite=Lax` cookie; see "Driving the active
-DHIS2 login"). Either way, never expose an arbitrary-URL fetch the page could
-abuse — expose only named operations over the message API.
+The response is `text/event-stream`, one JSON object per `data:` frame. This is the full frame
+list — `chat.py` points here for it:
 
-Only add `"cookies"` if a later design explicitly needs browser-authenticated
-reads. Do not include it in the first version.
-
-## Frontend reuse
-
-The existing React UI can likely be reused for the extension side panel if the API
-client is made base-URL aware.
-
-Current web UI calls are same-origin, for example:
-
-```ts
-fetch("/api/status")
+```text
+{"type":"token","text":...}
+{"type":"reasoning","text":...}
+{"type":"tool","kind":"call"|"result","detail":...}
+{"type":"usage","usage":{...}}                     per round; OpenAI usage + llama.cpp timings
+{"type":"confirm","id":...,"tool":...,"args":{...}}          gated call; awaits /api/chat/confirm
+{"type":"confirm_resolved","id":...,"approved":...,"reason":"user"|"timeout"}
+{"type":"page_action","id":...,"action":...,"args":{...}}    runs in the TAB; see PAGEACTIONS.md
+{"type":"error","detail":...}
+{"type":"done","finish_reason":"stop"|"length"|"tool_calls"|...}
 ```
 
-The extension build needs:
+`done` is always last. Its `finish_reason` appears only when the runtime reported one, so a parser
+that ignores unknown keys reads it as the bare `{"type":"done"}` it read before. **`"length"` means
+the reply was cut off at `max_tokens`** — indistinguishable from a complete answer from the frames
+alone, and (when the whole budget went to reasoning) from an empty one: zero token frames, then a
+clean `done`. The server also emits a plain `error` frame saying so just before `done`, so a client
+that renders errors already tells the user what happened.
 
-```ts
-fetch(`${baseUrl}/api/status`)
+**Streaming caveat.** `/api/chat` is a `POST` returning SSE, so `EventSource` (GET-only) cannot
+read it. Use `fetch()` + `response.body.getReader()` and parse `data:` frames — which is what the
+shared SPA client already does.
+
+### The confirmation gate
+
+A gated tool call pauses on a `confirm` frame until the panel POSTs the user's answer:
+
+```text
+POST /api/chat/confirm   {"id":"<call-id>","approve":true|false}
 ```
 
-The side panel should store `baseUrl` in `chrome.storage` and provide a simple
-connection setup/test screen.
+Note the asymmetry, easy to get wrong from either end: the **request body** field is `approve`,
+while the `confirm_resolved` **frame** reports `approved` (plus `reason`, saying whether a human
+answered or the gate timed out). The `confirm` frame carries the call's `args` — not a `detail`,
+which is the tool-activity frame's field.
 
-## Cross-browser: the WebExtensions standard
+The backend holds a per-generation future per gated call; nothing resolving within
+`STABBUR_CONFIRM_TIMEOUT` (300s) **auto-denies**, fail-safe. A declined call returns `error: user
+declined this action` and the model continues rather than crashing. Policy is generic and
+fail-safe: stabbur reads each MCP tool's `readOnlyHint` and confirms anything not marked read-only,
+an *unannotated* tool included. The non-interactive `stabbur chat -p` has nobody to ask, so it
+denies gated writes unless `--allow-writes` is passed.
 
-"Chrome extension" is really the **WebExtensions API** — a *de facto* standard
-(originated by Chrome, adopted by Firefox/Edge/Opera/Brave/Vivaldi/Arc/Safari;
-aligned by the W3C WebExtensions Community Group, not a ratified spec). **Manifest
-V3** is the common baseline. So targeting more than one browser is realistic, and
-stabbur's thin-client architecture makes it cheap: the logic is in local stabbur, the UI
-is the shared SPA, and only a small manifest + panel-mount + a few `chrome.*` calls
-are browser-specific.
+### Page actions
 
-Reach per target:
+`page_action` frames are the model calling a tool that runs in the tab, resolved by `POST
+/api/chat/page-action`. The contract, the safety model, and what is built are in
+[`PAGEACTIONS.md`](PAGEACTIONS.md).
 
-- **Chromium family (Chrome, Edge, Brave, Opera, Vivaldi, Arc)** — one MV3 build
-  runs on all of them essentially unchanged, `chrome.sidePanel` included. "Chrome
-  is fine" already covers ~5 browsers.
-- **Firefox** — achievable with modest effort. Same WebExtensions model, but:
-  1. `browser.*` (promise-based) vs `chrome.*` — normalize with Mozilla's
-     **`webextension-polyfill`**.
-  2. Background is an event page, not necessarily a service worker (irrelevant for
-     a thin client).
-  3. **Side panel is the real catch**: Firefox uses `sidebar_action` (its own
-     manifest key + `browser.sidebarAction`), *not* `chrome.sidePanel`. Same UX,
-     different mount — so hide it behind a thin "panel mount" adapter.
-  4. Adds a `browser_specific_settings` manifest key; separate store (AMO).
-- **Safari** — the expensive one, treat as a later standalone effort. It runs
-  WebExtensions but must be wrapped in a macOS/iOS app via Xcode
-  (`safari-web-extension-converter`) and shipped through the App Store, and it has
-  **no built-in persistent side panel**, so the side-panel UX does not map (fall
-  back to a popover).
+### Model loading, and the 409
 
-Practical approach: use **`webextension-polyfill`** for the namespace and a
-build tool like **WXT** (Vite-based) or **Plasmo** to emit per-browser bundles from
-one codebase (they handle the manifest/target differences, including sidePanel vs
-sidebar_action). The one early design decision: **abstract the panel mount behind
-our own adapter** so the shared SPA does not care which browser hosts it — the SSE
-chat loop, target logic, and auth are all already browser-agnostic. Each store
-(Chrome Web Store, Firefox AMO, Edge Add-ons, Safari App Store) is a separate
-submission and review.
+`POST /api/chat` returns **409** when no model is loaded. In a locked project the model loads at
+server startup; otherwise the panel must load one itself, because `GET /api/status` only *reports*
+state:
 
-## Extension <-> backend auth (and where OIDC fits)
+1. `GET /api/status`; if loaded, proceed.
+2. Otherwise `POST /api/load/{name}` — the name is in the status payload as `project_model`.
+3. Poll status until loaded, honoring `runtime_load_timeout` (in the payload, default 600s; a cold
+   runtime start is slow).
+4. Only then send the first chat turn.
 
-A common question: extensions that talk to a backend usually log in somehow — is
-this OpenID Connect? The answer depends entirely on **local vs remote backend**,
-and stabbur is local, which changes it.
+With no project model to load, show a "no model" state rather than sending a turn that will 409.
 
-**Remote / cloud backend (SaaS extension with real user accounts) — yes, OIDC.**
-The standard MV3 pattern is OAuth2/OIDC via `chrome.identity.launchWebAuthFlow`:
-the extension opens the provider's login page, the provider redirects to
-`https://<extension-id>.chromiumapp.org/` with an auth code, the extension
-exchanges it using **PKCE** (an extension is a *public client* and cannot ship a
-client secret), stores the token in `chrome.storage`, and sends
-`Authorization: Bearer <token>` on each call. Needs the `identity` permission.
-(`chrome.identity.getAuthToken` is a Google-accounts-only shortcut;
-`launchWebAuthFlow` is the generic one.) Cookie-session sharing and pasted
-API keys/PATs are the other two common variants.
+## Runtime visuals: native capture, not Playwright
 
-**Local backend (stabbur, `127.0.0.1`) — not OIDC; do not add it.** There is no
-identity provider and no multi-user accounts; the trust boundary is "processes on
-this machine," and the single local user is already authenticated by being on the
-box. So the only mechanisms are:
+The extension operates inside the user's already-logged-in tab; Playwright launches a separate
+browser context that does not share that session. So for the product runtime the capture paths are
+all native — `chrome.tabs.captureVisibleTab()` for what the user is looking at (attached to the
+chat message as an OpenAI `image_url` content part, for a vision model), server-rendered image
+endpoints fetched through a tool where the site has them (reproducible, tab-independent, reusable
+from the CLI and benchmarks), and the page read for structure. Playwright's place is dev-only: the
+e2e tiers below, and reproducible doc screenshots.
 
-- localhost binding + the cross-site origin guard (today's design), and
-- if writes are ever added, a **shared bearer token** the user configures once in
-  both the extension and stabbur (the accepted-risk note in "Security defaults").
+## Tests
 
-Bolting an OIDC login onto the extension<->stabbur hop would be pure over-engineering.
+`extension/e2e/` has three Playwright projects, all driving the real unpacked extension:
 
-**Where OIDC actually lives in this stack: the d2w <-> DHIS2 hop, not
-extension <-> stabbur.** DHIS2 supports OAuth2/OIDC user login and PATs, and
-`dhis2w-client` already handles Basic/PAT/**OAuth2**. So identity complexity stays
-in DHIS2/d2w, and stabbur stays a dumb local host. Two consequences worth noting:
+- **`mock`** (`make extension-e2e`) — hermetic, against an in-process fake stabbur API
+  (`e2e/mockServer.ts`). Covers connection and backend switching, the chat stream, the confirm
+  gate, bind (read and write), tab matching and the registry, page text, page actions, the
+  cross-site guard, and appearance. `tabtarget-parity.spec.ts` pins the client's tab matching to
+  the server's.
+- **`live`** (`make extension-e2e-live`) — the full loop against a real model and a real instance,
+  read-only against the public demo; writes need a non-protected instance.
+- **`prompts`** — the prompt catalog harness behind `docs/guides/extension-prompts.md`.
 
-- If a DHIS2 deployment uses **OIDC for user login**, the "mint a PAT from the live
-  session" flow (see "Driving the active DHIS2 login") still works unchanged — the
-  user is already OIDC-logged-in in the browser, and the same-origin PAT-creation
-  call rides that session cookie. OIDC-backed DHIS2 is fully compatible.
-- A `d2w` profile can itself hold OAuth2 credentials, so the tool channel works
-  against OIDC/OAuth2 DHIS2 instances without the extension ever touching the
-  identity flow.
+## Publishing a Web Store extension that needs a local service
 
-## Screenshots, visual context, and Playwright
+Requiring a user-run local backend is allowed and common (password managers, hardware-wallet
+bridges, local-LLM companions). What actually gates approval:
 
-Short version: **for the product runtime, Playwright is mostly the wrong tool; for
-testing and docs it is the right one.** The reason is the same auth reality as
-everything above — the extension operates *inside the user's already-logged-in
-Chrome tab*, and Playwright launches a *separate* browser context that does not
-share that authenticated session.
+- **`http://127.0.0.1` is fine.** The panel is a `chrome-extension://` secure context and Chrome
+  treats loopback as potentially-trustworthy. A non-loopback `http://` target would be blocked as
+  mixed content — which is why the panel enforces `https://` for remote backends.
+- **Reviewers must be able to test it — the top rejection risk.** Hence reviewer notes explaining
+  how to run stabbur, and a graceful "not connected — start stabbur" state so the panel is never
+  blank or broken.
+- **Justify every permission** in the submission, and keep them minimal; broad host access draws
+  scrutiny. The runtime-requested host access above is the shape that survives this.
+- **MV3 forbids remote code.** All logic ships in the package; talking to a local LLM server is
+  data, not code.
+- **Privacy disclosure**: "talks only to a user-run local service, no data leaves the device" is a
+  simple, favorable story — state it explicitly.
+- **Consider Unlisted** visibility (passes review, shareable by link, not searchable) over a public
+  listing for a niche tool.
 
-Runtime capture, in preference order (all native, no Playwright):
+Native messaging (stdio to a locally installed host) is the alternative to localhost HTTP. It
+installs *outside* the store with a registered manifest — more moving parts — so keep it in reserve
+for a future feature that needs stabbur to call back into the browser.
 
-- **What the user is looking at (for a vision model):** `chrome.tabs.captureVisibleTab()`
-  returns the visible tab as a PNG in the user's real session. Full-page beyond the
-  viewport needs the debugger API (`Page.captureScreenshot`), still native. This is
-  the intended path for "look at this dashboard" grounding — stabbur already routes
-  vision-capable models, so the extension would attach the PNG as an OpenAI
-  `image_url` content part on the `/api/chat` message. **Caveat:** `/api/chat`
-  accepts content-part arrays structurally (`messages` is `list[dict]`), but that
-  image parts actually flow through the agent loop to the `mlx-vlm` runtime is
-  **unverified** — verify this end-to-end before building the capture UX on it.
-- **Deterministic DHIS2 charts/maps:** fetch DHIS2's server-rendered favorite
-  images (`/api/visualizations/{id}/data.png`, `/api/maps/{id}/data.png`) through
-  `d2w` as a tool. Reproducible, tab-independent, and reusable from CLI/TUI/bench —
-  strictly better than screenshotting a rendered page when a favorite UID is known.
-- **DOM/page context:** the content script reads it directly (Phase 2). No browser
-  automation needed.
-- **Driving the DHIS2 UI in-session** (clicking/navigating as the user): extension
-  content scripts / debugger API, because they act within the user's tab and
-  session. Playwright cannot cleanly ride the user's real profile here either.
+## Cross-browser
 
-Where Playwright *is* worth adding (dev-only, off the runtime path):
+"Chrome extension" is really the **WebExtensions** API, a de facto standard, with **MV3** the
+common baseline. stabbur's thin-client shape makes porting cheap: the logic is in stabbur, the UI is
+the shared SPA, and only the manifest, the panel mount, and a few `chrome.*` calls are
+browser-specific.
 
-- **E2E tests** of the extension + stabbur web UI. Playwright can load an unpacked
-  extension into a persistent Chromium context (`--load-extension`) and drive the
-  side panel — asserting SSE token/tool rendering, the 409 "no model" flow, target
-  mismatch states, etc. Good CI value.
-- **Reproducible doc/marketing screenshots** of the UI.
+- **Chromium family** (Chrome, Edge, Brave, Opera, Vivaldi, Arc) — one MV3 build, `chrome.sidePanel`
+  included.
+- **Firefox** — modest effort: `webextension-polyfill` for the `browser.*` namespace, a
+  `browser_specific_settings` key, a separate store, and the real catch — Firefox uses
+  `sidebar_action`, not `chrome.sidePanel`, so keep the panel mount behind an adapter.
+- **Safari** — a standalone effort: WebExtensions, but wrapped in an app via Xcode and shipped
+  through the App Store, with no built-in persistent side panel, so the UX does not map.
 
-So: `captureVisibleTab` + DHIS2 PNG endpoints for runtime visuals; Playwright in
-`devDependencies` for tests and docs, not shipped in the extension.
+WXT already emits per-browser bundles from this one codebase.
 
-## Security defaults
+## Considered and rejected
 
-- Keep stabbur bound to `127.0.0.1` by default.
-- Pin a port for extension use.
-- Allow-list the exact extension origin in `cors_origins`.
-- Keep `DHIS2_MCP_READONLY=1` on by default.
-- Use PAT/OAuth/profile credentials for real DHIS2 instances.
-- Avoid wildcard CORS.
-- Avoid cookie relay.
-- Treat page actions and browser-authenticated reads as later, separate, explicit
-  features.
+The DHIS2-specific route question had four candidates. **Chosen: stabbur → MCP bridge/router → `d2w`
+→ the Web API** — reproducible from every surface, enforceable read-only, independent of browser
+login state, and aligned with the MCP architecture stabbur already has. Rejected: *extension →
+Web API → prompt context* as the primary path (produces prompt context, not model-driven tools, and
+is not reusable from the CLI or benchmarks — it survives only as the narrow, project-declared probe
+reads); *DHIS2's `/api/routes` proxy* (clean current-user semantics and server-side RBAC, but a
+heavy deployment story, and it points the wrong way for a local-first tool — the instance would
+have to reach the user's machine); and *relaying browser cookies to stabbur* (technically possible,
+the weakest boundary of the four, and superseded entirely by minting a token from the live
+session).
 
-Accepted-risk note: the cross-site guard intentionally lets non-browser local
-clients through (they send no `Sec-Fetch-Site`), so any process on the machine
-can `POST /api/chat` and drive the tool loop. With `DHIS2_MCP_READONLY=1` the
-blast radius is reads, which is acceptable for v1. If the tool surface ever gains
-writes, add an optional shared bearer token between the extension and stabbur rather
-than relying on the cross-site guard alone.
+## Open work
 
-## Publishing: a Web Store extension that requires a local service
-
-Requiring a user-run local backend (stabbur) is **allowed and common** — password
-managers, hardware-wallet bridges, and local-LLM companions all do it. It is not
-against Chrome Web Store policy. The things that actually gate approval:
-
-- **`http://127.0.0.1` from the extension is not blocked.** The side panel is a
-  `chrome-extension://` secure context, and Chrome treats `127.0.0.1` / `localhost`
-  as potentially-trustworthy, so fetching the local `http://` server is fine (a
-  non-localhost `http://` target would be blocked as mixed content).
-- **Reviewers must be able to test it — the #1 rejection risk.** An extension that
-  looks broken without an external service can be rejected. Mitigate with (a)
-  reviewer notes in the submission explaining how to run stabbur, and (b) a graceful
-  "not connected — start stabbur" state in the UI so the panel is never blank/broken.
-  A read-only or offline demo state helps a reviewer see value without full setup.
-- **Justify every permission** in the submission: `host_permissions` for
-  `127.0.0.1`/`localhost`, `activeTab`, `scripting`, optional `tabGroups`, and later
-  any DHIS2 host. Keep them minimal; broad host access draws scrutiny.
-- **MV3 no-remote-code rule.** All logic ships in the package. Talking to a local
-  (or remote) LLM server is *data*, not code, so that is fine — but you cannot
-  fetch-and-execute remote scripts.
-- **Privacy disclosure.** Declare data handling; "talks only to a user-run local
-  service, no data leaves the device" is a favorable, simple story — state it
-  explicitly.
-- **Consider not using the public store.** For a niche DHIS2 tool, **Unlisted**
-  visibility (passes review, shareable by link, not searchable) or enterprise /
-  self-hosted `.crx` distribution may fit better than a public listing.
-
-Native-messaging alternative: instead of localhost HTTP, an extension can talk to a
-locally-installed native host over stdio (how password managers do it). But the
-native host installs *outside* the store with a registered manifest — more moving
-parts. For stabbur, localhost HTTP is simpler and avoids that. Keep native messaging in
-reserve only if a future feature needs stabbur to call back into the browser (see the
-"reverse direction" note in Phase 3).
-
-## Practical first milestone
-
-1. Create a DHIS2 stabbur project with a locked model.
-2. Configure the local bridge from `/path/to/dhis2w-utils`.
-3. Run `stabbur serve --port 8000`.
-4. Build a minimal MV3 side panel with a base URL setting.
-5. Connect to `/api/status`; if it reports no model, `POST /api/load/{name}` and
-   poll status until loaded (so the first `/api/chat` does not 409), then
-   `/api/tools`, then `/api/chat`.
-6. Verify against `play42` with `DHIS2_PROFILE=play42` and
-   `DHIS2_MCP_READONLY=1`.
-
-At that point, the extension can already drive DHIS2 through the local model and
-MCP bridge without touching browser cookies.
+Tracked in `ROADMAP.md` under "Browser extension follow-ups" — the sign-in-first bind state,
+act-as-you by default, write-scope re-mint, multi-target panel wiring, the `dhis2://target` MCP
+resource, and packaging. Also open there: the extension still verifies a target with `GET
+…?verify=1`, which the cross-site guard treats as mutating; POST routes exist server-side and the
+panel should migrate to them.

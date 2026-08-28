@@ -28,7 +28,7 @@ interface PendingConfirm {
   reason?: "user" | "timeout";
 }
 
-/** A browser-executed page action the model asked for (WEBMCP.md 5b), and how it went. Purely a
+/** A browser-executed page action the model asked for (PAGEACTIONS.md), and how it went. Purely a
  *  display record — the outcome has already been POSTed by the time `status` leaves "running".
  *  Transient, never persisted. */
 interface PageActionMarker {
@@ -83,9 +83,9 @@ interface ChatViewProps {
   getContextBlock: () => Promise<{ text: string | null; pageMissing: boolean }>;
   /** FIRST await of a Send with page context on: request host access on the click gesture. */
   onEnsurePageAccess: () => Promise<void>;
-  /** Execute one page action the model asked for. The panel owns which tab that may be (WEBMCP.md
-   *  5b rule 3), so this takes only the action name — deliberately no tab, no target. Must resolve
-   *  to an outcome rather than throwing: the server is blocking the turn on the answer. */
+  /** Execute one page action the model asked for. The panel owns which tab that may be
+   *  (PAGEACTIONS.md rule 3), so this takes only the action name — deliberately no tab, no
+   *  target. Must resolve to an outcome rather than throwing: the server is blocking the turn. */
   runPageAction: (action: string) => Promise<PageActionOutcome>;
 }
 
@@ -368,7 +368,7 @@ export function ChatView({
   }
 
   /**
-   * Execute a `page_action` frame and report the outcome (WEBMCP.md 5b).
+   * Execute a `page_action` frame and report the outcome (PAGEACTIONS.md).
    *
    * Deliberately NOT awaited by the stream loop — a slow tab must not stall frame parsing, the
    * same reason resolving a confirmation doesn't. The server is blocked on the POST either way.

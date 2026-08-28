@@ -184,7 +184,7 @@ export interface ChatOptions {
    *  null narrows to the primary target's servers + shared. Omit entirely (undefined) to leave routing
    *  to the server default (the full-library web app does this). */
   target?: string | null;
-  /** Action names this client can execute in the user's tab (WEBMCP.md 5b). The server exposes
+  /** Action names this client can execute in the user's tab (PAGEACTIONS.md). The server exposes
    *  exactly these to the model, so declaring one the executor does not implement buys a
    *  guaranteed timeout. Omit for a client with no tab to act on — the web app — and the model
    *  is never offered a tool nobody would answer. */
@@ -207,7 +207,7 @@ export type ChatEvent =
   /** A tool the model called that must run in the USER'S BROWSER, not on the server — the
    *  server has no DOM. Carries an action NAME and arguments, never code: what a model can do
    *  in a logged-in tab is fixed at extension-build time, not synthesised per turn
-   *  (WEBMCP.md 5b). Only the extension acts on this; the web app has no tab to act on and
+   *  (PAGEACTIONS.md). Only the extension acts on this; the web app has no tab to act on and
    *  parses it purely so the shared client stays one implementation. */
   | { type: "page_action"; id: string; action: string; args: Record<string, unknown> }
   | { type: "confirm_resolved"; id: string; approved: boolean; reason: "user" | "timeout" }

@@ -233,19 +233,19 @@ being separate collections is the same split seen from the library side.
 
 ## Page actions (and WebMCP)
 
-Design + assessment: **[`WEBMCP.md`](WEBMCP.md)**. Short version: WebMCP is **watch, don't
-build** — it inverts UI control rather than providing it, and stabbur (already an MCP client)
-isn't the side that's missing anything; DHIS2 exposing tools is. Page actions themselves are
-not blocked on it — the extension already executes script in the tab. Open work, in order:
+Design: **[`PAGEACTIONS.md`](PAGEACTIONS.md)**. The WebMCP question is settled separately —
+**watch, don't build**, [`WEBMCP.md`](WEBMCP.md) — and page actions were never blocked on it.
+`page_read` ships end to end. Open, in order:
 
-- **Read-only page actions first**: navigate to a URL the assistant constructs (app + org unit
-  + dataset + period), scroll to and highlight a field it just mentioned. No writes, uses
-  permissions the extension already holds, and it is what makes the panel feel *in* the app.
-- **Mutating clicks** only if a case appears that REST cannot serve — and then behind the
-  existing per-action confirmation gate.
-  (The `POST /api/files/script` injection point was checked on 2026-08-26 and is **legacy-page
-  only** — modern app-platform SPAs load nothing but their own bundle, so it cannot reach the
-  apps that matter. See `WEBMCP.md`.)
+- **Finish `page_navigate`.** The server half is registered, gated and URL-validated; the
+  extension implements `page_read` alone, so what is missing is a handler in
+  `extension/lib/pageActions.ts` plus the frame's `args` plumbed through `executePageAction`.
+- **Label page content as untrusted in a successful read.** A failed read already frames the
+  wall's own words that way; a successful one hands back bare JSON. Cheap, and it should land
+  before any acting action does.
+- **Mutating actions (`page_click` / `page_fill`)** only if a case appears that an API cannot
+  serve. The forced gate is already in place, and consuming the read's opaque `ref`s is what
+  would turn their containment property from intent into fact.
 
 ## Other open ideas
 
