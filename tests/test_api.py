@@ -1323,6 +1323,14 @@ async def test_spa_index_is_revalidated_but_hashed_assets_are_immutable(tmp_path
         assert asset.status_code == 200
         assert "immutable" in asset.headers["cache-control"]
 
+        # A MISS under /assets/ must not inherit the immutable year. A browser that caches a
+        # 404 for a year stops asking, so the bundle stays missing for that client even after
+        # the deploy that dropped it is fixed.
+        missing = await client.get("/assets/index-doesnotexist.js")
+        assert missing.status_code == 404
+        assert "immutable" not in missing.headers.get("cache-control", "")
+        assert missing.headers["cache-control"] == "no-cache"
+
         # API responses keep their own semantics — the SPA policy must not leak onto them.
         api = await client.get("/api/status")
         assert "cache-control" not in api.headers

@@ -366,15 +366,10 @@ def _connect_project_tools(
     servers = [m.to_spec() for m in mcp]
 
     # connect() namespaces tools under a *slugged* prefix (`weather-yr` -> `weather_yr`), so map
-    # each assigned prefix back to the raw server name — mirroring connect's slug + collision
-    # disambiguation — so the grouped result keys match the names the caller passed in.
-    prefix_to_name: dict[str, str] = {}
-    used: dict[str, int] = {}
-    for m in mcp:
-        base = mcp_tools._server_prefix(m.name, [m.command, *m.args])
-        n = used.get(base, 0)
-        used[base] = n + 1
-        prefix_to_name[base if n == 0 else f"{base}{n + 1}"] = m.name
+    # each assigned prefix back to the raw server name, so the grouped result keys match the names
+    # the caller passed in. Straight through assign_prefixes — the one owner of the slug +
+    # collision rule — rather than a second copy of it that can drift out of step with connect.
+    prefix_to_name = dict(zip(mcp_tools.assign_prefixes(servers), [m.name for m in mcp], strict=True))
 
     async def _collect() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         async with mcp_tools.connect(servers) as toolset:

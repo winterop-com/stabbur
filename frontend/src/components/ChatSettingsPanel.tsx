@@ -166,6 +166,29 @@ function SamplingSlider({
 }
 
 /**
+ * What a catalogue row offers, given its server (null = attached but not in the catalogue) and how
+ * many of its tools this chat can call.
+ *
+ * `canToggle` is the whole reason this is a function rather than an expression in the JSX: the
+ * on/off switch writes through `POST /api/mcp/servers/{name}`, which is an allow-list over the set
+ * stabbur ships and answers **404** for anything else. So `installed` alone is not the gate —
+ * `bundled` is, and a third-party mcp.json server passes `installed` (it defaults true) while
+ * having no route to write to. Offering it a switch means offering a control that always fails.
+ *
+ * `toolCount` prefers what this chat can call and falls back to the row's own count, which covers a
+ * server attached in the serving process but outside this conversation's allow-list.
+ */
+export function mcpRowControls(
+  server: McpServerInfo | null,
+  attached: number,
+): { canToggle: boolean; toolCount: number } {
+  return {
+    canToggle: !!server && server.bundled && server.installed,
+    toolCount: attached > 0 ? attached : (server?.tools ?? 0),
+  };
+}
+
+/**
  * What one MCP server is configured to do — the env it declares, showing the value actually in
  * force. A server's env is the whole of what it may reach ("Browse, read and search files under a
  * configured workspace root" left *which* root unknowable, so an assistant asked about `~/dev`
@@ -384,20 +407,21 @@ export function ChatSettingsPanel({
   const { servers, pending, notes, toggle: toggleMcpServer, saveEnv: saveMcpEnv } = mcp;
 
   /**
-   * One row per server: the whole bundled catalogue, plus any server that is attached without
-   * being one of ours (an external `.mcp.json` entry — listed so its tools stay reachable, but
-   * with no on/off switch, since the toggle route is an allow-list over the bundled set).
+   * One row per server: the whole catalogue — which now carries third-party `mcp.json` servers as
+   * well as the ones stabbur ships — plus any server attached without appearing in it at all (a
+   * `--mcp` one the CLI passed in). Only the bundled rows get an on/off switch; the toggle route is
+   * an allow-list over the shipped set, so a switch anywhere else would 404 when pressed.
    */
   const rows = useMemo(() => {
     const byServer: Record<string, ToolInfo[]> = {};
     for (const t of tools) (byServer[t.server] ??= []).push(t);
-    const bundled = servers ?? [];
-    const known = new Set(bundled.map((s) => s.name));
+    const catalogue = servers ?? [];
+    const known = new Set(catalogue.map((s) => s.name));
     const external = Object.keys(byServer)
       .filter((name) => !known.has(name))
       .sort((a, b) => a.localeCompare(b))
       .map((name) => ({ name, server: null as McpServerInfo | null, list: byServer[name] }));
-    return [...bundled.map((s) => ({ name: s.name, server: s, list: byServer[s.name] ?? [] })), ...external];
+    return [...catalogue.map((s) => ({ name: s.name, server: s, list: byServer[s.name] ?? [] })), ...external];
   }, [servers, tools]);
 
   const voiceLabel = (id: string) => voices.find((v) => v.id === id)?.label ?? id;
@@ -835,30 +859,61 @@ export function ChatSettingsPanel({
                     const allowed = allowedServers.has(name);
                     const on = allowed ? list.filter((t) => !disabled.has(t.name)).length : 0;
                     const note = notes[name];
-                    // No switch for a server stabbur can't start (an uninstalled extra) or doesn't own
-                    // (an external .mcp.json entry) — a control that cannot work is worse than none.
-                    const canToggle = !!server && server.installed;
+                    // No switch for a server stabbur can't start (an uninstalled extra) or doesn't
+                    // own (a third-party mcp.json entry) — a control that cannot work is worse than
+                    // none. See mcpRowControls for why `installed` is not the gate on its own.
+                    const { canToggle, toolCount } = mcpRowControls(server, list.length);
                     return (
                       <div key={name} className="rounded-md border border-border bg-background/40">
                         <div className="flex items-start justify-between gap-2 px-2.5 py-2">
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="truncate text-sm font-medium">{name}</span>
-                              {list.length > 0 && (
+                              {toolCount > 0 && (
                                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground">
-                                  {list.length} tools
+                                  {toolCount} tools
                                 </span>
                               )}
-                              {server?.scope === "project" && (
+                              {/* Whether it actually started, shown only where nothing else says so:
+                                  a bundled row has its switch and the notes below it, so a state
+                                  chip there would be the same fact a third time. */}
+                              {server && !server.bundled && server.live !== null && (
+                                <span
+                                  className={cn(
+                                    "shrink-0 rounded-full border px-2 py-0.5 text-xs",
+                                    server.live
+                                      ? "border-good/30 bg-good/10 text-good-ink"
+                                      : "border-warning/30 bg-warning/10 text-warning-ink",
+                                  )}
+                                >
+                                  {server.live ? "running" : "not started"}
+                                </span>
+                              )}
+                              {server?.bundled && server.scope === "project" && (
                                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                                   .mcp.json
                                 </span>
                               )}
                             </div>
-                            {(server?.description || !server) && (
+                            {server?.description ? (
+                              <p className="mt-1 text-sm text-muted-foreground">{server.description}</p>
+                            ) : !server ? (
+                              // Attached without being in the catalogue at all — a --mcp server the
+                              // CLI passed in, which no mcp.json this UI can read describes.
                               <p className="mt-1 text-sm text-muted-foreground">
-                                {server?.description || "Configured by this project's .mcp.json."}
+                                Attached by this stabbur serve, not by an mcp.json.
                               </p>
+                            ) : (
+                              !server.bundled && (
+                                // Why there is no switch. stabbur only writes the global mcp.json, and
+                                // only for servers it ships: enabling a third-party one would mean
+                                // writing a command a web request supplied.
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  Configured in{" "}
+                                  {server.scope === "project" ? "this project's .mcp.json" : "your mcp.json"} — stabbur
+                                  runs it, but does not switch it on or off from here.
+                                </p>
+                              )
                             )}
                             {/* Why this row has no switch, or why its switch didn't do what it looks
                                 like it did. Only one of these ever shows at a time. */}
@@ -894,14 +949,19 @@ export function ChatSettingsPanel({
                               </p>
                             ) : (
                               server?.enabled === true &&
-                              list.length === 0 && (
+                              list.length === 0 &&
+                              // Not when the row already reports it never started: "on but no
+                              // tools" would read as the server having nothing to offer.
+                              server.live !== false && (
                                 <p className="mt-1 text-sm text-muted-foreground">On, but it attached no tools.</p>
                               )
                             )}
                           </div>
                           {canToggle && (
                             <Switch
-                              checked={server.enabled}
+                              // canToggle already implies a server; the `?.` is only how that is
+                              // said to the type checker now the decision lives in a function.
+                              checked={server?.enabled ?? false}
                               disabled={pending === name}
                               onCheckedChange={(enabled) => toggleMcpServer(name, enabled)}
                               aria-label={`Run the ${name} MCP server`}
@@ -912,7 +972,10 @@ export function ChatSettingsPanel({
                         {/* Above the per-chat tool list, because this is what the server *is*
                             (which directory, which hosts) rather than which of its tools this
                             conversation may call. */}
-                        {server && server.settings.length > 0 && (
+                        {/* Bundled only, for the same reason the switch is: saving these POSTs to
+                            the route that owns the shipped set. A third-party row declares no
+                            settings anyway — the guard states the rule rather than relying on it. */}
+                        {server?.bundled && server.settings.length > 0 && (
                           <McpSettings server={server} busy={pending === name} onSave={saveMcpEnv} />
                         )}
 

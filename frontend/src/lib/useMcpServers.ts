@@ -68,7 +68,10 @@ export function useMcpServers(onToolsChanged: () => void): McpServersState {
       });
       try {
         const res = await run();
-        setServers((list) => (list ?? []).map((s) => (s.name === res.server.name ? res.server : s)));
+        // Merged, not replaced: the route answers with the mcp.json entry it wrote, which carries
+        // no `bundled`/`live`/`tools`. Replacing the row would drop them — and `bundled` going
+        // undefined takes the row's own switch away the first time it is used.
+        setServers((list) => (list ?? []).map((s) => (s.name === res.server.name ? { ...s, ...res.server } : s)));
         if (retools && res.applied) onToolsChanged(); // its tools are attached (or gone) right now
         if (res.restart_required)
           setNotes((n) => ({

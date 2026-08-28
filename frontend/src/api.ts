@@ -237,12 +237,18 @@ export const getTagRegistry = () => apiFetch("/api/tags/registry").then(json<Tag
 export const getTools = () => apiFetch("/api/tools").then(json<ToolInfo[]>);
 
 /**
- * One first-party MCP server stabbur ships (GET /api/mcp/servers). `/api/tools` only answers "what
- * can the agent call right now", which is empty on a fresh machine; this is the other half — the
- * whole shipped set, so the Tools panel can render a catalogue instead of a void. `enabled` is the
+ * One row of the MCP catalogue (GET /api/mcp/servers). `/api/tools` only answers "what can the
+ * agent call right now", which is empty on a fresh machine; this is the other half — the whole
+ * shipped set, so the Tools panel can render a catalogue instead of a void. `enabled` is the
  * resolved truth (global mcp.json + the project's .mcp.json), `scope` names the file that switches
  * it on, and `installed: false` marks an optional server whose extra isn't built yet (`setup` says
  * how to install it).
+ *
+ * A row is not necessarily one of stabbur's own: the list also carries every third-party server an
+ * mcp.json configures, so the browser and `sb mcp list` describe the same file. Those rows are
+ * **read-only** — `POST /api/mcp/servers/{name}` is an allow-list over the shipped set and answers
+ * 404 for anything else — which is what `bundled` is for. Rendering a switch on a `bundled: false`
+ * row offers a control that cannot work.
  */
 export interface McpServerInfo {
   name: string;
@@ -255,7 +261,22 @@ export interface McpServerInfo {
   /** Env persisted in the mcp.json entry that resolves this server — usually `{}`. */
   env: Record<string, string>;
   settings: McpSetting[];
+  /** False = a third-party server from mcp.json. Listed and callable, but not togglable here. */
+  bundled: boolean;
+  /** Attached in the serving process right now; `null` when there is no bridge to ask. The
+   *  difference between "configured" and "working": an enabled server that never started is
+   *  `false`, not absent. */
+  live: boolean | null;
+  /** How many of its tools are attached, `null` whenever `live` is. */
+  tools: number | null;
 }
+
+/**
+ * What a change writes back: the persisted mcp.json entry, and nothing about process state. The
+ * POST route answers with the entry it wrote, not a catalogue row, so `bundled`/`live`/`tools` are
+ * absent — callers must merge it onto the row they already hold rather than replace it.
+ */
+export type McpServerEntry = Omit<McpServerInfo, "bundled" | "live" | "tools">;
 
 /**
  * One environment variable a bundled server understands, as declared by the server itself, plus the
@@ -285,13 +306,13 @@ export interface McpSetting {
  * spawned yet picks it up. Callers must render this, never a blanket success.
  */
 export interface McpUpdateResult {
-  server: McpServerInfo;
+  server: McpServerEntry;
   applied: boolean;
   restart_required: boolean;
   detail: string;
 }
 
-/** Every bundled MCP server with its resolved on/off state (the Tools panel's catalogue). */
+/** Every MCP server stabbur ships plus every one mcp.json configures (the Tools panel's catalogue). */
 export const getMcpServers = () => apiFetch("/api/mcp/servers").then(json<McpServerInfo[]>);
 
 /** POST one change to a bundled server, surfacing the server's own refusal message. */
