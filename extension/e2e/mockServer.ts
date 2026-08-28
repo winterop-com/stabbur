@@ -37,7 +37,7 @@ export type ChatFrame =
   | { type: "error"; detail: string }
   | { type: "done" };
 
-/** One recorded POST /api/chat/page-action, as the client sent it (WEBMCP.md 5b). */
+/** One recorded POST /api/chat/page-action, as the client sent it (PAGEACTIONS.md). */
 export interface PageActionCall {
   id: string;
   ok: boolean;
@@ -372,7 +372,7 @@ export class StabburMock {
       return;
     }
 
-    // The page-action channel's resolving endpoint (WEBMCP.md 5b). Records the body verbatim so a
+    // The page-action channel's resolving endpoint (PAGEACTIONS.md). Records the body verbatim so a
     // test can assert the exact reported shape, then unblocks the paused stream.
     if (path === "/api/chat/page-action" && method === "POST") {
       const raw = await readBody(req);

@@ -1,10 +1,10 @@
 """Browser-executed page actions: tools the agent loop runs in the user's tab.
 
 stabbur's agent loop runs server-side and MCP tools execute server-side, while the DOM lives in
-the browser. This module is the server half of the channel that closes that gap (``WEBMCP.md``
-section 5b): the model calls what looks like an ordinary tool, the request is streamed to the
-client as a typed ``page_action`` frame, and the loop blocks until the client reports the result
-to ``POST /api/chat/page-action``. It is the same emit-block-resolve shape the write-confirmation
+the browser. This module is the server half of the channel that closes that gap
+(``PAGEACTIONS.md``): the model calls what looks like an ordinary tool, the request is streamed
+to the client as a typed ``page_action`` frame, and the loop blocks until the client reports the
+result to ``POST /api/chat/page-action``. It is the same emit-block-resolve shape the confirmation
 gate already uses, deliberately — a second consumer of a load-bearing mechanism, not a second
 mechanism.
 
@@ -12,8 +12,8 @@ mechanism.
 drawn from a closed registry plus an *arguments model* whose fields are declared per action with
 ``extra="forbid"``. There is no free-form dict and no untyped string field a script could ride in,
 so the server cannot express "run this JavaScript" even if a model asked it to: mypy/pyright
-reject it at build time and pydantic rejects it at runtime. Every other rule in 5b is decorative
-without that one, which is why it is enforced by the types rather than by a comment.
+reject it at build time and pydantic rejects it at runtime. Every other rule in PAGEACTIONS.md is
+decorative without that one, which is why it is enforced by the types rather than by a comment.
 
 Rule 3 is enforced here by *absence*: the frame has no tab field, so the model can never name a
 tab and the client can only ever act on the one it bound. Adding one would be the regression.
@@ -60,8 +60,8 @@ class PageReadArgs(BaseModel):
     """Arguments for ``page_read``: none.
 
     What "the page's structured content" means is the client's decision for the page it is
-    actually on (5b) — the server only carries the request, so there is nothing here to
-    parameterise yet. Declared as an explicit empty ``extra="forbid"`` model rather than an
+    actually on (PAGEACTIONS.md) — the server only carries the request, so there is nothing here
+    to parameterise yet. Declared as an explicit empty ``extra="forbid"`` model rather than an
     omitted or ``dict``-typed field so the no-code-on-the-wire property holds for this action the
     same way it will for the next one, without every future caller having to remember it.
     """
@@ -101,7 +101,7 @@ PageActionArgs = PageReadArgs | PageNavigateArgs
 
 
 class PageActionFrame(BaseModel):
-    """The SSE frame streamed mid-turn — 5b's wire contract, expressed as a type.
+    """The SSE frame streamed mid-turn — PAGEACTIONS.md's wire contract, expressed as a type.
 
     Serialized straight into the chat stream, so this class *is* the contract: an action name the
     client dispatches on and its typed arguments, and nothing else.
@@ -141,7 +141,7 @@ class PageActionSpec(BaseModel):
     # "does not write to a server": a navigation stores nothing anywhere and still fails it,
     # because it moves the tab the user is looking at and discards whatever state was on the page.
     #
-    # readonly=False means GATED, ALWAYS — 5b rule 2 as corrected. It deliberately does NOT just
+    # readonly=False means GATED, ALWAYS — PAGEACTIONS.md rule 2. It deliberately does NOT just
     # feed the confirm policy through MCPToolset.is_readonly, which was the original plan and was
     # wrong: `confirm_tools` defaults to "none" for free-play and for a read-only assistant, so
     # riding the policy would leave an acting page action ungated by default on exactly the
@@ -219,8 +219,8 @@ def timeout_seconds(settings: "Settings") -> float:
     action is a tool call answered by *software* in the panel, so the right bound is the one that
     already means "a tool call is taking too long", not the confirm gate's 300s, which is
     calibrated to a human who may have walked away from the desk. ``tool_timeout = 0`` means "no
-    bound" for a local MCP server, which is exactly what 5b rule 4 forbids here — a closed panel
-    would hold the turn open forever — so that setting falls back to ``confirm_timeout`` rather
+    bound" for a local MCP server, which is exactly what PAGEACTIONS.md rule 4 forbids here — a
+    closed panel would hold the turn open forever — so that setting falls back to ``confirm_timeout`` rather
     than waiting indefinitely. Neither setting is page-action-specific yet; when the two bounds
     need to diverge, that is the moment to add ``page_action_timeout``, not before.
     """
@@ -260,8 +260,8 @@ class PageActionToolset(MCPToolset):
     the MCP servers a project configured, while the page actions available are decided by what the
     client can execute, not by that list.
 
-    It is also where 5b rule 2's "regardless of policy" lives. ``confirm`` and ``confirm_policy``
-    describe the turn's *existing* gate; a non-readonly page action is confirmed here whenever
+    It is also where PAGEACTIONS.md rule 2's "regardless of policy" lives. ``confirm`` and
+    ``confirm_policy`` describe the turn's *existing* gate; a non-readonly page action is confirmed here whenever
     that gate would not have caught it. Both defaults are the fail-safe ones — "the loop is not
     gating" and "there is no channel to ask on" — so a caller that wires neither denies an acting
     page action rather than running it, which is the failure that costs nothing. And a caller that
@@ -313,7 +313,7 @@ class PageActionToolset(MCPToolset):
         return PageActionToolset(self._base.subset(names), kept, self._invoke, self._confirm, self._confirm_policy)
 
     async def _approved(self, spec: PageActionSpec, args: PageActionArgs) -> bool:
-        """Whether an acting page action may proceed — 5b rule 2's forced gate.
+        """Whether an acting page action may proceed — PAGEACTIONS.md rule 2's forced gate.
 
         A ``readonly`` action never reaches here. For any other, the question is whether a human
         was actually asked, and the only evidence of that is **a confirmation channel** — so the

@@ -246,7 +246,7 @@ export function PanelApp({ initialSettings }: PanelAppProps) {
     if (granted) setProbeEpoch((e) => e + 1);
   }
 
-  // Run one page action the model asked for (WEBMCP.md 5b). This function is the whole of rule 3
+  // Run one page action the model asked for (PAGEACTIONS.md). This function is the whole of rule 3
   // ("the bound/matched tab only") on the client: the tab is resolved HERE, from the browser, and
   // the action name is the only thing that crosses from the message. Nothing in the frame names a
   // tab, and nothing here would read it if it did.

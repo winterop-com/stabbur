@@ -168,7 +168,7 @@ class ChatRequest(BaseModel):
     # thinking budget (512/2048/8192 tokens), "max" thinks unbounded. ``None`` (absent) leaves
     # the model's default behavior untouched. llama-server dialect; others ignore it.
     reasoning: agent.ReasoningLevel | None = None
-    # Browser-executed page actions this client can run in the user's tab (WEBMCP.md 5b). The
+    # Browser-executed page actions this client can run in the user's tab (PAGEACTIONS.md). The
     # client declares what its executor implements; the server exposes exactly those to the model
     # and blocks on the client's answer. Absent — a plain browser tab, curl, the CLI — means none:
     # a tool nobody is listening for is a guaranteed timeout, not a capability. Names stabbur does
@@ -352,8 +352,8 @@ async def chat(req: ChatRequest, manager: ManagerDep, request: Request) -> Strea
         # The agent loop is unchanged by page actions — it calls a tool and gets a result.
         #
         # `on_confirm` and `policy` are handed over so the toolset can raise the gate on an acting
-        # page action that `policy` would have let through (5b rule 2: a page action that acts is
-        # confirmed regardless of policy, and "none" is the default on the generic no-project site
+        # page action that `policy` would have let through (PAGEACTIONS.md rule 2: a page action
+        # that acts is confirmed regardless of policy, and "none" is the default on the generic site
         # this is most for). The full sink is passed, not the `policy != "none"` one below: that
         # substitution is what turns the loop's gate off, and the page-action gate is not the
         # loop's. MCP tools are untouched by this — the toolset only intercepts its own actions.
@@ -488,7 +488,7 @@ async def chat_confirm(req: ConfirmRequest, request: Request) -> dict[str, bool]
 
 
 class PageActionReport(BaseModel):
-    """A client's report of one browser-executed page action (WEBMCP.md 5b's POST body)."""
+    """A client's report of one browser-executed page action (PAGEACTIONS.md's POST body)."""
 
     id: str
     ok: bool
