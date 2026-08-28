@@ -145,6 +145,13 @@ hero: frontend
 	@echo ">>> Recapturing the docs hero → docs/assets/web-ui.png"
 	@uv run --extra web python scripts/capture_hero.py
 
+# Regenerate the TUI startup badge from docs/assets/logo.png. Like the hero, the
+# embedded grid is derived from an asset nothing checks, so rerun this whenever
+# the logo changes.
+tui-logo:
+	@echo ">>> Regenerating src/stabbur/chat_tui/_logo.py from docs/assets/logo.png"
+	@uv run --with pillow python scripts/gen_tui_logo.py
+
 frontend-dev:
 	@echo ">>> Vite dev server (proxies /api + /v1 to STABBUR_DEV_API or :8000)"
 	@echo ">>> Run 'stabbur serve --port 8000' alongside for the backend"
