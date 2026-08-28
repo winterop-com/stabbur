@@ -11,6 +11,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -79,6 +80,43 @@ def test_spawn_binds_then_stop_terminates() -> None:
     assert handle.poll() is not None  # terminated
     assert not handle.state_dir.exists()  # state cleaned up
     assert handle not in supervisor._live
+
+
+def test_state_dir_name_is_unique_per_spawn() -> None:
+    # find_free_port can hand the same port to two concurrent spawns (the probe socket is closed
+    # before either binds), and both run in this one pid — so (pid, port, attempt) is not unique.
+    # Sharing a state dir means the first stop() rmtree's the other's directory mid-write, and
+    # only one meta.json survives, leaving the other runtime unsweepable.
+    names = {supervisor._state_dir_name(8080, 0) for _ in range(100)}
+    assert len(names) == 100
+    assert all(name.startswith(f"{os.getpid()}-8080-0-") for name in names)
+
+
+def test_concurrent_spawns_keep_their_own_state(tmp_path: Path) -> None:
+    # The race as it actually happens: two worker threads spawning at once. Neither may lose its
+    # meta.json, and neither may raise (an exception here is what surfaced as a pytest unhandled
+    # thread-exception warning).
+    handles: list[supervisor.RuntimeHandle] = []
+    errors: list[BaseException] = []
+
+    def go() -> None:
+        try:
+            handles.append(supervisor.spawn(_bind_cmd, name="concurrent"))
+        except BaseException as exc:  # noqa: BLE001 - recorded so the assert names it
+            errors.append(exc)
+
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    try:
+        assert not errors, errors
+        assert len({h.state_dir for h in handles}) == len(handles) == 4
+        assert all((h.state_dir / "meta.json").is_file() for h in handles)
+    finally:
+        for handle in handles:
+            handle.stop()
 
 
 def test_spawn_kills_the_whole_process_group(tmp_path: Path) -> None:

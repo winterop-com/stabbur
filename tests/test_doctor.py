@@ -243,7 +243,7 @@ def test_check_project_none_emits_no_checks(tmp_path: Path, monkeypatch: pytest.
 
 _UPSTREAM_LISTING = {
     "data": [
-        {"id": "gemma-4-12b-qat", "status": {"value": "unloaded"}},
+        {"id": "example-remote-model", "status": {"value": "unloaded"}},
         {"id": "qwen3-coder", "status": {"value": "loaded"}},
     ]
 }

@@ -10,6 +10,7 @@ the Console is constructed, so this must run before that import, not in a fixtur
 
 import os
 import tempfile
+from pathlib import Path
 
 for _var in ("FORCE_COLOR", "CLICOLOR_FORCE"):
     os.environ.pop(_var, None)
@@ -34,6 +35,21 @@ os.environ.setdefault("STABBUR_LIBRARY_ROOT", tempfile.mkdtemp(prefix="stabbur-t
 # which would leak a default_model / library_root into tests and make them non-hermetic. Tests
 # that exercise the machine config set XDG_CONFIG_HOME to their own tmp_path.
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="stabbur-test-config-")
+
+# Point the ephemeral runtime state (pidfiles + logs, and the sibling serve registry) at a
+# throwaway dir so the suite never writes into the real ``$XDG_RUNTIME_DIR/stabbur/runtimes``
+# (or ``~/.cache/stabbur/runtimes``). Tests that spawn a runtime create and delete entries
+# there, which both mutates machine state a test run has no business touching and races the
+# orphan sweep — a rmtree'd state dir under a concurrent ``_write_meta`` surfaced as an
+# unhandled ``FileNotFoundError`` on ``.../runtimes/<id>/meta.json`` from a worker thread.
+#
+# Via ``STABBUR_RUNTIME_STATE_DIR`` rather than ``XDG_CACHE_HOME``: ``Settings`` evaluates the
+# XDG-derived default at *import* time (``stabbur.config._default_runtime_state_dir``), so an
+# env var read when ``get_settings()`` is first called is the only override that works no matter
+# when stabbur is imported — and it moves stabbur's dir only, leaving the HF cache alone.
+os.environ["STABBUR_RUNTIME_STATE_DIR"] = str(
+    Path(tempfile.mkdtemp(prefix="stabbur-test-runtime-")) / "stabbur" / "runtimes"
+)
 
 # Drop any upstream the developer exports. ``doctor.check_upstream`` probes ``settings.upstream``
 # over the network, so a ``STABBUR_UPSTREAM`` in the environment would turn a hermetic doctor test

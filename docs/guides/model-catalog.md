@@ -43,18 +43,13 @@ sb library pull huggingface mradermacher/MN-Violet-Lotus-12B-GGUF     # 12.1 GB
 ## Voice models
 
 `sb library pull voice <id>` (downloads, or fast-copies from another reachable library).
-TTS speaks; STT transcribes. Except `kokoro` (ONNX, cross-platform) and `outetts` (llama.cpp),
-these run on **mlx-audio (Apple Silicon)**.
+TTS speaks; STT transcribes. Except `kokoro` (ONNX, cross-platform), these run on
+**mlx-audio (Apple Silicon)**.
 
 ```bash
 # --- TTS ---
 sb library pull voice kokoro       # Kokoro-82M · 54 named voices · the in-chat voice · cross-platform
-sb library pull voice soprano      # 80M · tiny high-quality English (Kokoro-family)
-sb library pull voice chatterbox   # expressive · emotion/exaggeration control + cloning
-sb library pull voice spark        # 0.5B · English + Chinese
-sb library pull voice csm          # 1B · voice cloning from a reference clip
-sb library pull voice dia          # 1.6B · nonverbal cues + cloning + multi-speaker (seed it)
-sb library pull voice outetts      # 500M · GGUF via llama.cpp · cross-platform
+sb library pull voice spark        # 0.5B · English + Chinese · seeded voice + cloning
 
 # --- STT (speech-to-text) ---
 sb library pull voice whisper        # large-v3-turbo · multilingual · the default
@@ -63,25 +58,21 @@ sb library pull voice qwen3-asr      # 1.7B · multilingual
 sb library pull voice distil-whisper # faster distilled Whisper (English)
 ```
 
-### Validated (2026-07-04) — voice detail
+### Voice detail
 
 | id | kind | mode | backend | notes |
 | --- | --- | --- | --- | --- |
 | `kokoro` | TTS | preset | kokoro-onnx | 54 voices, 8 languages; the in-chat default; cross-platform |
-| `soprano` | TTS | preset | mlx-audio | 80M, tiny English, Kokoro-family |
-| `chatterbox` | TTS | preset | mlx-audio | **emotion/exaggeration control** + cloning |
-| `spark` | TTS | preset | mlx-audio | English + Chinese (needs `soxr`, in the voice extra) |
-| `csm` | TTS | clone | mlx-audio | cloning — pass a reference clip + transcript |
-| `dia` | TTS | seeded | mlx-audio | expressive, nonverbal cues, multi-speaker; pin a seed |
-| `outetts` | TTS | preset | llama-tts | GGUF; cross-platform |
+| `spark` | TTS | seeded | mlx-audio | English + Chinese; pick a gender and pin a seed, or clone from a clip |
 | `whisper` | STT | — | mlx-audio | multilingual default |
 | `parakeet` | STT | — | mlx-audio | fast; EN + 25 EU languages |
 | `qwen3-asr` | STT | — | mlx-audio | multilingual |
 | `distil-whisper` | STT | — | mlx-audio | faster English Whisper |
 
-**Not yet working** (load but produce no audio via mlx-audio's high-level API, or need bespoke
-args): `qwen3-tts`, KittenTTS, OuteTTS-1.0 (mlx), Qwen3-TTS-VoiceDesign, Voxtral-TTS. Tracked in
-the roadmap (`ROADMAP.md` in the repo); revisit as mlx-audio adds support.
+The registry (`stabbur.voice.registry`) is the authoritative list — `sb voice list` prints
+what it holds and where each model lives. Models are added to it once they actually run
+end-to-end through stabbur's runtime; several TTS checkpoints load but produce no audio via
+mlx-audio's high-level API, so they are not listed here. See `ROADMAP.md` in the repo.
 
 ## Benchmarks
 

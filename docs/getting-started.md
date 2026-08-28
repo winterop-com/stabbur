@@ -57,7 +57,7 @@ Install the ones you need:
 
 | Runtime | Install | Needed for |
 | --- | --- | --- |
-| **llama.cpp** | `brew install llama.cpp` (macOS); build from source on Linux | The baseline: GGUF chat (`llama-server`) and OuteTTS speech (`llama-tts`) |
+| **llama.cpp** | `brew install llama.cpp` (macOS); build from source on Linux | The baseline: GGUF chat (`llama-server`) |
 | **MLX** — optional, Apple Silicon | `make install-mlx` (= `uv sync --extra mlx`) | Running MLX models (`mlx_lm` / `mlx-vlm`) — fastest on Macs |
 
 llama.cpp is the one to install first. The MLX extra is optional and gated — add

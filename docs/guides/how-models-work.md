@@ -124,8 +124,10 @@ Making sound is a **different kind of model** entirely, not an LLM: a **TTS** sy
 turns text into a waveform (an acoustic model + a **vocoder** that renders samples).
 stabbur runs these as their own engines, separate from the chat model:
 
-- **Kokoro** (ONNX, built in) — 54 built-in voices; the multi-voice engine.
-- **OuteTTS** (a GGUF + a WavTokenizer vocoder, via `llama-tts`) — the fallback.
+- **Kokoro** (ONNX, built in) — 54 built-in voices; the cross-platform default,
+  small enough to run alongside a chat model.
+- **mlx-audio** (Apple Silicon, an optional extra) — the larger TTS/STT models, some
+  of which sample a fresh voice per run (pin a seed) or clone one from a clip.
 
 So the flow is asymmetric: **multimodal LLMs are image/audio *in* → text *out*; TTS
 is text *in* → audio *out*.** There's no local **text→image** generation in stabbur —

@@ -17,19 +17,19 @@ it's pulled from the HF cache or downloaded from Hugging Face:
 | Model | Kind | Backend | Notes |
 | --- | --- | --- | --- |
 | **Kokoro-82M** | TTS | kokoro-onnx | 54 built-in voices, 8 languages. Small + fast — stabbur's **default in-chat voice** (runs next to a big LLM). Cross-platform. |
-| **Dia-1.6B** | TTS | mlx-audio | Expressive; nonverbal cues (`(laughs)`, `(coughs)`) and **voice cloning** from a clip. Its voice is random each run — **pin a seed** for a repeatable, reliable result. |
-| **OuteTTS-0.2-500M** | TTS | llama-tts | GGUF TTS via llama.cpp + a vocoder. |
+| **Spark-TTS-0.5B** | TTS | mlx-audio | Bilingual (English + Chinese); pick a gender and **pin a seed** for a stable voice, or **clone** from a reference clip. |
 | **Whisper large-v3-turbo** | STT | mlx-audio | Fast multilingual transcription — the mic → prompt side. |
-| Qwen3-TTS-0.6B | TTS | mlx-audio | *Not runnable yet* — needs bespoke speech-tokenizer loading mlx-audio's simple loader doesn't do. |
+| **Parakeet TDT 0.6B v3** | STT | mlx-audio | Lighter and quicker than Whisper; English + 25 European languages. |
+| **Qwen3-ASR-1.7B** | STT | mlx-audio | Multilingual transcription. |
+| **Distil-Whisper large-v3** | STT | mlx-audio | A faster distilled Whisper (English only). |
 
 ## Backends & install
 
 - **kokoro-onnx** — cross-platform (macOS + Linux) ONNX runtime. Built in (a base
   dependency, no extra to install); espeak-ng is bundled via `espeakng_loader`, so
   there's no system binary to install.
-- **mlx-audio** — Apple-Silicon only (Dia, Whisper). A platform-gated extra:
+- **mlx-audio** — Apple-Silicon only (everything but Kokoro). A platform-gated extra:
   `uv sync --extra voice` (a no-op off Apple Silicon). English G2P via `misaki[en]`.
-- **llama-tts** — the `llama-tts` binary from llama.cpp (`brew install llama.cpp`).
 
 On Linux, Kokoro (ONNX) covers TTS; the mlx-audio models are macOS-only.
 
@@ -43,8 +43,8 @@ sb voice import --all         # back-compat alias: import everything already in 
 sb voice voices               # list Kokoro's 54 named voices
 sb voice speak "Hello there"                 # speak with the default engine
 sb voice speak "Hi" --voice af_heart         # a specific Kokoro voice
-sb voice speak "Hi" --model dia --seed 0     # Dia (pin a seed for reliability)
-sb voice speak "Hi" --model dia \            # clone the voice in a clip
+sb voice speak "Hi" --model spark --seed 0   # a seeded model (pin the seed for reliability)
+sb voice speak "Hi" --model spark \          # clone the voice in a clip (cloneable models)
   --ref-audio sample.wav --ref-text "exact transcript of sample.wav"
 sb voice speak "Hi" --format mp3 -o out.mp3  # export via ffmpeg
 ```
@@ -57,10 +57,11 @@ The studio:
 
 - **Text to speech** — pick a model, type (a model-specific sample line prefills),
   choose an output format, and **Generate**. The result plays in an inline player
-  (play/pause + scrubber). For **Dia**: a nonverbal-cue palette, a **seed** field
-  (with a dice to randomize it) and **clone-from-clip** — upload *or* record a
-  reference clip (auto-transcribed by Whisper, silence auto-stops the recorder).
-- **Speech to text** — upload or record audio; Whisper returns the transcript.
+  (play/pause + scrubber). The controls follow the model: a **seeded** model gets a
+  seed field (with a dice to randomize it) and a nonverbal-cue palette, a
+  **cloneable** one gets clone-from-clip — upload *or* record a reference clip
+  (auto-transcribed by the STT model, silence auto-stops the recorder).
+- **Speech to text** — upload or record audio; the STT model returns the transcript.
 
 **In chat:** non-audio models get a **dictation mic** in the composer (Whisper →
 prompt), and each reply has a **Listen** button (Kokoro by default — the
@@ -75,9 +76,9 @@ Served by `sb serve`, so any OpenAI client works:
 curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
   -d '{"model":"kokoro","input":"Hello","voice":"af_heart","response_format":"mp3"}' -o out.mp3
 
-# Voice cloning (Dia): ref_audio_b64 (base64 WAV) + ref_text
+# Voice cloning (a cloneable model): ref_audio_b64 (base64 WAV) + ref_text
 curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
-  -d '{"model":"dia","input":"Cloned line.","ref_audio_b64":"...","ref_text":"...","seed":0}' -o out.wav
+  -d '{"model":"spark","input":"Cloned line.","ref_audio_b64":"...","ref_text":"...","seed":0}' -o out.wav
 
 # Speech to text
 curl -X POST localhost:2222/v1/audio/transcriptions -F model=whisper -F file=@clip.wav
@@ -88,7 +89,8 @@ Non-WAV formats are transcoded with **ffmpeg** (WAV passes through untouched).
 ## Notes
 
 - **Target languages: English** for now (`misaki[en]` G2P). Norwegian may follow.
-- **Dia is stochastic** — an unlucky seed can drone instead of speak. The UI
-  defaults to a known-good seed; the CLI takes `--seed`. Plain text is more
-  reliable than `[S1]/[S2]` speaker tags in mlx-audio's Dia.
+- **A seeded model is stochastic** — its timbre is sampled fresh each run, and an
+  unlucky seed can drone instead of speak. The UI defaults to a known-good seed; the
+  CLI takes `--seed`. A seed is only reproducible against the installed mlx version:
+  an MLX upgrade re-maps seeds to voices, so a seed you liked may not survive one.
 - Voice models live in `<library>/voice/…` so they travel with the drive.

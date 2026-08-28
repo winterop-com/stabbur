@@ -193,3 +193,13 @@ def test_frontend_dir_ignores_a_packaged_dir_with_no_index(tmp_path: Path, monke
     (pkg / "webui").mkdir(parents=True)
     monkeypatch.setattr(config, "__file__", str(pkg / "config.py"))
     assert config._default_frontend_dir() == tmp_path.parent / "frontend" / "dist"
+
+
+def test_the_suite_never_uses_the_real_runtime_state_dir() -> None:
+    # Runtime state (pidfiles, logs, the sibling serve registry) is real machine state. A test
+    # run has no business creating or deleting entries in it, and doing so also races the orphan
+    # sweep. conftest.py pins STABBUR_RUNTIME_STATE_DIR to a throwaway dir before stabbur is
+    # imported — this asserts that pin actually took, since Settings evaluates the XDG-derived
+    # default at import time and a late fixture would silently miss it.
+    root = config.get_settings().runtime_state_dir
+    assert Path.home() not in root.parents, f"the suite would write runtime state to {root}"
