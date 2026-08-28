@@ -407,7 +407,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if path.startswith("/api") or "cache-control" in response.headers:
                 return response
             if path.startswith("/assets/"):
-                response.headers["cache-control"] = "public, max-age=31536000, immutable"
+                # Only a response that *is* the bundle may claim to be immutable. A miss under
+                # /assets/ is a 404, and a year-cached, immutable 404 is the worst possible
+                # answer: the browser stops asking, so the bundle stays missing for that client
+                # even once the deploy that dropped it is fixed, and nothing short of a hard
+                # refresh recovers. An error revalidates instead (no-cache rather than absent,
+                # since a 404 with no Cache-Control is heuristically cacheable too).
+                ok = 200 <= response.status_code < 400
+                response.headers["cache-control"] = "public, max-age=31536000, immutable" if ok else "no-cache"
             elif response.headers.get("content-type", "").startswith("text/html"):
                 response.headers["cache-control"] = "no-cache"  # revalidate; the ETag makes it a 304
             return response

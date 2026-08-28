@@ -543,6 +543,15 @@ async def test_get_reports_what_is_actually_attached(app: FastAPI, client: Async
     assert rows["git"]["enabled"] is True and rows["git"]["live"] is False and rows["git"]["tools"] == 0
 
 
+async def test_a_change_answers_with_the_entry_not_a_catalogue_row(client: AsyncClient) -> None:
+    # A write knows what it persisted; it does not know process state or who ships the server. The
+    # SPA therefore *merges* this onto the row it already holds rather than replacing it — replacing
+    # would blank `bundled` and take the row's own switch away the first time anyone used it. Pin
+    # the shape so a future widening of one side is a decision rather than a surprise.
+    body = (await client.post("/api/mcp/servers/datetime", json={"enabled": True})).json()
+    assert not set(body["server"]) & {"bundled", "live", "tools"}
+
+
 async def test_get_leaves_live_unknown_without_a_bridge(client: AsyncClient) -> None:
     # No bridge = no MCP process here at all, so "off" would be a guess. null says "not asked".
     rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
