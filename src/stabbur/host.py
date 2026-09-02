@@ -20,10 +20,13 @@ from pathlib import Path
 # a dev checkout syncs its own venv, while a `uv tool install`ed stabbur needs the extra added
 # to the tool environment (stabbur finds runtimes there — see runtime.resolve_binary — so this
 # never requires a global install). Apple Silicon only; there are no MLX wheels elsewhere.
+# Plain prose, no backticks: a hint is shown verbatim in the terminal *and* in the browser's
+# health panel, and neither renders Markdown — the quotes and backticks read as line noise
+# there, wrapping mid-token.
 _MLX_HINT = (
-    "Install the MLX runtimes (Apple Silicon only): in a stabbur checkout "
-    '`uv sync --extra mlx`; for an installed stabbur `uv tool install --force -e ".[mlx]"` '
-    "from the checkout."
+    "Install the MLX runtimes (Apple Silicon only). In a stabbur checkout: "
+    "uv sync --extra mlx. For an installed stabbur, from the checkout: "
+    "uv tool install --force -e '.[mlx]'"
 )
 
 

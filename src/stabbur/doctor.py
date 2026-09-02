@@ -28,6 +28,7 @@ from stabbur import host, mcpservers, runtime, server
 from stabbur import library as library_ops
 from stabbur import project as project_ops
 from stabbur.config import Settings, get_settings
+from stabbur.models import ModelFormat
 
 # Timeout for the upstream health probe. Deliberately NOT UpstreamManager._LISTING_TIMEOUT (15s):
 # that budget exists so a llama-server busy generating is never mis-reported as an outage on the
@@ -153,7 +154,15 @@ def _runtime_check(
     )
 
 
-def check_runtimes(*, upstream: bool = False) -> list[Check]:
+def _mlx_models_present() -> bool:
+    """Whether anything in the libraries in scope actually needs an MLX runtime."""
+    try:
+        return any(m.model_format is ModelFormat.mlx for m in library_ops.scan())
+    except Exception:  # noqa: BLE001 - an unreadable library is reported by check_library
+        return False
+
+
+def check_runtimes(*, upstream: bool = False, mlx_needed: bool | None = None) -> list[Check]:
     """Check the model-runtime binaries stabbur spawns, under one collapsible parent.
 
     The parent's detail is the OS/arch that used to be a top-level ``Platform`` row of its own.
@@ -166,9 +175,16 @@ def check_runtimes(*, upstream: bool = False) -> list[Check]:
     remote and stabbur spawns nothing here, so a missing local binary is a fact about a machine
     that isn't running the model. Reporting it as a warning sends people to install runtimes they
     will never use, and buries the one row that does matter — whether the remote is reachable.
+
+    ``mlx_needed`` is the same argument one level down: a library with no MLX models does not need
+    the MLX runtimes, and a warning about them is a chore invented for a format the user does not
+    use — most visibly in a project, whose environment holds only what its own models require.
     """
-    mlx_relevant = host.is_apple_silicon() and not upstream
+    if mlx_needed is None:
+        mlx_needed = _mlx_models_present()
+    mlx_relevant = host.is_apple_silicon() and not upstream and mlx_needed
     remote = "not used — models run on the upstream"
+    unused = "not needed — no MLX models in the library"
     return [
         Check(
             name=RUNTIMES_GROUP,
@@ -178,8 +194,20 @@ def check_runtimes(*, upstream: bool = False) -> list[Check]:
         # GGUF is the cross-platform backbone; without llama-server nothing GGUF runs *locally*.
         _runtime_check("llama.cpp (GGUF)", "llama-server", required=True, relevant=not upstream, why=remote),
         # MLX runtimes are optional and Apple-Silicon-only.
-        _runtime_check("MLX text (mlx-lm)", "mlx_lm.server", required=False, relevant=mlx_relevant, why=remote),
-        _runtime_check("MLX vision (mlx-vlm)", "mlx_vlm.server", required=False, relevant=mlx_relevant, why=remote),
+        _runtime_check(
+            "MLX text (mlx-lm)",
+            "mlx_lm.server",
+            required=False,
+            relevant=mlx_relevant,
+            why=remote if upstream else unused,
+        ),
+        _runtime_check(
+            "MLX vision (mlx-vlm)",
+            "mlx_vlm.server",
+            required=False,
+            relevant=mlx_relevant,
+            why=remote if upstream else unused,
+        ),
     ]
 
 

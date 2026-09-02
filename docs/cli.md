@@ -370,8 +370,8 @@ settings source, below `STABBUR_*` env vars and a project `stabbur.toml`. Writab
 `sb serve` URL for `sb chat` to attach to — it applies to every chat until you override it
 with `--server`, or opt out of it for one run with `--no-server`). **A project overrides it**:
 inside a project that names a model, `sb chat` loads that model rather than attaching to the
-machine-wide remote, and says so — the project names the model it is for and owns the copy it
-downloaded. `--server` still attaches when you ask explicitly.
+machine-wide remote — the project names the model it is for and owns the copy it downloaded.
+`--server` still attaches when you ask explicitly.
 
 ```bash
 sb config set library-root /path/to/your/library   # where your library lives
@@ -397,10 +397,11 @@ the one a running `sb serve` has loaded, or — on the CLI, where there is no ru
 ask — the default that would load. Everything else (runtimes, library, project, tools)
 is indented under a group row, and `/api/doctor` sends the same tree to the web UI.
 
-With an upstream, the **local runtime rows go quiet**: models run on the remote, so a missing
-`llama-server` or `mlx_vlm.server` here is a fact about a machine that isn't running anything,
-and the library count stops partitioning by a local binary. What matters in that mode is the
-Backend row, which is exactly what the report leads with.
+The runtime rows only speak up when they matter. With an **upstream** they go quiet entirely —
+models run on the remote, so a missing binary here is a fact about a machine that isn't running
+anything, and the library count stops partitioning by a local binary. The **MLX** rows go quiet
+when the library holds no MLX models: a GGUF-only setup (most projects) has no use for them, and
+telling you to install a runtime you will never spawn is a chore, not a check.
 
 ```bash
 sb doctor
