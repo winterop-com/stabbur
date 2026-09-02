@@ -90,12 +90,14 @@ Then run `sb serve --ui`. Skip this if you only use the CLI.
 ### Set up this machine
 
 ```bash
-sb setup           # first-run: sets the library location + a default model, builds the UI
+sb setup           # first-run: library location, the voice + a starting model, the UI
 sb doctor          # or just check runtimes, library, and the current project
 ```
 
 `sb setup` is the write-mode companion to `sb doctor`: it persists per-machine
-defaults (see below), builds the browser UI if [Bun](https://bun.sh) is present, and
+defaults (see below), downloads the in-chat voice (Kokoro) and a small chat model so the
+install works immediately (`--no-download` to skip; `sb library sets` for more later),
+builds the browser UI if [Bun](https://bun.sh) is present, and
 prints an OS-specific hint for anything it can't install (the llama.cpp binary). It's
 safe to re-run. Prefer to do it by hand? Everything it writes is a `sb config` call.
 With no drive mounted, its fallback library location is the XDG data dir
