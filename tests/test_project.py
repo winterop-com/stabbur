@@ -514,3 +514,52 @@ def test_legacy_tool_config_warns_that_tools_moved(tmp_path: Path) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert project.load(p) is not None
+
+
+def test_the_example_manifest_is_a_valid_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The example must parse and load as a real manifest, uncommented in place.
+
+    It is documentation people copy from, so a stale key or a mis-scoped one teaches a setting
+    that silently does nothing. Every top-level option sits above the first table on purpose:
+    TOML binds a bare key to the table above it, so a `port` uncommented at the bottom of a file
+    would land inside the last `[[backends]]` entry and never reach Settings.
+    """
+    import tomllib
+
+    text = project.render_example_manifest()
+    live = text.replace("# port = 2222", "port = 2299").replace("# tool_timeout = 120.0", "tool_timeout = 45.0")
+    (tmp_path / "stabbur.toml").write_text(live)
+    monkeypatch.chdir(tmp_path)
+
+    parsed = tomllib.loads(live)
+    assert parsed["port"] == 2299  # top-level, not swallowed by a table
+    assert parsed["tool_timeout"] == 45.0
+    assert [b["name"] for b in parsed["backends"]] == ["gpu-box", "lab-rig", "attic"]
+
+    loaded = project.load()
+    assert loaded is not None
+    assert loaded.model == "publisher/some-model-GGUF"
+    assert loaded.libraries == ["library"]
+    assert loaded.voice_enabled is True
+
+
+def test_the_repo_example_file_matches_the_renderer() -> None:
+    # Two copies of the same documentation drift; the file in the repo is generated from the
+    # renderer that every scaffolded project also writes.
+    from stabbur.project import scaffold
+
+    root = scaffold.stabbur_repo_root()
+    if root is None:  # an installed stabbur has no checkout to check
+        return
+    assert (root / "stabbur.example.toml").read_text() == project.render_example_manifest()
+
+
+def test_every_documented_setting_is_a_real_settings_field() -> None:
+    """A commented option that Settings does not have is a lie the reader cannot detect."""
+    import re
+
+    from stabbur.config import Settings
+
+    documented = set(re.findall(r"^# ?([a-z_]+) = ", project.render_example_manifest(), flags=re.MULTILINE))
+    unknown = documented - set(Settings.model_fields) - {"name", "url"}  # name/url are backend keys
+    assert not unknown, f"documented but not a setting: {sorted(unknown)}"

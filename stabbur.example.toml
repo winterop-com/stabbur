@@ -1,0 +1,68 @@
+# stabbur.example.toml - every option a project manifest understands.
+# This file is documentation: stabbur never reads it. Copy what you need into stabbur.toml.
+#
+# TOML scoping matters here: a bare key belongs to the [table] above it, so every top-level
+# setting comes FIRST and the tables come last. Uncommenting `port` at the bottom of a file
+# would set it on whatever table precedes it, and do nothing at all.
+
+# --- libraries ---------------------------------------------------------------------------
+# Which libraries this project reads, in priority order (first match wins). Entries are paths
+# relative to THIS file; "@shared" is the machine default library (STABBUR_LIBRARY_ROOT).
+# A project scaffolded by `stabbur init` lists only its own store, so it travels intact.
+libraries = ["library"]          # add "@shared" to also read the machine library
+
+# --- serving ------------------------------------------------------------------------------
+# host = "127.0.0.1"             # bind address for `stabbur serve`
+# port = 2222
+# serve_ui = false               # serve the browser UI (same as `--ui`)
+# auth_token = ""                # require this bearer token on the API
+# cors_origins = []              # extra allowed origins (the Chrome extension needs its id)
+
+# --- runtime ------------------------------------------------------------------------------
+# default_max_tokens = 4096      # per-reply cap when a request does not say
+# tool_timeout = 120.0           # seconds a single MCP tool call may take
+# confirm_timeout = 300          # seconds a write-gated tool call waits for a human
+# runtime_load_timeout = 600     # seconds to wait for a model runtime to become ready
+# eager_mcp = false              # spawn MCP servers at startup instead of on first use
+
+# A single remote, unnamed - the short spelling of one [[backends]] entry below:
+# upstream = "http://gpu-box:8080/v1"
+
+# --- the assistant -----------------------------------------------------------------------
+[project]
+model = "publisher/some-model-GGUF"   # a model in one of the libraries above (`stabbur library ls`)
+system_prompt = "You are a concise, helpful assistant."
+chat_voice = "kokoro:af_heart"        # spoken replies; "model:voxcpm2" uses a TTS model instead
+
+# --- voice -------------------------------------------------------------------------------
+[voice]
+enabled = true                   # false hides the Voice surface entirely (a text-only assistant)
+
+# --- remote backends ----------------------------------------------------------------------
+# Run models somewhere else: each entry is an OpenAI-compatible /v1 server. stabbur's agent
+# loop, tools and UI stay local while the weights live on the other box. Declare as many as
+# you like; the name is how you pick one (`stabbur serve --upstream`, the backend picker).
+# A trailing "/v1" is optional - it is normalized away, so a host is one backend, not two.
+[[backends]]
+name = "gpu-box"
+url = "http://gpu-box:8080/v1"
+
+[[backends]]
+name = "lab-rig"
+url = "http://lab-rig:1234"
+
+[[backends]]
+name = "attic"
+url = "http://attic:9090"
+
+# An entry with no url renames the local library's implicit backend (default name: "local"):
+# [[backends]]
+# name = "this-mac"
+
+# Tools do NOT live here. They go in ./.mcp.json - the standard `mcpServers` JSON that Claude
+# Desktop, Claude Code and Cursor use, so a server's README snippet pastes straight in. Add one
+# with `stabbur mcp add <name>`; `stabbur mcp list` is the catalog. In a project that file is
+# the whole toolset: the machine-global one does not merge into it.
+#
+# UI clients may also read an [assistant] table (or [[assistants]] for several targets); it is
+# echoed to them verbatim and stabbur does not interpret it.

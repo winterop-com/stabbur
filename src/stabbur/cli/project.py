@@ -219,6 +219,10 @@ def _write_project(target: Path, choices: _WizardChoices, *, uv: bool, voices: b
         )
         (target / "README.md").write_text(scaffold.render_readme(target.resolve().name))
     scaffold.write_gitignore(target)
+    # The manifest carries what this project uses; the example carries everything it *could*.
+    # Shipped with every project because the alternative is reading the docs to discover that
+    # remote backends, a bind address, or a tool timeout are configurable at all.
+    (target / "stabbur.example.toml").write_text(project.render_example_manifest())
     if choices.template is not None:
         for rel, content in choices.template.files.items():
             dest = target / rel
@@ -232,6 +236,7 @@ def _print_scaffold_summary(proj: Path, choices: _WizardChoices, *, uv: bool, gi
     console.print(f"  [dim]model:[/] {choices.model or 'none yet'}")
     console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in choices.mcp) if choices.mcp else 'none'}")
     console.print(f"  [dim]voice:[/] {choices.chat_voice}")
+    console.print("  [dim]every option:[/] stabbur.example.toml")
     if uv:
         console.print("  [dim]uv:[/] pyproject.toml (run [bold]uv sync[/] to build the environment)")
     if git:

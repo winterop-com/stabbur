@@ -126,6 +126,8 @@ def test_init_creates_a_self_contained_project(monkeypatch: pytest.MonkeyPatch, 
     result = runner.invoke(cli.app, ["init", "hello", "--model", "unsloth/X-GGUF", "--no-uv"])
     assert result.exit_code == 0, result.output
 
+    # ...and the fully documented example lands beside it, for the options the manifest omits.
+    assert (tmp_path / "hello" / "stabbur.example.toml").is_file()
     parsed = tomllib.loads((tmp_path / "hello" / "stabbur.toml").read_text())
     assert parsed["project"]["model"] == "unsloth/X-GGUF"
     assert parsed["libraries"] == ["library"]  # its own, and only its own
