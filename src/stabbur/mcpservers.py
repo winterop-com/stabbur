@@ -190,21 +190,30 @@ def read_project(project_dir: Path | None = None) -> list[McpServer]:
 
 
 def resolve(project_dir: Path | None = None) -> list[McpServer]:
-    """Effective servers: global first, then project (a project name overrides a global one).
+    """The effective servers: a project's own, or the machine-global set outside a project.
 
-    A project ``.mcp.json`` can also **disable** a server by name (``"foo": null`` or
-    ``"foo": {"disabled": true}``): that drops a same-named global server from the result, so a project
-    can exclude an unwanted machine-global tool (e.g. a stray ``playwright``). A disabled *global* entry
-    is dropped outright — it never enters the merged set in the first place.
+    **A project is self-contained.** Its ``.mcp.json`` is the whole answer — the machine-global
+    file does not merge into it. The two used to combine, and the result was a project listing
+    three tools in its own file while the assistant answered with twenty-two: the manifest you
+    could read did not describe the assistant you got, and a project zipped up and moved somewhere
+    else quietly lost the tools it never mentioned.
+
+    Outside a project there is nothing to be self-contained about, so the global file is the set —
+    that is what free-play ``stabbur chat`` runs with.
+
+    A ``.mcp.json`` is what claims the scope — the same rule the rest of the ecosystem uses for
+    that file, and the same one ``project_path`` already follows. Present: it is the answer, whole.
+    Absent: the machine set applies. Deselecting every tool in ``stabbur configure`` writes an empty
+    file rather than deleting it, so "this project has no tools" stays sayable.
+
+    A ``.mcp.json`` can still **disable** an entry by name (``"foo": null`` or
+    ``"foo": {"disabled": true}``); a disabled entry never enters the result.
     """
+    if project_path(project_dir).is_file():
+        servers, _disabled = _parse_file(project_path(project_dir))
+        return servers
     global_servers, _global_disabled = _parse_file(global_path())  # disabled globals already excluded
-    project_servers, project_disabled = _parse_file(project_path(project_dir))
-    by_name: dict[str, McpServer] = {s.name: s for s in global_servers}
-    for name in project_disabled:  # a project disable removes a same-named global
-        by_name.pop(name, None)
-    for server in project_servers:
-        by_name[server.name] = server
-    return list(by_name.values())
+    return global_servers
 
 
 def _write_file(path: Path, data: dict[str, object]) -> None:
