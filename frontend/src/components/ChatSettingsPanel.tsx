@@ -728,7 +728,10 @@ export function ChatSettingsPanel({
           })()}
         </Section>
 
-        <Section title="Voice" description="Used by Listen on replies in this chat.">
+        <Section
+          title="Voice"
+          description="Used by Listen on replies in this chat. A model voice sounds better and costs a multi-GB load."
+        >
           <FieldLabel
             label="Voice"
             htmlFor="p-voice"
@@ -745,7 +748,10 @@ export function ChatSettingsPanel({
             <option value="">Default · {inheritedVoice}</option>
             {Object.entries(
               voices.reduce<Record<string, Voice[]>>((acc, v) => {
-                (acc[v.language || "Other"] ??= []).push(v);
+                // A model voice is a whole TTS model, not one of Kokoro's presets, so it belongs
+                // in its own group rather than filed under a language it may not even declare.
+                const group = v.engine === "kokoro" ? v.language || "Other" : "Model voices";
+                (acc[group] ??= []).push(v);
                 return acc;
               }, {}),
             ).map(([language, vs]) => (

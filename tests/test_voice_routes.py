@@ -299,6 +299,39 @@ async def test_oversized_instruct_is_413(client: AsyncClient, monkeypatch: pytes
     assert str(voice_router._MAX_INSTRUCT_CHARS) in r.json()["detail"]
 
 
+async def test_listen_can_speak_with_a_model_voice(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The Listen button posts to /api/speak whichever voice was picked; a `model:` id has to reach
+    # the mlx runtime rather than being handed to Kokoro as an unknown preset name (a 422).
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="tts", load_target=tmp_path / "tts-model")],
+    )
+
+    def fake_synthesize(model: Path, text: str, **kwargs: object) -> bytes:
+        seen.update(kwargs)
+        return b"RIFFfake"
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", fake_synthesize)
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "model:voxcpm2"})
+    assert r.status_code == 200
+    # Pinned: a stochastic model would otherwise speak every reply in a different voice.
+    assert seen["seed"] == voice_router._CHAT_VOICE_SEED
+
+
+async def test_listen_rejects_an_unknown_model_voice(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def never(*args: object, **kwargs: object) -> bytes:
+        raise AssertionError("synthesis must not start for an unknown voice")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", never)
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "model:not-a-model"})
+    assert r.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # /v1/audio/transcriptions
 # ---------------------------------------------------------------------------

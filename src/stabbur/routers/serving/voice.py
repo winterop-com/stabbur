@@ -97,22 +97,51 @@ class VoiceInfo(BaseModel):
     """A selectable voice for the Listen picker."""
 
     id: str
-    """Voice id: ``kokoro:<name>``."""
+    """Voice id: ``kokoro:<name>`` for a Kokoro preset, ``model:<registry id>`` for a TTS model."""
     label: str
-    engine: str  # "kokoro"
+    engine: str  # "kokoro", or the registry id of a library TTS model
     language: str = ""
     gender: str = ""
 
 
+# Prefix marking a Listen voice that is a whole TTS model rather than a Kokoro preset.
+_MODEL_VOICE = "model:"
+
+# The seed a model voice speaks replies with. A stochastic model (Spark, VoxCPM2) samples a fresh
+# speaker per run, so replies would arrive in a different voice each time — which is a novelty in
+# the studio and a defect in a conversation. Pinned here, not exposed: choosing a *specific* voice
+# is what the Voice studio is for.
+_CHAT_VOICE_SEED = 10
+
+
 @router.get("/api/voices")
 def voices() -> list[VoiceInfo]:
-    """Every available Listen voice: Kokoro's 54 built-ins (empty if the engine is missing)."""
-    if not kokoro.available():
-        return []
-    return [
+    """Every available Listen voice: Kokoro's built-ins, plus any TTS model in the library.
+
+    A model voice is heavier than a Kokoro preset (a multi-GB load beside the chat model), so it is
+    offered, never defaulted — Kokoro stays the voice a chat gets when it picks none.
+    """
+    out = [
         VoiceInfo(id=f"kokoro:{v.id}", label=v.name, engine="kokoro", language=v.language, gender=v.gender)
-        for v in kokoro.voices()
+        for v in (kokoro.voices() if kokoro.available() else [])
     ]
+    seen: set[str] = set()
+    for m in library_ops.scan():
+        spec = voice_registry.by_repo(m.name)
+        if spec is None or spec.kind is not voice_registry.VoiceKind.tts or spec.id in seen:
+            continue
+        if not spec.supported or spec.backend is Backend.kokoro_onnx:  # Kokoro is already listed, by voice
+            continue
+        seen.add(spec.id)
+        out.append(
+            VoiceInfo(
+                id=f"{_MODEL_VOICE}{spec.id}",
+                label=spec.display_name,
+                engine=spec.id,
+                language=spec.languages[0] if spec.languages else "",
+            )
+        )
+    return out
 
 
 # Request-size caps. Voice requests carry the only large payloads in stabbur's API, and an
@@ -173,18 +202,38 @@ class SpeakRequest(BaseModel):
     speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
 
 
+async def _model_voice_wav(voice_id: str, text: str, speed: float) -> bytes:
+    """Speak ``text`` with a library TTS model chosen as the Listen voice (``model:<id>``)."""
+    spec = voice_registry.get(voice_id.removeprefix(_MODEL_VOICE))
+    if spec is None or spec.kind is not voice_registry.VoiceKind.tts or not spec.supported:
+        raise HTTPException(status_code=422, detail=f"unknown Listen voice {voice_id!r}")
+    if not voice_runtime.available():
+        raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
+    model = await asyncio.to_thread(_voice_library_model, spec.repo, kind="tts")
+    params: dict[str, Any] = {"seed": _CHAT_VOICE_SEED} if spec.seedable else {}
+    if speed != 1.0 and spec.honors_speed:
+        params["speed"] = speed
+    try:
+        return await asyncio.to_thread(_synthesize_mlx, model.load_target, text, None, None, None, params)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/api/speak")
 async def speak(req: SpeakRequest) -> Response:
-    """Text-to-speech: synthesize ``text`` to a WAV via Kokoro (the in-chat Listen engine).
+    """Text-to-speech: synthesize ``text`` to a WAV for the chat's Listen button.
 
-    Markdown is reduced to prose first (so syntax/code aren't read aloud). Blocking
-    synthesis runs in a worker thread; returns ``audio/wav`` bytes. 503 if the engine
-    is unavailable. Other voice models speak through the OpenAI ``/v1/audio/speech``
-    route, which knows the full registry.
+    Kokoro (``kokoro:<name>``, the default) is the lightweight engine; a ``model:<id>`` voice
+    speaks with a library TTS model through the mlx-audio runtime instead — same route, so the
+    Listen button doesn't have to know which engine it picked. Markdown is reduced to prose first
+    (so syntax/code aren't read aloud) and blocking synthesis runs in a worker thread.
     """
     text = _validated_text(req.text)
     speed = _validated_speed(req.speed)
-    data = await _kokoro_wav(text, req.voice, speed)
+    if req.voice and req.voice.startswith(_MODEL_VOICE):
+        data = await _model_voice_wav(req.voice, text, speed)
+    else:
+        data = await _kokoro_wav(text, req.voice, speed)
     return Response(content=data, media_type="audio/wav")
 
 
