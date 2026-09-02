@@ -44,12 +44,34 @@ class VoiceModelInfo(BaseModel):
 
 @router.get("/api/voice")
 def voice_models() -> list[VoiceModelInfo]:
-    """List library voice (TTS/STT) models for the Voice UI, enriched from the registry.
+    """List the voice models available here, enriched from the registry.
+
+    Kokoro leads the list whenever its assets are present, even though it is not a *library
+    model*: it is the built-in engine, its weights live at ``<library>/tts/kokoro`` rather than as
+    a repo, and a scan that only reports repos hid the one voice every install can use. In a
+    project that meant a Voice studio saying "1 model" while the assistant spoke with Kokoro on
+    the next screen.
 
     Sync (``def``) so the filesystem scan runs in a worker thread, off the loop.
     """
     out: list[VoiceModelInfo] = []
     seen: set[str] = set()
+    kokoro_spec = voice_registry.chat_voice()
+    if kokoro.available() and kokoro.assets_present():
+        seen.add(kokoro_spec.repo)
+        out.append(
+            VoiceModelInfo(
+                name=kokoro_spec.repo,
+                kind=kokoro_spec.kind.value,
+                backend=kokoro_spec.backend.value,
+                display_name=kokoro_spec.display_name,
+                description=kokoro_spec.description,
+                size_human=kokoro_spec.size_hint,
+                voices=[v.id for v in kokoro.voices()],
+                languages=list(kokoro_spec.languages),
+                chat_default=True,
+            )
+        )
     for m in library_ops.scan():
         spec = voice_registry.by_repo(m.name)
         if not m.voice_kind or m.name in seen:

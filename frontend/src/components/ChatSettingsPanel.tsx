@@ -754,7 +754,11 @@ export function ChatSettingsPanel({
                 (acc[group] ??= []).push(v);
                 return acc;
               }, {}),
-            ).map(([language, vs]) => (
+            )
+              // Model voices first: there are a handful of them and 54 Kokoro presets, so appended
+              // last they sat below a screenful of scrolling and read as missing entirely.
+              .sort(([a], [b]) => Number(b === "Model voices") - Number(a === "Model voices"))
+              .map(([language, vs]) => (
               <optgroup key={language} label={language}>
                 {vs.map((v) => (
                   <option key={v.id} value={v.id}>
