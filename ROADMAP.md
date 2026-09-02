@@ -194,7 +194,7 @@ Open decisions, in the order they block things:
 
   Note `[[backends]]` in `stabbur.toml` puts a machine-specific URL in the file whose point is
   being portable. The machine config is the honest home for a host like `gpu-box`; the project file
-  is right only when a team shares the host. It should not go in the `project init` scaffold.
+  is right only when a team shares the host. It should not go in the `stabbur init` scaffold.
 - **Decided: "loaded" stays singular** — one model this stabbur is currently pointed at.
   Backends may independently hold things resident (a remote router always does); stabbur tracks
   one selection, `/api/status` keeps one answer, and `/v1` keeps one proxy target.

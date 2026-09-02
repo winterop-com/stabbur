@@ -80,7 +80,9 @@ Two distinct, composable concepts (see `stabbur.library.roots`):
   project, just the default library is used. The manifest is found by **walking up** from the cwd
   (`project.discover`; stops at home, at a mount boundary, never searches `/`), so every
   project-relative path — `libraries`, `.mcp.json` — resolves against the *manifest's* directory,
-  never the cwd. `project init` still scaffolds where you stand, warning when that nests.
+  never the cwd. `stabbur init <dir>` creates a **new** directory (refusing an existing one without
+`--force`) and downloads the model and voices into the project's own `library/`, so the manifest
+lists that store alone and the directory travels intact; `stabbur configure` edits it afterwards.
 
 `library.scan()` reads across the resolved libraries (first match wins); each model
 records its `library_root` so tags read/write against the right library. All **portable

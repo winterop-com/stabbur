@@ -60,6 +60,8 @@ nav:
       - Benchmark report: guides/dhis2-benchmark-report.md
   - Reference:
       - CLI reference: cli.md
+      - Browser session auth: guides/browser-session-auth.md
+      - WebMCP assessment: guides/webmcp-assessment.md
       - Model catalog (validated): guides/model-catalog.md
       - Benchmark leaderboard: benchmarks.md
   - Architecture: architecture.md
