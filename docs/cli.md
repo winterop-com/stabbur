@@ -359,6 +359,11 @@ the one a running `sb serve` has loaded, or — on the CLI, where there is no ru
 ask — the default that would load. Everything else (runtimes, library, project, tools)
 is indented under a group row, and `/api/doctor` sends the same tree to the web UI.
 
+With an upstream, the **local runtime rows go quiet**: models run on the remote, so a missing
+`llama-server` or `mlx_vlm.server` here is a fact about a machine that isn't running anything,
+and the library count stops partitioning by a local binary. What matters in that mode is the
+Backend row, which is exactly what the report leads with.
+
 ```bash
 sb doctor
 STABBUR_UPSTREAM=http://gpu-box:8080 sb doctor  # also check the remote backend

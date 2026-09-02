@@ -127,20 +127,23 @@ class DoctorReport(BaseModel):
         return CheckStatus.ok
 
 
-def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = True) -> Check:
+def _runtime_check(
+    name: str, binary: str, *, required: bool, relevant: bool = True, why: str = "not applicable on this platform"
+) -> Check:
     """Check that a runtime binary is on PATH.
 
     Args:
         name: Human label for the check.
         binary: Executable to look for.
         required: If missing, ``fail`` (a needed runtime) vs ``warn`` (optional).
-        relevant: If false (e.g. MLX off Apple Silicon), report ``ok`` as N/A.
+        relevant: If false (e.g. MLX off Apple Silicon), report ``ok`` and say why.
+        why: What to show when it isn't relevant.
     """
     path = runtime.resolve_binary(binary)
     if path is not None:
         return Check(name=name, status=CheckStatus.ok, detail=path, group=RUNTIMES_GROUP)
     if not relevant:
-        return Check(name=name, status=CheckStatus.ok, detail="not applicable on this platform", group=RUNTIMES_GROUP)
+        return Check(name=name, status=CheckStatus.ok, detail=why, group=RUNTIMES_GROUP)
     return Check(
         name=name,
         status=CheckStatus.fail if required else CheckStatus.warn,
@@ -150,7 +153,7 @@ def _runtime_check(name: str, binary: str, *, required: bool, relevant: bool = T
     )
 
 
-def check_runtimes() -> list[Check]:
+def check_runtimes(*, upstream: bool = False) -> list[Check]:
     """Check the model-runtime binaries stabbur spawns, under one collapsible parent.
 
     The parent's detail is the OS/arch that used to be a top-level ``Platform`` row of its own.
@@ -158,15 +161,25 @@ def check_runtimes() -> list[Check]:
     means nothing without it, and nothing else in the report reads differently on Linux — so as the
     heading of the group it explains it is stated once, in the one place it is needed, and costs no
     row at the top level.
+
+    ``upstream`` (``serve --upstream``) makes every one of them irrelevant: models run on the
+    remote and stabbur spawns nothing here, so a missing local binary is a fact about a machine
+    that isn't running the model. Reporting it as a warning sends people to install runtimes they
+    will never use, and buries the one row that does matter — whether the remote is reachable.
     """
-    mlx_relevant = host.is_apple_silicon()
+    mlx_relevant = host.is_apple_silicon() and not upstream
+    remote = "not used — models run on the upstream"
     return [
-        Check(name=RUNTIMES_GROUP, status=CheckStatus.ok, detail=host.os_label()),
-        # GGUF is the cross-platform backbone; without llama-server nothing GGUF runs.
-        _runtime_check("llama.cpp (GGUF)", "llama-server", required=True),
+        Check(
+            name=RUNTIMES_GROUP,
+            status=CheckStatus.ok,
+            detail=f"{host.os_label()} · upstream" if upstream else host.os_label(),
+        ),
+        # GGUF is the cross-platform backbone; without llama-server nothing GGUF runs *locally*.
+        _runtime_check("llama.cpp (GGUF)", "llama-server", required=True, relevant=not upstream, why=remote),
         # MLX runtimes are optional and Apple-Silicon-only.
-        _runtime_check("MLX text (mlx-lm)", "mlx_lm.server", required=False, relevant=mlx_relevant),
-        _runtime_check("MLX vision (mlx-vlm)", "mlx_vlm.server", required=False, relevant=mlx_relevant),
+        _runtime_check("MLX text (mlx-lm)", "mlx_lm.server", required=False, relevant=mlx_relevant, why=remote),
+        _runtime_check("MLX vision (mlx-vlm)", "mlx_vlm.server", required=False, relevant=mlx_relevant, why=remote),
     ]
 
 
@@ -325,7 +338,11 @@ def check_library(settings: Settings) -> list[Check]:
     # thing a pre-flight exists to catch. So each model's format is crossed against the binary it
     # would actually spawn (see runtime.runtime_binary), and only the ones with that binary
     # present are counted.
-    runnable, blocked = _partition_by_runtime(models)
+    # Under `--upstream` the local runtimes never spawn, so "runnable on this machine" is not the
+    # question being asked — the models on the drive are inventory, and what runs them lives
+    # elsewhere. Partitioning by a local binary there warns about a limit that does not exist.
+    upstream = bool((settings.upstream or "").strip())
+    runnable, blocked = (models, {}) if upstream else _partition_by_runtime(models)
     by_format: dict[str, int] = {}
     for m in runnable:
         by_format[m.model_format.value] = by_format.get(m.model_format.value, 0) + 1
@@ -531,7 +548,7 @@ def run_checks(settings: Settings | None = None, loaded: LoadedModel | None = No
     checks = [
         *backend.checks,
         *check_model(conf, loaded=loaded, resident=backend.resident),
-        *check_runtimes(),
+        *check_runtimes(upstream=bool((conf.upstream or "").strip())),
         *check_library(conf),
         *check_project(conf),
     ]
