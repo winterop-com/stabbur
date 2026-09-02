@@ -154,6 +154,30 @@ def test_runnable_models_counts_the_ones_that_can_run_and_flags_the_rest(
     assert models.detail == "1 of 2 (1 gguf)"
 
 
+def test_mlx_rows_are_quiet_when_no_mlx_models_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A library with no MLX models does not need the MLX runtimes.
+
+    Warning about them there is a chore invented for a format the user does not use — most
+    visibly inside a project, whose environment holds only what its own models require.
+    """
+    _installed(monkeypatch, "llama-server")
+    monkeypatch.setattr(doctor.host, "is_apple_silicon", lambda: True)  # the rows exist at all only there
+    checks = {c.name: c for c in doctor.check_runtimes(mlx_needed=False)}
+    assert checks["MLX text (mlx-lm)"].status is doctor.CheckStatus.ok
+    assert "not needed" in checks["MLX text (mlx-lm)"].detail
+    assert checks["MLX text (mlx-lm)"].hint is None  # no install instructions for a runtime nothing wants
+
+
+def test_mlx_rows_warn_once_an_mlx_model_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The other half: with an MLX model in the library the runtime really is missing, and a model
+    # that cannot start is what the pre-flight exists to catch.
+    _installed(monkeypatch, "llama-server")
+    monkeypatch.setattr(doctor.host, "is_apple_silicon", lambda: True)  # CI runs on Linux, where MLX is N/A
+    checks = {c.name: c for c in doctor.check_runtimes(mlx_needed=True)}
+    assert checks["MLX text (mlx-lm)"].status is doctor.CheckStatus.warn
+    assert checks["MLX text (mlx-lm)"].hint  # ...and says how to install it
+
+
 def test_upstream_makes_the_local_runtimes_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
     # Under `serve --upstream` stabbur spawns nothing here, so a missing local binary is a fact
     # about a machine that isn't running the model. Warning about it sends people to install

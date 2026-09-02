@@ -992,8 +992,9 @@ def test_a_project_beats_a_configured_chat_server(tmp_path: Path, monkeypatch: p
     result = runner.invoke(cli.app, ["chat", "-p", "hi", "--no-tools"])
     assert result.exit_code == 0, result.output
     assert captured["base_url"] is None  # the project's own model, loaded locally
-    # ...and it says so on stderr rather than silently (a piped one-shot stays clean).
-    assert "ignoring the configured server" in result.stderr
+    # Silently: running the project's model in its own project is the expected case, and a note
+    # about a setting the project never mentions is noise on every run.
+    assert "msai" not in result.output and "ignoring" not in result.output
 
 
 def test_an_explicit_server_still_wins_inside_a_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1591,7 +1592,7 @@ def test_doctor_table_does_not_let_rich_eat_an_install_hint(
     )
     health._print_doctor_table(report)
     out = capsys.readouterr().out
-    assert '".[mlx]"' in out  # the extra survives, so the printed command actually installs it
+    assert "'.[mlx]'" in out  # the extra survives, so the printed command actually installs it
 
 
 # --- `stabbur chat` with tools: which servers get spawned, and what a failure says --------------------

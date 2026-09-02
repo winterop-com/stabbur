@@ -329,6 +329,32 @@ async def test_oversized_instruct_is_413(client: AsyncClient, monkeypatch: pytes
     assert str(voice_router._MAX_INSTRUCT_CHARS) in r.json()["detail"]
 
 
+async def test_kokoro_is_listed_even_though_it_is_not_a_library_model(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The built-in voice must appear in the Voice studio, assets or not being a repo.
+
+    Kokoro's weights live at `<library>/tts/kokoro`, not as a library repo, so a listing built
+    only from the library scan omitted it — a project showed "1 model" in the Voice studio while
+    the assistant on the next screen was speaking with Kokoro.
+    """
+    monkeypatch.setattr("stabbur.routers.serving.voice.library_ops.scan", lambda *a, **k: [])
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.assets_present", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.voices", lambda: [SimpleNamespace(id="af_heart")])
+    rows = (await client.get("/api/voice")).json()
+    assert [r["display_name"] for r in rows] == ["Kokoro-82M"]
+    assert rows[0]["chat_default"] is True and rows[0]["voices"] == ["af_heart"]
+
+
+async def test_kokoro_is_not_listed_without_its_assets(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Listing a voice that cannot speak yet would offer a Generate button that fails.
+    monkeypatch.setattr("stabbur.routers.serving.voice.library_ops.scan", lambda *a, **k: [])
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.assets_present", lambda: False)
+    assert (await client.get("/api/voice")).json() == []
+
+
 async def test_listen_can_speak_with_a_model_voice(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

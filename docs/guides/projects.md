@@ -50,7 +50,8 @@ What lands there is a working package, not just weights: the chat model, the in-
 
 A project also overrides the machine's `chat_server`: inside it, `sb chat` runs the project's own
 model instead of attaching to a configured remote. Otherwise a freshly scaffolded project would
-talk to someone else's build of the model it had just downloaded.
+talk to someone else's build of the model it had just downloaded. `--server` still attaches when
+you ask for it.
 
 ## Changing it later
 
