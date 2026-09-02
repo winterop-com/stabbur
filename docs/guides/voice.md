@@ -104,6 +104,10 @@ Non-WAV formats are transcoded with **ffmpeg** (WAV passes through untouched).
   unlucky seed can drone instead of speak. The UI defaults to a known-good seed; the
   CLI takes `--seed`. A seed is only reproducible against the installed mlx version:
   an MLX upgrade re-maps seeds to voices, so a seed you liked may not survive one.
+- **VoxCPM2 has a house voice.** It ships no named voices, so an unadorned request would invent a
+  new speaker each time. The registry pins a description + seed (chosen by ear), and that is what
+  you get from `sb voice speak --model voxcpm2`, `/v1/audio/speech`, and Listen. `--instruct` /
+  `--seed` (or the studio's fields) override it.
 - **A description alone does not fix the voice.** Voice design samples a fresh speaker each run,
   so the same words give a different person every time — but the seed pins it: same description +
   same seed is byte-identical audio. Roll the seed until you like the speaker, then keep it (with

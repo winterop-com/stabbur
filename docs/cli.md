@@ -19,13 +19,18 @@ inside: the model (downloaded into `<path>/library/`), the system prompt, the to
 directory, move it to another machine, and it still runs.
 
 An interactive wizard (a Textual TUI) walks the choices: kind, model, tools (space to toggle),
-system prompt, spoken-reply voice. With no terminal — a pipe, a script, CI — pass `--model`
-instead and it scaffolds without the TUI.
+system prompt. With no terminal — a pipe, a script, CI — pass `--model` instead and it scaffolds
+without the TUI.
+
+It downloads a working package, not just weights: the chat model, the in-chat voice (Kokoro) and
+the good one (VoxCPM2) — a few GB more, and the project can speak out of the box. A **Voice**
+project also gets speech-to-text, so the mic works. `--no-voices` skips them.
 
 ```bash
 sb init mybot                                  # the wizard, then a fresh download into mybot/
 sb init mybot --model unsloth/Qwen3.5-4B-GGUF  # skip the wizard's model step
 sb init mybot --git                            # also: git init + a .gitignore (excludes library/ + .env)
+sb init mybot --no-voices                      # text only: skip Kokoro + VoxCPM2
 sb init mybot --no-uv                          # no pyproject.toml (use a global stabbur instead)
 sb init mybot --template dhis2                 # a preset assistant (model + prompt + bridge + files)
 ```

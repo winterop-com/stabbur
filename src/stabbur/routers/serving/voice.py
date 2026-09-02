@@ -105,10 +105,10 @@ class VoiceInfo(BaseModel):
 # Prefix marking a Listen voice that is a whole TTS model rather than a Kokoro preset.
 _MODEL_VOICE = "model:"
 
-# The seed a model voice speaks replies with. A stochastic model (VoxCPM2) samples a fresh
-# speaker per run, so replies would arrive in a different voice each time — which is a novelty in
-# the studio and a defect in a conversation. Pinned here, not exposed: choosing a *specific* voice
-# is what the Voice studio is for.
+# A stochastic model samples a fresh speaker per run, so replies would arrive in a different voice
+# each time — a novelty in the studio and a defect in a conversation. The registry's house voice
+# (``default_instruct`` + ``default_seed``) pins it; this is the fallback for a seedable model
+# that declares no default of its own.
 _CHAT_VOICE_SEED = 10
 
 
@@ -208,7 +208,9 @@ async def _model_voice_wav(voice_id: str, text: str, speed: float) -> bytes:
     if not voice_runtime.available():
         raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
     model = await asyncio.to_thread(_voice_library_model, spec.repo, kind="tts")
-    params: dict[str, Any] = {"seed": _CHAT_VOICE_SEED} if spec.seedable else {}
+    params: dict[str, Any] = {"seed": spec.default_seed or _CHAT_VOICE_SEED} if spec.seedable else {}
+    if spec.default_instruct and spec.voice_mode is voice_registry.VoiceMode.design:
+        params["instruct"] = spec.default_instruct
     if speed != 1.0 and spec.honors_speed:
         params["speed"] = speed
     try:
@@ -333,11 +335,17 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
                 os.close(fd)
                 ref_path = Path(tmp_name)
                 await asyncio.to_thread(_write_ref_clip, ref_path, req.ref_audio_b64)
-            params: dict[str, Any] = {"seed": req.seed} if req.seed is not None else {}
+            # The house voice fills in what wasn't asked for: without it a design model answers an
+            # unadorned request as a different person every time.
+            seed = req.seed if req.seed is not None else (spec.default_seed if spec.seedable else None)
+            params: dict[str, Any] = {"seed": seed} if seed is not None else {}
             if speed != 1.0 and spec.honors_speed:
                 params["speed"] = speed  # only where it does something (see VoiceModel.honors_speed)
-            if req.instruct:
-                params["instruct"] = req.instruct  # voice design (checked above to be this model's mode)
+            instruct = req.instruct or (
+                spec.default_instruct if spec.voice_mode is voice_registry.VoiceMode.design else ""
+            )
+            if instruct:
+                params["instruct"] = instruct  # voice design (checked above to be this model's mode)
             data = await asyncio.to_thread(
                 _synthesize_mlx, model.load_target, text, req.voice, ref_path, req.ref_text, params
             )

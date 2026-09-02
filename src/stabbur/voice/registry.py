@@ -67,6 +67,11 @@ class VoiceModel(BaseModel):
     # voice-design model samples a fresh voice per run and MLX's RNG pins it just as well. Tie the
     # seed control to this flag, never to the mode.
     seedable: bool = False
+    # The house voice for a model with no named presets: a description and the seed that pins it.
+    # Without these a design model greets every caller as a different stranger, which is a fine
+    # demo and a poor default. Overridden by an explicit --instruct / --seed.
+    default_instruct: str = ""
+    default_seed: int | None = None
     # Whether the model actually renders at a requested speed. mlx-audio forwards ``speed`` to
     # every model and the ones that don't implement it swallow it silently, so a slider tied to
     # nothing looks broken rather than absent — measured, not assumed (VoxCPM2 ignores it).
@@ -156,6 +161,11 @@ BUILTIN: tuple[VoiceModel, ...] = (
         voice_mode=VoiceMode.design,
         cloneable=True,
         seedable=True,  # a pinned seed reproduces a designed voice byte-for-byte
+        # Chosen by ear from a set of candidates, not by theory: the pair is only meaningful
+        # together (the description shapes the voice, the seed picks which one you get), and it
+        # holds only for the installed MLX version — the seed→voice mapping moves with an upgrade.
+        default_instruct="A bright, articulate voice, professional and easy to listen to.",
+        default_seed=31,
         honors_speed=False,  # it renders at its own pace; a speed request changes nothing
         # 30 languages upstream; only these are named in the model card, so only these are
         # claimed here (a listing that guesses is worse than one that is short).

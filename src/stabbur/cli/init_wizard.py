@@ -7,6 +7,10 @@ already ships a Textual TUI for chat; the scaffolder gets the same treatment: on
 keys, a real checkbox list for tools, and everything visible at once so a choice can be revised
 before anything is written.
 
+There is no "which Kokoro voice" field: which voice speaks a reply is a click in the UI, not a
+property of the assistant, and asking for it here made the project look like it owned a choice it
+does not. The manifest still carries a default so a fresh project can speak immediately.
+
 Nothing here touches the disk. The wizard returns the choices and the caller scaffolds, so
 quitting (escape, ctrl+c) leaves no half-made project behind.
 """
@@ -41,7 +45,8 @@ class WizardResult(NamedTuple):
     model: str
     mcp: list[tuple[str, str]]
     system_prompt: str
-    chat_voice: str
+    voice: bool
+    """A voice project: it gets speech-to-text as well, so the mic half of "mic in" exists."""
 
 
 class InitWizard(App[WizardResult | None]):
@@ -54,7 +59,7 @@ class InitWizard(App[WizardResult | None]):
     .hint { color: $text-muted; }
     #models { height: auto; max-height: 12; border: round $panel-lighten-2; }
     #tools { height: auto; max-height: 10; border: round $panel-lighten-2; }
-    #prompt, #voice { border: round $panel-lighten-2; }
+    #prompt { border: round $panel-lighten-2; }
     #actions { height: auto; margin-top: 1; }
     #actions Button { margin-right: 2; }
     """
@@ -77,7 +82,7 @@ class InitWizard(App[WizardResult | None]):
             yield Label("Kind", classes="section")
             with RadioSet(id="kind"):
                 yield RadioButton("Chat — text conversation (replies can still be spoken)", value=True, id="kind-chat")
-                yield RadioButton("Voice — mic dictation in, spoken replies out", id="kind-voice")
+                yield RadioButton("Voice — adds speech-to-text, so the mic works too", id="kind-voice")
 
             yield Label("Model — downloaded into this project", classes="section")
             yield OptionList(*(f"{m.name}  ({m.detail})" for m in self._models), id="models")
@@ -92,9 +97,6 @@ class InitWizard(App[WizardResult | None]):
 
             yield Label("System prompt", classes="section")
             yield Input(value=CHAT_PROMPT, id="prompt")
-
-            yield Label("Spoken-reply voice", classes="section")
-            yield Input(value=DEFAULT_VOICE, id="voice")
         with Horizontal(id="actions"):
             yield Button("Create project", variant="primary", id="create")
             yield Button("Cancel", id="cancel")
@@ -142,7 +144,7 @@ class InitWizard(App[WizardResult | None]):
                 model=self._models[index].name,
                 mcp=picked,
                 system_prompt=self.query_one("#prompt", Input).value.strip() or CHAT_PROMPT,
-                chat_voice=self.query_one("#voice", Input).value.strip() or DEFAULT_VOICE,
+                voice=bool(self.query_one("#kind-voice", RadioButton).value),
             )
         )
 

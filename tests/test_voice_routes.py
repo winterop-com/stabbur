@@ -270,6 +270,36 @@ async def test_speed_is_withheld_from_a_model_that_ignores_it(
     assert "speed" not in seen  # VoxCPM2 renders at its own pace
 
 
+async def test_the_house_voice_is_used_when_nothing_is_asked_for(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A bare request to a design model must not be a lottery: the registry's default description
+    # and seed are sent, so the same request twice is the same speaker twice.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="tts", load_target=tmp_path / "tts-model")],
+    )
+
+    def fake_synthesize(model: Path, text: str, **kwargs: object) -> bytes:
+        seen.update(kwargs)
+        return b"RIFFfake"
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", fake_synthesize)
+    spec = voice_router.voice_registry.get("voxcpm2")
+    assert spec is not None
+    r = await client.post("/v1/audio/speech", json={"model": "voxcpm2", "input": "hello"})
+    assert r.status_code == 200
+    assert seen["instruct"] == spec.default_instruct
+    assert seen["seed"] == spec.default_seed
+
+    # ...and an explicit description still wins.
+    r = await client.post("/v1/audio/speech", json={"model": "voxcpm2", "input": "hi", "instruct": "a gruff sailor"})
+    assert r.status_code == 200
+    assert seen["instruct"] == "a gruff sailor"
+
+
 async def test_instruct_on_a_non_design_model_is_422(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # The runtime hands unknown params straight to the model's generate(), where one it doesn't
     # accept is a TypeError (a 502 after a multi-second load). Reject the mismatch upfront.
@@ -318,8 +348,12 @@ async def test_listen_can_speak_with_a_model_voice(
     monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", fake_synthesize)
     r = await client.post("/api/speak", json={"text": "hello", "voice": "model:voxcpm2"})
     assert r.status_code == 200
-    # Pinned: a stochastic model would otherwise speak every reply in a different voice.
-    assert seen["seed"] == voice_router._CHAT_VOICE_SEED
+    # Pinned to the model's house voice: a stochastic model would otherwise speak every reply in a
+    # different voice. (_CHAT_VOICE_SEED is the fallback for a seedable model that declares none.)
+    spec = voice_router.voice_registry.get("voxcpm2")
+    assert spec is not None
+    assert seen["seed"] == spec.default_seed
+    assert seen["instruct"] == spec.default_instruct
 
 
 async def test_listen_rejects_an_unknown_model_voice(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
