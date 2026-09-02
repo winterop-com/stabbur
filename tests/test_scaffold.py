@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from stabbur import project
 from stabbur.project import AssistantInfo, scaffold
 from stabbur.project.templates import TEMPLATES
@@ -40,9 +42,43 @@ def test_render_pyproject_pins_stabbur_and_mcp_deps() -> None:
         "My Project!", mcp=[("bridge", "uvx dhis2w-mcp-bridge")], mlx=True, extras=["voice"]
     )
     assert 'name = "my-project"' in text  # sanitized package name
-    assert '"stabbur[mlx,voice]"' in text  # extras merged + sorted, mlx added
+    assert '"stabbur[mlx,voice]>=' in text  # extras merged + sorted, mlx added, version floored
     assert '"dhis2w-mcp-bridge"' in text  # the uvx server pinned
-    assert "[tool.uv.sources]" in text and "editable = true" in text  # local stabbur checkout pinned
+
+
+def test_render_pyproject_omits_the_path_source_for_an_installed_stabbur(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A published stabbur must be a plain PyPI dependency, with no path source at all.
+
+    The scaffold used to pin `{ path = <two levels above the package> }`, which is site-packages
+    for an installed stabbur and `src/` for a checkout — neither is a Python project, so every
+    scaffolded project died on `uv sync` with "does not appear to be a Python project".
+    """
+    monkeypatch.setattr(scaffold, "stabbur_repo_root", lambda: None)
+    text = scaffold.render_pyproject("p", mcp=[], mlx=False)
+    assert "[tool.uv.sources]" not in text
+    assert "path =" not in text
+    assert '"stabbur>=' in text
+
+
+def test_render_pyproject_pins_a_real_checkout_as_an_editable_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Scaffolding from a checkout still tracks it: that is a stabbur developer's project.
+    monkeypatch.setattr(scaffold, "stabbur_repo_root", lambda: tmp_path)
+    text = scaffold.render_pyproject("p", mcp=[], mlx=False)
+    assert "[tool.uv.sources]" in text and "editable = true" in text
+    assert str(tmp_path) in text
+
+
+def test_stabbur_repo_root_finds_the_checkout_by_its_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Walking up for stabbur's own pyproject, not counting parents: this file lives in a checkout,
+    # and the root it reports must be the directory that manifest is in.
+    root = scaffold.stabbur_repo_root()
+    assert root is not None
+    assert (root / "pyproject.toml").is_file()
+    assert 'name = "stabbur"' in (root / "pyproject.toml").read_text()
 
 
 def test_add_pyproject_dep_inserts_and_is_idempotent(tmp_path: Path) -> None:

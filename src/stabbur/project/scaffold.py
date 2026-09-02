@@ -22,9 +22,19 @@ from stabbur.library import LibraryModel
 LOCAL_LIBRARY = "library"
 
 
-def stabbur_repo_root() -> Path:
-    """The stabbur source checkout (repo root), for pinning stabbur in a project's pyproject."""
-    return Path(__file__).resolve().parents[2]
+def stabbur_repo_root() -> Path | None:
+    """The stabbur source checkout this code is running from, or ``None`` for an installed copy.
+
+    Found by walking up for stabbur's own ``pyproject.toml`` rather than counting parents: the
+    old fixed ``parents[2]`` named ``site-packages`` for an installed stabbur and ``src/`` for a
+    checkout — neither is a project, so every scaffolded project failed on ``uv sync`` with "does
+    not appear to be a Python project". A published stabbur has no checkout and returns ``None``.
+    """
+    for root in Path(__file__).resolve().parents[:4]:
+        manifest = root / "pyproject.toml"
+        if manifest.is_file() and 'name = "stabbur"' in manifest.read_text(encoding="utf-8", errors="ignore"):
+            return root
+    return None
 
 
 def strip_uvx(command: str) -> str:
@@ -97,19 +107,33 @@ def add_pyproject_dep(path: Path, pkg: str) -> bool:
 def render_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: list[str] | None = None) -> str:
     """Render a project ``pyproject.toml`` that makes the project a self-contained uv project.
 
-    Pins ``stabbur`` (a local path source until stabbur is on PyPI) plus any pip-installable MCP
-    servers, so ``uv run stabbur serve`` uses this project's own environment — no global stabbur,
-    no runtime ``uvx`` fetches. ``extras`` are stabbur extras the project needs (e.g. ``voice``,
-    ``web``); ``mlx`` adds the MLX runtime extra when the bound model is MLX.
+    Pins ``stabbur`` from PyPI (at least the version doing the scaffolding) plus any
+    pip-installable MCP servers, so ``uv run stabbur serve`` uses this project's own environment —
+    no global stabbur, no runtime ``uvx`` fetches. ``extras`` are stabbur extras the project needs
+    (e.g. ``voice``, ``web``); ``mlx`` adds the MLX runtime extra when the bound model is MLX.
+
+    Scaffolding *from a source checkout* additionally pins that checkout as an editable source, so
+    a stabbur developer's project tracks their working copy. An installed stabbur emits no source
+    pin at all: there is no checkout to point at.
     """
     pkg_name = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-._") or "stabbur-project"
     all_extras: set[str] = set(extras or [])
     if mlx:
         all_extras.add("mlx")
     extras_spec = f"[{','.join(sorted(all_extras))}]" if all_extras else ""
-    deps = [f"stabbur{extras_spec}", *pip_deps_from_mcp(mcp)]
+    deps = [f"stabbur{extras_spec}>={_stabbur_version()}", *pip_deps_from_mcp(mcp)]
     dep_lines = "".join(f"    {json.dumps(d)},\n" for d in deps)
-    repo_root = json.dumps(str(stabbur_repo_root()))
+    checkout = stabbur_repo_root()
+    source = (
+        ""
+        if checkout is None
+        else (
+            "\n[tool.uv.sources]\n"
+            "# Scaffolded from a stabbur checkout, so the project tracks it. This line is\n"
+            "# machine-specific -- delete it to use the published stabbur instead.\n"
+            f"stabbur = {{ path = {json.dumps(str(checkout))}, editable = true }}\n"
+        )
+    )
     return (
         "[project]\n"
         f"name = {json.dumps(pkg_name)}\n"
@@ -118,12 +142,16 @@ def render_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: l
         'requires-python = ">=3.13"\n'
         "dependencies = [\n"
         f"{dep_lines}"
-        "]\n\n"
-        "[tool.uv.sources]\n"
-        "# stabbur is not yet on PyPI; pin the local checkout (editable). This line is\n"
-        "# machine-specific -- replace it with a version once stabbur publishes.\n"
-        f"stabbur = {{ path = {repo_root}, editable = true }}\n"
+        "]\n"
+        f"{source}"
     )
+
+
+def _stabbur_version() -> str:
+    """The running stabbur's version, as the floor for a scaffolded project's dependency."""
+    from stabbur import __version__  # noqa: PLC0415 - avoid an import cycle at module load
+
+    return "0.0.0" if __version__ == "unknown" else __version__
 
 
 _README = """\
