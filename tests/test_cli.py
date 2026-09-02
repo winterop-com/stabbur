@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from stabbur import attach, cli
+from stabbur import attach, cli, curated
 from stabbur import catalog as catalog_ops
 from stabbur import library as library_ops
 from stabbur.library import LibraryModel
@@ -593,7 +593,10 @@ def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: py
     monkeypatch.delenv("STABBUR_LIBRARY_ROOT", raising=False)
     monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # empty library (find() passes args through)
     lib = tmp_path / "lib"
-    res = runner.invoke(cli.app, ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui"])
+    res = runner.invoke(
+        cli.app,
+        ["setup", "--yes", "--library-root", str(lib), "--model", "pub/M", "--no-build-ui", "--no-download"],
+    )
     assert res.exit_code == 0, res.output
     from stabbur import userconfig
 
@@ -601,6 +604,36 @@ def test_setup_persists_defaults_non_interactive(tmp_path: Path, monkeypatch: py
     assert stored["default_model"] == "pub/M"
     assert Path(stored["library_root"]) == lib.resolve()
     assert lib.is_dir()  # setup created it
+
+
+def test_setup_pulls_the_starting_set_and_no_download_does_not(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The starting set is fetched by default, and `--no-download` is the way out.
+
+    Both halves matter: a setup that downloads nothing leaves an install with no model, and one
+    that downloads regardless is a surprise several gigabytes long.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr(library_ops, "scan", lambda *a, **k: [])  # empty library: everything missing
+    monkeypatch.setattr("stabbur.voice.kokoro.assets_present", lambda: True)  # voice is its own step
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    pulled: list[str] = []
+
+    def _record(want: object, root: object) -> SimpleNamespace:
+        pulled.append(want.name)  # type: ignore[attr-defined]
+        return SimpleNamespace(size_human="1 GB")
+
+    monkeypatch.setattr("stabbur.wantlist.pull_entry", _record)
+    lib = tmp_path / "lib"
+    common = ["setup", "--yes", "--library-root", str(lib), "--no-build-ui"]
+
+    res = runner.invoke(cli.app, [*common, "--no-download"])
+    assert res.exit_code == 0, res.output
+    assert pulled == []
+
+    res = runner.invoke(cli.app, common)
+    assert res.exit_code == 0, res.output
+    assert pulled == [w.name for w in curated.SETUP_DEFAULTS]
 
 
 def _fake_extension_checkout(root: Path) -> Path:

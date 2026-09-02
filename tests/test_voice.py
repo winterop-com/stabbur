@@ -133,7 +133,9 @@ def test_import_keeps_the_cache_copy_when_the_library_copy_is_short(tmp_path: Pa
     assert repo_cache.exists()  # the cache copy is the only complete one — keep it
 
 
-def test_voice_pull_move_reports_the_cache_prune_honestly(tmp_path: Path, monkeypatch: object) -> None:
+def test_voice_pull_move_reports_the_cache_prune_honestly(
+    tmp_path: Path, monkeypatch: object, real_pull: object
+) -> None:
     # catalog.pull's voice branch dropped ImportResult.cache_pruned, so ``library pull voice
     # --move`` printed "local copy KEPT - copy could not be verified" for a prune that happened.
     import pytest
