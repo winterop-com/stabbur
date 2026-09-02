@@ -58,15 +58,20 @@ def _quiet() -> Generator[None]:
     buffer = io.StringIO()
     # Imported here, not at module scope: transformers is a heavy import that only the mlx-audio
     # path pulls in anyway, and it must be set *before* the model load that emits the warning.
-    from transformers.utils import logging as tf_logging  # noqa: PLC0415
+    # It is absent entirely off Apple Silicon, where this context manager still has to work.
+    tf_logging: Any = None
+    with contextlib.suppress(ImportError):
+        from transformers.utils import logging as tf_logging  # noqa: PLC0415
 
-    previous = tf_logging.get_verbosity()
-    tf_logging.set_verbosity_error()
+    previous = None if tf_logging is None else tf_logging.get_verbosity()
+    if tf_logging is not None:
+        tf_logging.set_verbosity_error()
     try:
         with contextlib.redirect_stdout(buffer):
             yield
     finally:
-        tf_logging.set_verbosity(previous)
+        if tf_logging is not None:
+            tf_logging.set_verbosity(previous)
         captured = buffer.getvalue().strip()
         if captured:
             logging.getLogger(__name__).debug("mlx-audio: %s", captured)
