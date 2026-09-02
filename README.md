@@ -105,6 +105,7 @@ sb voice import --all             # import known voice models to the library
 sb voice speak -v af_heart "hello there"           # text-to-speech (Kokoro)
 sb voice speak --model voxcpm2 --instruct "a calm older man" "hi there"  # design a voice
 sb init mybot                     # scaffold a self-contained project assistant
+sb configure                      # (in a project) change its model, tools, voice, library
 ```
 
 **Two model families:** **Chat** (language models you talk to — text in/out; some

@@ -106,6 +106,24 @@ With no drive mounted, its fallback library location is the XDG data dir
 Optional model *sources* (not required to run stabbur): **Ollama** and **LM Studio**
 — stabbur reads their local caches if present, so you can pull models from them.
 
+## Make a project
+
+```bash
+sb init mybot        # a new directory: its own model, voices, tools and config
+cd mybot && uv sync  # its own environment
+sb configure         # change any of it later — model, prompt, tools, voice, library
+```
+
+`sb init` builds a **self-contained** assistant: the model and the voices (Kokoro, VoxCPM2,
+Whisper) are downloaded into `mybot/library/`, and the manifest lists only that library, so the
+directory can be zipped and moved to a machine with no library at all. It says what it will
+download before it does — roughly 12 GB with the recommended model, 5 GB with none — and
+`--no-voices` opts out of the voice package. A model is optional: "No model yet" scaffolds the
+project and binds one later.
+
+Every project also gets a **`stabbur.example.toml`**: every option a manifest understands,
+commented, including remote `[[backends]]`. See [Projects](guides/projects.md).
+
 ## Point at your library
 
 The library location is the `library_root` setting. The simplest way to set it

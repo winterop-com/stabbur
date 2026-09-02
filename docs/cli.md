@@ -363,6 +363,17 @@ Saving rewrites `stabbur.toml` and `.mcp.json` first and does the disk-heavy wor
 interrupted download never costs you the settings. Project-scoped: run it inside a project — the
 two machine-wide defaults are `sb config` below.
 
+## `sb benchmark`
+
+Score models on stabbur's coding and tool-use suites, and build a leaderboard from the saved
+runs. It has its own page — see [Benchmarks](benchmarks.md) for the suites, the scoring and how
+to regenerate the table.
+
+```bash
+sb benchmark run <model> --save    # score a model and keep the result
+sb benchmark leaderboard           # regenerate the table from saved runs
+```
+
 ## `sb config`
 
 Read and write the **machine defaults** (`~/.config/stabbur/config.toml`) — the lowest-priority
