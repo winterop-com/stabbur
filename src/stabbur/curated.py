@@ -86,6 +86,10 @@ def _voice_entries(kind: voice_registry.VoiceKind | None = None) -> tuple[WantMo
     )
 
 
+# The model to reach for when one has to be chosen for you — the most capable of the validated
+# builds that still runs comfortably on a laptop, with tools and vision.
+MAIN_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF"
+
 # The sets. Keep them few and honest: a set is a promise that these models were run through
 # stabbur end to end, which is the same bar `docs/guides/model-catalog.md` documents.
 SETS: tuple[CuratedSet, ...] = (
@@ -105,18 +109,15 @@ SETS: tuple[CuratedSet, ...] = (
     ),
     CuratedSet(
         name="chat",
-        description="The validated chat models that fit a laptop — small and mid sizes, no 15 GB+ builds.",
+        description="The main model: one capable all-rounder with tools and vision, sized for a laptop.",
         entries=(
-            _hf("unsloth/Qwen3.5-4B-GGUF", "2.6 GB · small, tool-capable"),
-            _hf("unsloth/Llama-3.2-3B-Instruct-GGUF", "2.0 GB · tiny starter"),
             _hf(
-                "lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+                MAIN_MODEL,
                 "6.7 GB · tools + vision + audio",
                 # A QAT build ships one quant (Q4_0), not the usual ladder — a `*Q4_K_M*` glob
                 # matches only the projector there and pulls a model with no weights.
                 include=("*Q4_0*", _MMPROJ),
             ),
-            _hf("unsloth/gpt-oss-20b-GGUF", "10.8 GB · strong reasoning + tools"),
         ),
     ),
 )
@@ -129,10 +130,6 @@ SETUP_DEFAULTS: tuple[WantModel, ...] = (
     _hf("unsloth/Qwen3.5-4B-GGUF", "2.6 GB · small, tool-capable"),
     _voice("whisper", "1.5 GB · transcription"),
 )
-
-# The model to reach for when one has to be chosen for you — the biggest of the validated builds
-# that still runs comfortably on a laptop, with tools and vision. `stabbur project init` offers it.
-MAIN_MODEL = "lmstudio-community/gemma-4-12B-it-QAT-GGUF"
 
 _BY_NAME = {s.name: s for s in SETS}
 

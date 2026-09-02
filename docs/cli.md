@@ -194,7 +194,7 @@ hand-typed pull does not: an unfiltered pull of a multi-quant GGUF repo fetches 
 sb library sets                  # name, model count, rough size, what it's for
 sb library sync starter          # a first working library: transcription + one small chat model
 sb library sync voice            # every runnable voice model
-sb library sync chat             # the validated chat models that fit a laptop
+sb library sync chat             # the main model: one capable all-rounder
 ```
 
 ## `sb library sync <wantfile|set>`
