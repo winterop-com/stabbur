@@ -130,6 +130,27 @@ chat_voice = "kokoro:af_heart"       # spoken-reply voice (Kokoro)
 
 Tools are **not** in `stabbur.toml` — they live in a sibling `.mcp.json` (see below).
 
+Every scaffolded project also gets a **`stabbur.example.toml`**: the same manifest with every
+option it understands, commented, including remote backends and the serving and runtime knobs.
+stabbur never reads it — it is there so the options are discoverable without the docs. (Named
+`.example.toml`, not `.toml.example`, so an editor still highlights it.)
+
+Remote backends live there too. A project can name as many OpenAI-compatible servers as you run:
+
+```toml
+[[backends]]
+name = "gpu-box"
+url = "http://gpu-box:8080/v1"
+
+[[backends]]
+name = "lab-rig"
+url = "http://lab-rig:1234"
+```
+
+stabbur's agent loop, tools and UI stay local while the weights run on the other box; the name is
+how you pick one. A single unnamed remote is the shorter `upstream = "http://gpu-box:8080/v1"`.
+Watch TOML scoping: top-level keys must come **above** the first table, or they belong to it.
+
 - **`libraries`** — the libraries this project reads, in priority order (first match
   wins). A scaffolded project lists its own `library/` and nothing else, so it ignores this
   machine's library and default model entirely — that is what makes the directory portable. Add
