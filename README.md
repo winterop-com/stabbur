@@ -103,7 +103,7 @@ sb chat gemma-4-12B-it-QAT-GGUF -p "?" -i pic.jpg   # image input (vision model)
 sb voice ls                       # voice models (TTS/STT) in the library
 sb voice import --all             # import known voice models to the library
 sb voice speak -v af_heart "hello there"           # text-to-speech (Kokoro)
-sb voice speak --model spark --seed 10 "hi there"  # Spark-TTS (pin a seed for a stable voice)
+sb voice speak --model voxcpm2 --instruct "a calm older man" "hi there"  # design a voice
 sb project init                   # scaffold a project assistant (model + tools + prompt)
 ```
 
@@ -112,7 +112,7 @@ also read images/audio or call tools) and **Voice** (TTS speaks, STT transcribes
 stabbur detects each chat model's capabilities and runs the right runtime — GGUF via
 llama.cpp (`llama-server`, `--mmproj` for vision/audio), MLX via `mlx_lm`/`mlx-vlm`.
 The web UI's **Library** lists both families; the **Voice** studio does TTS/STT
-(Kokoro, Spark-TTS with voice cloning, Whisper); in chat you can attach images/audio,
+(Kokoro, VoxCPM2 with voice design + cloning, Whisper); in chat you can attach images/audio,
 dictate with the mic (Whisper), and **read replies aloud** (Kokoro by default). See
 the [voice guide](docs/guides/voice.md).
 

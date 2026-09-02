@@ -421,7 +421,6 @@ export interface VoiceModelInfo {
   size_human: string;
   cloneable: boolean;
   multi_speaker: boolean;
-  seeded: boolean;
   designable: boolean; // the voice can be described in words (no reference clip needed)
   seedable: boolean; // a pinned seed reproduces the output (design models included)
   honors_speed: boolean; // false = the model renders at its own pace, ignoring a speed request
@@ -442,7 +441,7 @@ export interface SpeechOptions {
   responseFormat?: string; // wav | mp3 | flac | opus | ogg | aac
   refAudioB64?: string | null; // base64 WAV to clone a voice from (cloneable models)
   refText?: string | null; // exact transcript of refAudioB64
-  seed?: number | null; // pin a seeded model's random voice
+  seed?: number | null; // pin a stochastic model's random voice (seedable models)
   instruct?: string | null; // describe a voice for a design model to invent (designable models)
   speed?: number | null; // playback speed multiplier (0.5-2.0); default 1
 }

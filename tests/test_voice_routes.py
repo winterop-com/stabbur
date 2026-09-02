@@ -128,7 +128,7 @@ async def test_audio_speech_mlx_backend_unavailable_is_503(
     # An mlx-audio model when the voice runtime isn't installed (Linux / no extra) must
     # 503 with the install hint, not attempt to load and 500.
     monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: False)
-    r = await client.post("/v1/audio/speech", json={"model": "spark", "input": "hello"})
+    r = await client.post("/v1/audio/speech", json={"model": "voxcpm2", "input": "hello"})
     assert r.status_code == 503
     assert "mlx-audio" in r.json()["detail"].lower()
 
@@ -199,7 +199,7 @@ async def test_oversized_reference_clip_is_413(client: AsyncClient, monkeypatch:
     monkeypatch.setattr(voice_router, "_MAX_REF_AUDIO_B64", 1024)
     r = await client.post(
         "/v1/audio/speech",
-        json={"model": "spark", "input": "hello", "ref_audio_b64": "A" * 2048, "ref_text": "hi"},
+        json={"model": "voxcpm2", "input": "hello", "ref_audio_b64": "A" * 2048, "ref_text": "hi"},
     )
     assert r.status_code == 413
     assert "ref_audio_b64" in r.json()["detail"]
@@ -217,7 +217,7 @@ async def test_malformed_reference_clip_is_422(
     )
     r = await client.post(
         "/v1/audio/speech",
-        json={"model": "spark", "input": "hello", "ref_audio_b64": "not base64!!", "ref_text": "hi"},
+        json={"model": "voxcpm2", "input": "hello", "ref_audio_b64": "not base64!!", "ref_text": "hi"},
     )
     assert r.status_code == 422
     assert "base64" in r.json()["detail"]
@@ -278,7 +278,7 @@ async def test_instruct_on_a_non_design_model_is_422(client: AsyncClient, monkey
 
     monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
     monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", never)
-    r = await client.post("/v1/audio/speech", json={"model": "spark", "input": "hello", "instruct": "a calm man"})
+    r = await client.post("/v1/audio/speech", json={"model": "kokoro", "input": "hello", "instruct": "a calm man"})
     assert r.status_code == 422
     assert "voice-design" in r.json()["detail"]
 

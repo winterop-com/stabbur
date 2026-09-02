@@ -83,7 +83,7 @@ def synthesize(
 
     loaded = _load(str(model))
     # mlx-audio's generate_audio has no `seed` arg (it silently ignores one), so a seed only
-    # takes effect by seeding MLX's RNG here — that's what makes a seeded model
+    # takes effect by seeding MLX's RNG here — that's what makes a stochastic model
     # reproducible instead of a fresh random voice every run.
     seed = params.pop("seed", None)
     if seed is not None:

@@ -100,7 +100,7 @@ not the fix. Open: stronger write models. Results: `docs/guides/dhis2-benchmark-
 ## Voice follow-ups
 
 - **Scout the expressive TTS slot.** Nothing so far beats Kokoro's quality-per-millisecond
-  (current set: Kokoro in-chat default, Spark for gender + pinned-seed voice creation).
+  (current set: Kokoro in-chat default, VoxCPM2 for voice design + cloning).
   mlx-audio ships many untried families (vibevoice, voxcpm2, higgs_audio_v3, zonos2, …);
   audition before adopting, and verify registry metadata against real synthesis first.
 - **New audio capabilities** — **speaker diarization** (MOSS-Transcribe-Diarize — gated repo, needs
