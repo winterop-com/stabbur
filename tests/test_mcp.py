@@ -553,3 +553,27 @@ async def test_agent_rejects_unparseable_tool_args(monkeypatch: pytest.MonkeyPat
     assert toolset.calls == []  # the tool was never executed on unparseable args
     tool_msg = next(m for m in messages if m.get("role") == "tool")
     assert "could not parse" in tool_msg["content"]
+
+
+def test_tool_schema_prefers_the_new_field_and_never_touches_the_alias() -> None:
+    """The SDK v2 name wins, and the deprecated one is not read when it is present.
+
+    Reading `inputSchema` is what emitted a FastMCPDeprecationWarning per tool on every
+    `stabbur serve` startup — the alias warns on access, so "prefer the new name" has to mean
+    not touching the old one, not catching what it raises.
+    """
+    from stabbur import tools
+
+    class NewStyle:
+        input_schema = {"type": "object", "properties": {"a": {"type": "string"}}}
+
+        @property
+        def inputSchema(self) -> dict[str, object]:  # noqa: N802 - the SDK's own spelling
+            raise AssertionError("the deprecated alias must not be read when input_schema exists")
+
+    assert tools._tool_schema(NewStyle()) == NewStyle.input_schema
+
+    class OldStyle:  # an older SDK, where only the alias exists
+        inputSchema = {"type": "object", "properties": {"b": {"type": "number"}}}  # noqa: N815
+
+    assert tools._tool_schema(OldStyle()) == OldStyle.inputSchema

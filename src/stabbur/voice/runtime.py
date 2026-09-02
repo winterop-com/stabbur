@@ -10,8 +10,14 @@ Linux, Kokoro-ONNX (:mod:`stabbur.kokoro`) covers TTS. Cloning uses ``ref_audio`
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import importlib.util
+import io
+import logging
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -30,12 +36,55 @@ def available() -> bool:
         return False
 
 
+@contextmanager
+def _quiet() -> Generator[None]:
+    """Swallow the third-party chatter mlx-audio and transformers emit around a synthesis.
+
+    Two sources, neither of them ours and neither switchable:
+
+    * mlx-audio prints a ``Text:/Voice:/Speed:/Language:`` banner from ``generate_audio``
+      unconditionally — not under its ``verbose`` flag — and it reports the *default* voice
+      (``af_heart``) even for a model that has no named voices, so it is misleading as well as
+      noisy: a `stabbur serve` log claimed Kokoro's voice while VoxCPM2 was speaking.
+    * transformers warns "You are using a model of type ``voxcpm2`` to instantiate a model of
+      type ``" whenever a checkpoint's architecture isn't one of its own. That one goes to
+      *stderr* through the library's own logging setup, so it is silenced through its API —
+      ``logging.getLogger("transformers")`` does not reach it.
+
+    ``redirect_stdout`` is safe here even inside a server: uvicorn's and Rich's handlers bind to
+    the real ``sys.stdout`` when they are constructed, so only ``print`` calls that resolve it at
+    call time — mlx-audio's — are captured. The captured text goes to the debug log rather than
+    being dropped.
+    """
+    buffer = io.StringIO()
+    # Imported here, not at module scope: transformers is a heavy import that only the mlx-audio
+    # path pulls in anyway, and it must be set *before* the model load that emits the warning.
+    # It is absent entirely off Apple Silicon, where this context manager still has to work.
+    tf_logging: Any = None
+    with contextlib.suppress(ImportError):
+        tf_logging = importlib.import_module("transformers.utils.logging")
+
+    previous = None if tf_logging is None else tf_logging.get_verbosity()
+    if tf_logging is not None:
+        tf_logging.set_verbosity_error()
+    try:
+        with contextlib.redirect_stdout(buffer):
+            yield
+    finally:
+        if tf_logging is not None:
+            tf_logging.set_verbosity(previous)
+        captured = buffer.getvalue().strip()
+        if captured:
+            logging.getLogger(__name__).debug("mlx-audio: %s", captured)
+
+
 @lru_cache(maxsize=4)
 def _load(model_path: str) -> Any:
     """Load (and cache) an mlx-audio model from a local path."""
     from mlx_audio.tts.generate import load_model  # noqa: PLC0415
 
-    return load_model(Path(model_path))
+    with _quiet():
+        return load_model(Path(model_path))
 
 
 def synthesize(
@@ -105,7 +154,7 @@ def synthesize(
         kwargs["ref_audio"] = str(ref_audio)
         kwargs["ref_text"] = ref_text or ""
     kwargs.update(params)
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _quiet():
         generate_audio(text=text, model=loaded, output_path=tmp, **kwargs)
         out = sorted(Path(tmp).glob(f"out*.{audio_format}"))
         if not out:
@@ -126,7 +175,7 @@ def transcribe(model: Path | str, audio: Path | str, *, language: str | None = N
     from mlx_audio.stt.generate import generate_transcription  # noqa: PLC0415
 
     kwargs: dict[str, Any] = {"language": language} if language else {}
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _quiet():
         result = generate_transcription(
             model=str(model), audio=str(audio), output_path=str(Path(tmp) / "t"), format="txt", verbose=False, **kwargs
         )
