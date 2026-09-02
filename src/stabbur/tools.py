@@ -92,6 +92,18 @@ def _server_prefix(name: str | None, command: list[str]) -> str:
     return _default_name(command)
 
 
+def _tool_schema(tool: Any) -> dict[str, Any] | None:
+    """A tool's JSON-Schema parameters, across the MCP SDK's rename of the field.
+
+    SDK v2 renamed ``inputSchema`` to ``input_schema`` and left the old name as a deprecated
+    alias — which warns on *access*, so every `stabbur serve` printed a FastMCPDeprecationWarning
+    per tool at startup. Read the new name first and only fall back for an older SDK, rather than
+    reading the alias and suppressing what it says.
+    """
+    schema = getattr(tool, "input_schema", None)
+    return schema if schema is not None else getattr(tool, "inputSchema", None)
+
+
 def _openai_schema(tool: Any) -> dict[str, Any]:
     """Convert one MCP tool to an OpenAI ``tools`` entry."""
     return {
@@ -99,7 +111,7 @@ def _openai_schema(tool: Any) -> dict[str, Any]:
         "function": {
             "name": tool.name,
             "description": tool.description or "",
-            "parameters": tool.inputSchema or {"type": "object", "properties": {}},
+            "parameters": _tool_schema(tool) or {"type": "object", "properties": {}},
         },
     }
 
