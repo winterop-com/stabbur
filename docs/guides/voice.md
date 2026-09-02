@@ -68,8 +68,13 @@ The studio:
 - **Speech to text** — upload or record audio; the STT model returns the transcript.
 
 **In chat:** non-audio models get a **dictation mic** in the composer (Whisper →
-prompt), and each reply has a **Listen** button (Kokoro by default — the
-lightweight voice never loads a multi-GB model just to speak a reply).
+prompt), and each reply has a **Listen** button. Kokoro speaks by default — the
+lightweight voice never loads a multi-GB model just to speak a reply — but the chat
+settings panel's **Voice** picker also lists any TTS model in your library under
+*Model voices*, so replies can be spoken by VoxCPM2 instead. A model voice sounds
+better and costs a multi-GB load beside the chat model, which is why it is offered
+rather than defaulted. Stochastic models speak replies with a pinned seed, so the
+speaker doesn't change from one reply to the next.
 
 ## API (OpenAI-compatible)
 
