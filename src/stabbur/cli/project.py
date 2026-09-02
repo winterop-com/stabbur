@@ -169,7 +169,7 @@ def _provision(target: Path, model: str, *, voice: bool, voices: bool = True) ->
             console.print(f"  [yellow]skipped[/] — {escape(str(exc))}")
 
 
-def _write_project(target: Path, choices: _WizardChoices, *, uv: bool) -> None:
+def _write_project(target: Path, choices: _WizardChoices, *, uv: bool, voices: bool = True) -> None:
     """Write ``stabbur.toml`` + ``.mcp.json`` (and, for a uv project, pyproject/README + template files)."""
     # A template may carry [assistant] target metadata (opaque dict) — a single ``assistant`` block or
     # a multi-target ``assistants`` list — validated here to AssistantInfo / an AssistantRegistry so
@@ -206,7 +206,7 @@ def _write_project(target: Path, choices: _WizardChoices, *, uv: bool) -> None:
         # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
         extras = choices.template.extras if choices.template is not None else []
         (target / "pyproject.toml").write_text(
-            scaffold.render_pyproject(target.resolve().name, choices.mcp, mlx, extras)
+            scaffold.render_pyproject(target.resolve().name, choices.mcp, mlx, extras, voices=voices)
         )
         (target / "README.md").write_text(scaffold.render_readme(target.resolve().name))
     if choices.template is not None:
@@ -282,7 +282,7 @@ def _scaffold_project(
     choices = _gather_choices(target.name, model, template)
     target.mkdir(parents=True, exist_ok=True)
     _provision(target, choices.model, voice=choices.voice, voices=voices)
-    _write_project(target, choices, uv=uv)
+    _write_project(target, choices, uv=uv, voices=voices)
     _print_scaffold_summary(target / "stabbur.toml", choices, uv=uv, git=git, target=target)
 
 

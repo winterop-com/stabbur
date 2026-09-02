@@ -178,6 +178,26 @@ def test_init_no_voices_downloads_only_the_model(monkeypatch: pytest.MonkeyPatch
     assert pulled == ["unsloth/X-GGUF"]
 
 
+def test_init_scaffolds_a_uv_project_that_can_run_its_own_voices(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The default project downloads voice models; its pyproject has to pin the runtime that
+    # speaks them, or `uv sync` builds an environment that cannot use what init just fetched.
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        cli.project.catalog_ops,
+        "pull",
+        lambda source, name, **k: SimpleNamespace(size_human="1 GB", destination=tmp_path),
+    )
+    monkeypatch.setattr("stabbur.voice.kokoro.ensure_assets", lambda root=None: (root, root))
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["init", "spoken", "--model", "unsloth/X-GGUF"])
+    assert result.exit_code == 0, result.output
+    assert '"stabbur[voice]>=' in (tmp_path / "spoken" / "pyproject.toml").read_text()
+
+
 def test_init_refuses_an_existing_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Creating a project is making a new directory; writing into one that already holds something
     # is how two assistants end up arguing over one stabbur.toml.

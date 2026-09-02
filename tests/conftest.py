@@ -60,6 +60,7 @@ os.environ.pop("STABBUR_UPSTREAM", None)
 
 from stabbur import catalog  # noqa: E402 - after the env setup above, deliberately
 from stabbur.sources import huggingface as _hf  # noqa: E402
+from stabbur.voice import kokoro as _kokoro  # noqa: E402
 
 _REAL_CATALOG_PULL = catalog.pull  # captured before the guard below can replace it
 _REAL_PREFERRED_INCLUDE = _hf.preferred_include
@@ -75,15 +76,19 @@ def _no_real_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
     hermetic about the library, the config dir and the runtime state (above); it has to be
     hermetic about the network for the same reason.
 
-    ``catalog.pull`` is the only choke point that needs blocking: every source, and
-    ``wantlist.pull_entry`` above it, routes through it. A test that means to exercise a pull
-    stubs it itself — its own ``monkeypatch.setattr`` runs after this one and wins.
+    ``catalog.pull`` is the choke point for model pulls: every source, and ``wantlist.pull_entry``
+    above it, routes through it. Kokoro's assets do not — they are fetched straight from a release
+    URL, which is how a scaffolding test quietly pulled 310 MB on every run — so the HTTP call
+    behind them is blocked too, one layer lower than ``_download`` so the tests *about* downloading
+    can still drive the real thing with their own fake stream. A test that means to exercise either
+    stubs it itself; its own ``monkeypatch.setattr`` runs after this one and wins.
     """
 
     def _blocked(*args: object, **kwargs: object) -> None:
         raise AssertionError("a test tried to download a model. Stub the pull, or pass --no-download to `setup`.")
 
     monkeypatch.setattr(catalog, "pull", _blocked)
+    monkeypatch.setattr(_kokoro.httpx, "stream", _blocked)
     # `pull` asks the Hub which quant to fetch when no include is given. That is a network call
     # inside a function tests exercise with a stubbed downloader, so it is neutralized here (no
     # filter) rather than left to reach out; a test that cares about the choice stubs it itself.

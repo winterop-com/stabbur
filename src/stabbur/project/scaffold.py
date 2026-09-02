@@ -101,7 +101,9 @@ def add_pyproject_dep(path: Path, pkg: str) -> bool:
     return False
 
 
-def render_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: list[str] | None = None) -> str:
+def render_pyproject(
+    name: str, mcp: list[tuple[str, str]], mlx: bool, extras: list[str] | None = None, voices: bool = False
+) -> str:
     """Render a project ``pyproject.toml`` that makes the project a self-contained uv project.
 
     Pins ``stabbur`` from PyPI (at least the version doing the scaffolding) plus any
@@ -117,6 +119,13 @@ def render_pyproject(name: str, mcp: list[tuple[str, str]], mlx: bool, extras: l
     all_extras: set[str] = set(extras or [])
     if mlx:
         all_extras.add("mlx")
+    if voices:
+        # A project that ships voice models must be able to run them. `init` downloads VoxCPM2
+        # into the project, and the mlx-audio runtime that speaks with it lives in the `voice`
+        # extra — without it the environment holds three gigabytes it can only refuse to use.
+        # (The extra is platform-gated in stabbur's own metadata, so it is a no-op off Apple
+        # Silicon rather than an unresolvable dependency.)
+        all_extras.add("voice")
     extras_spec = f"[{','.join(sorted(all_extras))}]" if all_extras else ""
     deps = [f"stabbur{extras_spec}>={_stabbur_version()}", *pip_deps_from_mcp(mcp)]
     dep_lines = "".join(f"    {json.dumps(d)},\n" for d in deps)
