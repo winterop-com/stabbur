@@ -154,6 +154,38 @@ def test_runnable_models_counts_the_ones_that_can_run_and_flags_the_rest(
     assert models.detail == "1 of 2 (1 gguf)"
 
 
+def test_upstream_makes_the_local_runtimes_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Under `serve --upstream` stabbur spawns nothing here, so a missing local binary is a fact
+    # about a machine that isn't running the model. Warning about it sends people to install
+    # runtimes they will never use, and buries the row that matters (is the remote reachable).
+    _installed(monkeypatch)  # nothing installed locally
+    checks = {c.name: c for c in doctor.check_runtimes(upstream=True)}
+    assert all(c.status is doctor.CheckStatus.ok for c in checks.values())
+    assert "upstream" in checks[doctor.RUNTIMES_GROUP].detail
+    assert checks["llama.cpp (GGUF)"].hint is None  # no install hint for a runtime that won't run
+
+
+def test_without_an_upstream_a_missing_required_runtime_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    _installed(monkeypatch)
+    checks = {c.name: c for c in doctor.check_runtimes()}
+    assert checks["llama.cpp (GGUF)"].status is doctor.CheckStatus.fail
+
+
+def test_upstream_library_count_does_not_partition_by_local_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The models on the drive are inventory when something else runs them: "0 of 1" and an install
+    # hint describe a limit that does not apply.
+    _installed(monkeypatch, "llama-server")
+    monkeypatch.setattr(library, "scan", lambda: [_library_model(tmp_path, "a", ModelFormat.mlx)])
+    settings = Settings(library_root=tmp_path / "library", upstream="http://gpu-box:1234/v1")
+    (tmp_path / "library").mkdir(exist_ok=True)
+    models = next(c for c in doctor.check_library(settings) if c.name == "Runnable models")
+    assert models.status is doctor.CheckStatus.ok
+    assert models.detail == "1 (1 mlx)"
+    assert models.hint is None
+
+
 def test_default_model_warns_when_its_runtime_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Present in the library is not the same as startable; the row must mirror what chat will say."""
     monkeypatch.setattr(doctor.project_ops, "load", lambda: doctor.project_ops.Project(model="pub/Some-MLX"))
