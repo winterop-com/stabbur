@@ -340,6 +340,28 @@ The download is the default rather than a question: stabbur speaks and chats out
 the alternative is a surprise 310 MB fetch part-way into the first conversation. `--no-download`
 turns it off; `sb library sets` pulls more when you want it.
 
+## `sb configure`
+
+Change a project after it exists — the settings `sb init` asked for once, editable now that you
+know what you are building. A Textual screen with four tabs:
+
+- **Assistant** — the bound model (its own library's chat models, plus curated ones it can
+  download) and the system prompt.
+- **Tools** — the MCP servers in `.mcp.json`, pre-checked, space to toggle.
+- **Voice** — the reply voice, whether the Voice surface is shown at all, and which voice models
+  the project holds (adding one downloads it; unchecking leaves it in place — remove it in
+  **Library**).
+- **Library** — what is on disk in the project's library, with sizes, selectable for removal.
+
+```bash
+sb configure          # inside a project
+```
+
+Nothing is written or downloaded until you save (Ctrl-S); escape leaves the project untouched.
+Saving rewrites `stabbur.toml` and `.mcp.json` first and does the disk-heavy work after, so an
+interrupted download never costs you the settings. Project-scoped: run it inside a project — the
+two machine-wide defaults are `sb config` below.
+
 ## `sb config`
 
 Read and write the **machine defaults** (`~/.config/stabbur/config.toml`) — the lowest-priority

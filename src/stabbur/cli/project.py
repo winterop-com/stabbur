@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -17,6 +17,7 @@ from stabbur import (
 )
 from stabbur import catalog as catalog_ops
 from stabbur import library as library_ops
+from stabbur.cli import configure_tui
 from stabbur.cli._app import app, project_app
 from stabbur.cli._common import (
     _CURATED,
@@ -32,7 +33,7 @@ from stabbur.cli._common import (
     console,
 )
 from stabbur.cli.init_wizard import CHAT_PROMPT, DEFAULT_VOICE, ModelChoice, run_wizard
-from stabbur.models import ModelSource, ProjectTemplate
+from stabbur.models import ModelSource, ProjectTemplate, _human_size
 from stabbur.project import scaffold
 from stabbur.project.templates import TEMPLATES
 
@@ -437,3 +438,131 @@ def project_(
             console.print(Markdown(card_path.read_text(errors="replace")[:20_000]))
         else:
             console.print("  [dim]no model card found[/]")
+
+
+def _configure_state(proj: project.Project) -> dict[str, Any]:
+    """Everything the configure screen shows: what the project binds, holds, and could hold."""
+    from stabbur import plugins  # noqa: PLC0415 - plugin discovery is slow; only this screen needs it
+    from stabbur.voice import registry as voice_registry  # noqa: PLC0415
+
+    scanned = library_ops.scan()
+    in_library = {m.name for m in scanned}
+    chat = [m for m in scanned if m.generative and not m.is_ollama]
+    models = [
+        configure_tui.ModelOption(name=m.name, detail=f"{m.model_format.value} · {m.size_human}", present=True)
+        for m in sorted(chat, key=lambda m: m.name)
+    ]
+    # Plus the curated starters it doesn't have yet, so swapping to a better model is a choice
+    # here rather than a separate `library pull` to look up.
+    models += [
+        configure_tui.ModelOption(name=c.id, detail=c.note, present=False) for c in _CURATED if c.id not in in_library
+    ]
+    voices = [
+        configure_tui.VoiceOption(
+            id=v.id,
+            label=f"{v.display_name} — {v.kind.value}, {v.size_hint}",
+            present=v.repo in in_library,
+        )
+        for v in voice_registry.BUILTIN
+        if v.supported
+    ]
+    entries = [
+        configure_tui.LibraryEntry(name=m.name, size_human=m.size_human) for m in sorted(scanned, key=lambda m: m.name)
+    ]
+    return {
+        "name": proj.directory.name,
+        "models": models,
+        "current_model": proj.model or "",
+        "system_prompt": proj.system_prompt,
+        "chat_voice": proj.chat_voice,
+        "voice_enabled": proj.voice_enabled,
+        "servers": plugins.advertised_servers(plugins.manager()),
+        "enabled_tools": {s.name for s in mcpservers.read_project(proj.directory)},
+        "voices": voices,
+        "library": entries,
+    }
+
+
+def _apply_plan(proj: project.Project, plan: configure_tui.ConfigurePlan) -> None:
+    """Perform a configure plan: rewrite the manifest + tools, then pull and remove.
+
+    Writes first, downloads second: the settings are what the user came for, and a pull that
+    fails (or is interrupted) must not lose them. Each download and deletion reports itself, so
+    a plan that changes gigabytes on disk says so while it happens.
+    """
+    from stabbur.voice import registry as voice_registry  # noqa: PLC0415
+
+    manifest = proj.manifest_path
+    assert manifest is not None  # a loaded project always has one
+    manifest.write_text(
+        project.render_manifest(
+            model=plan.model,
+            system_prompt=plan.system_prompt,
+            libraries=proj.libraries,
+            chat_voice=plan.chat_voice,
+            voice_enabled=plan.voice_enabled,
+            assistant=proj.assistant,
+            registry=proj.registry,
+        )
+    )
+    console.print(f"[green]Wrote[/] {manifest}")
+
+    wanted = {name: command for name, command in plan.tools}
+    for existing in mcpservers.read_project(proj.directory):
+        if existing.name not in wanted:
+            mcpservers.remove(existing.name, glob=False, project_dir=proj.directory)
+            console.print(f"[dim]Removed tool[/] {existing.name}")
+    have = {s.name for s in mcpservers.read_project(proj.directory)}
+    for name, command in wanted.items():
+        if name not in have:
+            mcpservers.add(_to_mcp_server(name, command), glob=False, project_dir=proj.directory)
+            console.print(f"[green]Added tool[/] {name}")
+
+    root = library_ops.roots()[0]
+    for vid in plan.pull_voices:
+        console.print(f"Downloading [bold]{vid}[/] …")
+        try:
+            result = catalog_ops.pull(ModelSource.voice, vid, library_root=root)
+        except Exception as exc:  # noqa: BLE001 - one failure must not abort the rest of the plan
+            console.print(f"  [yellow]failed[/] — {escape(str(exc))}")
+            continue
+        console.print(f"  [green]done[/] {result.size_human}")
+
+    for name in plan.remove_models:
+        matches = [m for m in library_ops.scan() if m.name == name]
+        if not matches:
+            continue
+        files, freed = library_ops.remove(matches[0])
+        console.print(f"[green]Removed[/] {name} [dim]({files} files, {_human_size(freed)} freed)[/]")
+    # A removed voice model can leave the manifest naming a voice that is gone; say so rather
+    # than let the next Listen fail with a 404 from a setting the user just saved.
+    if plan.chat_voice and plan.chat_voice.startswith("model:"):
+        spec = voice_registry.get(plan.chat_voice.removeprefix("model:"))
+        if spec is None or not any(m.name == spec.repo for m in library_ops.scan()):
+            console.print(f"[yellow]Note[/] the reply voice {plan.chat_voice!r} is not in this project's library.")
+
+
+@app.command("configure")
+def configure() -> None:
+    """Change this project's assistant: model, prompt, tools, voice, and library.
+
+    The settings `stabbur init` asked for once, editable now that you know what you are
+    building. Downloads a model or voice you add, removes what you deselect from the project's
+    library, and rewrites `stabbur.toml` + `.mcp.json`. Nothing is written until you save.
+
+    Project-scoped: run it inside a project (`stabbur init` makes one). The two machine-wide
+    defaults live in `stabbur config`.
+    """
+    proj = project.load()
+    if proj is None or proj.manifest_path is None:
+        console.print("[red]No project here[/] — `stabbur init <dir>` creates one.")
+        raise typer.Exit(1)
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        console.print("[red]No terminal for the configure screen[/] — edit stabbur.toml directly instead.")
+        raise typer.Exit(1)
+    plan = configure_tui.run_configure(**_configure_state(proj))
+    if plan is None:
+        console.print("[dim]Cancelled — nothing changed.[/]")
+        return
+    _apply_plan(proj, plan)
+    console.print("\n[green]Done.[/] [dim]stabbur project show[/] to see the result.")

@@ -48,6 +48,12 @@ What lands there is a working package, not just weights: the chat model, the in-
 | `--template <name>` | Preset the whole wizard from a template (e.g. `dhis2`). |
 | `--force` | Scaffold into a directory that already exists (refused otherwise). |
 
+## Changing it later
+
+`sb configure` (inside the project) reopens the same choices as a form: model, system prompt,
+tools, voice, and what the project's library holds. It downloads what you add and removes what you
+deselect, rewriting `stabbur.toml` and `.mcp.json`. Nothing happens until you save.
+
 ## A project is a uv project
 
 By default the scaffolder also writes a **`pyproject.toml`**, making the project a

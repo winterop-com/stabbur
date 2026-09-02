@@ -754,7 +754,9 @@ def render_manifest(
     model: str,
     system_prompt: str = "",
     local_library_dir: str | None = None,
+    libraries: list[str] | None = None,
     chat_voice: str | None = None,
+    voice_enabled: bool = True,
     assistant: "AssistantInfo | None" = None,
     registry: "AssistantRegistry | None" = None,
 ) -> str:
@@ -768,7 +770,12 @@ def render_manifest(
     to opt back in. ``None`` means the project uses only the machine library. ``[project]`` defines
     the assistant; tools live in ``.mcp.json``. Override per machine with ``STABBUR_*``.
     """
-    if local_library_dir:
+    if libraries is not None:
+        # An explicit list: rewriting an existing manifest (`stabbur configure`), where the
+        # project's libraries are whatever it already had, not whatever a scaffold would choose.
+        entries = ", ".join(json.dumps(entry) for entry in libraries)
+        libraries_block = f"libraries = [{entries}]\n\n" if libraries else ""
+    elif local_library_dir:
         libraries_block = (
             f'# This project reads only its own "{local_library_dir}/" store, so it travels intact.\n'
             f'# To also read the machine library, add "{SHARED_LIBRARY_TOKEN}" to this list.\n'
@@ -791,6 +798,9 @@ def render_manifest(
         assistant_block = f"\n{_render_assistant(assistant)}"
     else:
         assistant_block = ""
+    # Only written when off: the default is on, and a `[voice]` table in every scaffolded file
+    # would suggest a knob where there is just a default.
+    voice_block = "" if voice_enabled else "\n[voice]\nenabled = false  # hide the Voice surface\n"
     return (
         "# stabbur project — a purpose-built assistant (model + system prompt).\n"
         "# Portable + committable: no machine-specific paths. Tools live in .mcp.json.\n\n"
@@ -799,5 +809,6 @@ def render_manifest(
         f"model = {json.dumps(model)}\n"
         f"system_prompt = {json.dumps(system_prompt)}\n"
         f"{voice_line}"
+        f"{voice_block}"
         f"{assistant_block}"
     )
