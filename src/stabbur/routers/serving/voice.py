@@ -33,7 +33,6 @@ class VoiceModelInfo(BaseModel):
     size_human: str
     cloneable: bool = False  # accepts a reference clip to clone a voice
     multi_speaker: bool = False  # dialogue with [S1]/[S2] speaker tags
-    seeded: bool = False  # a fresh random voice per run unless a seed is pinned
     seedable: bool = False  # pinning a seed reproduces the output (true of design models too)
     honors_speed: bool = True  # False = the model renders at its own pace, ignoring a speed request
     designable: bool = False  # the voice can be described in words (no reference clip needed)
@@ -66,7 +65,6 @@ def voice_models() -> list[VoiceModelInfo]:
                 size_human=m.size_human,
                 cloneable=spec.cloneable if spec else False,
                 multi_speaker=spec.multi_speaker if spec else False,
-                seeded=bool(spec and spec.voice_mode == voice_registry.VoiceMode.seeded),
                 seedable=bool(spec and spec.seedable),
                 honors_speed=spec.honors_speed if spec else True,
                 designable=bool(spec and spec.voice_mode == voice_registry.VoiceMode.design),
@@ -107,7 +105,7 @@ class VoiceInfo(BaseModel):
 # Prefix marking a Listen voice that is a whole TTS model rather than a Kokoro preset.
 _MODEL_VOICE = "model:"
 
-# The seed a model voice speaks replies with. A stochastic model (Spark, VoxCPM2) samples a fresh
+# The seed a model voice speaks replies with. A stochastic model (VoxCPM2) samples a fresh
 # speaker per run, so replies would arrive in a different voice each time — which is a novelty in
 # the studio and a defect in a conversation. Pinned here, not exposed: choosing a *specific* voice
 # is what the Voice studio is for.
@@ -252,7 +250,7 @@ class AudioSpeechRequest(BaseModel):
     # stabbur extensions for voice cloning: a reference clip (base64 WAV) + its transcript.
     ref_audio_b64: str | None = None
     ref_text: str | None = None
-    seed: int | None = None  # pin a seeded model's otherwise-random voice for reproducibility
+    seed: int | None = None  # pin a stochastic model's otherwise-random voice for reproducibility
     instruct: str | None = None  # describe a voice for a voice-design model to invent (no clip needed)
     speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
 

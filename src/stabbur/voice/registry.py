@@ -10,8 +10,10 @@ The key axis is ``voice_mode`` — how a TTS model's voice is determined:
 
 * ``preset`` — pick from named built-in voices.
 * ``clone`` — the voice comes from a short reference clip.
-* ``seeded`` — no fixed voice; a fresh one each run unless a seed is pinned.
 * ``design`` — the voice is described in words ("a calm older man"); no clip needed.
+
+Whether a *seed* pins the result is a separate axis (:attr:`VoiceModel.seedable`), not a mode:
+a design model samples a fresh speaker per run too, and the same seed reproduces it.
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ class VoiceMode(StrEnum):
 
     preset = "preset"  # choose a named built-in voice
     clone = "clone"  # voice cloned from a reference clip
-    seeded = "seeded"  # random voice per run; a seed makes it reproducible
     design = "design"  # voice described in natural language ("a bright young woman")
     none = "none"  # not applicable (e.g. STT)
 
@@ -62,9 +63,9 @@ class VoiceModel(BaseModel):
     cloneable: bool = False  # accepts a reference clip to clone a voice
     multi_speaker: bool = False  # dialogue with speaker tags ([S1]/[S2])
     voices: list[str] = Field(default_factory=list)  # named presets, if statically known
-    # Whether pinning a seed reproduces the output. This is not the same as ``voice_mode`` being
-    # ``seeded``: a voice-design model also samples a fresh voice per run, and MLX's RNG pins it
-    # just as well. Tie the seed control to this flag, never to the mode.
+    # Whether pinning a seed reproduces the output — a separate axis from ``voice_mode``, since a
+    # voice-design model samples a fresh voice per run and MLX's RNG pins it just as well. Tie the
+    # seed control to this flag, never to the mode.
     seedable: bool = False
     # Whether the model actually renders at a requested speed. mlx-audio forwards ``speed`` to
     # every model and the ones that don't implement it swallow it silently, so a slider tied to
@@ -111,23 +112,6 @@ BUILTIN: tuple[VoiceModel, ...] = (
         description="Fast multilingual speech-to-text — the voice-input side (mic -> prompt).",
         voice_mode=VoiceMode.none,
         size_hint="~1.6 GB",
-    ),
-    VoiceModel(
-        id="spark",
-        display_name="Spark-TTS-0.5B",
-        repo="mlx-community/Spark-TTS-0.5B-bf16",
-        kind=VoiceKind.tts,
-        backend=Backend.mlx_audio,
-        description="Bilingual (English + Chinese) TTS with voice creation: pick a gender and "
-        "pin a seed for a stable voice (the timbre is sampled fresh each run otherwise), or "
-        "clone from a reference clip.",
-        voice_mode=VoiceMode.seeded,
-        voices=["female", "male"],
-        cloneable=True,
-        seedable=True,
-        languages=["en", "zh"],
-        sample_rate=24000,
-        size_hint="~1 GB",
     ),
     VoiceModel(
         id="parakeet",

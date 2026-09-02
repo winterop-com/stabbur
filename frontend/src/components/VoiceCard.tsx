@@ -68,7 +68,6 @@ export function VoiceCard({ model }: { model: VoiceModelInfo }) {
             <Palette className="h-3 w-3" /> voice design
           </span>
         )}
-        {model.seeded && <span className="rounded-full border border-border px-2 py-0.5">seeded</span>}
         {model.languages.length > 0 && (
           <span className="rounded-full border border-border px-2 py-0.5">{model.languages.join(" ")}</span>
         )}

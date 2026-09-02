@@ -17,7 +17,6 @@ it's pulled from the HF cache or downloaded from Hugging Face:
 | Model | Kind | Backend | Notes |
 | --- | --- | --- | --- |
 | **Kokoro-82M** | TTS | kokoro-onnx | 54 built-in voices, 8 languages. Small + fast — stabbur's **default in-chat voice** (runs next to a big LLM). Cross-platform. |
-| **Spark-TTS-0.5B** | TTS | mlx-audio | Bilingual (English + Chinese); pick a gender and **pin a seed** for a stable voice, or **clone** from a reference clip. |
 | **VoxCPM2** | TTS | mlx-audio | 48 kHz, 30 languages. **Voice design**: describe the voice you want in words, no clip needed — or **clone** from one. ~3 GB, so it's the studio voice, not the in-chat one. |
 | **Whisper large-v3-turbo** | STT | mlx-audio | Fast multilingual transcription — the mic → prompt side. |
 | **Parakeet TDT 0.6B v3** | STT | mlx-audio | Lighter and quicker than Whisper; English + 25 European languages. |
@@ -44,8 +43,8 @@ sb voice import --all         # back-compat alias: import everything already in 
 sb voice voices               # list Kokoro's 54 named voices
 sb voice speak "Hello there"                 # speak with the default engine
 sb voice speak "Hi" --voice af_heart         # a specific Kokoro voice
-sb voice speak "Hi" --model spark --seed 0   # a seeded model (pin the seed for reliability)
-sb voice speak "Hi" --model spark \          # clone the voice in a clip (cloneable models)
+sb voice speak "Hi" --model voxcpm2 --seed 7  # pin the seed for a repeatable voice
+sb voice speak "Hi" --model voxcpm2 \        # clone the voice in a clip (cloneable models)
   --ref-audio sample.wav --ref-text "exact transcript of sample.wav"
 sb voice speak "Hi" --model voxcpm2 \       # design a voice from a description (no clip)
   --instruct "a calm older man, warm and unhurried" --seed 7   # ...the seed pins which speaker
@@ -60,10 +59,9 @@ The studio:
 
 - **Text to speech** — pick a model, type (a model-specific sample line prefills),
   choose an output format, and **Generate**. The result plays in an inline player
-  (play/pause + scrubber). The controls follow the model: a **seeded** model gets a
-  seed field (with a dice to randomize it) and a nonverbal-cue palette, a
-  **voice-design** model gets a description field, a
-  **cloneable** one gets clone-from-clip — upload *or* record a reference clip
+  (play/pause + scrubber). The controls follow the model: a **seedable** model gets a
+  seed field (with a dice to randomize it), a **voice-design** model gets a
+  description field, a **cloneable** one gets clone-from-clip — upload *or* record a reference clip
   (auto-transcribed by the STT model, silence auto-stops the recorder).
 - **Speech to text** — upload or record audio; the STT model returns the transcript.
 
@@ -87,7 +85,7 @@ curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' 
 
 # Voice cloning (a cloneable model): ref_audio_b64 (base64 WAV) + ref_text
 curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
-  -d '{"model":"spark","input":"Cloned line.","ref_audio_b64":"...","ref_text":"...","seed":0}' -o out.wav
+  -d '{"model":"voxcpm2","input":"Cloned line.","ref_audio_b64":"...","ref_text":"...","seed":7}' -o out.wav
 
 # Voice design (a voice-design model): describe the voice instead of supplying a clip
 curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
@@ -102,7 +100,7 @@ Non-WAV formats are transcoded with **ffmpeg** (WAV passes through untouched).
 ## Notes
 
 - **Target languages: English** for now (`misaki[en]` G2P). Norwegian may follow.
-- **A seeded model is stochastic** — its timbre is sampled fresh each run, and an
+- **A seedable model is stochastic** — its timbre is sampled fresh each run, and an
   unlucky seed can drone instead of speak. The UI defaults to a known-good seed; the
   CLI takes `--seed`. A seed is only reproducible against the installed mlx version:
   an MLX upgrade re-maps seeds to voices, so a seed you liked may not survive one.
