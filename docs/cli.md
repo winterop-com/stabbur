@@ -184,13 +184,28 @@ sb library manifest --save models.toml  # write it to a file
 LM Studio backups (which can't be re-downloaded as such) are recorded as their Hugging Face
 equivalent; Ollama models are recorded as-is; voice models as their registry id.
 
-## `sb library sync <wantfile>`
+## `sb library sets`
 
-Re-download every model in a want list that's **missing** from your library. Diffs the file
-against your library (models already present are skipped) and pulls the rest via the normal
-per-source paths — the rebuild-a-drive companion to `sb library manifest`.
+The **curated sets** — validated groups of models you can pull in one command, so filling a
+fresh library isn't a page of copy-paste pulls. Each set pins the quant it wants, which a
+hand-typed pull does not: an unfiltered pull of a multi-quant GGUF repo fetches every quant.
 
 ```bash
+sb library sets                  # name, model count, rough size, what it's for
+sb library sync starter          # a first working library: transcription + one small chat model
+sb library sync voice            # every runnable voice model
+sb library sync chat             # the validated chat models that fit a laptop
+```
+
+## `sb library sync <wantfile|set>`
+
+Re-download every model in a want list — or a curated set — that's **missing** from your library.
+Diffs it against your library (models already present are skipped) and pulls the rest via the
+normal per-source paths — the rebuild-a-drive companion to `sb library manifest`. A file on disk
+always wins over a set of the same name.
+
+```bash
+sb library sync starter                 # a curated set (see `sb library sets`)
 sb library sync models.toml             # pull everything missing
 sb library sync models.toml --dry-run   # show the plan, download nothing
 sb library sync models.toml --shared    # into the shared/default library
@@ -297,14 +312,20 @@ sb voice speak hi --model <voice-id> --seed 10    # a registry voice model, seed
 
 First-run **machine setup** — the write-mode companion to `sb doctor` (machine scope,
 whereas `sb project init` scaffolds one project). It persists per-machine defaults to
-`~/.config/stabbur/config.toml` (library location + default model), builds the browser UI if
+`~/.config/stabbur/config.toml` (library location + default model), **downloads the in-chat voice
+and a small starting model** so a fresh install has something to talk to, builds the browser UI if
 [Bun](https://bun.sh) is present, and prints an OS-specific hint for anything it can't install
-(the llama.cpp binary). Safe to re-run.
+(the llama.cpp binary). Safe to re-run — anything already present is skipped, not re-fetched.
 
 ```bash
 sb setup                              # interactive first-run setup
+sb setup --no-download                # ...without fetching the voice or a model
 sb setup --library-root /path --model <name> --yes   # non-interactive
 ```
+
+The download is the default rather than a question: stabbur speaks and chats out of the box, and
+the alternative is a surprise 310 MB fetch part-way into the first conversation. `--no-download`
+turns it off; `sb library sets` pulls more when you want it.
 
 ## `sb config`
 

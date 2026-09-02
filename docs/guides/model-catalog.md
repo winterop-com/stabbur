@@ -7,20 +7,30 @@ This page grows as models are validated; if a model isn't here, it hasn't been c
 working (not that it can't).
 
 !!! tip "Rebuild in one shot"
-    Set your library, then paste a block below:
+    The sets below this page describes are also **in stabbur**, so you don't have to paste
+    anything:
     ```bash
     export STABBUR_LIBRARY_ROOT=/Volumes/LLM/Library   # your drive
-    # then paste the chat + voice pull commands you want
+    sb library sets                 # what's on offer
+    sb library sync starter --dry-run   # see the plan
+    sb library sync starter         # pull what's missing (already-present models are skipped)
     ```
+    `sb setup` pulls the starting set itself on a fresh machine (`--no-download` to skip).
+    The individual commands below stay for anything outside a set.
 
 ## Chat / LLM models
 
 Pulled from the Hugging Face Hub (stabbur picks a balanced GGUF quant, or the MLX build for
 `mlx-community` repos). MLX builds are Apple-Silicon-only; GGUF runs everywhere via llama.cpp.
 
+!!! warning "Pass `--include` for a multi-quant repo"
+    A GGUF repo often ships every quant from IQ3 to Q8; a pull with no `--include` fetches **all
+    of them** — ~20 GB to obtain a 2.6 GB model. The curated sets pin the quant for you; typing a
+    pull by hand, pin it yourself (a QAT build ships `Q4_0`, not `Q4_K_M`).
+
 ```bash
 # --- small (fast, run alongside a voice model) ---
-sb library pull huggingface unsloth/Qwen3.5-4B-GGUF               # 2.6 GB · tool-capable
+sb library pull huggingface unsloth/Qwen3.5-4B-GGUF --include '*Q4_K_M*'   # 2.6 GB · tool-capable
 sb library pull huggingface lmstudio-community/Qwen3.5-4B-MLX-4bit # 2.9 GB · MLX
 sb library pull huggingface unsloth/Llama-3.2-3B-Instruct-GGUF    # ~2 GB · tiny starter
 

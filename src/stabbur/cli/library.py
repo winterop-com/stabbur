@@ -14,6 +14,7 @@ from stabbur import (
     capabilities,
     cards,
     consumers,
+    curated,
     fsatomic,
     tags,
     wantlist,
@@ -554,9 +555,32 @@ def manifest(
         console.print(f"[dim]{len(comments)} model(s) noted as comments (not source-re-pullable).[/]")
 
 
+@library_app.command("sets")
+def curated_sets() -> None:
+    """List the curated model sets — validated groups you can pull in one go with `library sync`.
+
+    A set is the catalog as data rather than a page of copy-paste pull commands: `library sync
+    <set>` diffs it against your library and downloads only what's missing, so re-running it after
+    a partial download costs nothing.
+    """
+    table = Table(box=box.SIMPLE, header_style="bold")
+    for col in ("SET", "MODELS", "SIZE", "WHAT IT IS"):
+        table.add_column(col, style="cyan" if col == "SET" else None)
+    for s in curated.SETS:
+        table.add_row(s.name, str(len(s.entries)), s.size_hint, s.description)
+    console.print(table)
+    console.print("[dim]Pull one:[/] stabbur library sync <set>  [dim](--dry-run to see the plan first).[/]")
+
+
 @library_app.command()
 def sync(
-    wantfile: Annotated[Path, typer.Argument(help="A want list (TOML) produced by `stabbur library manifest`.")],
+    wantfile: Annotated[
+        str,
+        typer.Argument(
+            help="A want list (TOML) from `stabbur library manifest`, or a curated set name "
+            "(see `stabbur library sets`)."
+        ),
+    ],
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="List what would be pulled and exit; download nothing.")
     ] = False,
@@ -580,14 +604,23 @@ def sync(
     backups are recorded as their Hugging Face equivalent. One model failing doesn't stop the others
     — the command exits non-zero if any failed. ``--dry-run`` shows the plan without downloading.
     """
-    if not wantfile.is_file():
-        console.print(f"[red]No such want list:[/] {wantfile}")
+    # A curated set is resolved first, but only when no such file exists: a file on disk always
+    # wins, so a local `voice.toml` can never be shadowed by a set that happens to share its name.
+    path = Path(wantfile)
+    chosen = None if path.is_file() else curated.get(wantfile)
+    if chosen is not None:
+        wants = list(chosen.entries)
+        console.print(f"[bold]{chosen.name}[/] [dim]— {chosen.description}[/]")
+    elif not path.is_file():
+        console.print(f"[red]No such want list or curated set:[/] {wantfile}")
+        console.print(f"[dim]Sets:[/] {', '.join(curated.names())}  [dim](stabbur library sets)[/]")
         raise typer.Exit(2)
-    try:
-        wants = wantlist.parse(wantfile.read_text(encoding="utf-8"))
-    except (ValueError, tomllib.TOMLDecodeError) as exc:
-        console.print(f"[red]Invalid want list[/] ({wantfile}): {escape(str(exc))}")
-        raise typer.Exit(2) from exc
+    else:
+        try:
+            wants = wantlist.parse(path.read_text(encoding="utf-8"))
+        except (ValueError, tomllib.TOMLDecodeError) as exc:
+            console.print(f"[red]Invalid want list[/] ({wantfile}): {escape(str(exc))}")
+            raise typer.Exit(2) from exc
 
     if deep and not repair:
         console.print("[yellow]--deep only applies with --repair[/] — verification is what it deepens.")

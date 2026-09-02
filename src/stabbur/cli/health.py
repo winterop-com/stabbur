@@ -18,6 +18,7 @@ from stabbur import (
 from stabbur import library as library_ops
 from stabbur.cli._app import app
 from stabbur.cli._common import (
+    _count,
     console,
 )
 
@@ -195,6 +196,68 @@ def _setup_default_tools(yes: bool) -> None:
     )
 
 
+def _setup_voice(download: bool) -> None:
+    """Fetch the Kokoro assets now, rather than mid-conversation on the first "Listen".
+
+    Not a question: stabbur speaks out of the box, so the voice is part of a working install and
+    setup is the moment to get it. It is also the only download stabbur otherwise starts on its
+    own, several minutes into a chat, with no way for the user to have seen it coming.
+    ``--no-download`` is the way out.
+
+    The assets land in the library (``<root>/tts/kokoro``), so this is a per-library step, not a
+    machine one.
+    """
+    from stabbur.voice import kokoro  # noqa: PLC0415 - keep the voice deps off the import path
+
+    if not kokoro.available():
+        console.print("[yellow]Voice[/]  Kokoro engine unavailable — reinstall stabbur (`uv sync`).")
+        return
+    if kokoro.assets_present():
+        console.print("[green]Voice[/]  in-chat voice ready (Kokoro)")
+        return
+    if not download:
+        console.print("[dim]Voice[/]  skipped (--no-download) — it downloads on first use of Listen.")
+        return
+    try:
+        with console.status("[cyan]Downloading Kokoro voices (~310 MB)…", spinner="dots"):
+            kokoro.ensure_assets()
+    except Exception as exc:  # noqa: BLE001 - network/disk: report it, don't abort the rest of setup
+        console.print(f"[yellow]Voice[/]  download failed ({exc}) — it will retry on first use.")
+        return
+    console.print("[green]Set[/]  in-chat voice -> Kokoro")
+
+
+def _setup_models(download: bool) -> None:
+    """Pull the small starting set (transcription + one basic chat model) if the library lacks it.
+
+    An empty library is the state a first run actually lands in, and every next step — `chat`,
+    `serve --ui` — is useless in it. So setup fills it: not the whole catalog, just enough to have
+    something to talk to. Already-present models are skipped, so re-running costs nothing.
+    """
+    from stabbur import curated, wantlist  # noqa: PLC0415
+
+    try:
+        root = library_ops.default_root()
+        plan = wantlist.plan(list(curated.SETUP_DEFAULTS), library_ops.scan())
+    except Exception as exc:  # noqa: BLE001 - an unreadable library is reported by doctor below
+        console.print(f"[yellow]Models[/]  couldn't check the library ({exc}).")
+        return
+    if not plan.missing:
+        console.print(f"[green]Models[/]  starting set present ({_count(len(plan.present), 'model')})")
+        return
+    if not download:
+        console.print("[dim]Models[/]  skipped (--no-download) — `stabbur library sync starter` when you want them.")
+        return
+    for want in plan.missing:
+        console.print(f"[cyan]Pulling[/] {want.name} [dim]({want.note})[/]")
+        try:
+            result = wantlist.pull_entry(want, root)
+        except Exception as exc:  # noqa: BLE001 - one failed pull must not abort setup
+            console.print(f"  [yellow]failed[/] — {exc}")
+            continue
+        console.print(f"  [green]done[/] {result.size_human}")
+
+
 @app.command()
 def setup(
     library_root: Annotated[
@@ -207,6 +270,10 @@ def setup(
     yes: Annotated[
         bool, typer.Option("--yes", "-y", help="Accept defaults without prompting (non-interactive).")
     ] = False,
+    download: Annotated[
+        bool,
+        typer.Option("--download/--no-download", help="Fetch the voice + a starting model (default: yes)."),
+    ] = True,
 ) -> None:
     """First-run machine setup: configure the library + default model, build the UI, check runtimes.
 
@@ -218,6 +285,8 @@ def setup(
     console.rule("[bold]stabbur setup")
     _setup_library_root(library_root, yes)
     _setup_default_model(model, yes)
+    _setup_voice(download)
+    _setup_models(download)
     _setup_default_tools(yes)
     _setup_ui(build_ui, yes)
     console.print()
@@ -227,3 +296,4 @@ def setup(
         console.print("\n[yellow]Setup done, but some checks still fail[/] (see above — likely the llama.cpp binary).")
     else:
         console.print("\n[green]Setup complete.[/] Try `stabbur chat` or `stabbur serve --ui`.")
+    console.print("[dim]More models:[/] `stabbur library sets` lists the curated sets to pull from.")
