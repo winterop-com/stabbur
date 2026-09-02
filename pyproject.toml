@@ -71,7 +71,9 @@ mlx = [
 # helpers (misaki G2P for Kokoro, soundfile) are cross-platform. On Linux, the base
 # Kokoro-ONNX dep covers TTS. Install with `uv sync --extra voice` on an M-series Mac.
 voice = [
-    "mlx-audio>=0.4.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # 0.4.6, not 0.4.4: that is the floor verified to carry the voxcpm2 backend (the registry's
+    # voice-design model). An older wheel resolves fine and then 404s on the model type.
+    "mlx-audio>=0.4.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "misaki[en]>=0.9.4",  # grapheme->phoneme for Kokoro (English backend)
     "soundfile>=0.13.1",
     # Some mlx-audio models import the soxr resampler at load time but mlx-audio does not

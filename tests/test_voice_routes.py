@@ -223,6 +223,82 @@ async def test_malformed_reference_clip_is_422(
     assert "base64" in r.json()["detail"]
 
 
+async def test_instruct_reaches_the_runtime_for_a_design_model(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Voice design is the whole point of a design model, and it travels as a plain generation
+    # param — assert it actually arrives at the runtime rather than being dropped in the router.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="tts", load_target=tmp_path / "tts-model")],
+    )
+
+    def fake_synthesize(model: Path, text: str, **kwargs: object) -> bytes:
+        seen.update(kwargs)
+        return b"RIFFfake"
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", fake_synthesize)
+    r = await client.post(
+        "/v1/audio/speech",
+        json={"model": "voxcpm2", "input": "hello", "instruct": "a calm older man"},
+    )
+    assert r.status_code == 200
+    assert seen["instruct"] == "a calm older man"
+
+
+async def test_speed_is_withheld_from_a_model_that_ignores_it(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # mlx-audio accepts `speed` for every model and the ones that don't implement it swallow it.
+    # Sending it anyway makes a no-op look supported; the registry flag decides.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="tts", load_target=tmp_path / "tts-model")],
+    )
+
+    def fake_synthesize(model: Path, text: str, **kwargs: object) -> bytes:
+        seen.update(kwargs)
+        return b"RIFFfake"
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", fake_synthesize)
+    r = await client.post("/v1/audio/speech", json={"model": "voxcpm2", "input": "hello", "speed": 1.5})
+    assert r.status_code == 200
+    assert "speed" not in seen  # VoxCPM2 renders at its own pace
+
+
+async def test_instruct_on_a_non_design_model_is_422(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The runtime hands unknown params straight to the model's generate(), where one it doesn't
+    # accept is a TypeError (a 502 after a multi-second load). Reject the mismatch upfront.
+    def never(*args: object, **kwargs: object) -> bytes:
+        raise AssertionError("synthesis must not start for a model that can't design a voice")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", never)
+    r = await client.post("/v1/audio/speech", json={"model": "spark", "input": "hello", "instruct": "a calm man"})
+    assert r.status_code == 422
+    assert "voice-design" in r.json()["detail"]
+
+
+async def test_oversized_instruct_is_413(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The description is prepended to what the model speaks, so an unbounded one is speakable
+    # payload smuggled past the text cap.
+    def never(*args: object, **kwargs: object) -> bytes:
+        raise AssertionError("synthesis must not start for an oversized description")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", never)
+    r = await client.post(
+        "/v1/audio/speech",
+        json={"model": "voxcpm2", "input": "hello", "instruct": "a" * (voice_router._MAX_INSTRUCT_CHARS + 1)},
+    )
+    assert r.status_code == 413
+    assert str(voice_router._MAX_INSTRUCT_CHARS) in r.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # /v1/audio/transcriptions
 # ---------------------------------------------------------------------------

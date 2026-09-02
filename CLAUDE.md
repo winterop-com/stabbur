@@ -199,7 +199,14 @@ Non-obvious landmines that aren't self-evident from the code:
 - **Voice.** Runtime is in-process mlx-audio (Apple) + Kokoro-ONNX (cross-platform, the
   lightweight chat voice). A seeded model honors a seed only via `mx.random.seed()`
   (`generate_audio` ignores a `seed` kwarg) — and the seed→voice mapping is a function of
-  the installed mlx version, so curated seeds do not survive an MLX upgrade. Models the
+  the installed mlx version, so curated seeds do not survive an MLX upgrade. A **voice-design** model
+  (`instruct`) samples a fresh speaker per run too, and the same seed pins it byte-for-byte — so
+  the seed control follows the registry's `seedable` flag, never `voice_mode == seeded`. Same
+  shape for `honors_speed`: mlx-audio takes `speed` for every model and the ones that don't
+  implement it swallow it, so a slider tied to nothing looks broken (measured per model, not
+  assumed). `instruct` goes only to a model whose `voice_mode` is `design`: the runtime forwards
+  unknown params straight to the model's `generate()`, where one it does not accept is a
+  TypeError, not a shrug. Models the
   registry flags `supported=False` are rejected at the synthesis choke point. Help text and
   docstrings stay model-agnostic: name concrete models only in the registry entries and in
   listings, never in `--help` or generic comments (another machine may hold none of them).

@@ -18,6 +18,7 @@ it's pulled from the HF cache or downloaded from Hugging Face:
 | --- | --- | --- | --- |
 | **Kokoro-82M** | TTS | kokoro-onnx | 54 built-in voices, 8 languages. Small + fast — stabbur's **default in-chat voice** (runs next to a big LLM). Cross-platform. |
 | **Spark-TTS-0.5B** | TTS | mlx-audio | Bilingual (English + Chinese); pick a gender and **pin a seed** for a stable voice, or **clone** from a reference clip. |
+| **VoxCPM2** | TTS | mlx-audio | 48 kHz, 30 languages. **Voice design**: describe the voice you want in words, no clip needed — or **clone** from one. ~3 GB, so it's the studio voice, not the in-chat one. |
 | **Whisper large-v3-turbo** | STT | mlx-audio | Fast multilingual transcription — the mic → prompt side. |
 | **Parakeet TDT 0.6B v3** | STT | mlx-audio | Lighter and quicker than Whisper; English + 25 European languages. |
 | **Qwen3-ASR-1.7B** | STT | mlx-audio | Multilingual transcription. |
@@ -46,6 +47,8 @@ sb voice speak "Hi" --voice af_heart         # a specific Kokoro voice
 sb voice speak "Hi" --model spark --seed 0   # a seeded model (pin the seed for reliability)
 sb voice speak "Hi" --model spark \          # clone the voice in a clip (cloneable models)
   --ref-audio sample.wav --ref-text "exact transcript of sample.wav"
+sb voice speak "Hi" --model voxcpm2 \       # design a voice from a description (no clip)
+  --instruct "a calm older man, warm and unhurried" --seed 7   # ...the seed pins which speaker
 sb voice speak "Hi" --format mp3 -o out.mp3  # export via ffmpeg
 ```
 
@@ -59,6 +62,7 @@ The studio:
   choose an output format, and **Generate**. The result plays in an inline player
   (play/pause + scrubber). The controls follow the model: a **seeded** model gets a
   seed field (with a dice to randomize it) and a nonverbal-cue palette, a
+  **voice-design** model gets a description field, a
   **cloneable** one gets clone-from-clip — upload *or* record a reference clip
   (auto-transcribed by the STT model, silence auto-stops the recorder).
 - **Speech to text** — upload or record audio; the STT model returns the transcript.
@@ -80,6 +84,10 @@ curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' 
 curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
   -d '{"model":"spark","input":"Cloned line.","ref_audio_b64":"...","ref_text":"...","seed":0}' -o out.wav
 
+# Voice design (a voice-design model): describe the voice instead of supplying a clip
+curl -X POST localhost:2222/v1/audio/speech -H 'Content-Type: application/json' \
+  -d '{"model":"voxcpm2","input":"Designed line.","instruct":"a calm older man","seed":7}' -o out.wav
+
 # Speech to text
 curl -X POST localhost:2222/v1/audio/transcriptions -F model=whisper -F file=@clip.wav
 ```
@@ -93,4 +101,11 @@ Non-WAV formats are transcoded with **ffmpeg** (WAV passes through untouched).
   unlucky seed can drone instead of speak. The UI defaults to a known-good seed; the
   CLI takes `--seed`. A seed is only reproducible against the installed mlx version:
   an MLX upgrade re-maps seeds to voices, so a seed you liked may not survive one.
+- **A description alone does not fix the voice.** Voice design samples a fresh speaker each run,
+  so the same words give a different person every time — but the seed pins it: same description +
+  same seed is byte-identical audio. Roll the seed until you like the speaker, then keep it (with
+  the same MLX-version caveat as above).
+- **Not every model honors `--speed`.** mlx-audio accepts the parameter for all of them and the
+  ones that don't implement it swallow it silently; `sb voice speak` says so, and the studio hides
+  the slider rather than offering a control that does nothing (VoxCPM2 renders at its own pace).
 - Voice models live in `<library>/voice/…` so they travel with the drive.

@@ -65,7 +65,14 @@ def speak(
     ] = None,
     seed: Annotated[
         int | None,
-        typer.Option("--seed", help="Pin a seeded model's otherwise-random voice for a reproducible result."),
+        typer.Option("--seed", help="Pin a stochastic model's otherwise-random voice for a reproducible result."),
+    ] = None,
+    instruct: Annotated[
+        str | None,
+        typer.Option(
+            "--instruct",
+            help="Describe the voice to design, e.g. 'a calm older man' (voice-design models; no clip needed).",
+        ),
     ] = None,
     speed: Annotated[
         float,
@@ -88,9 +95,10 @@ def speak(
 
     ``--voice`` picks one of Kokoro's built-in voices (the lightweight default engine).
     ``--model`` uses a registry voice model via the mlx-audio runtime — with ``--ref-audio``
-    + ``--ref-text`` a cloneable model mimics the voice in that clip, and ``--seed`` pins a
-    seeded model's random voice. ``--format`` transcodes the result (ffmpeg); with ``-o``
-    writes there, otherwise a temp file is played.
+    + ``--ref-text`` a cloneable model mimics the voice in that clip, ``--instruct`` describes a
+    voice for a voice-design model to invent (no reference clip needed), and ``--seed`` pins
+    whichever speaker a stochastic model sampled — designed voices included. ``--format``
+    transcodes the result (ffmpeg); with ``-o`` writes there, otherwise a temp file is played.
     """
     from stabbur.voice import audio as audio_export  # noqa: PLC0415
     from stabbur.voice import (
@@ -123,6 +131,9 @@ def speak(
     if model is not None and spec is None:
         typer.secho(f"No voice model matches {model!r} (see `stabbur voice list`).", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
+    if instruct and (spec is None or spec.voice_mode != voice_registry.VoiceMode.design):
+        typer.secho("--instruct needs a voice-design model (see `stabbur voice list`).", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
     # Enforce the registry's supported flag at the action (A6/VO-M3): reject an unsupported model
     # upfront with a clear reason instead of loading it and failing on empty audio.
     if spec is not None and not spec.supported:
@@ -132,7 +143,9 @@ def speak(
         if voice is not None or spec is None:  # Kokoro (ONNX) — the lightweight default engine
             data = _synth_kokoro(text, voice or "af_heart", speed=speed)
         else:  # a registry voice model via the mlx-audio runtime
-            data = _synth_mlx(spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed, speed=speed)
+            data = _synth_mlx(
+                spec, text, ref_audio=ref_audio, ref_text=ref_text, seed=seed, speed=speed, instruct=instruct
+            )
         data = audio_export.convert(data, fmt)
     except (RuntimeError, ValueError) as exc:
         # ValueError as well as RuntimeError: the synthesis engines validate their own arguments
@@ -157,9 +170,17 @@ def _synth_kokoro(text: str, voice: str, *, speed: float = 1.0) -> bytes:
 
 
 def _synth_mlx(
-    spec: Any, text: str, *, ref_audio: Path | None, ref_text: str | None, seed: int | None, speed: float = 1.0
+    spec: Any,
+    text: str,
+    *,
+    ref_audio: Path | None,
+    ref_text: str | None,
+    seed: int | None,
+    speed: float = 1.0,
+    instruct: str | None = None,
 ) -> bytes:
-    """Synthesize with the mlx-audio runtime, supporting voice cloning + a pinned seed."""
+    """Synthesize with the mlx-audio runtime, supporting voice cloning, a pinned seed, and voice design."""
+    from stabbur.voice import registry as voice_registry  # noqa: PLC0415
     from stabbur.voice import runtime as voice_runtime  # noqa: PLC0415
 
     if not voice_runtime.available():
@@ -173,7 +194,16 @@ def _synth_mlx(
         raise typer.Exit(1)
     extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
     if speed != 1.0:
-        extra["speed"] = speed  # honored by models that support it; ignored otherwise
+        # Say so rather than sending a number the model will swallow: a speed that silently does
+        # nothing reads as a broken flag.
+        if spec.honors_speed:
+            extra["speed"] = speed
+        else:
+            console.print(f"[yellow]{spec.display_name} renders at its own pace[/] — ignoring --speed.")
+    # Only a voice-design model takes `instruct`: the runtime hands unknown params straight to
+    # the model's generate(), where one it doesn't accept is a TypeError, not a shrug.
+    if instruct and spec.voice_mode == voice_registry.VoiceMode.design:
+        extra["instruct"] = instruct
     with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
         return voice_runtime.synthesize(matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra)
 

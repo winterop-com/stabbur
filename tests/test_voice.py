@@ -25,6 +25,30 @@ def test_spark_is_a_seeded_cloneable_model() -> None:
     assert spark.cloneable and spark.voices == ["female", "male"]
 
 
+def test_voxcpm2_is_a_designable_cloneable_model() -> None:
+    vox = voice.get("voxcpm2")
+    assert vox is not None
+    assert vox.voice_mode is VoiceMode.design  # the voice is described in words, not picked
+    assert vox.cloneable  # it also takes a reference clip
+    assert vox.sample_rate == 48000  # it is the only 48 kHz model in the registry
+    # A designed voice is stochastic but seedable — measured: same seed, byte-identical audio.
+    assert vox.seedable and not vox.honors_speed
+    assert not vox.chat_default  # 3 GB: it never displaces Kokoro as the in-chat voice
+
+
+def test_only_one_model_is_the_chat_default() -> None:
+    # chat_voice() returns the first match, so a second chat_default would silently win or lose.
+    assert sum(1 for m in voice.BUILTIN if m.chat_default) == 1
+
+
+def test_seedable_is_not_the_same_as_seeded() -> None:
+    # The seed control follows `seedable`, not the voice mode: a design model samples a fresh
+    # speaker per run too, and tying the control to `voice_mode is seeded` hid the seed from it.
+    seedable = {m.id for m in voice.BUILTIN if m.seedable}
+    assert seedable == {"spark", "voxcpm2"}
+    assert voice.get("kokoro") is not None and not voice.get("kokoro").seedable  # type: ignore[union-attr]
+
+
 def test_kokoro_is_the_lightweight_chat_voice() -> None:
     chat = voice.chat_voice()
     assert chat.id == "kokoro"

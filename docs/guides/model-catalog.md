@@ -50,6 +50,7 @@ TTS speaks; STT transcribes. Except `kokoro` (ONNX, cross-platform), these run o
 # --- TTS ---
 sb library pull voice kokoro       # Kokoro-82M · 54 named voices · the in-chat voice · cross-platform
 sb library pull voice spark        # 0.5B · English + Chinese · seeded voice + cloning
+sb library pull voice voxcpm2      # 2B · 48 kHz · 30 languages · voice design + cloning
 
 # --- STT (speech-to-text) ---
 sb library pull voice whisper        # large-v3-turbo · multilingual · the default
@@ -64,6 +65,7 @@ sb library pull voice distil-whisper # faster distilled Whisper (English)
 | --- | --- | --- | --- | --- |
 | `kokoro` | TTS | preset | kokoro-onnx | 54 voices, 8 languages; the in-chat default; cross-platform |
 | `spark` | TTS | seeded | mlx-audio | English + Chinese; pick a gender and pin a seed, or clone from a clip |
+| `voxcpm2` | TTS | design | mlx-audio | 48 kHz, 30 languages; describe the voice you want, or clone from a clip |
 | `whisper` | STT | — | mlx-audio | multilingual default |
 | `parakeet` | STT | — | mlx-audio | fast; EN + 25 EU languages |
 | `qwen3-asr` | STT | — | mlx-audio | multilingual |

@@ -34,6 +34,9 @@ class VoiceModelInfo(BaseModel):
     cloneable: bool = False  # accepts a reference clip to clone a voice
     multi_speaker: bool = False  # dialogue with [S1]/[S2] speaker tags
     seeded: bool = False  # a fresh random voice per run unless a seed is pinned
+    seedable: bool = False  # pinning a seed reproduces the output (true of design models too)
+    honors_speed: bool = True  # False = the model renders at its own pace, ignoring a speed request
+    designable: bool = False  # the voice can be described in words (no reference clip needed)
     voices: list[str] = []  # named preset voices, if statically known
     languages: list[str] = []
     chat_default: bool = False  # the lightweight in-chat "speak replies" voice (Kokoro)
@@ -64,6 +67,9 @@ def voice_models() -> list[VoiceModelInfo]:
                 cloneable=spec.cloneable if spec else False,
                 multi_speaker=spec.multi_speaker if spec else False,
                 seeded=bool(spec and spec.voice_mode == voice_registry.VoiceMode.seeded),
+                seedable=bool(spec and spec.seedable),
+                honors_speed=spec.honors_speed if spec else True,
+                designable=bool(spec and spec.voice_mode == voice_registry.VoiceMode.design),
                 voices=list(spec.voices) if spec else [],
                 languages=list(spec.languages) if spec else list(m.languages),
                 chat_default=spec.chat_default if spec else False,
@@ -115,6 +121,9 @@ def voices() -> list[VoiceInfo]:
 # characters is hours of speech, 25 MB is well over an hour of 16 kHz mono audio — so they bite
 # only on abuse or a client bug.
 _MAX_TEXT_CHARS = 20_000
+# A voice description is a sentence, not prose: it is prepended to the text the model speaks,
+# so an unbounded one is speakable payload smuggled past the text cap.
+_MAX_INSTRUCT_CHARS = 500
 _MAX_AUDIO_BYTES = 25 * 1024 * 1024
 # Base64 inflates by 4/3, so cap the encoded string rather than the decode's output: the point
 # is to reject before allocating, not after.
@@ -195,6 +204,7 @@ class AudioSpeechRequest(BaseModel):
     ref_audio_b64: str | None = None
     ref_text: str | None = None
     seed: int | None = None  # pin a seeded model's otherwise-random voice for reproducibility
+    instruct: str | None = None  # describe a voice for a voice-design model to invent (no clip needed)
     speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
 
 
@@ -225,7 +235,8 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
 
     Routes by the model's backend: Kokoro -> the cross-platform ONNX path (stabbur's
     lightweight chat voice); other registry models -> the Apple-Silicon mlx-audio
-    runtime, where ``ref_audio_b64`` + ``ref_text`` clone a voice. Markdown is
+    runtime, where ``ref_audio_b64`` + ``ref_text`` clone a voice and ``instruct``
+    describes one for a voice-design model to invent. Markdown is
     reduced to prose first; blocking synthesis runs off-loop. Returns ``audio/wav``.
     """
     text = _validated_text(req.input)
@@ -252,6 +263,12 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
     # otherwise be attempted and fail as a slow, opaque 502. Reject it upfront with a clear reason.
     if not spec.supported:
         raise HTTPException(status_code=422, detail=f"{req.model!r} isn't supported for synthesis in stabbur yet.")
+    if req.instruct is not None and len(req.instruct) > _MAX_INSTRUCT_CHARS:
+        raise HTTPException(status_code=413, detail=f"instruct exceeds the {_MAX_INSTRUCT_CHARS} character limit")
+    if req.instruct and spec.voice_mode != voice_registry.VoiceMode.design:
+        # The runtime hands unknown params to the model's generate(), where one it doesn't take
+        # is a TypeError (a 502), so reject the mismatch here as the client error it is.
+        raise HTTPException(status_code=422, detail=f"{req.model!r} is not a voice-design model (no `instruct`)")
     backend = spec.backend
 
     speed = _validated_speed(req.speed)
@@ -270,8 +287,10 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
                 ref_path = Path(tmp_name)
                 await asyncio.to_thread(_write_ref_clip, ref_path, req.ref_audio_b64)
             params: dict[str, Any] = {"seed": req.seed} if req.seed is not None else {}
-            if speed != 1.0:
-                params["speed"] = speed  # honored by models that support it; ignored otherwise
+            if speed != 1.0 and spec.honors_speed:
+                params["speed"] = speed  # only where it does something (see VoiceModel.honors_speed)
+            if req.instruct:
+                params["instruct"] = req.instruct  # voice design (checked above to be this model's mode)
             data = await asyncio.to_thread(
                 _synthesize_mlx, model.load_target, text, req.voice, ref_path, req.ref_text, params
             )

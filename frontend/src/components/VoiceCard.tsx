@@ -1,4 +1,4 @@
-import { Sparkles, Users, Wand2 } from "lucide-react";
+import { Palette, Sparkles, Users, Wand2 } from "lucide-react";
 
 import type { VoiceModelInfo } from "@/api";
 import { cn } from "@/lib/utils";
@@ -61,6 +61,11 @@ export function VoiceCard({ model }: { model: VoiceModelInfo }) {
         {model.multi_speaker && (
           <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
             <Users className="h-3 w-3" /> dialogue
+          </span>
+        )}
+        {model.designable && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+            <Palette className="h-3 w-3" /> voice design
           </span>
         )}
         {model.seeded && <span className="rounded-full border border-border px-2 py-0.5">seeded</span>}
