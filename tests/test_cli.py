@@ -967,6 +967,55 @@ def test_chat_no_server_also_skips_auto_attach(monkeypatch: pytest.MonkeyPatch) 
     assert "attaching to running stabbur serve" not in result.output
 
 
+def test_a_project_beats_a_configured_chat_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """In a project, `chat` runs the project's own model — not a machine-wide remote.
+
+    A project names the model it is for and owns the copy it downloaded. A configured
+    `chat_server` applied there anyway, so a freshly scaffolded project attached to someone
+    else's build of that model: the manifest said one thing and the session did another.
+    """
+    from stabbur import capabilities, runtime
+    from stabbur.config import Settings
+    from stabbur.runtime import serve_registry
+
+    (tmp_path / "stabbur.toml").write_text('[project]\nmodel = "pub/X"\n')
+    monkeypatch.chdir(tmp_path)
+    # Patched rather than set through the env: Settings is cached process-wide, so clearing that
+    # cache here would leak a configured server into every test that ran after.
+    monkeypatch.setattr(cli.chat, "get_settings", lambda: Settings(chat_server="http://gpu-box:8080"))
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "-p", "hi", "--no-tools"])
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] is None  # the project's own model, loaded locally
+    # ...and it says so on stderr rather than silently (a piped one-shot stays clean).
+    assert "ignoring the configured server" in result.stderr
+
+
+def test_an_explicit_server_still_wins_inside_a_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The project beats the *default*, not an explicit request: --server is how you say "run it
+    # over there this time".
+    from stabbur import capabilities, runtime
+    from stabbur.runtime import serve_registry
+
+    (tmp_path / "stabbur.toml").write_text('[project]\nmodel = "pub/X"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    monkeypatch.setattr(cli.chat, "_remote_model_id", lambda base, requested: "pub/X")
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "-p", "hi", "--no-tools", "--server", "http://gpu-box:8080"])
+    assert result.exit_code == 0, result.output
+    assert str(captured["base_url"]).startswith("http://gpu-box:8080")
+
+
 def test_chat_server_and_no_server_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("pub/X")])
     result = runner.invoke(

@@ -368,7 +368,10 @@ Read and write the **machine defaults** (`~/.config/stabbur/config.toml`) — th
 settings source, below `STABBUR_*` env vars and a project `stabbur.toml`. Writable keys:
 `library-root`, `model` (the default model outside a project), and `server` (a default
 `sb serve` URL for `sb chat` to attach to — it applies to every chat until you override it
-with `--server`, or opt out of it for one run with `--no-server`).
+with `--server`, or opt out of it for one run with `--no-server`). **A project overrides it**:
+inside a project that names a model, `sb chat` loads that model rather than attaching to the
+machine-wide remote, and says so — the project names the model it is for and owns the copy it
+downloaded. `--server` still attaches when you ask explicitly.
 
 ```bash
 sb config set library-root /path/to/your/library   # where your library lives
