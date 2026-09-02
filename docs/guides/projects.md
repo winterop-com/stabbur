@@ -48,6 +48,10 @@ What lands there is a working package, not just weights: the chat model, the in-
 | `--template <name>` | Preset the whole wizard from a template (e.g. `dhis2`). |
 | `--force` | Scaffold into a directory that already exists (refused otherwise). |
 
+A project also overrides the machine's `chat_server`: inside it, `sb chat` runs the project's own
+model instead of attaching to a configured remote. Otherwise a freshly scaffolded project would
+talk to someone else's build of the model it had just downloaded.
+
 ## Changing it later
 
 `sb configure` (inside the project) reopens the same choices as a form: model, system prompt,

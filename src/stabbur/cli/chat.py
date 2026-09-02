@@ -280,7 +280,21 @@ def chat(
     # A configured server otherwise applies to every run, with no way back to a local load, so
     # --no-server is the per-run opt-out. ``server`` is checked against None rather than for
     # truthiness so an explicit ``--server ''`` also clears it instead of silently falling back.
+    #
+    # A project wins over that default. A project names the model it is *for*, and it owns the
+    # copy: attaching to a machine-wide remote there ran someone else's build of a model the
+    # project had just downloaded — the manifest said one thing and the session did another. The
+    # machine default is what free-play chat gets; an explicit --server still overrides both.
     configured = get_settings().chat_server
+    if server is None and configured and proj is not None and proj.model:
+        # stderr, like the auto-attach note below: a piped `chat -p` must stay clean.
+        typer.secho(
+            f"↳ using this project's model ({proj.model}) — ignoring the configured server "
+            f"{configured}; pass --server to attach anyway",
+            fg=typer.colors.BRIGHT_BLACK,
+            err=True,
+        )
+        configured = None
     base_url = None if no_server else _normalize_server_url(server if server is not None else configured)
     interactive_remote = base_url is not None and prompt is None
     model: library_ops.LibraryModel | None
