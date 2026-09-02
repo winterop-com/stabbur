@@ -12,6 +12,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 for _var in ("FORCE_COLOR", "CLICOLOR_FORCE"):
     os.environ.pop(_var, None)
 os.environ["NO_COLOR"] = "1"
@@ -55,3 +57,39 @@ os.environ["STABBUR_RUNTIME_STATE_DIR"] = str(
 # over the network, so a ``STABBUR_UPSTREAM`` in the environment would turn a hermetic doctor test
 # into a live call against whatever box that names (and fail on a checkout that can't reach it).
 os.environ.pop("STABBUR_UPSTREAM", None)
+
+from stabbur import catalog  # noqa: E402 - after the env setup above, deliberately
+
+_REAL_CATALOG_PULL = catalog.pull  # captured before the guard below can replace it
+
+
+@pytest.fixture(autouse=True)
+def _no_real_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail loudly rather than download: no test may reach a real pull.
+
+    Nothing announces this failure mode. `stabbur setup` gained a step that fetches a starting
+    model, and one CLI test that invoked it went from milliseconds to 165 seconds — silently
+    pulling ~4 GB from the Hub on every run, in CI as well, while still passing. The suite is
+    hermetic about the library, the config dir and the runtime state (above); it has to be
+    hermetic about the network for the same reason.
+
+    ``catalog.pull`` is the only choke point that needs blocking: every source, and
+    ``wantlist.pull_entry`` above it, routes through it. A test that means to exercise a pull
+    stubs it itself — its own ``monkeypatch.setattr`` runs after this one and wins.
+    """
+
+    def _blocked(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a test tried to download a model. Stub the pull, or pass --no-download to `setup`.")
+
+    monkeypatch.setattr(catalog, "pull", _blocked)
+
+
+@pytest.fixture
+def real_pull(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Opt out of :func:`_no_real_downloads` for a pull that never reaches the network.
+
+    Some pull paths are entirely local — an argument check that raises before fetching, a copy
+    out of a seeded cache or another library — and those tests want the real function.
+    """
+    monkeypatch.setattr(catalog, "pull", _REAL_CATALOG_PULL)
+    return _REAL_CATALOG_PULL

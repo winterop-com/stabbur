@@ -585,7 +585,9 @@ def test_scan_skips_lone_vocoder(tmp_path: Path) -> None:
     assert library.scan(root=tmp_path) == []
 
 
-def test_catalog_pull_include_rejects_non_hf(tmp_path: Path) -> None:
+def test_catalog_pull_include_rejects_non_hf(tmp_path: Path, real_pull: object) -> None:
+    # `real_pull` opts out of conftest's no-downloads guard: this asserts the argument check that
+    # runs before anything is fetched.
     with pytest.raises(ValueError, match="only supported for the huggingface source"):
         catalog.pull(ModelSource.ollama, "model:tag", library_root=tmp_path, include=["*Q4*"])
 

@@ -118,6 +118,19 @@ def _setup_default_model(explicit: str | None, yes: bool) -> None:
     if not models:
         console.print("[dim]Model[/]  no runnable models yet — pull one with `stabbur library pull`.")
         return
+    # Pick for the user only where the pick is obvious: the recommended model if they have it,
+    # or the single model in a fresh library. A one-model library is not a choice, it is the
+    # answer — and leaving no default sends the next command (`stabbur chat`) into "no model".
+    from stabbur import curated  # noqa: PLC0415
+
+    obvious = next((m.name for m in models if m.name == curated.MAIN_MODEL), None)
+    if obvious is None and len(models) == 1:
+        obvious = models[0].name
+    if obvious is not None:
+        userconfig.set_value("default_model", obvious)
+        config.get_settings.cache_clear()
+        console.print(f"[green]Set[/]  default model -> {obvious}")
+        return
     if yes:
         console.print("[dim]Model[/]  no default set — `stabbur config set model <name>` to pick one.")
         return
@@ -284,9 +297,12 @@ def setup(
     """
     console.rule("[bold]stabbur setup")
     _setup_library_root(library_root, yes)
-    _setup_default_model(model, yes)
     _setup_voice(download)
     _setup_models(download)
+    # After the pull, not before: on a fresh machine the library is empty until `_setup_models`
+    # fills it, and a default-model step that ran first could only say "no runnable models yet"
+    # about models it was about to download.
+    _setup_default_model(model, yes)
     _setup_default_tools(yes)
     _setup_ui(build_ui, yes)
     console.print()
