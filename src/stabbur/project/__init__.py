@@ -760,17 +760,19 @@ def render_manifest(
 ) -> str:
     """Render a fresh ``stabbur.toml`` from values (used by ``project init`` / ``project new``).
 
-    Portable and git-committable — no machine-specific paths. ``libraries`` lists a project-local
-    store (``local_library_dir``, created alongside this file) plus ``@shared``, the token for the
-    machine's default library (``STABBUR_LIBRARY_ROOT``); ``None`` means the project uses only the
-    shared library. ``[project]`` defines the assistant; tools live in ``.mcp.json``. Override
-    anything per machine with ``STABBUR_*``.
+    Portable and git-committable — no machine-specific paths. ``local_library_dir`` names the
+    project's own store (created alongside this file) and is listed **alone**: a scaffolded project
+    is self-contained, so it must not read the machine's library at all. A project that inherited
+    ``@shared`` would keep working on the machine that made it and break the moment the directory
+    was moved — the one thing a self-contained project promises not to do. Add the token by hand
+    to opt back in. ``None`` means the project uses only the machine library. ``[project]`` defines
+    the assistant; tools live in ``.mcp.json``. Override per machine with ``STABBUR_*``.
     """
     if local_library_dir:
         libraries_block = (
-            f'# This project ships its own "{local_library_dir}/" store (the model was downloaded there);\n'
-            "# @shared is the machine default library (STABBUR_LIBRARY_ROOT) if you set one.\n"
-            f'libraries = ["{local_library_dir}", "{SHARED_LIBRARY_TOKEN}"]\n\n'
+            f'# This project reads only its own "{local_library_dir}/" store, so it travels intact.\n'
+            f'# To also read the machine library, add "{SHARED_LIBRARY_TOKEN}" to this list.\n'
+            f'libraries = ["{local_library_dir}"]\n\n'
         )
     else:
         libraries_block = (

@@ -59,8 +59,10 @@ os.environ["STABBUR_RUNTIME_STATE_DIR"] = str(
 os.environ.pop("STABBUR_UPSTREAM", None)
 
 from stabbur import catalog  # noqa: E402 - after the env setup above, deliberately
+from stabbur.sources import huggingface as _hf  # noqa: E402
 
 _REAL_CATALOG_PULL = catalog.pull  # captured before the guard below can replace it
+_REAL_PREFERRED_INCLUDE = _hf.preferred_include
 
 
 @pytest.fixture(autouse=True)
@@ -82,6 +84,10 @@ def _no_real_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("a test tried to download a model. Stub the pull, or pass --no-download to `setup`.")
 
     monkeypatch.setattr(catalog, "pull", _blocked)
+    # `pull` asks the Hub which quant to fetch when no include is given. That is a network call
+    # inside a function tests exercise with a stubbed downloader, so it is neutralized here (no
+    # filter) rather than left to reach out; a test that cares about the choice stubs it itself.
+    monkeypatch.setattr(_hf, "preferred_include", lambda *a, **k: None)
 
 
 @pytest.fixture
@@ -93,3 +99,10 @@ def real_pull(monkeypatch: pytest.MonkeyPatch) -> object:
     """
     monkeypatch.setattr(catalog, "pull", _REAL_CATALOG_PULL)
     return _REAL_CATALOG_PULL
+
+
+@pytest.fixture
+def real_preferred_include(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Restore the real quant chooser for the tests that are about it (they stub the Hub)."""
+    monkeypatch.setattr(_hf, "preferred_include", _REAL_PREFERRED_INCLUDE)
+    return _REAL_PREFERRED_INCLUDE

@@ -117,7 +117,7 @@ sb config set model publisher/some-model-GGUF   # default model outside a projec
 ```
 
 A **project** can instead pin its own library + model in **`stabbur.toml`** (run
-`sb project init` to scaffold one; see [stabbur.toml.example](https://github.com/winterop-com/stabbur/blob/main/stabbur.toml.example)):
+`sb init <dir>` to scaffold one; see [stabbur.toml.example](https://github.com/winterop-com/stabbur/blob/main/stabbur.toml.example)):
 
 ```toml
 # stabbur.toml

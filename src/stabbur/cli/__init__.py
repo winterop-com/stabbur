@@ -13,7 +13,6 @@ this package is listed in ``__all__``.
 from stabbur.cli import chat, config, ext_dev, health, library, mcp, project, serve, voice
 from stabbur.cli._app import _mount_plugins, app, main
 from stabbur.cli._common import _normalize_server_url, _uninstalled_optional
-from stabbur.cli.project import _pick_model_interactive, _pick_tools_interactive
 
 _mount_plugins()
 
@@ -33,6 +32,4 @@ __all__ = [
     # helpers kept importable as `stabbur.cli.<name>` (tests / back-compat)
     "_normalize_server_url",
     "_uninstalled_optional",
-    "_pick_model_interactive",
-    "_pick_tools_interactive",
 ]

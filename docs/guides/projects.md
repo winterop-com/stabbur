@@ -27,21 +27,21 @@ full path of the manifest it found whenever that isn't the current directory.
 Two entry points, same wizard:
 
 ```bash
-sb project init              # scaffold stabbur.toml here (warns if it nests in another project)
-sb project new my-assistant  # create a fresh directory and scaffold in it (like `cargo new`)
+sb init my-assistant         # create a new directory with its own model, config and tools
 ```
 
-The wizard asks for a kind (chat/voice), a default model (a library model or a
-curated starter to pull), MCP tools from installed plugins, a system prompt, and a
-spoken-reply voice. Flags skip or change parts of it:
+An interactive wizard (a Textual TUI) asks for a kind (chat/voice), a model, MCP tools from
+installed plugins (space to toggle), a system prompt, and a spoken-reply voice. The model is then
+**downloaded into the project's own `library/`** — always a fresh download, never a copy out of
+your machine library, so what you move is what runs.
 
 | Flag | Effect |
 | --- | --- |
-| `--model <name>` | Bind this model, skipping the model picker. |
-| `--copy` (`--local`) | Copy the model into a **project-local `library/`** (a fast local-disk copy if it's already in your shared library) — makes the project self-contained. |
+| `--model <name>` | Bind this model, skipping the wizard's model step. Required when there is no terminal to run the wizard in (a pipe, a script, CI). |
 | `--git` | `git init` the project and write a `.gitignore` that excludes `library/` (the weights) and `.env`. |
 | `--no-uv` | Skip the uv project (write only `stabbur.toml`, no `pyproject.toml`). |
-| `--force` | Overwrite an existing `stabbur.toml`. |
+| `--template <name>` | Preset the whole wizard from a template (e.g. `dhis2`). |
+| `--force` | Scaffold into a directory that already exists (refused otherwise). |
 
 ## A project is a uv project
 
@@ -73,7 +73,7 @@ DHIS2 profile, and example prompts — see the
 one command — a model, a system prompt, tools, and example files:
 
 ```bash
-sb project new mydhis2 --template dhis2 --copy --git
+sb init mydhis2 --template dhis2 --git
 ```
 
 | Template | Model | Tools |
@@ -87,14 +87,14 @@ automatically; bundled sb servers and node (`bunx`) servers are left as-is. Over
 model with `--model`, and add more tools later with `sb mcp add` (also uv-aware).
 
 ```bash
-sb project new assistant --model unsloth/Qwen3.5-4B-GGUF --copy --git
+sb init assistant --model unsloth/Qwen3.5-4B-GGUF --git
 ```
 
 ## What it writes
 
 ```toml
 # stabbur.toml
-libraries = ["library", "@shared"]   # only when --copy is used; else just @shared
+libraries = ["library"]              # its own store, and only its own
 
 [project]
 model = "unsloth/Qwen3.5-4B-GGUF"
@@ -105,8 +105,10 @@ chat_voice = "kokoro:af_heart"       # spoken-reply voice (Kokoro)
 Tools are **not** in `stabbur.toml` — they live in a sibling `.mcp.json` (see below).
 
 - **`libraries`** — the libraries this project reads, in priority order (first match
-  wins). With `--copy` it lists the project-local `library/` first, then `@shared`
-  (the machine default, `STABBUR_LIBRARY_ROOT`). See [The library](library.md).
+  wins). A scaffolded project lists its own `library/` and nothing else, so it ignores this
+  machine's library and default model entirely — that is what makes the directory portable. Add
+  `"@shared"` (the machine default, `STABBUR_LIBRARY_ROOT`) by hand to opt back in. See
+  [The library](library.md).
 - **`[project]`** — the bound model, system prompt, and spoken-reply voice.
 - **`.mcp.json`** — the project's MCP tool servers (standard `mcpServers` JSON).
 

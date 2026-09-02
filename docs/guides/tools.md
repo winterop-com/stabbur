@@ -37,7 +37,7 @@ sb mcp remove utils     # drop it again (--global for the machine layer)
 `sb mcp add` resolves the name against installed plugins first, then the external
 catalog, and writes an entry to `.mcp.json` (or the global file with `--global`).
 External commands may carry a placeholder (a path, a DHIS2 profile) — the `setup:` hint
-says what to edit. You can also pick plugin tools interactively in the `sb project init`
+says what to edit. You can also pick plugin tools interactively in the `sb init`
 wizard, or write the JSON by hand:
 
 ### First-party servers
@@ -159,7 +159,7 @@ uv tool install dhis2w-mcp-bridge     # bridge — for a smaller model
 ```
 
 Then add it to a project's `.mcp.json` (`sb mcp add dhis2`, or select it in
-`sb project init`). For a big model:
+`sb init`). For a big model:
 
 ```json
 {

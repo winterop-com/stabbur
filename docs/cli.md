@@ -10,25 +10,32 @@ discarding them), which is the first thing to reach for when `sb chat`
 reports a model that "exited before becoming ready". (Also settable with
 `STABBUR_DEBUG=1`.)
 
-## `sb project init`
+## `sb init <path>`
 
-Scaffold **`stabbur.toml`** here — stabbur's primary config (no `.env` needed) — and
-ensure its model is in the library. The generated file is portable — it lists the
-`libraries` this project uses (a project-local `models/` plus `@shared`, the
-machine default) plus the assistant (`[project]` model; tools in `.mcp.json`).
-Idempotent — only pulls the model if it's missing. With no `--model` it
-offers a small curated set and pulls the choice into the project-local library.
+Create a **self-contained project assistant** in a new directory. Everything it needs lives
+inside: the model (downloaded into `<path>/library/`), the system prompt, the tools
+(`.mcp.json`), and its own uv environment. The generated `stabbur.toml` lists that library and
+**only** that library, so the project ignores this machine's library and default model — zip the
+directory, move it to another machine, and it still runs.
+
+An interactive wizard (a Textual TUI) walks the choices: kind, model, tools (space to toggle),
+system prompt, spoken-reply voice. With no terminal — a pipe, a script, CI — pass `--model`
+instead and it scaffolds without the TUI.
 
 ```bash
-sb project init                                  # pick a curated starter model
-sb project init --model unsloth/Qwen3.5-4B-GGUF  # bind a specific model
-sb project init --copy                           # copy the model into a project-local library/
-sb project init --git                            # also: git init + a .gitignore (excludes library/ + .env)
-sb project init --force                          # overwrite an existing stabbur.toml
+sb init mybot                                  # the wizard, then a fresh download into mybot/
+sb init mybot --model unsloth/Qwen3.5-4B-GGUF  # skip the wizard's model step
+sb init mybot --git                            # also: git init + a .gitignore (excludes library/ + .env)
+sb init mybot --no-uv                          # no pyproject.toml (use a global stabbur instead)
+sb init mybot --template dhis2                 # a preset assistant (model + prompt + bridge + files)
 ```
 
-`sb project new <dir>` scaffolds into a fresh directory instead (like `cargo new`)
-and takes the same `--model` / `--copy` / `--git` / `--force` flags.
+It **refuses an existing directory** (`--force` overrides): creating a project means making a new
+nest, and scaffolding into a directory that already holds one is how two assistants end up
+arguing over one `stabbur.toml`.
+
+The model is always downloaded fresh into the project, never copied out of your machine library —
+a project owns its weights outright, so what you move is what runs.
 
 A project is a **reproducible assistant**: in a project directory — or any subdirectory
 of it — both `sb chat` and `sb serve --ui` default to its model, system prompt, and MCP
@@ -171,7 +178,8 @@ Export your library as a **want list** — a portable, human-editable TOML file 
 entries (source + name + format), one per model, enough to re-pull each. Reads each model's
 recorded source from its `.stabbur/` sidecar (inferring it for older pulls). A model pulled with
 `--include` also carries those globs, so a rebuild fetches the one quant you keep rather than
-every quant in a multi-quant repo; entries with no `include` mean the whole repo, as before.
+every quant in a multi-quant repo; an entry with no `include` re-pulls the way a plain pull does
+(one quant, chosen from what the repo ships).
 Prints to stdout by
 default; `--save <file>` writes it. No state is kept in the library — the manifest is generated
 on demand, so you keep the file wherever you like (commit it to a repo, copy it to another drive).
@@ -187,8 +195,8 @@ equivalent; Ollama models are recorded as-is; voice models as their registry id.
 ## `sb library sets`
 
 The **curated sets** — validated groups of models you can pull in one command, so filling a
-fresh library isn't a page of copy-paste pulls. Each set pins the quant it wants, which a
-hand-typed pull does not: an unfiltered pull of a multi-quant GGUF repo fetches every quant.
+fresh library isn't a page of copy-paste pulls. Each set pins the exact quant it was validated
+with, rather than leaving the choice to the default.
 
 ```bash
 sb library sets                  # name, model count, rough size, what it's for
@@ -311,7 +319,7 @@ sb voice speak hi --model <voice-id> --seed 10    # a registry voice model, seed
 ## `sb setup`
 
 First-run **machine setup** — the write-mode companion to `sb doctor` (machine scope,
-whereas `sb project init` scaffolds one project). It persists per-machine defaults to
+whereas `sb init` scaffolds one project). It persists per-machine defaults to
 `~/.config/stabbur/config.toml` (library location + default model), **downloads the in-chat voice
 and a small starting model** so a fresh install has something to talk to, builds the browser UI if
 [Bun](https://bun.sh) is present, and prints an OS-specific hint for anything it can't install

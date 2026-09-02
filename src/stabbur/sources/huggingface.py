@@ -26,6 +26,37 @@ _QUANT_PREFERENCE = ("Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q8_0")
 _ACCESS_STATUSES = frozenset({401, 403, 404})
 
 
+def preferred_include(repo: str, token: str | None = None) -> list[str] | None:
+    """The globs that fetch one quant of a multi-quant GGUF repo, or ``None`` when it has one.
+
+    A GGUF repo commonly ships the whole ladder from IQ2 to Q8, so an unrestricted pull fetches
+    every quant — measured: ~20 GB downloaded to obtain a 2.6 GB model, and 14 GB for a 3B one.
+    Nothing wanted that; ``_pull_size`` has always *estimated* a pull as one quant, so the pull
+    itself now matches the estimate.
+
+    The quant is chosen from what the repo actually has (a QAT build ships only ``Q4_0``, so a
+    fixed ``*Q4_K_M*`` would match nothing), and the multimodal projector comes along with it —
+    a vision model without its ``mmproj`` is a model that cannot see. Returns ``None`` for a repo
+    that is not a multi-quant GGUF (safetensors, MLX, a single-file GGUF): there is nothing to
+    choose between, and an unnecessary filter is one more thing that can exclude the real file.
+    """
+    try:
+        info = HfApi().model_info(repo, files_metadata=False, token=token)
+    except Exception:  # noqa: BLE001 - network/API errors: fall back to an unrestricted pull
+        return None
+    names = [s.rfilename for s in (info.siblings or [])]
+    weights = [n for n in names if n.lower().endswith(".gguf") and "mmproj" not in n.lower()]
+    if len(weights) < 2:
+        return None  # one weight file (or none): nothing to pick between
+    mmproj = ["*mmproj*"] if any("mmproj" in n.lower() for n in names) else []
+    for quant in _QUANT_PREFERENCE:
+        if any(quant.lower() in n.lower() for n in weights):
+            return [f"*{quant}*", *mmproj]
+    # A repo whose quants are all unfamiliar (e.g. MXFP4-only): take the smallest, by name, so the
+    # choice is at least deterministic rather than "everything".
+    return [f"*{Path(min(weights)).stem.split('-')[-1]}*", *mmproj]
+
+
 def _pull_size(repo: str) -> int:
     """Approximate bytes ``stabbur pull`` would download for ``repo``.
 
@@ -197,7 +228,9 @@ def pull(
         include: Optional filename globs to restrict the download (e.g.
             ``["*Q4_K_M*"]`` to pull one GGUF quant from a multi-quant repo).
             Small sidecars (``*.md`` / ``*.json`` / ``*.txt``) are always kept so
-            the model card and configs come along.
+            the model card and configs come along. When omitted, a multi-quant GGUF repo is
+            narrowed to one quant by :func:`preferred_include` rather than downloaded whole;
+            pass ``["*"]`` to take everything.
         model_format: Skip Hub detection and force the destination bucket (used by the CLI when
             it already knows the format).
 
@@ -215,6 +248,8 @@ def pull(
     # mkdir outside the library even if the download later fails.
     dest = safe_join(library_root, f"{bucket}/{repo_id}")
     dest.mkdir(parents=True, exist_ok=True)
+    # No include means "one quant", not "the entire ladder" — see preferred_include.
+    include = include if include else preferred_include(repo_id, token)
     allow_patterns = list(dict.fromkeys([*include, "*.md", "*.json", "*.txt"])) if include else None
     try:
         snapshot_download(

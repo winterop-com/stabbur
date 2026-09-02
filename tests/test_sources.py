@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -422,7 +423,15 @@ def test_hf_pull_include_sets_allow_patterns(tmp_path: Path, monkeypatch: pytest
     patterns = captured["allow_patterns"]
     assert patterns == ["*Q4_K_M*", "*mmproj*", "*.md", "*.json", "*.txt"]
 
-    huggingface.pull("pub/Repo", tmp_path)  # no include → no filtering
+    # No include: the repo's own preferred quant is used, so a multi-quant repo is not pulled
+    # whole. (conftest neutralizes the Hub lookup by default; this test wants the wiring.)
+    monkeypatch.setattr(huggingface, "preferred_include", lambda *a, **k: ["*Q4_K_M*"])
+    huggingface.pull("pub/Repo", tmp_path)
+    assert captured["allow_patterns"] == ["*Q4_K_M*", "*.md", "*.json", "*.txt"]
+
+    # ...and a repo with nothing to choose between still downloads unfiltered.
+    monkeypatch.setattr(huggingface, "preferred_include", lambda *a, **k: None)
+    huggingface.pull("pub/Single", tmp_path)
     assert captured["allow_patterns"] is None
 
 
@@ -825,3 +834,49 @@ def test_library_migrate_dedup_reverifies_before_delete(tmp_path: Path) -> None:
     moved, deduped, freed = library.apply_migration(plan)
     assert (moved, deduped, freed) == (0, 0, 0)
     assert (hf / "mlx-community" / "Bar-4bit" / "model.safetensors").is_file()  # source preserved
+
+
+def test_preferred_include_picks_one_quant_from_a_multi_quant_repo(
+    monkeypatch: pytest.MonkeyPatch, real_preferred_include: object
+) -> None:
+    """An unrestricted pull of a GGUF ladder downloads every quant — ~20 GB for a 2.6 GB model.
+
+    The quant is chosen from what the repo actually ships, and the projector comes along, because
+    a vision model without its mmproj cannot see.
+    """
+    files = ["m-IQ4_XS.gguf", "m-Q3_K_M.gguf", "m-Q4_K_M.gguf", "m-Q8_0.gguf", "mmproj-m.gguf", "README.md"]
+    monkeypatch.setattr(huggingface, "HfApi", lambda: _FakeHub(files))
+    assert huggingface.preferred_include("pub/Repo-GGUF") == ["*Q4_K_M*", "*mmproj*"]
+
+
+def test_preferred_include_leaves_a_single_weight_repo_alone(
+    monkeypatch: pytest.MonkeyPatch, real_preferred_include: object
+) -> None:
+    # A QAT build ships one quant; safetensors/MLX repos ship none. There is nothing to choose
+    # between, and an unnecessary filter is one more way to exclude the file you wanted.
+    monkeypatch.setattr(huggingface, "HfApi", lambda: _FakeHub(["m-Q4_0.gguf", "mmproj-m.gguf"]))
+    assert huggingface.preferred_include("pub/QAT-GGUF") is None
+    monkeypatch.setattr(huggingface, "HfApi", lambda: _FakeHub(["model.safetensors", "config.json"]))
+    assert huggingface.preferred_include("pub/Weights") is None
+
+
+def test_preferred_include_falls_back_to_an_unrestricted_pull_when_the_hub_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch, real_preferred_include: object
+) -> None:
+    # Choosing a quant is an optimization; failing to reach the Hub must not fail the pull, which
+    # is about to talk to the Hub anyway and will report a real error if it cannot.
+    def _boom() -> object:
+        raise OSError("no network")
+
+    monkeypatch.setattr(huggingface, "HfApi", _boom)
+    assert huggingface.preferred_include("pub/Repo-GGUF") is None
+
+
+class _FakeHub:
+    """Minimal stand-in for HfApi: only the file listing preferred_include reads."""
+
+    def __init__(self, filenames: list[str]) -> None:
+        self._filenames = filenames
+
+    def model_info(self, repo: str, files_metadata: bool = False, token: str | None = None) -> object:
+        return SimpleNamespace(siblings=[SimpleNamespace(rfilename=n) for n in self._filenames])

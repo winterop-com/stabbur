@@ -62,7 +62,9 @@ def test_render_manifest_round_trips(tmp_path: Path) -> None:
     assert loaded.model == "pub/Foo-GGUF"
     assert loaded.system_prompt == "You are helpful."
     assert loaded.chat_voice == "kokoro:af_heart"
-    assert loaded.libraries == ["library", "@shared"]
+    # Local-only, no @shared: a scaffolded project reads its own store and nothing else, so it
+    # keeps working when the directory is moved to a machine with a different library.
+    assert loaded.libraries == ["library"]
 
 
 def test_assistant_parses_known_and_extra_keys(tmp_path: Path) -> None:

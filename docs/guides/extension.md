@@ -50,7 +50,7 @@ For the full DHIS2 experience (target banner, Verify, Use my login), serve a pro
 scaffolded from the dhis2 template instead of a bare model:
 
 ```bash
-sb project new --template dhis2 myassistant && cd myassistant
+sb init myassistant --template dhis2 && cd myassistant
 mkdir -p .dhis2 && cp examples/dhis2-profiles.toml .dhis2/profiles.toml   # demo credentials
 sb serve --port 2222
 ```

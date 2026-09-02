@@ -23,10 +23,11 @@ working (not that it can't).
 Pulled from the Hugging Face Hub (stabbur picks a balanced GGUF quant, or the MLX build for
 `mlx-community` repos). MLX builds are Apple-Silicon-only; GGUF runs everywhere via llama.cpp.
 
-!!! warning "Pass `--include` for a multi-quant repo"
-    A GGUF repo often ships every quant from IQ3 to Q8; a pull with no `--include` fetches **all
-    of them** — ~20 GB to obtain a 2.6 GB model. The curated sets pin the quant for you; typing a
-    pull by hand, pin it yourself (a QAT build ships `Q4_0`, not `Q4_K_M`).
+!!! tip "One quant, not the whole ladder"
+    A GGUF repo often ships every quant from IQ3 to Q8. A pull with no `--include` takes **one** of
+    them — the best available of `Q4_K_M`, `Q4_K_S`, `Q5_K_M`, `Q4_0`, `Q8_0`, plus the `mmproj`
+    projector for a vision model. Pass `--include '*Q8_0*'` for a different one, or `--include '*'`
+    for everything.
 
 ```bash
 # --- small (fast, run alongside a voice model) ---
