@@ -31,6 +31,7 @@ and **a model is optional**: "No model yet" builds the project and binds one lat
 sb init mybot                                  # the wizard, then a fresh download into mybot/
 sb init mybot --model unsloth/Qwen3.5-4B-GGUF  # skip the wizard's model step
 sb init mybot --git                            # also: git init + a .gitignore (excludes library/ + .env)
+sb init mybot --upstream http://gpu-box:8080/v1 # models run there; nothing is downloaded
 sb init mybot --no-voices                      # text only: skip Kokoro + VoxCPM2
 sb init mybot --no-uv                          # no pyproject.toml (use a global stabbur instead)
 sb init mybot --template dhis2                 # a preset assistant (model + prompt + bridge + files)

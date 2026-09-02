@@ -199,6 +199,60 @@ def test_init_scaffolds_a_uv_project_that_can_run_its_own_voices(
     assert '"stabbur[voice]>=' in (tmp_path / "spoken" / "pyproject.toml").read_text()
 
 
+def test_init_with_an_upstream_downloads_no_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`--upstream` binds the project to a remote: the weights stay there, so nothing is pulled.
+
+    The voices are still fetched — they run in this process, not on the remote — which is why the
+    check is "no model pull", not "no pulls at all".
+    """
+    import tomllib
+    from types import SimpleNamespace
+
+    pulled: list[str] = []
+
+    def _record(source: object, name: str, **kwargs: object) -> SimpleNamespace:
+        pulled.append(name)
+        return SimpleNamespace(size_human="1 GB", destination=tmp_path)
+
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", _record)
+    monkeypatch.setattr("stabbur.voice.kokoro.ensure_assets", lambda root=None: (root, root))
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(
+        cli.app,
+        ["init", "remote", "--upstream", "http://gpu-box:8080/v1", "--model", "served-remotely", "--no-uv"],
+    )
+    assert result.exit_code == 0, result.output
+
+    parsed = tomllib.loads((tmp_path / "remote" / "stabbur.toml").read_text())
+    assert parsed["upstream"] == "http://gpu-box:8080/v1"  # top-level, above the tables
+    assert parsed["project"]["model"] == "served-remotely"
+    assert "served-remotely" not in pulled  # the remote holds it
+    assert pulled == ["voxcpm2", "whisper"]  # ...but the voices are local
+
+
+def test_a_project_upstream_is_where_chat_talks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A project whose models live on a remote must not try to load a local copy it deliberately
+    # does not have. Below an explicit --server, above the machine default.
+    from stabbur import capabilities, runtime
+    from stabbur.config import Settings
+    from stabbur.runtime import serve_registry
+
+    (tmp_path / "stabbur.toml").write_text('upstream = "http://gpu-box:8080/v1"\n[project]\nmodel = "remote-id"\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.chat, "get_settings", lambda: Settings(upstream="http://gpu-box:8080/v1"))
+    monkeypatch.setattr(capabilities, "capabilities", lambda _m: capabilities.ModelCapabilities())
+    monkeypatch.setattr(serve_registry, "discover", lambda _name: None)
+    monkeypatch.setattr(cli.chat, "_remote_model_id", lambda base, requested: "remote-id")
+    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [])  # nothing local, deliberately
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime, "generate", lambda model, prompt, *a: captured.setdefault("base_url", a[4]) or "ok")
+
+    result = runner.invoke(cli.app, ["chat", "-p", "hi", "--no-tools"])
+    assert result.exit_code == 0, result.output
+    assert str(captured["base_url"]).startswith("http://gpu-box:8080")
+
+
 def test_init_refuses_an_existing_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Creating a project is making a new directory; writing into one that already holds something
     # is how two assistants end up arguing over one stabbur.toml.

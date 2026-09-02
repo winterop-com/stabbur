@@ -755,6 +755,7 @@ def render_manifest(
     system_prompt: str = "",
     local_library_dir: str | None = None,
     libraries: list[str] | None = None,
+    upstream: str | None = None,
     chat_voice: str | None = None,
     voice_enabled: bool = True,
     assistant: "AssistantInfo | None" = None,
@@ -798,6 +799,13 @@ def render_manifest(
         assistant_block = f"\n{_render_assistant(assistant)}"
     else:
         assistant_block = ""
+    # Above every table, because TOML binds a bare key to the table above it: written after
+    # [project] this would silently become project.upstream and reach no Settings field at all.
+    upstream_line = (
+        f"# Models run on this OpenAI-compatible server, not on this machine.\nupstream = {json.dumps(upstream)}\n\n"
+        if upstream
+        else ""
+    )
     # Only written when off: the default is on, and a `[voice]` table in every scaffolded file
     # would suggest a knob where there is just a default.
     voice_block = "" if voice_enabled else "\n[voice]\nenabled = false  # hide the Voice surface\n"
@@ -805,6 +813,7 @@ def render_manifest(
         "# stabbur project — a purpose-built assistant (model + system prompt).\n"
         "# Portable + committable: no machine-specific paths. Tools live in .mcp.json.\n\n"
         f"{libraries_block}"
+        f"{upstream_line}"
         "[project]\n"
         f"model = {json.dumps(model)}\n"
         f"system_prompt = {json.dumps(system_prompt)}\n"

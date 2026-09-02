@@ -28,6 +28,7 @@ from stabbur.cli._common import (
     _print_model_card,
     _TemplateOpt,
     _to_mcp_server,
+    _UpstreamOpt,
     _UvOpt,
     _VoicesOpt,
     console,
@@ -59,6 +60,7 @@ class _WizardChoices(BaseModel):
     mcp: list[tuple[str, str]]  # (name, command) MCP servers to write into .mcp.json
     system_prompt: str
     chat_voice: str
+    upstream: str = ""  # an OpenAI-compatible server the models run on; "" = they run here
     voice: bool = False  # a voice project: only the system prompt differs
     template: ProjectTemplate | None = None
 
@@ -73,7 +75,9 @@ def _model_choices() -> list[ModelChoice]:
     return [ModelChoice(name=c.id, detail=c.note, size_gb=c.size_gb) for c in _CURATED]
 
 
-def _gather_choices(name: str, model: str | None, template: str | None, voices_gb: float = 0.0) -> _WizardChoices:
+def _gather_choices(
+    name: str, model: str | None, template: str | None, voices_gb: float = 0.0, upstream: str | None = None
+) -> _WizardChoices:
     """Resolve the scaffolding choices: a named template, the wizard, or flags.
 
     Gathered up front so quitting leaves nothing behind — the caller creates the project
@@ -99,7 +103,9 @@ def _gather_choices(name: str, model: str | None, template: str | None, voices_g
         if model is None:
             console.print("[red]No terminal for the wizard[/] — pass --model (and --template) to scaffold here.")
             raise typer.Exit(1)
-        return _WizardChoices(model=model, mcp=[], system_prompt=CHAT_PROMPT, chat_voice=DEFAULT_VOICE)
+        return _WizardChoices(
+            model=model, mcp=[], system_prompt=CHAT_PROMPT, chat_voice=DEFAULT_VOICE, upstream=upstream or ""
+        )
 
     from stabbur import plugins  # noqa: PLC0415 - plugin discovery is slow; only the wizard needs it
 
@@ -117,6 +123,7 @@ def _gather_choices(name: str, model: str | None, template: str | None, voices_g
         mcp=result.mcp,
         system_prompt=result.system_prompt,
         chat_voice=DEFAULT_VOICE,  # which voice speaks is a UI choice; the manifest just has a default
+        upstream=result.upstream,
         voice=result.voice,
     )
 
@@ -128,7 +135,7 @@ _STARTER_VOICES = ("voxcpm2", "whisper")
 _VOICE_PACKAGE_GB = 5.0
 
 
-def _provision(target: Path, model: str, *, voices: bool = True) -> None:
+def _provision(target: Path, model: str, *, voices: bool = True, upstream: str | None = None) -> None:
     """Download what the project asked for into its own ``library/``.
 
     Always a fresh download, never a copy out of the machine library: a project is meant to be
@@ -144,7 +151,11 @@ def _provision(target: Path, model: str, *, voices: bool = True) -> None:
 
     local_lib = target / _LOCAL_LIBRARY
     local_lib.mkdir(parents=True, exist_ok=True)
-    if model:
+    if upstream:
+        # The weights live on the other box; pulling a copy here would defeat the point of
+        # pointing at it. The voices are still local — they run in-process, not on the remote.
+        console.print(f"\n[dim]Models run on[/] {upstream} [dim]— nothing to download.[/]")
+    elif model:
         console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
         _pull_or_exit(model, local_lib)
     else:
@@ -178,7 +189,9 @@ def _provision(target: Path, model: str, *, voices: bool = True) -> None:
             console.print(f"  [yellow]skipped[/] — {escape(str(exc))}")
 
 
-def _write_project(target: Path, choices: _WizardChoices, *, uv: bool, voices: bool = True) -> None:
+def _write_project(
+    target: Path, choices: _WizardChoices, *, uv: bool, voices: bool = True, upstream: str | None = None
+) -> None:
     """Write ``stabbur.toml`` + ``.mcp.json`` (and, for a uv project, pyproject/README + template files)."""
     # A template may carry [assistant] target metadata (opaque dict) — a single ``assistant`` block or
     # a multi-target ``assistants`` list — validated here to AssistantInfo / an AssistantRegistry so
@@ -200,6 +213,7 @@ def _write_project(target: Path, choices: _WizardChoices, *, uv: bool, voices: b
             model=choices.model,
             system_prompt=choices.system_prompt,
             local_library_dir=_LOCAL_LIBRARY,
+            upstream=upstream,
             chat_voice=choices.chat_voice,
             assistant=assistant,
             registry=registry,
@@ -271,6 +285,7 @@ def _scaffold_project(
     uv: bool = True,
     template: str | None = None,
     voices: bool = True,
+    upstream: str | None = None,
 ) -> None:
     """Create ``target`` and scaffold a self-contained project assistant in it.
 
@@ -294,10 +309,15 @@ def _scaffold_project(
         )
         raise typer.Exit(1)
     _warn_if_nested(target)
-    choices = _gather_choices(target.name, model, template, voices_gb=_VOICE_PACKAGE_GB if voices else 0.0)
+    choices = _gather_choices(
+        target.name, model, template, voices_gb=_VOICE_PACKAGE_GB if voices else 0.0, upstream=upstream
+    )
+    # The wizard's own field wins when the flag was not given: it is the same setting, typed in
+    # the place the person was actually looking.
+    upstream = upstream or choices.upstream or None
     target.mkdir(parents=True, exist_ok=True)
-    _provision(target, choices.model, voices=voices)
-    _write_project(target, choices, uv=uv, voices=voices)
+    _provision(target, choices.model, voices=voices, upstream=upstream)
+    _write_project(target, choices, uv=uv, voices=voices, upstream=upstream)
     _print_scaffold_summary(target / "stabbur.toml", choices, uv=uv, git=git, target=target)
 
 
@@ -310,6 +330,7 @@ def init(
     uv: _UvOpt = True,
     template: _TemplateOpt = None,
     voices: _VoicesOpt = True,
+    upstream: _UpstreamOpt = None,
 ) -> None:
     """Create a self-contained project assistant in a new directory.
 
@@ -320,12 +341,16 @@ def init(
 
     It downloads a working package, not just weights: the chat model, the in-chat voice (Kokoro)
     and the good one (VoxCPM2) — a few GB more, and the project can actually speak. `--no-voices`
-    skips them; a Voice project adds speech-to-text so the mic works too.
+    skips them.
+
+    `--upstream <url>` binds the project to an OpenAI-compatible server instead: the models run
+    there and none are downloaded, while the prompt, tools, voices and UI stay here. `--model`
+    then names a model that server already serves.
 
     Refuses an existing directory (`--force` overrides). `--template dhis2` presets a
     reproducible DHIS2 assistant (model + prompt + bridge + example files).
     """
-    _scaffold_project(path, model, force, git, uv, template, voices)
+    _scaffold_project(path, model, force, git, uv, template, voices, upstream)
     run = "uv sync && uv run stabbur serve --ui" if uv else "stabbur serve --ui"
     console.print(f"[dim]Next:[/] cd {path} && {run}")
 

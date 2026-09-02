@@ -292,6 +292,12 @@ def chat(
     configured = get_settings().chat_server
     if server is None and configured and proj is not None and proj.model:
         configured = None
+    # A project bound to an upstream keeps its models there: chat has to talk to that server, or
+    # it would try to load a local copy of a model the project deliberately does not have. Below
+    # an explicit --server, above the machine default, and skipped by --no-server like any other.
+    project_upstream = (get_settings().upstream or "").strip() if proj is not None else ""
+    if server is None and project_upstream:
+        configured = project_upstream
     base_url = None if no_server else _normalize_server_url(server if server is not None else configured)
     interactive_remote = base_url is not None and prompt is None
     model: library_ops.LibraryModel | None
