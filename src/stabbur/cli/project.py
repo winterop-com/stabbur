@@ -28,6 +28,7 @@ from stabbur.cli._common import (
     _TemplateOpt,
     _to_mcp_server,
     _UvOpt,
+    _VoicesOpt,
     console,
 )
 from stabbur.cli.init_wizard import CHAT_PROMPT, DEFAULT_VOICE, ModelChoice, run_wizard
@@ -57,6 +58,7 @@ class _WizardChoices(BaseModel):
     mcp: list[tuple[str, str]]  # (name, command) MCP servers to write into .mcp.json
     system_prompt: str
     chat_voice: str
+    voice: bool = False  # a voice project: speech-to-text is provisioned as well
     template: ProjectTemplate | None = None
 
 
@@ -108,21 +110,62 @@ def _gather_choices(name: str, model: str | None, template: str | None) -> _Wiza
         model=model or result.model,
         mcp=result.mcp,
         system_prompt=result.system_prompt,
-        chat_voice=result.chat_voice,
+        chat_voice=DEFAULT_VOICE,  # which voice speaks is a UI choice; the manifest just has a default
+        voice=result.voice,
     )
 
 
-def _provision_model(target: Path, model: str) -> None:
-    """Download ``model`` into the project's own ``library/``.
+# What every new project gets besides its chat model. Kokoro is the in-chat voice (small enough to
+# sit beside any model); VoxCPM2 is the one worth listening to. Both are TTS: a project that can
+# only be typed at is not what "the replies can be spoken" promises. STT is added only for a voice
+# project — the mic half costs another 1.5 GB and a text project never uses it.
+_STARTER_VOICES = ("voxcpm2",)
+_STARTER_STT = ("whisper",)
+
+
+def _provision(target: Path, model: str, *, voice: bool, voices: bool = True) -> None:
+    """Download everything the project needs into its own ``library/``.
 
     Always a fresh download, never a copy out of the machine library: a project is meant to be
     self-contained — zip the directory, move it to another machine, and it still runs — so it owns
     its weights outright rather than inheriting a copy whose provenance is this one drive.
+
+    That costs a few GB more than the model alone, deliberately: what you are left with is a
+    project that can speak, not one that can speak once you go and find it a voice. ``voices=False``
+    (``--no-voices``) is the way out for a text-only assistant.
     """
+    from stabbur import host  # noqa: PLC0415
+    from stabbur.voice import kokoro  # noqa: PLC0415
+
     local_lib = target / _LOCAL_LIBRARY
     local_lib.mkdir(parents=True, exist_ok=True)
     console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
     _pull_or_exit(model, local_lib)
+
+    if not voices:
+        console.print("[dim]No voice package[/] (--no-voices) — add one later with `stabbur library pull voice`.")
+        return
+
+    # The in-chat voice: assets, not a library model, and they must land in *this* project so a
+    # moved copy can still speak.
+    console.print("Adding the in-chat voice [bold]Kokoro[/] …")
+    try:
+        kokoro.ensure_assets(local_lib)
+    except Exception as exc:  # noqa: BLE001 - a voice is not worth failing a scaffold over
+        console.print(f"  [yellow]skipped[/] — {exc}")
+
+    wanted = list(_STARTER_VOICES) + (list(_STARTER_STT) if voice else [])
+    for vid in wanted:
+        # The mlx-audio voice models are Apple-Silicon only; shipping one into a project built
+        # elsewhere would be gigabytes that cannot run.
+        if not host.is_apple_silicon():
+            console.print(f"[dim]Skipping {vid}[/] — the voice runtime is Apple Silicon only.")
+            continue
+        console.print(f"Adding [bold]{vid}[/] …")
+        try:
+            catalog_ops.pull(ModelSource.voice, vid, library_root=local_lib)
+        except Exception as exc:  # noqa: BLE001 - one voice model failing must not lose the project
+            console.print(f"  [yellow]skipped[/] — {escape(str(exc))}")
 
 
 def _write_project(target: Path, choices: _WizardChoices, *, uv: bool) -> None:
@@ -211,6 +254,7 @@ def _scaffold_project(
     git: bool = False,
     uv: bool = True,
     template: str | None = None,
+    voices: bool = True,
 ) -> None:
     """Create ``target`` and scaffold a self-contained project assistant in it.
 
@@ -236,7 +280,7 @@ def _scaffold_project(
     _warn_if_nested(target)
     choices = _gather_choices(target.name, model, template)
     target.mkdir(parents=True, exist_ok=True)
-    _provision_model(target, choices.model)
+    _provision(target, choices.model, voice=choices.voice, voices=voices)
     _write_project(target, choices, uv=uv)
     _print_scaffold_summary(target / "stabbur.toml", choices, uv=uv, git=git, target=target)
 
@@ -249,6 +293,7 @@ def init(
     git: _GitOpt = False,
     uv: _UvOpt = True,
     template: _TemplateOpt = None,
+    voices: _VoicesOpt = True,
 ) -> None:
     """Create a self-contained project assistant in a new directory.
 
@@ -257,10 +302,14 @@ def init(
     serve`/`chat` run inside it bind to that model and ignore this machine's library and default
     model — so the directory can be zipped up and moved to another machine as it stands.
 
+    It downloads a working package, not just weights: the chat model, the in-chat voice (Kokoro)
+    and the good one (VoxCPM2) — a few GB more, and the project can actually speak. `--no-voices`
+    skips them; a Voice project adds speech-to-text so the mic works too.
+
     Refuses an existing directory (`--force` overrides). `--template dhis2` presets a
     reproducible DHIS2 assistant (model + prompt + bridge + example files).
     """
-    _scaffold_project(path, model, force, git, uv, template)
+    _scaffold_project(path, model, force, git, uv, template, voices)
     run = "uv sync && uv run stabbur serve --ui" if uv else "stabbur serve --ui"
     console.print(f"[dim]Next:[/] cd {path} && {run}")
 

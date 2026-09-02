@@ -48,12 +48,17 @@ FormatOption = Annotated[
 ]
 
 
-# Curated starter models for `stabbur project init` (verified GGUF repos; small but capable
-# — sub-1B toy models are too weak to be useful defaults, so the floor is ~3B).
+# Curated starter models for `stabbur init` (verified GGUF repos; small but capable — sub-1B toy
+# models are too weak to be useful defaults, so the floor is ~3B).
+# Best first: a list ordered by size makes the weakest model the default pick, and the one most
+# people should take is the capable all-rounder, not the 3B kept around for testing.
 _CURATED: list[CuratedModel] = [
-    CuratedModel(id="unsloth/Llama-3.2-3B-Instruct-GGUF", note="tiny + fast, kinda works — good for testing (~2 GB)"),
+    CuratedModel(
+        id="lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+        note="recommended — capable all-rounder, vision + audio (~6.7 GB)",
+    ),
     CuratedModel(id="unsloth/Qwen3.5-4B-GGUF", note="compact + good at tools (~2.5 GB)"),
-    CuratedModel(id="lmstudio-community/gemma-4-12B-it-QAT-GGUF", note="capable all-rounder, vision + audio (~6.7 GB)"),
+    CuratedModel(id="unsloth/Llama-3.2-3B-Instruct-GGUF", note="tiny + fast, kinda works — good for testing (~2 GB)"),
     CuratedModel(id="unsloth/gpt-oss-20b-GGUF", note="strong reasoning + tools (~10.8 GB)"),
     CuratedModel(id="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", note="coding specialist (~17 GB)"),
 ]
@@ -250,6 +255,13 @@ _ForceOpt = Annotated[
 _GitOpt = Annotated[
     bool,
     typer.Option("--git", help="git init the project + write a .gitignore (excludes the local library/ + .env)."),
+]
+_VoicesOpt = Annotated[
+    bool,
+    typer.Option(
+        "--voices/--no-voices",
+        help="Include the voice package (Kokoro + VoxCPM2) in the project; --no-voices for a text-only nest.",
+    ),
 ]
 _UvOpt = Annotated[
     bool,

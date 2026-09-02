@@ -181,3 +181,17 @@ def test_pull_copies_from_another_library_without_downloading(tmp_path: Path, mo
     assert not result.downloaded and result.copied_bytes == 4096 and result.file_count == 1
     assert (target / "voice" / "mlx-community/Kokoro-82M-bf16" / "model.bin").read_bytes() == b"y" * 4096
     assert next(p for p in voice.discover(target) if p.spec.id == "kokoro").location == "library"
+
+
+def test_a_design_model_declares_a_house_voice() -> None:
+    """A model with no named voices needs a default description + seed, or it is a lottery.
+
+    Kokoro has 54 presets to pick from; VoxCPM2 has none — an unadorned request gets whatever
+    speaker the sampler invents. The registry pins one so the first thing anyone hears is a
+    deliberate voice, and `--instruct` / `--seed` still override it.
+    """
+    for m in voice.BUILTIN:
+        if m.voice_mode is VoiceMode.design:
+            assert m.default_instruct, f"{m.id} has no default description"
+            assert m.default_seed is not None, f"{m.id} has no default seed"
+            assert m.seedable  # a description alone does not pin the speaker

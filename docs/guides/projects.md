@@ -31,13 +31,18 @@ sb init my-assistant         # create a new directory with its own model, config
 ```
 
 An interactive wizard (a Textual TUI) asks for a kind (chat/voice), a model, MCP tools from
-installed plugins (space to toggle), a system prompt, and a spoken-reply voice. The model is then
-**downloaded into the project's own `library/`** — always a fresh download, never a copy out of
-your machine library, so what you move is what runs.
+installed plugins (space to toggle), and a system prompt. Everything is then **downloaded into the
+project's own `library/`** — always a fresh download, never a copy out of your machine library, so
+what you move is what runs.
+
+What lands there is a working package, not just weights: the chat model, the in-chat voice
+(Kokoro) and the good one (VoxCPM2) — a few GB more, and the project can actually speak. A
+**Voice** project adds speech-to-text so the mic half works too. `--no-voices` skips the lot.
 
 | Flag | Effect |
 | --- | --- |
 | `--model <name>` | Bind this model, skipping the wizard's model step. Required when there is no terminal to run the wizard in (a pipe, a script, CI). |
+| `--no-voices` | Skip the voice package (Kokoro + VoxCPM2), for a text-only assistant. |
 | `--git` | `git init` the project and write a `.gitignore` that excludes `library/` (the weights) and `.env`. |
 | `--no-uv` | Skip the uv project (write only `stabbur.toml`, no `pyproject.toml`). |
 | `--template <name>` | Preset the whole wizard from a template (e.g. `dhis2`). |

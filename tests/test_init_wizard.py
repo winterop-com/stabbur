@@ -33,6 +33,17 @@ async def test_tools_are_a_real_multi_select() -> None:
     assert app.return_value.mcp == [("datetime", "c1"), ("files", "c2")]
 
 
+async def test_the_kind_travels_so_a_voice_project_gets_speech_to_text() -> None:
+    # The kind is not decoration: the caller provisions STT from it, so it has to come back.
+    app = _wizard()
+    async with app.run_test() as pilot:
+        app.query_one("#kind-voice").value = True  # type: ignore[attr-defined]
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+    assert app.return_value is not None
+    assert app.return_value.voice is True
+
+
 async def test_quitting_returns_nothing_so_no_project_is_written() -> None:
     # The caller scaffolds only on a result: escape must leave it with nothing to write.
     app = _wizard()

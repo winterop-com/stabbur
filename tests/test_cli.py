@@ -103,22 +103,25 @@ def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_init_creates_a_self_contained_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """`init` makes a nest: its own library, named in its own manifest, model downloaded into it.
+    """`init` makes a nest: its own library, named in its own manifest, everything downloaded in.
 
     The manifest must list the project-local library and nothing else — a project that inherited
     this machine's library would stop working the moment the directory moved, which is the one
-    thing a self-contained project promises not to do.
+    thing a self-contained project promises not to do. And it is provisioned to *work*: the chat
+    model plus a voice, not weights that can only be typed at.
     """
     import tomllib
     from types import SimpleNamespace
 
-    pulled: dict[str, object] = {}
+    pulled: list[tuple[str, object]] = []
 
     def _fake_pull(source: object, name: str, **kwargs: object) -> object:
-        pulled.update({"name": name, "root": kwargs.get("library_root")})
+        pulled.append((name, kwargs.get("library_root")))
         return SimpleNamespace(size_human="1 GB", destination=tmp_path / "hello" / "library")
 
     monkeypatch.setattr(cli.project.catalog_ops, "pull", _fake_pull)
+    monkeypatch.setattr("stabbur.voice.kokoro.ensure_assets", lambda root=None: (root, root))
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(cli.app, ["init", "hello", "--model", "unsloth/X-GGUF", "--no-uv"])
     assert result.exit_code == 0, result.output
@@ -126,8 +129,53 @@ def test_init_creates_a_self_contained_project(monkeypatch: pytest.MonkeyPatch, 
     parsed = tomllib.loads((tmp_path / "hello" / "stabbur.toml").read_text())
     assert parsed["project"]["model"] == "unsloth/X-GGUF"
     assert parsed["libraries"] == ["library"]  # its own, and only its own
-    assert pulled["name"] == "unsloth/X-GGUF"
-    assert Path(str(pulled["root"])).resolve() == (tmp_path / "hello" / "library").resolve()
+    names = [name for name, _ in pulled]
+    assert names == ["unsloth/X-GGUF", "voxcpm2"]  # the model and the good voice
+    assert "whisper" not in names  # a text project doesn't pay for the mic half
+    lib = (tmp_path / "hello" / "library").resolve()
+    assert all(Path(str(root)).resolve() == lib for _, root in pulled)  # all of it inside the project
+
+
+def test_init_voice_project_also_gets_speech_to_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The Voice kind says "the mic works too", so it has to provision the model that listens —
+    # a kind that only changed the system prompt was promising a capability it did not install.
+    from types import SimpleNamespace
+
+    pulled: list[str] = []
+
+    def _record(source: object, name: str, **kwargs: object) -> SimpleNamespace:
+        pulled.append(name)
+        return SimpleNamespace(size_human="1 GB", destination=tmp_path)
+
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", _record)
+    monkeypatch.setattr("stabbur.voice.kokoro.ensure_assets", lambda root=None: (root, root))
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
+    monkeypatch.chdir(tmp_path)
+    cli.project._provision(tmp_path / "p", "unsloth/X-GGUF", voice=True)
+    assert pulled == ["unsloth/X-GGUF", "voxcpm2", "whisper"]
+
+
+def test_init_no_voices_downloads_only_the_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The package is a few GB more than the model; --no-voices is the way out, and it must skip
+    # the Kokoro assets too, not just the library models.
+    from types import SimpleNamespace
+
+    pulled: list[str] = []
+
+    def _record(source: object, name: str, **kwargs: object) -> SimpleNamespace:
+        pulled.append(name)
+        return SimpleNamespace(size_human="1 GB", destination=tmp_path)
+
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", _record)
+
+    def _no_assets(root: object = None) -> object:
+        raise AssertionError("--no-voices must not fetch the Kokoro assets")
+
+    monkeypatch.setattr("stabbur.voice.kokoro.ensure_assets", _no_assets)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["init", "quiet", "--model", "unsloth/X-GGUF", "--no-uv", "--no-voices"])
+    assert result.exit_code == 0, result.output
+    assert pulled == ["unsloth/X-GGUF"]
 
 
 def test_init_refuses_an_existing_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

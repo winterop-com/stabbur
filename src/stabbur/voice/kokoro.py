@@ -144,13 +144,18 @@ def voices() -> list[KokoroVoice]:
 
 
 def _assets_dir() -> Path:
-    """Where the Kokoro model + voices live — inside the library, so they travel with it.
+    """Where the Kokoro model + voices live — inside the library in play, so they travel with it.
+
+    The *first resolved* library root, not the machine default: inside a project that is the
+    project's own store, which is what makes a self-contained project able to speak at all. Sent
+    to the machine library instead, a project could be moved to a machine with no library and its
+    Listen button would have nothing to synthesize with.
 
     Raises ``LibraryNotConfigured`` when no library is set (rather than using ``./data``).
     """
     from stabbur import library  # noqa: PLC0415 - lazy to avoid an import cycle
 
-    return library.default_root() / "tts" / "kokoro"
+    return library.roots()[0] / "tts" / "kokoro"
 
 
 def assets_present() -> bool:
@@ -190,14 +195,17 @@ def _download(url: str, dest: Path) -> None:
 _assets_lock = threading.Lock()
 
 
-def ensure_assets() -> tuple[Path, Path]:
+def ensure_assets(root: Path | None = None) -> tuple[Path, Path]:
     """Return ``(model, voices)`` paths, downloading them on first use (~310 MB).
+
+    ``root`` overrides the library they land in — used when scaffolding a project, where the
+    destination is the project's own store and the project is not the one being run yet.
 
     Thread-safe: the presence check and the fetch happen under one lock, so a caller that
     arrives while another thread is downloading waits and then finds the finished files
     rather than starting a second download of its own.
     """
-    d = _assets_dir()
+    d = (root / "tts" / "kokoro") if root is not None else _assets_dir()
     model, vox = d / _MODEL_FILE, d / _VOICES_FILE
     with _assets_lock:
         if not model.is_file():

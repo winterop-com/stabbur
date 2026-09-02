@@ -192,6 +192,9 @@ def _synth_mlx(
             f"{spec.display_name} is not in the library (`stabbur voice import`).", fg=typer.colors.RED, err=True
         )
         raise typer.Exit(1)
+    # The registry's house voice fills in what wasn't asked for: a design model with no
+    # description and no seed speaks as a different stranger every run.
+    seed = seed if seed is not None else (spec.default_seed if spec.seedable else None)
     extra: dict[str, Any] = {"seed": seed} if seed is not None else {}
     if speed != 1.0:
         # Say so rather than sending a number the model will swallow: a speed that silently does
@@ -202,8 +205,9 @@ def _synth_mlx(
             console.print(f"[yellow]{spec.display_name} renders at its own pace[/] — ignoring --speed.")
     # Only a voice-design model takes `instruct`: the runtime hands unknown params straight to
     # the model's generate(), where one it doesn't accept is a TypeError, not a shrug.
-    if instruct and spec.voice_mode == voice_registry.VoiceMode.design:
-        extra["instruct"] = instruct
+    described = instruct or spec.default_instruct
+    if described and spec.voice_mode == voice_registry.VoiceMode.design:
+        extra["instruct"] = described
     with console.status(f"[cyan]Synthesizing speech ({spec.display_name})…", spinner="dots"):
         return voice_runtime.synthesize(matches[0].load_target, text, ref_audio=ref_audio, ref_text=ref_text, **extra)
 
