@@ -95,17 +95,32 @@ def test_written_file_is_standard_mcpservers_shape(tmp_path: Path) -> None:
     assert data == {"mcpServers": {"git": {"command": "uvx", "args": ["mcp-server-git"]}}}
 
 
-def test_resolve_merges_global_then_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_project_file_is_the_whole_toolset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A project's `.mcp.json` replaces the machine's servers rather than adding to them.
+
+    They used to merge, and a project listing two tools answered with a dozen: the file you can
+    read did not describe the assistant you got, and the same project answered differently on
+    another machine. A project is self-contained.
+    """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     mcpservers.add(McpServer(name="search", command="global-search"), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
-    # Project overrides "search" and adds "files".
     mcpservers.add(McpServer(name="search", command="proj-search"), glob=False, project_dir=proj)
     mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
-    assert resolved == {"datetime": "stabbur-mcp-datetime", "search": "proj-search", "files": "stabbur-mcp-files"}
+    assert resolved == {"search": "proj-search", "files": "stabbur-mcp-files"}  # no global datetime
+
+
+def test_without_a_project_file_the_machine_servers_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The other half: outside a project there is nothing to be self-contained about, so free-play
+    # chat runs the machine's set.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert {s.name for s in mcpservers.resolve(plain)} == {"datetime"}
 
 
 # --- disable marker ("<name>": null / {"disabled": true}) -----------------------------------
@@ -136,16 +151,17 @@ def test_disabled_true_marker_tolerated_and_not_a_server(tmp_path: Path) -> None
     assert [s.name for s in servers] == ["datetime"]  # disabled wins over the leftover command
 
 
-def test_project_disable_drops_a_global_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A machine-global server the project marks disabled is removed from the resolved set.
+def test_a_disable_marker_still_yields_no_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A disabled entry is not a server. (It no longer needs to suppress a *global* one — a project
+    # file already replaces the machine set — but the marker itself must still parse and be ignored.)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
-    mcpservers.add(McpServer(name="playwright", command="bunx", args=["@playwright/mcp"]), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
-    (proj / ".mcp.json").write_text(json.dumps({"mcpServers": {"playwright": {"disabled": True}}}))
-    resolved = {s.name for s in mcpservers.resolve(proj)}
-    assert resolved == {"datetime"}  # the disabled global is gone, the rest stays
+    (proj / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"playwright": {"disabled": True}, "files": {"command": "stabbur-mcp-files"}}})
+    )
+    assert {s.name for s in mcpservers.resolve(proj)} == {"files"}
 
 
 def test_disabled_global_is_dropped_outright(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,11 +264,11 @@ def test_add_re_enables_the_name_it_is_asked_for(tmp_path: Path) -> None:
 
 
 def test_normal_entries_unaffected_by_disable_support(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # With no disable markers present, resolve() behaves exactly as before (global then project merge).
+    # With no disable markers present, a project's entries resolve exactly as written.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     mcpservers.add(McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
     proj = tmp_path / "proj"
     proj.mkdir()
     mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=proj)
     resolved = {s.name: s.command for s in mcpservers.resolve(proj)}
-    assert resolved == {"datetime": "stabbur-mcp-datetime", "files": "stabbur-mcp-files"}
+    assert resolved == {"files": "stabbur-mcp-files"}  # the project file is the whole set

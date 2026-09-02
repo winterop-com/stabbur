@@ -186,9 +186,11 @@ note instead — never the raw image), gated on the detected `vision` capability
 
 **Config is the ecosystem-standard `mcpServers` JSON** (`stabbur.mcpservers`), the same shape
 Claude Desktop / Claude Code / Cursor use — so a server's README snippet pastes straight in.
-Two levels **merge**: machine-global `~/.config/stabbur/mcp.json` (what free-play chat gets;
-`stabbur mcp add --global`) and per-project `./.mcp.json` (`stabbur mcp add`); a project name
-overrides a global one, and CLI `--mcp` layers on top. `stabbur.toml` no longer carries tools.
+Two levels, and they do **not** merge: machine-global `~/.config/stabbur/mcp.json` (what free-play
+chat gets; `stabbur mcp add --global`) applies only when there is no `./.mcp.json`. A project's file
+is the whole toolset — a project is self-contained, and merging meant a project listing three tools
+answered with twenty-two, differently on another machine. CLI `--mcp` still layers on top.
+`stabbur.toml` no longer carries tools.
 Bundled first-party servers (`stabbur-mcp-*`, base deps) are entered by package name; `stabbur setup`
 seeds a minimal global default (`datetime`).
 

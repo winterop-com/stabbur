@@ -5,6 +5,7 @@ here we use a tiny inline FastMCP server as a fixture so these tests stay indepe
 any particular MCP package.
 """
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -577,3 +578,20 @@ def test_tool_schema_prefers_the_new_field_and_never_touches_the_alias() -> None
         inputSchema = {"type": "object", "properties": {"b": {"type": "number"}}}  # noqa: N815
 
     assert tools._tool_schema(OldStyle()) == OldStyle.inputSchema
+
+
+def test_a_project_file_shadows_the_machine_servers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Self-contained: a project's tools are its own file, not its file plus the machine's."""
+    from stabbur import mcpservers
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "stabbur.toml").write_text('[project]\nmodel = "pub/X"\n')
+    monkeypatch.chdir(proj)
+    mcpservers.add(mcpservers.McpServer(name="global-only", command="g"), glob=True)
+    mcpservers.add(mcpservers.McpServer(name="mine", command="m"), glob=False, project_dir=proj)
+
+    assert [s.name for s in mcpservers.resolve()] == ["mine"]
+    # The machine file is untouched — it is simply not in force here.
+    assert [s.name for s in mcpservers.read_global()] == ["global-only"]

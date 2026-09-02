@@ -327,16 +327,30 @@ async def test_get_lists_bundled_servers_with_state(client: AsyncClient) -> None
     assert all(e["enabled"] is False for e in body)
 
 
-async def test_get_reports_the_scope_that_switched_each_server_on(isolated: Path, client: AsyncClient) -> None:
-    # `scope` is not decoration: a new chat's tool allow-list starts from the baseline of the
-    # servers a *project* switched on (its assistant exists to use them) plus datetime, so a
-    # project-scoped server has to be distinguishable over the wire from a machine-global one.
+async def test_a_project_file_is_the_whole_toolset(isolated: Path, client: AsyncClient) -> None:
+    """A project's `.mcp.json` is the answer, whole — the machine's servers do not merge into it.
+
+    They used to, and a project listing three tools answered with twenty-two: the file you can read
+    did not describe the assistant you got, and moving the project elsewhere silently changed its
+    tools. A project is self-contained; the machine set is what free-play chat runs with.
+    """
     mcpservers.add(McpServer(name="files", command="stabbur-mcp-files"), glob=False, project_dir=isolated)
     mcpservers.add(McpServer(name="git", command="stabbur-mcp-git"), glob=True)
     rows = {e["name"]: e for e in (await client.get("/api/mcp/servers")).json()}
     assert rows["files"]["scope"] == "project"
-    assert rows["git"]["scope"] == "global"
+    assert rows["git"]["scope"] is None  # a machine-global server is not in force inside a project
     assert rows["datetime"]["scope"] is None  # off: nothing switched it on
+
+
+def test_outside_a_project_the_machine_set_applies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The other half of the rule: with no project file there is nothing to be self-contained about,
+    # so `stabbur chat` in a plain directory runs the machine's servers.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
+    mcpservers.add(McpServer(name="git", command="stabbur-mcp-git"), glob=True)
+    assert [s.name for s in mcpservers.resolve()] == ["git"]
 
 
 async def test_enable_persists_and_attaches_live(app: FastAPI, client: AsyncClient) -> None:

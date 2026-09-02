@@ -5,13 +5,17 @@ servers (the agent loop executes the call and feeds the result back).
 
 Tool config is the ecosystem-standard **`mcpServers` JSON** — the same shape Claude
 Desktop, Claude Code, and Cursor use, so a server's README snippet pastes straight in.
-It lives at two levels that **merge**:
+It lives at two levels, and the nearer one **wins outright** — they do not merge:
 
-- **Global** — `~/.config/stabbur/mcp.json`, the machine-wide default toolset every chat
-  gets (what `sb setup` seeds and `sb mcp add --global` writes).
 - **Project** — `.mcp.json` next to the `stabbur.toml` stabbur finds by walking up from the
   current directory (`./.mcp.json` when there is no project), the assistant's own tools
-  (`sb mcp add`). A project entry overrides a global one of the same name.
+  (`sb mcp add`). When this file exists it is the **whole** toolset.
+- **Global** — `~/.config/stabbur/mcp.json`, the machine-wide toolset (what `sb setup` seeds and
+  `sb mcp add --global` writes). It applies when there is no project file — free-play `sb chat`.
+
+A project is self-contained: the tools it lists are the tools it has, on any machine. Merging the
+two meant a project whose file named three servers answered with twenty-two, and moving the
+project somewhere else silently changed what it could do.
 
 The bundled first-party `stabbur-mcp-*` servers (`datetime`, `utils`, `memory`,
 `weather-yr`, `search`, `files`, `git`, `exec`, `http`) are always available (base deps) and entered
@@ -105,9 +109,9 @@ byte for byte — a `$schema`, an `inputs` block, per-server fields stabbur has 
 
 Two things that follow from that:
 
-- **Disabling a server.** A project can switch off a machine-global server by name, with either
-  `"playwright": null` or `"playwright": { "disabled": true }`. Adding some *other* server
-  afterwards leaves that marker alone, so a tool you deliberately turned off stays off.
+- **Disabling a server.** An entry can be switched off by name, with either `"playwright": null`
+  or `"playwright": { "disabled": true }`. Adding some *other* server afterwards leaves that marker
+  alone, so a tool you deliberately turned off stays off.
 - **Entries stabbur can't run yet.** A remote/HTTP server (`{ "type": "http", "url": "…" }`) is
   **skipped with a warning**, not an error — every other server in the file keeps working, and the
   entry itself is preserved on write, ready for when stabbur grows a remote transport. The same
