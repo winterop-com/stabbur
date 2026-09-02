@@ -178,6 +178,29 @@ def test_mlx_rows_warn_once_an_mlx_model_is_present(monkeypatch: pytest.MonkeyPa
     assert checks["MLX text (mlx-lm)"].hint  # ...and says how to install it
 
 
+def test_a_voice_model_does_not_make_the_mlx_runtimes_relevant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An MLX *voice* model needs no MLX runtime server: mlx-audio runs it in-process.
+
+    Every project `stabbur init` builds downloads a voice package, so counting those made a
+    GGUF-only assistant warn about runtimes none of its models would ever spawn.
+    """
+    voice_model = library.LibraryModel(
+        name="mlx-community/VoxCPM2-8bit",
+        model_format=ModelFormat.mlx,
+        path=tmp_path,
+        load_target=tmp_path,
+        voice_kind="tts",
+    )
+    monkeypatch.setattr(library, "scan", lambda: [voice_model])
+    assert doctor._mlx_models_present() is False
+
+
+def test_an_mlx_chat_model_does(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The runtime rows exist for this case: an MLX chat model is started by mlx_lm.server.
+    monkeypatch.setattr(library, "scan", lambda: [_library_model(tmp_path, "pub/Chat-MLX", ModelFormat.mlx)])
+    assert doctor._mlx_models_present() is True
+
+
 def test_upstream_makes_the_local_runtimes_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
     # Under `serve --upstream` stabbur spawns nothing here, so a missing local binary is a fact
     # about a machine that isn't running the model. Warning about it sends people to install

@@ -155,9 +155,15 @@ def _runtime_check(
 
 
 def _mlx_models_present() -> bool:
-    """Whether anything in the libraries in scope actually needs an MLX runtime."""
+    """Whether a **chat** model in scope needs one of the MLX runtime servers.
+
+    Voice models do not count, even though many are MLX: mlx-audio runs them in-process, so a
+    library holding VoxCPM2 and nothing else MLX has no use for ``mlx_lm.server`` at all. Counting
+    them made every project built by ``stabbur init`` — which downloads a voice package — warn
+    about runtimes none of its models would ever spawn.
+    """
     try:
-        return any(m.model_format is ModelFormat.mlx for m in library_ops.scan())
+        return any(m.model_format is ModelFormat.mlx and m.generative and not m.voice_kind for m in library_ops.scan())
     except Exception:  # noqa: BLE001 - an unreadable library is reported by check_library
         return False
 
