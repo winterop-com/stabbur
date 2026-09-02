@@ -46,6 +46,18 @@ def test_render_pyproject_pins_stabbur_and_mcp_deps() -> None:
     assert '"dhis2w-mcp-bridge"' in text  # the uvx server pinned
 
 
+def test_a_project_with_voices_pins_the_runtime_that_speaks_them() -> None:
+    """`init` downloads VoxCPM2 into the project, so the project must be able to run it.
+
+    mlx-audio lives in the `voice` extra. Without it the scaffolded environment holds three
+    gigabytes of voice model it can only refuse to use — the weights are there and every attempt
+    to speak with them says "mlx-audio not installed".
+    """
+    assert '"stabbur[voice]>=' in scaffold.render_pyproject("p", mcp=[], mlx=False, voices=True)
+    # --no-voices ships no voice models, so it needs no voice runtime either.
+    assert "[voice]" not in scaffold.render_pyproject("p", mcp=[], mlx=False, voices=False)
+
+
 def test_render_pyproject_omits_the_path_source_for_an_installed_stabbur(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

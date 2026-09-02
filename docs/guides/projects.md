@@ -39,6 +39,11 @@ What lands there is a working package, not just weights: the chat model, the in-
 (Kokoro) and the good one (VoxCPM2) — a few GB more, and the project can actually speak. A
 **Voice** project adds speech-to-text so the mic half works too. `--no-voices` skips the lot.
 
+Roughly 10 GB for the recommended model (6.7 GB) plus the voices (3.4 GB); about 6 GB with a
+small model, and 1.6 GB more for a Voice project's speech-to-text. The scaffolded `pyproject.toml`
+pins the `voice` extra alongside stabbur, so `uv sync` builds an environment that can actually run
+what was downloaded.
+
 | Flag | Effect |
 | --- | --- |
 | `--model <name>` | Bind this model, skipping the wizard's model step. Required when there is no terminal to run the wizard in (a pipe, a script, CI). |
