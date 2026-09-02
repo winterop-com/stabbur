@@ -247,6 +247,18 @@ Non-obvious landmines that aren't self-evident from the code:
 - The gate covers the **SPA** too: `oxlint` (`frontend/.oxlintrc.json`, via `bun run lint`) for its
   JS/TS, and `scripts/check_ui_classes.py` for the class conventions a JS linter cannot see inside
   a `className`. Both need `bun`; the Makefile does a frozen install itself.
+- **Actually run the thing you changed — and for a UI, look at it.** Headless assertions prove
+  behavior, not that a screen is usable: a wizard whose model list was ordered smallest-first, whose
+  tool step could not be multi-selected, and which never said it was about to download 10 GB passed
+  every pilot test it had. None of that survives thirty seconds of looking at it.
+  - A CLI change: run the command. A packaging change: run it from the **installed artifact**
+    (`uv tool install --refresh`), not the checkout — the checkout cannot catch what packaging breaks.
+  - A Textual TUI: render it and *look*. `App.save_screenshot("out.svg")` works headlessly under
+    `run_test()`; convert to PNG and open it. Every screen the change touches, in the state a user
+    first meets it.
+  - The browser UI: `serve --ui` and drive it (Playwright is available), don't infer from the JSX.
+  - Never write "verified" for something you reasoned about rather than ran, and say plainly which
+    of the two a claim is.
 - **Release notes are written, never generated.** Cutting a release means writing the notes
   into the ANNOTATED TAG MESSAGE (`git tag -a vX.Y.Z -F notes.md`); the publish workflow passes
   them straight through with `--notes-from-tag`. Never `--generate-notes` and never a bare

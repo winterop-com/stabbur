@@ -31,24 +31,29 @@ sb init my-assistant         # create a new directory with its own model, config
 ```
 
 An interactive wizard (a Textual TUI) asks for a kind (chat/voice), a model, MCP tools from
-installed plugins (space to toggle), and a system prompt. Everything is then **downloaded into the
-project's own `library/`** — always a fresh download, never a copy out of your machine library, so
-what you move is what runs.
+installed plugins (space to toggle), and a system prompt, and **says what it will download**
+before it does. Everything lands in the project's own `library/` — always a fresh download, never
+a copy out of your machine library, so what you move is what runs.
 
-What lands there is a working package, not just weights: the chat model, the in-chat voice
-(Kokoro) and the good one (VoxCPM2) — a few GB more, and the project can actually speak. A
-**Voice** project adds speech-to-text so the mic half works too. `--no-voices` skips the lot.
+**A model is optional.** "No model yet" is the first row: the project is still built, still gets
+the voices, and binds a model later (`sb configure`). Useful when the weights are already
+somewhere else, or when you want the scaffold now and the download tonight.
 
-Roughly 10 GB for the recommended model (6.7 GB) plus the voices (3.4 GB); about 6 GB with a
-small model, and 1.6 GB more for a Voice project's speech-to-text. The scaffolded `pyproject.toml`
-pins the `voice` extra alongside stabbur, so `uv sync` builds an environment that can actually run
-what was downloaded.
+**The voices are not a choice.** Every project gets Kokoro (the in-chat voice), VoxCPM2 (the one
+worth listening to) and Whisper (so the mic works) — about 5 GB — because an assistant that cannot
+speak or listen is not what the scaffold promises, and that holds for a project with no model
+bound yet. `--no-voices` is the way out for someone who means it.
+
+Roughly 12 GB for the recommended model (6.7 GB) plus the voices (5 GB); about 7 GB with a small
+model, and 5 GB for a project with no model bound. The wizard shows the total before it fetches
+anything. The scaffolded `pyproject.toml` pins the `voice` extra alongside stabbur, so `uv sync`
+builds an environment that can actually run what was downloaded.
 
 | Flag | Effect |
 | --- | --- |
 | `--model <name>` | Bind this model, skipping the wizard's model step. Required when there is no terminal to run the wizard in (a pipe, a script, CI). |
 | `--no-voices` | Skip the voice package (Kokoro + VoxCPM2), for a text-only assistant. |
-| `--git` | `git init` the project and write a `.gitignore` that excludes `library/` (the weights) and `.env`. |
+| `--git` | `git init` the project. The `.gitignore` (weights, `.env`, the venv) is written either way. |
 | `--no-uv` | Skip the uv project (write only `stabbur.toml`, no `pyproject.toml`). |
 | `--template <name>` | Preset the whole wizard from a template (e.g. `dhis2`). |
 | `--force` | Scaffold into a directory that already exists (refused otherwise). |

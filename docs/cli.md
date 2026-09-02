@@ -22,9 +22,10 @@ An interactive wizard (a Textual TUI) walks the choices: kind, model, tools (spa
 system prompt. With no terminal — a pipe, a script, CI — pass `--model` instead and it scaffolds
 without the TUI.
 
-It downloads a working package, not just weights: the chat model, the in-chat voice (Kokoro) and
-the good one (VoxCPM2) — a few GB more, and the project can speak out of the box. A **Voice**
-project also gets speech-to-text, so the mic works. `--no-voices` skips them.
+It downloads a working package, not just weights: the chat model plus the voices — Kokoro,
+VoxCPM2 and Whisper, about 5 GB — so the project can speak and listen out of the box. That part is
+not a choice; `--no-voices` is the way out. The wizard shows the total before fetching anything,
+and **a model is optional**: "No model yet" builds the project and binds one later.
 
 ```bash
 sb init mybot                                  # the wizard, then a fresh download into mybot/

@@ -11,6 +11,10 @@ There is no "which Kokoro voice" field: which voice speaks a reply is a click in
 property of the assistant, and asking for it here made the project look like it owned a choice it
 does not. The manifest still carries a default so a fresh project can speak immediately.
 
+The voices are not a choice either — every project gets Kokoro, VoxCPM2 and Whisper, so it can
+speak and transcribe the day it is made, even one that binds no model yet. The screen says what
+that costs rather than asking; `--no-voices` is the way out for someone who means it.
+
 Nothing here touches the disk. The wizard returns the choices and the caller scaffolds, so
 quitting (escape, ctrl+c) leaves no half-made project behind.
 """
@@ -33,20 +37,22 @@ DEFAULT_VOICE = "kokoro:af_heart"
 
 
 class ModelChoice(NamedTuple):
-    """One selectable model: what to write into the manifest, and how to describe it."""
+    """One selectable model: what to write into the manifest, how to describe it, its cost."""
 
     name: str
     detail: str
+    size_gb: float = 0.0
 
 
 class WizardResult(NamedTuple):
     """What the wizard collected. ``None`` means the user quit without creating anything."""
 
     model: str
+    """The model to bind, or ``""`` for a project that binds none yet."""
     mcp: list[tuple[str, str]]
     system_prompt: str
     voice: bool
-    """A voice project: it gets speech-to-text as well, so the mic half of "mic in" exists."""
+    """A voice project: only the system prompt differs — every project gets the voices."""
 
 
 class InitWizard(App[WizardResult | None]):
@@ -59,6 +65,7 @@ class InitWizard(App[WizardResult | None]):
     .hint { color: $text-muted; }
     #models { height: auto; max-height: 12; border: round $panel-lighten-2; }
     #tools { height: auto; max-height: 10; border: round $panel-lighten-2; }
+    #total { color: $text-muted; margin-top: 1; }
     #prompt { border: round $panel-lighten-2; }
     #actions { height: auto; margin-top: 1; }
     #actions Button { margin-right: 2; }
@@ -69,23 +76,39 @@ class InitWizard(App[WizardResult | None]):
         Binding("ctrl+s", "create", "Create", show=True, priority=True),
     ]
 
-    def __init__(self, *, name: str, models: list[ModelChoice], servers: list[McpServer]) -> None:
+    def __init__(
+        self,
+        *,
+        name: str,
+        models: list[ModelChoice],
+        servers: list[McpServer],
+        voices_gb: float = 0.0,
+    ) -> None:
         super().__init__()
         self._project_name = name
-        self._models = models
+        # A project that binds nothing yet is a real answer: you may already have a model
+        # elsewhere, or want the scaffold now and the weights later. The voices still come, so
+        # such a project can speak and transcribe on the day it is made.
+        self._models = [ModelChoice("", "No model yet — bind one later with `stabbur configure`", 0.0), *models]
         self._servers = servers
+        self._voices_gb = voices_gb
 
     def compose(self) -> ComposeResult:
         yield Label(f"New stabbur project: {self._project_name}")
-        yield Label("Everything lives in this directory — model, config, tools.", classes="hint")
+        yield Label("Everything lives in this directory — model, voices, config, tools.", classes="hint")
         with VerticalScroll(id="body"):
             yield Label("Kind", classes="section")
             with RadioSet(id="kind"):
                 yield RadioButton("Chat — text conversation (replies can still be spoken)", value=True, id="kind-chat")
-                yield RadioButton("Voice — adds speech-to-text, so the mic works too", id="kind-voice")
+                yield RadioButton("Voice — a spoken-first assistant (prompt tuned for speech)", id="kind-voice")
 
             yield Label("Model — downloaded into this project", classes="section")
-            yield OptionList(*(f"{m.name}  ({m.detail})" for m in self._models), id="models")
+            yield OptionList(
+                *(f"{m.name}  ({m.detail})" if m.name else m.detail for m in self._models),
+                id="models",
+            )
+
+            yield Label("", id="total")
 
             yield Label("Tools — space to toggle, MCP servers this assistant can call", classes="section")
             if self._servers:
@@ -102,13 +125,32 @@ class InitWizard(App[WizardResult | None]):
             yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
-        """Start on the model list: the one choice with no sensible default."""
-        self.query_one("#models", OptionList).focus()
-        if self._models:
-            self.query_one("#models", OptionList).highlighted = 0
+        """Open on the recommended model — index 1, since row 0 is "no model yet"."""
+        models = self.query_one("#models", OptionList)
+        models.highlighted = 1 if len(self._models) > 1 else 0
+        models.focus()
+        self._refresh_total()
+
+    def _refresh_total(self) -> None:
+        """Say what this will fetch, in one number, before anything is fetched.
+
+        The screen promises everything lives in this directory; how much "everything" is has to be
+        on it, or the first honest account of the cost arrives as a progress bar. The voices are
+        not itemized as choices because they are not choices — every project speaks and listens.
+        """
+        index = self.query_one("#models", OptionList).highlighted or 0
+        model = self._models[index] if index < len(self._models) else self._models[0]
+        total = model.size_gb + self._voices_gb
+        voices = f"the voices ({self._voices_gb:.1f} GB)" if self._voices_gb else ""
+        model_part = f"{model.name.split('/')[-1]} ({model.size_gb:.1f} GB)" if model.name else ""
+        both = " + ".join(p for p in (model_part, voices) if p)
+        self.query_one("#total", Label).update(f"Downloads about {total:.1f} GB — {both}" if both else "")
+
+    def on_option_list_option_highlighted(self, _event: OptionList.OptionHighlighted) -> None:
+        self._refresh_total()
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
-        """Swap the prompt to match the kind — but never overwrite something the user has typed."""
+        """Retune the prompt to the kind — never overwriting something the user has typed."""
         prompt = self.query_one("#prompt", Input)
         voice_kind = event.pressed.id == "kind-voice"
         if prompt.value in (CHAT_PROMPT, VOICE_PROMPT, ""):
@@ -124,13 +166,8 @@ class InitWizard(App[WizardResult | None]):
         self.exit(None)
 
     def action_create(self) -> None:
-        """Collect the form into a result. A model is the one thing that has to be chosen."""
-        models = self.query_one("#models", OptionList)
-        index = models.highlighted
-        if index is None or not self._models:
-            self.notify("Pick a model first.", severity="warning")
-            models.focus()
-            return
+        """Collect the form into a result."""
+        index = self.query_one("#models", OptionList).highlighted or 0
         picked: list[tuple[str, str]] = []
         if self._servers:
             # query_one's type argument is a runtime isinstance check, so it cannot take a
@@ -149,6 +186,8 @@ class InitWizard(App[WizardResult | None]):
         )
 
 
-def run_wizard(*, name: str, models: list[ModelChoice], servers: list[McpServer]) -> WizardResult | None:
+def run_wizard(
+    *, name: str, models: list[ModelChoice], servers: list[McpServer], voices_gb: float = 0.0
+) -> WizardResult | None:
     """Run the wizard, returning the choices — or ``None`` if the user quit."""
-    return InitWizard(name=name, models=models, servers=servers).run()
+    return InitWizard(name=name, models=models, servers=servers, voices_gb=voices_gb).run()

@@ -56,11 +56,16 @@ _CURATED: list[CuratedModel] = [
     CuratedModel(
         id="lmstudio-community/gemma-4-12B-it-QAT-GGUF",
         note="recommended — capable all-rounder, vision + audio (~6.7 GB)",
+        size_gb=6.7,
     ),
-    CuratedModel(id="unsloth/Qwen3.5-4B-GGUF", note="compact + good at tools (~2.5 GB)"),
-    CuratedModel(id="unsloth/Llama-3.2-3B-Instruct-GGUF", note="tiny + fast, kinda works — good for testing (~2 GB)"),
-    CuratedModel(id="unsloth/gpt-oss-20b-GGUF", note="strong reasoning + tools (~10.8 GB)"),
-    CuratedModel(id="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", note="coding specialist (~17 GB)"),
+    CuratedModel(id="unsloth/Qwen3.5-4B-GGUF", note="compact + good at tools (~2.5 GB)", size_gb=2.5),
+    CuratedModel(
+        id="unsloth/Llama-3.2-3B-Instruct-GGUF",
+        note="tiny + fast, kinda works — good for testing (~2 GB)",
+        size_gb=2.0,
+    ),
+    CuratedModel(id="unsloth/gpt-oss-20b-GGUF", note="strong reasoning + tools (~10.8 GB)", size_gb=10.8),
+    CuratedModel(id="unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", note="coding specialist (~17 GB)", size_gb=17.0),
 ]
 
 

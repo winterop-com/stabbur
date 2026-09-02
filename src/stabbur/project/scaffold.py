@@ -203,6 +203,19 @@ def render_readme(name: str) -> str:
     return _README.format(name=name, library=LOCAL_LIBRARY)
 
 
+def write_gitignore(target: Path) -> Path:
+    """Write the project's ``.gitignore`` (weights, .env, the venv), leaving an existing one alone.
+
+    Always written, never a flag: the one thing a scaffolded project must not do is invite you to
+    commit six gigabytes of weights, and that hazard does not depend on whether you asked for a
+    repo today.
+    """
+    gitignore = target / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(_GITIGNORE)
+    return gitignore
+
+
 def git_init(target: Path) -> tuple[bool, str]:
     """``git init`` the project + write a ``.gitignore``; return ``(ok, status)`` for the caller to print.
 
