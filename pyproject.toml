@@ -248,8 +248,6 @@ module = [
     "kokoro_onnx.*",
     "mlx.*",
     "mlx_audio.*",
-    # Apple-only, pulled in by mlx-audio: absent on Linux, where mypy also runs.
-    "transformers.*",
 ]
 ignore_missing_imports = true
 

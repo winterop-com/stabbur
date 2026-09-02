@@ -11,6 +11,7 @@ Linux, Kokoro-ONNX (:mod:`stabbur.kokoro`) covers TTS. Cloning uses ``ref_audio`
 from __future__ import annotations
 
 import contextlib
+import importlib
 import importlib.util
 import io
 import logging
@@ -61,7 +62,7 @@ def _quiet() -> Generator[None]:
     # It is absent entirely off Apple Silicon, where this context manager still has to work.
     tf_logging: Any = None
     with contextlib.suppress(ImportError):
-        from transformers.utils import logging as tf_logging  # noqa: PLC0415
+        tf_logging = importlib.import_module("transformers.utils.logging")
 
     previous = None if tf_logging is None else tf_logging.get_verbosity()
     if tf_logging is not None:
