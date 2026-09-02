@@ -130,15 +130,14 @@ def test_init_creates_a_self_contained_project(monkeypatch: pytest.MonkeyPatch, 
     assert parsed["project"]["model"] == "unsloth/X-GGUF"
     assert parsed["libraries"] == ["library"]  # its own, and only its own
     names = [name for name, _ in pulled]
-    assert names == ["unsloth/X-GGUF", "voxcpm2"]  # the model and the good voice
-    assert "whisper" not in names  # a text project doesn't pay for the mic half
+    assert names == ["unsloth/X-GGUF", "voxcpm2", "whisper"]  # the model, the good voice, the ears
     lib = (tmp_path / "hello" / "library").resolve()
     assert all(Path(str(root)).resolve() == lib for _, root in pulled)  # all of it inside the project
 
 
-def test_init_voice_project_also_gets_speech_to_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # The Voice kind says "the mic works too", so it has to provision the model that listens —
-    # a kind that only changed the system prompt was promising a capability it did not install.
+def test_every_project_gets_the_voices(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Not a choice: a project speaks and listens the day it is made, so even one that binds no
+    # model is worth having. `--no-voices` is the way out, and it is a flag, not a wizard step.
     from types import SimpleNamespace
 
     pulled: list[str] = []
@@ -151,7 +150,7 @@ def test_init_voice_project_also_gets_speech_to_text(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("stabbur.voice.kokoro.ensure_assets", lambda root=None: (root, root))
     monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
     monkeypatch.chdir(tmp_path)
-    cli.project._provision(tmp_path / "p", "unsloth/X-GGUF", voice=True)
+    cli.project._provision(tmp_path / "p", "unsloth/X-GGUF")
     assert pulled == ["unsloth/X-GGUF", "voxcpm2", "whisper"]
 
 

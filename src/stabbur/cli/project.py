@@ -59,7 +59,7 @@ class _WizardChoices(BaseModel):
     mcp: list[tuple[str, str]]  # (name, command) MCP servers to write into .mcp.json
     system_prompt: str
     chat_voice: str
-    voice: bool = False  # a voice project: speech-to-text is provisioned as well
+    voice: bool = False  # a voice project: only the system prompt differs
     template: ProjectTemplate | None = None
 
 
@@ -70,10 +70,10 @@ def _model_choices() -> list[ModelChoice]:
     :func:`_provision_model`), so offering what happens to be on this machine's drive would
     suggest a link between the two that a self-contained project does not have.
     """
-    return [ModelChoice(name=c.id, detail=c.note) for c in _CURATED]
+    return [ModelChoice(name=c.id, detail=c.note, size_gb=c.size_gb) for c in _CURATED]
 
 
-def _gather_choices(name: str, model: str | None, template: str | None) -> _WizardChoices:
+def _gather_choices(name: str, model: str | None, template: str | None, voices_gb: float = 0.0) -> _WizardChoices:
     """Resolve the scaffolding choices: a named template, the wizard, or flags.
 
     Gathered up front so quitting leaves nothing behind — the caller creates the project
@@ -103,7 +103,12 @@ def _gather_choices(name: str, model: str | None, template: str | None) -> _Wiza
 
     from stabbur import plugins  # noqa: PLC0415 - plugin discovery is slow; only the wizard needs it
 
-    result = run_wizard(name=name, models=_model_choices(), servers=plugins.advertised_servers(plugins.manager()))
+    result = run_wizard(
+        name=name,
+        models=_model_choices(),
+        servers=plugins.advertised_servers(plugins.manager()),
+        voices_gb=voices_gb,
+    )
     if result is None:
         console.print("[dim]Cancelled — nothing was created.[/]")
         raise typer.Exit(1)
@@ -116,52 +121,56 @@ def _gather_choices(name: str, model: str | None, template: str | None) -> _Wiza
     )
 
 
-# What every new project gets besides its chat model. Kokoro is the in-chat voice (small enough to
-# sit beside any model); VoxCPM2 is the one worth listening to. Both are TTS: a project that can
-# only be typed at is not what "the replies can be spoken" promises. STT is added only for a voice
-# project — the mic half costs another 1.5 GB and a text project never uses it.
-_STARTER_VOICES = ("voxcpm2",)
-_STARTER_STT = ("whisper",)
+# The voice package every project gets: the good voice, and the one that listens. Kokoro is
+# fetched separately — it is engine assets rather than a library model.
+_STARTER_VOICES = ("voxcpm2", "whisper")
+# What that package costs, for the wizard to show before it fetches anything (Kokoro + the two).
+_VOICE_PACKAGE_GB = 5.0
 
 
-def _provision(target: Path, model: str, *, voice: bool, voices: bool = True) -> None:
-    """Download everything the project needs into its own ``library/``.
+def _provision(target: Path, model: str, *, voices: bool = True) -> None:
+    """Download what the project asked for into its own ``library/``.
 
     Always a fresh download, never a copy out of the machine library: a project is meant to be
     self-contained — zip the directory, move it to another machine, and it still runs — so it owns
     its weights outright rather than inheriting a copy whose provenance is this one drive.
 
-    That costs a few GB more than the model alone, deliberately: what you are left with is a
-    project that can speak, not one that can speak once you go and find it a voice. ``voices=False``
-    (``--no-voices``) is the way out for a text-only assistant.
+    Every project gets the voices — Kokoro to speak with, VoxCPM2 for when it matters, Whisper to
+    listen — so even one that binds no model yet is useful the day it is made. That is the point of
+    the default; ``--no-voices`` is for someone who means it. ``model`` may be empty (a project that
+    binds one later), which is also a real answer and leaves nothing half-made.
     """
-    from stabbur import host  # noqa: PLC0415
     from stabbur.voice import kokoro  # noqa: PLC0415
 
     local_lib = target / _LOCAL_LIBRARY
     local_lib.mkdir(parents=True, exist_ok=True)
-    console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
-    _pull_or_exit(model, local_lib)
-
-    if not voices:
-        console.print("[dim]No voice package[/] (--no-voices) — add one later with `stabbur library pull voice`.")
-        return
+    if model:
+        console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
+        _pull_or_exit(model, local_lib)
+    else:
+        console.print("\n[dim]No model bound[/] — add one with `stabbur configure` or `stabbur library pull`.")
 
     # The in-chat voice: assets, not a library model, and they must land in *this* project so a
-    # moved copy can still speak.
+    # moved copy can still speak. Bundled whenever anything is being fetched, since it is small
+    # and it is what makes "replies can be spoken" true.
+    if not voices:
+        console.print("[dim]No voices[/] (--no-voices) — add them later with `stabbur configure`.")
+        return
+
     console.print("Adding the in-chat voice [bold]Kokoro[/] …")
     try:
         kokoro.ensure_assets(local_lib)
     except Exception as exc:  # noqa: BLE001 - a voice is not worth failing a scaffold over
         console.print(f"  [yellow]skipped[/] — {exc}")
 
-    wanted = list(_STARTER_VOICES) + (list(_STARTER_STT) if voice else [])
-    for vid in wanted:
-        # The mlx-audio voice models are Apple-Silicon only; shipping one into a project built
-        # elsewhere would be gigabytes that cannot run.
-        if not host.is_apple_silicon():
-            console.print(f"[dim]Skipping {vid}[/] — the voice runtime is Apple Silicon only.")
-            continue
+    from stabbur import host  # noqa: PLC0415
+
+    if not host.is_apple_silicon():
+        # The mlx-audio models only run there; shipping them into a project built elsewhere would
+        # be gigabytes that cannot speak. Kokoro (ONNX) is cross-platform and already in.
+        console.print("[dim]Skipping the mlx-audio voices[/] — that runtime is Apple Silicon only.")
+        return
+    for vid in _STARTER_VOICES:
         console.print(f"Adding [bold]{vid}[/] …")
         try:
             catalog_ops.pull(ModelSource.voice, vid, library_root=local_lib)
@@ -209,6 +218,7 @@ def _write_project(target: Path, choices: _WizardChoices, *, uv: bool, voices: b
             scaffold.render_pyproject(target.resolve().name, choices.mcp, mlx, extras, voices=voices)
         )
         (target / "README.md").write_text(scaffold.render_readme(target.resolve().name))
+    scaffold.write_gitignore(target)
     if choices.template is not None:
         for rel, content in choices.template.files.items():
             dest = target / rel
@@ -219,7 +229,7 @@ def _write_project(target: Path, choices: _WizardChoices, *, uv: bool, voices: b
 def _print_scaffold_summary(proj: Path, choices: _WizardChoices, *, uv: bool, git: bool, target: Path) -> None:
     """Print the post-scaffold summary (model/tools/voice + uv/git status + template next-steps)."""
     console.print(f"\n[green]Created[/] {proj}")
-    console.print(f"  [dim]model:[/] {choices.model}")
+    console.print(f"  [dim]model:[/] {choices.model or 'none yet'}")
     console.print(f"  [dim]tools:[/] {', '.join(n for n, _ in choices.mcp) if choices.mcp else 'none'}")
     console.print(f"  [dim]voice:[/] {choices.chat_voice}")
     if uv:
@@ -279,9 +289,9 @@ def _scaffold_project(
         )
         raise typer.Exit(1)
     _warn_if_nested(target)
-    choices = _gather_choices(target.name, model, template)
+    choices = _gather_choices(target.name, model, template, voices_gb=_VOICE_PACKAGE_GB if voices else 0.0)
     target.mkdir(parents=True, exist_ok=True)
-    _provision(target, choices.model, voice=choices.voice, voices=voices)
+    _provision(target, choices.model, voices=voices)
     _write_project(target, choices, uv=uv, voices=voices)
     _print_scaffold_summary(target / "stabbur.toml", choices, uv=uv, git=git, target=target)
 

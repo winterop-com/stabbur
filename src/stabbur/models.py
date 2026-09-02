@@ -132,6 +132,8 @@ class CuratedModel(BaseModel):
 
     id: str
     note: str
+    size_gb: float = 0.0
+    """Rough download size, so a scaffolder can total the cost before fetching anything."""
 
 
 class CuratedMcp(BaseModel):
