@@ -1,5 +1,9 @@
 """Headless pilot tests for the `stabbur init` wizard."""
 
+from types import SimpleNamespace
+
+import pytest
+
 from stabbur.cli.init_wizard import CHAT_PROMPT, VOICE_PROMPT, InitWizard, ModelChoice
 from stabbur.plugins import McpServer
 
@@ -96,3 +100,62 @@ async def test_the_screen_says_what_it_will_download() -> None:
         await pilot.press("escape")
     assert "7.0 GB" in with_model and "the voices" in with_model  # 2 GB model + 5 GB voices
     assert "5.0 GB" in without and "gemma" not in without
+
+
+async def test_an_upstream_lists_its_models_and_downloads_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Typing an upstream replaces the model list with what that server serves.
+
+    Offering this machine's curated downloads for a remote project would write a model id the
+    remote may not have — the names rarely match — and the total must drop to the voices, since
+    nothing about the model is downloaded here.
+    """
+    import httpx
+
+    def fake_get(url: str, timeout: float = 5.0) -> object:
+        assert url == "http://gpu-box:8080/v1/models"
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"data": [{"id": "gemma-remote"}, {"id": "qwen-remote"}]},
+        )
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    app = _wizard()
+    async with app.run_test() as pilot:
+        field = app.query_one("#upstream")
+        field.value = "http://gpu-box:8080/v1"  # type: ignore[attr-defined]
+        field.focus()
+        await pilot.press("enter")
+        for _ in range(40):
+            await pilot.pause()
+            if any(m.detail == "on the upstream" for m in app._models):
+                break
+        assert [m.name for m in app._models if m.name] == ["gemma-remote", "qwen-remote"]
+        assert "5.0 GB" in str(app.query_one("#total").render())  # the voices only
+        await pilot.press("ctrl+s")
+
+    assert app.return_value is not None
+    assert app.return_value.upstream == "http://gpu-box:8080/v1"
+    assert app.return_value.model == "gemma-remote"
+
+
+async def test_an_unreachable_upstream_keeps_the_local_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A typo or a box that is off must not empty the screen: the local models stay selectable and
+    # the label says what happened.
+    import httpx
+
+    def boom(url: str, timeout: float = 5.0) -> object:
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    app = _wizard()
+    async with app.run_test() as pilot:
+        field = app.query_one("#upstream")
+        field.value = "http://nowhere:9/v1"  # type: ignore[attr-defined]
+        field.focus()
+        await pilot.press("enter")
+        for _ in range(40):
+            await pilot.pause()
+            if "unreachable" in str(app.query_one("#model-label").render()):
+                break
+        assert [m.name for m in app._models if m.name] == ["pub/A-GGUF", "pub/B-GGUF"]
+        await pilot.press("escape")

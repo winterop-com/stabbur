@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
@@ -49,6 +50,8 @@ class WizardResult(NamedTuple):
 
     model: str
     """The model to bind, or ``""`` for a project that binds none yet."""
+    upstream: str
+    """An OpenAI-compatible server the models run on; ``""`` means they run here."""
     mcp: list[tuple[str, str]]
     system_prompt: str
     voice: bool
@@ -66,7 +69,7 @@ class InitWizard(App[WizardResult | None]):
     #models { height: auto; max-height: 12; border: round $panel-lighten-2; }
     #tools { height: auto; max-height: 10; border: round $panel-lighten-2; }
     #total { color: $text-muted; margin-top: 1; }
-    #prompt { border: round $panel-lighten-2; }
+    #prompt, #upstream { border: round $panel-lighten-2; }
     #actions { height: auto; margin-top: 1; }
     #actions Button { margin-right: 2; }
     """
@@ -102,7 +105,10 @@ class InitWizard(App[WizardResult | None]):
                 yield RadioButton("Chat — text conversation (replies can still be spoken)", value=True, id="kind-chat")
                 yield RadioButton("Voice — a spoken-first assistant (prompt tuned for speech)", id="kind-voice")
 
-            yield Label("Model — downloaded into this project", classes="section")
+            yield Label("Upstream — optional; enter a URL to list its models instead", classes="section")
+            yield Input(placeholder="http://gpu-box:8080/v1", id="upstream")
+
+            yield Label("Model — downloaded into this project", classes="section", id="model-label")
             yield OptionList(
                 *(f"{m.name}  ({m.detail})" if m.name else m.detail for m in self._models),
                 id="models",
@@ -131,6 +137,56 @@ class InitWizard(App[WizardResult | None]):
         models.focus()
         self._refresh_total()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """An upstream means the model is not downloaded, so the total has to follow it."""
+        if event.input.id == "upstream":
+            self._refresh_total()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter on the upstream field asks that server what it serves."""
+        if event.input.id == "upstream" and event.value.strip():
+            self.query_one("#model-label", Label).update("Model — asking the upstream …")
+            self._fetch_remote_models(event.value.strip())
+
+    @work(thread=True, exclusive=True)
+    def _fetch_remote_models(self, url: str) -> None:
+        """List the upstream's models, so the choice is what that server actually serves.
+
+        Offering this machine's curated downloads for a remote project would write a model id the
+        remote may not have — the names rarely match. Runs in a worker because it is a network
+        call and the screen must stay responsive; a failure leaves the list alone and says so.
+        """
+        import httpx  # noqa: PLC0415 - only this path makes a request
+
+        base = url.rstrip("/").removesuffix("/v1").rstrip("/")
+        try:
+            response = httpx.get(f"{base}/v1/models", timeout=5.0)
+            response.raise_for_status()
+            ids = [entry["id"] for entry in response.json().get("data", []) if entry.get("id")]
+        except Exception as exc:  # noqa: BLE001 - any failure is the same answer: keep the list
+            self.call_from_thread(self._remote_models_failed, str(exc))
+            return
+        self.call_from_thread(self._remote_models_loaded, url, ids)
+
+    def _remote_models_loaded(self, url: str, ids: list[str]) -> None:
+        """Replace the model list with what the upstream serves (nothing to download)."""
+        if not ids:
+            self._remote_models_failed("it serves no models")
+            return
+        self._models = [ModelChoice("", "No model yet — bind one later with `stabbur configure`", 0.0)] + [
+            ModelChoice(name, "on the upstream", 0.0) for name in ids
+        ]
+        models = self.query_one("#models", OptionList)
+        models.clear_options()
+        models.add_options([f"{m.name}  ({m.detail})" if m.name else m.detail for m in self._models])
+        models.highlighted = 1
+        self.query_one("#model-label", Label).update(f"Model — served by {url}")
+        self._refresh_total()
+
+    def _remote_models_failed(self, reason: str) -> None:
+        self.query_one("#model-label", Label).update("Model — upstream unreachable; pick or bind one later")
+        self.notify(f"Could not list the upstream's models: {reason}", severity="warning")
+
     def _refresh_total(self) -> None:
         """Say what this will fetch, in one number, before anything is fetched.
 
@@ -140,9 +196,12 @@ class InitWizard(App[WizardResult | None]):
         """
         index = self.query_one("#models", OptionList).highlighted or 0
         model = self._models[index] if index < len(self._models) else self._models[0]
-        total = model.size_gb + self._voices_gb
+        remote = bool(self.query_one("#upstream", Input).value.strip())
+        # Nothing to download for a model that runs on the other box; the voices are still local,
+        # because they run in this process rather than on the remote.
+        total = (0.0 if remote else model.size_gb) + self._voices_gb
         voices = f"the voices ({self._voices_gb:.1f} GB)" if self._voices_gb else ""
-        model_part = f"{model.name.split('/')[-1]} ({model.size_gb:.1f} GB)" if model.name else ""
+        model_part = "" if remote else (f"{model.name.split('/')[-1]} ({model.size_gb:.1f} GB)" if model.name else "")
         both = " + ".join(p for p in (model_part, voices) if p)
         self.query_one("#total", Label).update(f"Downloads about {total:.1f} GB — {both}" if both else "")
 
@@ -179,6 +238,7 @@ class InitWizard(App[WizardResult | None]):
         self.exit(
             WizardResult(
                 model=self._models[index].name,
+                upstream=self.query_one("#upstream", Input).value.strip(),
                 mcp=picked,
                 system_prompt=self.query_one("#prompt", Input).value.strip() or CHAT_PROMPT,
                 voice=bool(self.query_one("#kind-voice", RadioButton).value),

@@ -137,6 +137,14 @@ def serve(
     import uvicorn  # noqa: PLC0415
 
     upstream_urls = [url for url in (_normalize_server_url(raw) for raw in (upstream or [])) if url]
+    # A configured upstream (a project's `upstream = ...`, or STABBUR_UPSTREAM) counts as one:
+    # without this, `serve` in a project whose models live on a remote resolved the locked model
+    # against the local library and refused to start over weights the project deliberately does
+    # not have — while `chat` and `doctor` in the same directory used the remote quite happily.
+    if not upstream_urls:
+        configured_upstream = _normalize_server_url((get_settings().upstream or "").strip())
+        if configured_upstream:
+            upstream_urls = [configured_upstream]
     # The first --upstream is *the* upstream, exactly as a single one always was: it is what the
     # /v1 proxy forwards to and what a locked --model is checked against. The rest are declared
     # (below) but not yet served — routing across several backends is the next ROADMAP step.

@@ -261,6 +261,13 @@ _GitOpt = Annotated[
     bool,
     typer.Option("--git", help="git init the project + write a .gitignore (excludes the local library/ + .env)."),
 ]
+_UpstreamOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--upstream",
+        help="Bind the project to an OpenAI-compatible server (models run there; nothing is downloaded).",
+    ),
+]
 _VoicesOpt = Annotated[
     bool,
     typer.Option(

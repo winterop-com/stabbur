@@ -39,6 +39,17 @@ a copy out of your machine library, so what you move is what runs.
 the voices, and binds a model later (`sb configure`). Useful when the weights are already
 somewhere else, or when you want the scaffold now and the download tonight.
 
+**Or point it at a server.** If your models live on another box, put its URL in the wizard's
+**Upstream** field (or pass `--upstream`) and press Enter: the model list becomes what that server
+actually serves, and nothing about the model is downloaded — only the voices, which run here.
+
+```bash
+sb init mybot --upstream http://gpu-box:8080/v1 --model some-model-it-serves
+```
+
+The manifest then carries `upstream = "…"`, and `sb chat`, `sb serve` and `sb doctor` in that
+project all use the remote. stabbur's agent loop, tools, voices and UI stay local.
+
 **The voices are not a choice.** Every project gets Kokoro (the in-chat voice), VoxCPM2 (the one
 worth listening to) and Whisper (so the mic works) — about 5 GB — because an assistant that cannot
 speak or listen is not what the scaffold promises, and that holds for a project with no model
