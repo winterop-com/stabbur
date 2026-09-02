@@ -4,6 +4,7 @@ import {
   Dices,
   Loader2,
   Mic,
+  Palette,
   Pause,
   Play,
   RotateCcw,
@@ -87,10 +88,12 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
   const [voice, setVoice] = useState<string>("af_heart");
   const [format, setFormat] = useState<string>("wav");
   const [speed, setSpeed] = useState<number>(1); // playback speed multiplier (server-side synthesis speed)
-  // A seeded model is stochastic — an unpinned voice varies (and can drone) every run.
-  // Default to a pinned seed so it's repeatable out of the box; clear it for a random voice.
+  // Every model the seed reaches is stochastic — an unpinned voice varies (and can drone) run to
+  // run. Default to a pinned seed so it's repeatable out of the box; clear it for a random voice.
   const [seed, setSeed] = useState<string>("10");
   const [refText, setRefText] = useState("");
+  // Voice design: a plain-language description the model turns into a voice (no clip needed).
+  const [instruct, setInstruct] = useState("");
   const [refB64, setRefB64] = useState<string | null>(null);
   const [refName, setRefName] = useState<string>("");
   const [refBusy, setRefBusy] = useState(false); // auto-transcribing the reference clip
@@ -177,6 +180,7 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
     setError(null);
     // Seed the voice picker with the new model's first named voice (Kokoro keeps its own state).
     if (model && model.backend !== "kokoro-onnx" && model.voices.length > 0) setVoice(model.voices[0]);
+    setInstruct(""); // a description belongs to the model it was written for
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model]);
 
@@ -259,9 +263,14 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         responseFormat: format,
         refAudioB64: refB64 ?? undefined,
         refText: refB64 ? refText : undefined,
+        instruct: model.designable && instruct.trim() ? instruct.trim() : undefined,
         // A non-numeric seed field must become "no seed" (undefined), not NaN — NaN serializes
         // to `"seed": null` in JSON, which the server reads as an explicit null, not "unset" (F-12).
-        seed: seedOverride ?? (Number.isFinite(Number(seed)) && seed.trim() ? Number(seed) : undefined),
+        // Only a model the seed actually reaches sends one: the field is hidden for the rest, and
+        // a hidden control must not still act.
+        seed: model.seedable
+          ? (seedOverride ?? (Number.isFinite(Number(seed)) && seed.trim() ? Number(seed) : undefined))
+          : undefined,
         speed,
       });
       setClipUrl(URL.createObjectURL(blob));
@@ -364,22 +373,26 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Speed
-          <input
-            type="range"
-            aria-label="Speech speed"
-            min={0.5}
-            max={1.5}
-            step={0.05}
-            value={speed}
-            onChange={(e) => setSpeed(Number(e.target.value))}
-            className="w-24 accent-primary"
-          />
-          <span className="w-9 tabular-nums">{speed.toFixed(2)}x</span>
-        </label>
+        {/* Only where it does something: mlx-audio takes `speed` for every model, and one that
+            doesn't implement it swallows the number — a slider tied to nothing reads as broken. */}
+        {(model?.honors_speed ?? true) && (
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Speed
+            <input
+              type="range"
+              aria-label="Speech speed"
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              value={speed}
+              onChange={(e) => setSpeed(Number(e.target.value))}
+              className="w-24 accent-primary"
+            />
+            <span className="w-9 tabular-nums">{speed.toFixed(2)}x</span>
+          </label>
+        )}
 
-        {model?.seeded && (
+        {model?.seedable && (
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <span>Seed</span>
             <Input
@@ -429,6 +442,25 @@ function SpeakPanel({ ttsModels, kokoroVoices }: { ttsModels: VoiceModelInfo[]; 
         placeholder={isDialogue ? "Say something expressive… add (laughs) or (sighs) for flavor." : "Type something to say…"}
         className="mt-3 w-full resize-y rounded-lg border border-border bg-background p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
       />
+
+      {model?.designable && (
+        <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <Palette className="h-3.5 w-3.5" /> Design a voice (optional)
+          </div>
+          <Input
+            aria-label="Voice description"
+            value={instruct}
+            onChange={(e) => setInstruct(e.target.value)}
+            placeholder="A calm older man, warm and unhurried"
+            className="h-8"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Describe the voice you want — no reference clip needed. The description alone doesn't fix
+            the speaker: roll the seed until you like one, then keep it to get them back.
+          </p>
+        </div>
+      )}
 
       {model?.cloneable && (
         <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">

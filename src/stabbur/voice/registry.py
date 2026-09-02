@@ -11,6 +11,7 @@ The key axis is ``voice_mode`` — how a TTS model's voice is determined:
 * ``preset`` — pick from named built-in voices.
 * ``clone`` — the voice comes from a short reference clip.
 * ``seeded`` — no fixed voice; a fresh one each run unless a seed is pinned.
+* ``design`` — the voice is described in words ("a calm older man"); no clip needed.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ class VoiceMode(StrEnum):
     preset = "preset"  # choose a named built-in voice
     clone = "clone"  # voice cloned from a reference clip
     seeded = "seeded"  # random voice per run; a seed makes it reproducible
+    design = "design"  # voice described in natural language ("a bright young woman")
     none = "none"  # not applicable (e.g. STT)
 
 
@@ -60,6 +62,14 @@ class VoiceModel(BaseModel):
     cloneable: bool = False  # accepts a reference clip to clone a voice
     multi_speaker: bool = False  # dialogue with speaker tags ([S1]/[S2])
     voices: list[str] = Field(default_factory=list)  # named presets, if statically known
+    # Whether pinning a seed reproduces the output. This is not the same as ``voice_mode`` being
+    # ``seeded``: a voice-design model also samples a fresh voice per run, and MLX's RNG pins it
+    # just as well. Tie the seed control to this flag, never to the mode.
+    seedable: bool = False
+    # Whether the model actually renders at a requested speed. mlx-audio forwards ``speed`` to
+    # every model and the ones that don't implement it swallow it silently, so a slider tied to
+    # nothing looks broken rather than absent — measured, not assumed (VoxCPM2 ignores it).
+    honors_speed: bool = True
 
     languages: list[str] = Field(default_factory=list)  # BCP-47-ish; empty = unspecified
     sample_rate: int = 24000
@@ -114,6 +124,7 @@ BUILTIN: tuple[VoiceModel, ...] = (
         voice_mode=VoiceMode.seeded,
         voices=["female", "male"],
         cloneable=True,
+        seedable=True,
         languages=["en", "zh"],
         sample_rate=24000,
         size_hint="~1 GB",
@@ -149,6 +160,24 @@ BUILTIN: tuple[VoiceModel, ...] = (
         voice_mode=VoiceMode.none,
         languages=["en"],
         size_hint="~1.5 GB",
+    ),
+    VoiceModel(
+        id="voxcpm2",
+        display_name="VoxCPM2",
+        repo="mlx-community/VoxCPM2-8bit",
+        kind=VoiceKind.tts,
+        backend=Backend.mlx_audio,
+        description="Studio-quality 48 kHz multilingual TTS (30 languages) with voice design: "
+        "describe the voice you want in words, or clone one from a reference clip.",
+        voice_mode=VoiceMode.design,
+        cloneable=True,
+        seedable=True,  # a pinned seed reproduces a designed voice byte-for-byte
+        honors_speed=False,  # it renders at its own pace; a speed request changes nothing
+        # 30 languages upstream; only these are named in the model card, so only these are
+        # claimed here (a listing that guesses is worse than one that is short).
+        languages=["en", "zh", "id", "ja", "ko"],
+        sample_rate=48000,
+        size_hint="~3.2 GB",
     ),
 )
 

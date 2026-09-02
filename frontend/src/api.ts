@@ -422,6 +422,9 @@ export interface VoiceModelInfo {
   cloneable: boolean;
   multi_speaker: boolean;
   seeded: boolean;
+  designable: boolean; // the voice can be described in words (no reference clip needed)
+  seedable: boolean; // a pinned seed reproduces the output (design models included)
+  honors_speed: boolean; // false = the model renders at its own pace, ignoring a speed request
   voices: string[];
   languages: string[];
   chat_default: boolean;
@@ -440,6 +443,7 @@ export interface SpeechOptions {
   refAudioB64?: string | null; // base64 WAV to clone a voice from (cloneable models)
   refText?: string | null; // exact transcript of refAudioB64
   seed?: number | null; // pin a seeded model's random voice
+  instruct?: string | null; // describe a voice for a design model to invent (designable models)
   speed?: number | null; // playback speed multiplier (0.5-2.0); default 1
 }
 
@@ -451,6 +455,7 @@ export async function synthesizeSpeech(opts: SpeechOptions): Promise<Blob> {
   if (opts.refAudioB64) body.ref_audio_b64 = opts.refAudioB64;
   if (opts.refText) body.ref_text = opts.refText;
   if (opts.seed != null) body.seed = opts.seed;
+  if (opts.instruct) body.instruct = opts.instruct;
   if (opts.speed != null && opts.speed !== 1) body.speed = opts.speed;
   const res = await apiFetch("/v1/audio/speech", {
     method: "POST",
