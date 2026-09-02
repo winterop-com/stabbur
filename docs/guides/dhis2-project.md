@@ -16,7 +16,7 @@ smaller local model.
     Everything below is scaffolded by a single template:
 
     ```bash
-    sb project new mydhis2 --template dhis2 --copy --git
+    sb init mydhis2 --template dhis2 --git
     ```
 
     That presets the model (`Ornith-1.0-9B`, the [benchmark](model-catalog.md) winner), a
@@ -46,15 +46,14 @@ smaller local model.
 
 ## 1. Scaffold the project with a local model copy
 
-`sb project new <dir>` runs an interactive wizard. `--model` skips the model
-picker; `--copy` (alias `--local`) copies the chosen model **into the project's own
+`sb init <dir>` runs an interactive wizard. `--model` skips the model
+picker; the chosen model is always downloaded **into the project's own
 `library/`** instead of relying on the shared library — that is what makes the
 project portable.
 
 ```bash
-sb project new dhis2 \
+sb init dhis2 \
   --model lmstudio-community/gemma-4-12B-it-QAT-GGUF \
-  --copy \
   --git
 ```
 
@@ -160,7 +159,7 @@ For the interactive TUI (or the browser), run `sb chat` or `sb serve --ui` in th
 same directory — both bind to the project's model with the DHIS2 tool available.
 
 !!! tip "Next to a live DHIS2 tab"
-    Scaffold from the **`dhis2` template** (`sb project new mydhis2 --template dhis2`) to also
+    Scaffold from the **`dhis2` template** (`sb init mydhis2 --template dhis2`) to also
     get an `[assistant]` block, then serve it on a pinned port and drive it from the
     [Chrome side panel](extension.md): a target banner that confirms your active tab matches the
     instance, **Verify**, **Who am I here?**, and **Use my login** to let the tools act as you
@@ -170,7 +169,7 @@ same directory — both bind to the project's model with the DHIS2 tool availabl
 
 | Step | Command |
 | --- | --- |
-| Scaffold + copy model | `sb project new dhis2 --model …gemma-4-12B-it-QAT-GGUF --copy` |
+| Scaffold a project | `sb init dhis2 --model …gemma-4-12B-it-QAT-GGUF` |
 | Attach bridge | add a `.mcp.json` entry: `uvx dhis2w-mcp-bridge` with `env.DHIS2_PROFILE=play42` |
 | Verify tools | `sb project show` |
 | Try it | `sb chat -p "…"` (or `sb serve --ui`) |

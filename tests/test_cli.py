@@ -102,51 +102,57 @@ def test_chat_refuses_non_generative_model(monkeypatch: pytest.MonkeyPatch) -> N
     assert "not a chat model" in result.output
 
 
-def test_init_writes_manifest_and_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_init_creates_a_self_contained_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`init` makes a nest: its own library, named in its own manifest, model downloaded into it.
+
+    The manifest must list the project-local library and nothing else — a project that inherited
+    this machine's library would stop working the moment the directory moved, which is the one
+    thing a self-contained project promises not to do.
+    """
     import tomllib
+    from types import SimpleNamespace
 
-    # A configured shared library holding the model → init uses it (no pull, no local store).
-    monkeypatch.setattr(library_ops, "configured", lambda *a, **k: True)
-    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
-    monkeypatch.setattr(cli.project, "_pick_tools_interactive", lambda: [])
+    pulled: dict[str, object] = {}
+
+    def _fake_pull(source: object, name: str, **kwargs: object) -> object:
+        pulled.update({"name": name, "root": kwargs.get("library_root")})
+        return SimpleNamespace(size_human="1 GB", destination=tmp_path / "hello" / "library")
+
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", _fake_pull)
     monkeypatch.chdir(tmp_path)
-    # input = blank lines accepting the defaults for the kind + system-prompt questions
-    first = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
-    assert first.exit_code == 0, first.output
-    parsed = tomllib.loads(Path("stabbur.toml").read_text())
+    result = runner.invoke(cli.app, ["init", "hello", "--model", "unsloth/X-GGUF", "--no-uv"])
+    assert result.exit_code == 0, result.output
+
+    parsed = tomllib.loads((tmp_path / "hello" / "stabbur.toml").read_text())
     assert parsed["project"]["model"] == "unsloth/X-GGUF"
-    assert "libraries" not in parsed  # uses the shared library — no project-local store
-
-    again = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n")
-    assert again.exit_code == 1  # refuses to clobber an existing project
-    assert "already exists" in again.output
+    assert parsed["libraries"] == ["library"]  # its own, and only its own
+    assert pulled["name"] == "unsloth/X-GGUF"
+    assert Path(str(pulled["root"])).resolve() == (tmp_path / "hello" / "library").resolve()
 
 
-def test_pick_model_rejects_zero(monkeypatch: pytest.MonkeyPatch) -> None:
-    import typer
+def test_init_refuses_an_existing_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Creating a project is making a new directory; writing into one that already holds something
+    # is how two assistants end up arguing over one stabbur.toml.
+    def _never(*args: object, **kwargs: object) -> object:
+        raise AssertionError("nothing may be downloaded for a refused scaffold")
 
-    # "0" used to negative-index to the last option (a surprise selection); it must be rejected
-    # like any out-of-range choice. No library configured → options are just the curated starters.
-    monkeypatch.setattr(library_ops, "configured", lambda *a, **k: False)
-    monkeypatch.setattr(cli.project.typer, "prompt", lambda *a, **k: "0")
-    with pytest.raises(typer.Exit) as exc:
-        cli.project._pick_model_interactive()
-    assert exc.value.exit_code == 1
-
-
-def test_project_new_cancel_leaves_no_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import typer
-
-    # Canceling the wizard mid-prompt must not leave an empty project directory behind.
-    def _abort() -> str:
-        raise typer.Abort
-
-    monkeypatch.setattr(cli.project, "_pick_model_interactive", _abort)
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", _never)
     monkeypatch.chdir(tmp_path)
-    # answer the kind question, then the (mocked) model step aborts
-    result = runner.invoke(cli.app, ["project", "new", "hello"], input="1\n")
-    assert result.exit_code != 0
-    assert not Path("hello").exists()  # nothing created on cancel
+    (tmp_path / "taken").mkdir()
+    result = runner.invoke(cli.app, ["init", "taken", "--model", "unsloth/X-GGUF", "--no-uv"])
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+    assert not (tmp_path / "taken" / "stabbur.toml").exists()
+
+
+def test_init_without_a_terminal_needs_a_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The wizard is a TUI; under a pipe there is nothing to drive it. Say so instead of failing
+    # inside Textual, and leave nothing behind.
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["init", "hello", "--no-uv"])
+    assert result.exit_code == 1
+    assert "No terminal" in result.output
+    assert not (tmp_path / "hello").exists()
 
 
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,21 +195,23 @@ def test_project_show_from_a_subdirectory_names_the_manifest(tmp_path: Path, mon
     assert "Be concise." in result.output  # it really loaded the parent's project
 
 
-def test_project_init_warns_when_it_nests_inside_a_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # `init` scaffolds where you stand, always — but inside an existing project that shadows the
-    # outer assistant from here down, which is worth a word rather than a silent surprise.
-    monkeypatch.setattr(library_ops, "configured", lambda *a, **k: True)
-    monkeypatch.setattr(library_ops, "find", lambda *a, **k: [_lib_model("unsloth/X-GGUF")])
-    monkeypatch.setattr(cli.project, "_pick_tools_interactive", lambda: [])
-    (tmp_path / "stabbur.toml").write_text('[project]\nmodel = "unsloth/X-GGUF"\n')
-    sub = tmp_path / "sub"
-    sub.mkdir()
-    monkeypatch.chdir(sub)
+def test_init_warns_when_it_nests_inside_a_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Nesting is allowed — but discovery stops at the nearest manifest, so from here down every
+    # command binds to the new assistant instead of the enclosing one. Worth a word.
+    from types import SimpleNamespace
 
-    result = runner.invoke(cli.app, ["project", "init", "--model", "unsloth/X-GGUF"], input="\n\n")
+    monkeypatch.setattr(
+        cli.project.catalog_ops,
+        "pull",
+        lambda *a, **k: SimpleNamespace(size_human="1 GB", destination=tmp_path),
+    )
+    (tmp_path / "stabbur.toml").write_text('[project]\nmodel = "unsloth/X-GGUF"\n')
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["init", "sub", "--model", "unsloth/X-GGUF", "--no-uv"])
     assert result.exit_code == 0, result.output
     assert "inside an existing project" in result.output
-    assert (sub / "stabbur.toml").is_file()  # scaffolded here, not redirected up to the outer project
+    assert (tmp_path / "sub" / "stabbur.toml").is_file()
 
 
 def test_project_show_without_manifest_hints_init(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -157,7 +157,7 @@ Despite the two readers, the file has **one parser and one writer** (`project/`)
   differently in each reader. `project.load()` validates on top of it: a wrong-*typed* value
   (`libraries` that isn't an array of strings, a `[voice] enabled` that isn't a boolean) is a typo
   like any other, so it raises `ProjectError` rather than being coerced or silently dropped.
-- `project.render_manifest()` renders a fresh manifest from values (`sb project init` / `new`) —
+- `project.render_manifest()` renders a fresh manifest from values (`sb init`) —
   the only thing that writes `stabbur.toml`. Tool servers are no longer part of it: `sb mcp add`
   writes `.mcp.json` through `mcpservers.py`, which owns that file's reads and writes.
 
@@ -179,7 +179,7 @@ resolves **relative to the manifest's own directory** (`Project.directory`), nev
 its `libraries` entries (`library.roots()`) and its `.mcp.json` (`mcpservers.project_path()`). This
 is what makes the scaffold's own comment ("relative to this file") true from anywhere inside the
 project. Outside a project there is no manifest to be relative to, so the cwd is the base as before.
-`sb project init` still scaffolds where you stand — it warns when that nests inside an existing
+`sb init` scaffolds into a new directory — it warns when that nests inside an existing
 project rather than quietly redirecting the write upward.
 
 ### Import-time HF cache (the one deliberate side effect)

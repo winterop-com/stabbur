@@ -1,5 +1,6 @@
-"""`stabbur project` - scaffold (init/new) and inspect (show) a project assistant."""
+"""`stabbur init` - scaffold a project assistant - and `stabbur project` - inspect one."""
 
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -16,13 +17,12 @@ from stabbur import (
 )
 from stabbur import catalog as catalog_ops
 from stabbur import library as library_ops
-from stabbur.cli._app import project_app
+from stabbur.cli._app import app, project_app
 from stabbur.cli._common import (
     _CURATED,
     _LOCAL_LIBRARY,
     _ForceOpt,
     _GitOpt,
-    _LocalOpt,
     _ModelOpt,
     _print_model_card,
     _TemplateOpt,
@@ -30,56 +30,10 @@ from stabbur.cli._common import (
     _UvOpt,
     console,
 )
+from stabbur.cli.init_wizard import CHAT_PROMPT, DEFAULT_VOICE, ModelChoice, run_wizard
 from stabbur.models import ModelSource, ProjectTemplate
 from stabbur.project import scaffold
 from stabbur.project.templates import TEMPLATES
-
-
-def _pick_model_interactive() -> str:
-    """Pick the project's default model: a chat model already in the library, or a starter to pull."""
-    lib = [m for m in (library_ops.scan() if library_ops.configured() else []) if m.generative and not m.is_ollama]
-    console.print("\n[bold]1. Default model[/] [dim]— what this project loads[/]")
-    options: list[str] = []
-    for m in sorted(lib, key=lambda m: m.name):
-        options.append(m.name)
-        console.print(f"  {len(options)}. {m.name}  [dim]{m.model_format.value} · {m.size_human}[/]")
-    if lib:
-        console.print("  [dim]— or pull a starter —[/]")
-    for c in _CURATED:
-        options.append(c.id)
-        console.print(f"  {len(options)}. {c.id}  [dim]pull · {c.note}[/]")
-    choice = typer.prompt("Number", default="1")
-    try:
-        index = int(choice)
-        if index < 1:  # "0"/negatives would wrap to the last option via negative indexing
-            raise IndexError
-        return options[index - 1]
-    except (ValueError, IndexError):
-        console.print(f"[red]Not a valid choice: {choice!r}[/]")
-        raise typer.Exit(1) from None
-
-
-def _pick_tools_interactive() -> list[tuple[str, str]]:
-    """Multi-select MCP servers (from installed plugins) for the project's toolset."""
-    from stabbur import plugins  # noqa: PLC0415
-
-    servers = plugins.advertised_servers(plugins.manager())
-    if not servers:
-        console.print(
-            "\n[bold]2. Tools[/] [dim]— no MCP plugins installed; skipping (add later with `stabbur mcp add`)[/]"
-        )
-        return []
-    console.print("\n[bold]2. Tools[/] [dim]— MCP servers this assistant can call[/]")
-    for i, s in enumerate(servers, 1):
-        console.print(f"  {i}. {s.name}  [dim]{s.description}[/]")
-    raw = typer.prompt("Select (comma-separated numbers, 'all', or blank for none)", default="").strip().lower()
-    if not raw:
-        return []
-    if raw == "all":
-        chosen = list(servers)
-    else:
-        chosen = [servers[int(p) - 1] for p in raw.split(",") if p.strip().isdigit() and 0 < int(p) <= len(servers)]
-    return [(s.name, s.command) for s in chosen]
 
 
 def _pull_or_exit(model: str, library_root: Path | None) -> None:
@@ -106,11 +60,21 @@ class _WizardChoices(BaseModel):
     template: ProjectTemplate | None = None
 
 
-def _gather_choices(model: str | None, template: str | None) -> _WizardChoices:
-    """Resolve the scaffolding choices: a named template preset, or walk the interactive wizard.
+def _model_choices() -> list[ModelChoice]:
+    """The models the wizard offers: the curated starters, best-first for a new project.
 
-    Gathered up front so canceling the wizard (Ctrl-C) leaves nothing behind — the caller creates
-    the project directory only after this returns.
+    Deliberately not the machine library: a project downloads its own copy (see
+    :func:`_provision_model`), so offering what happens to be on this machine's drive would
+    suggest a link between the two that a self-contained project does not have.
+    """
+    return [ModelChoice(name=c.id, detail=c.note) for c in _CURATED]
+
+
+def _gather_choices(name: str, model: str | None, template: str | None) -> _WizardChoices:
+    """Resolve the scaffolding choices: a named template, the wizard, or flags.
+
+    Gathered up front so quitting leaves nothing behind — the caller creates the project
+    directory only after this returns.
     """
     if template is not None:
         tmpl = TEMPLATES.get(template)
@@ -123,74 +87,45 @@ def _gather_choices(model: str | None, template: str | None) -> _WizardChoices:
             model=model or tmpl.model,
             mcp=list(tmpl.mcp),
             system_prompt=tmpl.system_prompt,
-            chat_voice=tmpl.chat_voice or "kokoro:af_heart",
+            chat_voice=tmpl.chat_voice or DEFAULT_VOICE,
             template=tmpl,
         )
-    console.print("\n[bold]0. Kind[/] [dim]— tailors the defaults[/]")
-    console.print("  1. Chat  [dim]— text conversation (replies can still be spoken)[/]")
-    console.print("  2. Voice  [dim]— talk to it: mic dictation in, spoken replies out[/]")
-    voice_project = typer.prompt("Number", default="1").strip() == "2"
-    default_prompt = (
-        "You are a friendly voice assistant. Keep replies short and natural for speech."
-        if voice_project
-        else "You are a concise, helpful assistant."
-    )
+    # No terminal (a pipe, a script, CI) means no TUI: fall back to the flags and the defaults
+    # rather than failing, so `stabbur init x --model <name>` stays scriptable.
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        if model is None:
+            console.print("[red]No terminal for the wizard[/] — pass --model (and --template) to scaffold here.")
+            raise typer.Exit(1)
+        return _WizardChoices(model=model, mcp=[], system_prompt=CHAT_PROMPT, chat_voice=DEFAULT_VOICE)
+
+    from stabbur import plugins  # noqa: PLC0415 - plugin discovery is slow; only the wizard needs it
+
+    result = run_wizard(name=name, models=_model_choices(), servers=plugins.advertised_servers(plugins.manager()))
+    if result is None:
+        console.print("[dim]Cancelled — nothing was created.[/]")
+        raise typer.Exit(1)
     return _WizardChoices(
-        model=model or _pick_model_interactive(),
-        mcp=_pick_tools_interactive(),
-        system_prompt=typer.prompt("\n3. System prompt", default=default_prompt),
-        # Kokoro is tiny, so every project can speak replies; a voice project picks which voice.
-        chat_voice=(
-            typer.prompt("\n4. Spoken-reply voice (Kokoro)", default="kokoro:af_heart")
-            if voice_project
-            else "kokoro:af_heart"
-        ),
+        model=model or result.model,
+        mcp=result.mcp,
+        system_prompt=result.system_prompt,
+        chat_voice=result.chat_voice,
     )
 
 
-def _provision_model(target: Path, model: str, local: bool) -> tuple[bool, list[library_ops.LibraryModel]]:
-    """Make ``model`` available: use the shared library, or build a project-local ``library/``.
+def _provision_model(target: Path, model: str) -> None:
+    """Download ``model`` into the project's own ``library/``.
 
-    Returns ``(use_local, existing)`` — whether the project ships its own library and the matching
-    library models found (empty if none). Pulls (or local-copies) the model as needed.
+    Always a fresh download, never a copy out of the machine library: a project is meant to be
+    self-contained — zip the directory, move it to another machine, and it still runs — so it owns
+    its weights outright rather than inheriting a copy whose provenance is this one drive.
     """
-    shared = library_ops.configured()
-    existing = library_ops.find(model) if shared else []
-    use_local = local or not shared  # --local/--copy forces it; no STABBUR_LIBRARY_ROOT falls back to it
-    if not use_local:
-        if existing:
-            console.print(f"\n[green]✓[/] {model} is in your library")
-        else:
-            console.print(f"\nPulling [bold]{model}[/] into your library …")
-            _pull_or_exit(model, None)
-        return use_local, existing
     local_lib = target / _LOCAL_LIBRARY
     local_lib.mkdir(parents=True, exist_ok=True)
-    if existing and existing[0].is_ollama:
-        # Ollama models live in a content-addressed store (manifest + shared blobs); they can't be
-        # copied into a loose project-local library. Reject cleanly instead of crashing on copytree.
-        console.print(
-            f"[red]{model!r} is an Ollama model[/] — it can't be copied into a project-local library.\n"
-            "Drop `--local`/`--copy` (use the shared library), or pick a GGUF/MLX model."
-        )
-        raise typer.Exit(1)
-    if existing:
-        console.print(f"\nCopying [bold]{model}[/] into [bold]{_LOCAL_LIBRARY}/[/] (local-disk copy) …")
-        scaffold.copy_model_local(existing[0], local_lib)
-    elif not shared:
-        console.print(
-            f"\n[yellow]No STABBUR_LIBRARY_ROOT set[/] — downloading [bold]{model}[/] into {_LOCAL_LIBRARY}/."
-        )
-        _pull_or_exit(model, local_lib)
-    else:
-        console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
-        _pull_or_exit(model, local_lib)
-    return use_local, existing
+    console.print(f"\nDownloading [bold]{model}[/] into {_LOCAL_LIBRARY}/ …")
+    _pull_or_exit(model, local_lib)
 
 
-def _write_project(
-    target: Path, choices: _WizardChoices, *, use_local: bool, existing: list[library_ops.LibraryModel], uv: bool
-) -> None:
+def _write_project(target: Path, choices: _WizardChoices, *, uv: bool) -> None:
     """Write ``stabbur.toml`` + ``.mcp.json`` (and, for a uv project, pyproject/README + template files)."""
     # A template may carry [assistant] target metadata (opaque dict) — a single ``assistant`` block or
     # a multi-target ``assistants`` list — validated here to AssistantInfo / an AssistantRegistry so
@@ -211,7 +146,7 @@ def _write_project(
         project.render_manifest(
             model=choices.model,
             system_prompt=choices.system_prompt,
-            local_library_dir=_LOCAL_LIBRARY if use_local else None,
+            local_library_dir=_LOCAL_LIBRARY,
             chat_voice=choices.chat_voice,
             assistant=assistant,
             registry=registry,
@@ -223,7 +158,7 @@ def _write_project(
     for entry_name, command in scaffold_mcp:
         mcpservers.add(_to_mcp_server(entry_name, command), glob=False, project_dir=target)
     if uv:
-        mlx = "mlx" in choices.model.lower() or bool(existing and existing[0].model_format == "mlx")
+        mlx = "mlx" in choices.model.lower()
         # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
         extras = choices.template.extras if choices.template is not None else []
         (target / "pyproject.toml").write_text(
@@ -273,81 +208,61 @@ def _scaffold_project(
     target: Path,
     model: str | None,
     force: bool,
-    local: bool,
     git: bool = False,
     uv: bool = True,
     template: str | None = None,
 ) -> None:
-    """Interactive project scaffolder shared by `init` (here) and `new` (a fresh dir).
+    """Create ``target`` and scaffold a self-contained project assistant in it.
 
-    Walks through a kind, default model, toolset (installed MCP plugins), system prompt, and
-    a spoken-reply voice, then writes ``target/stabbur.toml``. By default it uses your machine
-    library (STABBUR_LIBRARY_ROOT), pulling a missing model into it. ``local`` (``--local``/
-    ``--copy``) instead builds a project-local ``library/`` — copying the model from the
-    shared library if it's there (a fast local-disk copy), else downloading it there. With no
-    STABBUR_LIBRARY_ROOT set it falls back to that project-local library so you can start fresh.
+    Walks the wizard (kind, model, tools, system prompt, spoken-reply voice), then writes
+    ``target/stabbur.toml`` and downloads the model into ``target/library/``. The manifest lists
+    that directory as the project's only library, so the project ignores this machine's — zip the
+    directory up, move it to another machine, and it still runs.
 
-    ``uv`` (default on) also makes the project a **self-contained uv project**: a
-    ``pyproject.toml`` pinning ``stabbur`` + its MCP servers, so ``uv run stabbur serve`` uses the
-    project's own environment instead of a global stabbur and runtime ``uvx`` fetches.
+    ``uv`` (default on) also makes it a **self-contained uv project**: a ``pyproject.toml``
+    pinning ``stabbur`` + its MCP servers, so ``uv run stabbur serve`` uses the project's own
+    environment instead of a global stabbur and runtime ``uvx`` fetches.
 
-    Scaffolding is always *here* (``target``), never in a project found above it — creating a
-    project where you stand is the whole point — but that shadows an enclosing one from here down,
-    so :func:`_warn_if_nested` says so rather than letting it be a surprise.
+    The directory must not already exist: creating a project is making a new nest, and writing
+    into a directory that already has things in it is how you end up with two assistants arguing
+    over one ``stabbur.toml``. ``--force`` allows it for the case where you meant it.
     """
-    proj = target / "stabbur.toml"
-    if proj.exists() and not force:
-        console.print(f"[red]{proj} already exists[/] — use --force to overwrite.")
+    if target.exists() and not force:
+        console.print(
+            f"[red]{target} already exists[/] — `stabbur init` creates a new directory.\n"
+            "[dim]Use --force to scaffold into it anyway.[/]"
+        )
         raise typer.Exit(1)
     _warn_if_nested(target)
-    choices = _gather_choices(model, template)
+    choices = _gather_choices(target.name, model, template)
     target.mkdir(parents=True, exist_ok=True)
-    use_local, existing = _provision_model(target, choices.model, local)
-    _write_project(target, choices, use_local=use_local, existing=existing, uv=uv)
-    _print_scaffold_summary(proj, choices, uv=uv, git=git, target=target)
+    _provision_model(target, choices.model)
+    _write_project(target, choices, uv=uv)
+    _print_scaffold_summary(target / "stabbur.toml", choices, uv=uv, git=git, target=target)
 
 
-@project_app.command("init")
+@app.command("init")
 def init(
+    path: Annotated[Path, typer.Argument(help="Directory to create for the new project.")],
     model: _ModelOpt = None,
     force: _ForceOpt = False,
-    local: _LocalOpt = False,
     git: _GitOpt = False,
     uv: _UvOpt = True,
     template: _TemplateOpt = None,
 ) -> None:
-    """Scaffold a project assistant in the current directory (interactive wizard).
+    """Create a self-contained project assistant in a new directory.
 
-    A project is a purpose-built assistant: `stabbur serve`/`chat` in it (or in any subdirectory
-    of it) bind to its model (like --model) with its tools + prompt; outside a project it's
-    free-play. This always scaffolds in the current directory — inside an existing project that
-    creates a nested one, which it warns about. Use `stabbur project new <dir>` to scaffold into a
-    fresh directory instead. `--template dhis2` presets a reproducible DHIS2 assistant (model +
-    prompt + bridge + example files).
+    A project is a purpose-built assistant that owns everything it needs: its model (downloaded
+    into `<path>/library/`), its system prompt, its tools, and its own uv environment. `stabbur
+    serve`/`chat` run inside it bind to that model and ignore this machine's library and default
+    model — so the directory can be zipped up and moved to another machine as it stands.
+
+    Refuses an existing directory (`--force` overrides). `--template dhis2` presets a
+    reproducible DHIS2 assistant (model + prompt + bridge + example files).
     """
-    _scaffold_project(Path("."), model, force, local, git, uv, template)
-    console.print(f"[dim]Next:[/] {'uv sync && uv run stabbur serve --ui' if uv else 'stabbur serve --ui'}")
-
-
-@project_app.command("new")
-def new(
-    name: Annotated[str, typer.Argument(help="New project directory to create + scaffold.")],
-    model: _ModelOpt = None,
-    force: _ForceOpt = False,
-    local: _LocalOpt = False,
-    git: _GitOpt = False,
-    uv: _UvOpt = True,
-    template: _TemplateOpt = None,
-) -> None:
-    """Create a new project directory and scaffold an assistant in it (like `cargo new`).
-
-    `--template dhis2` presets a reproducible DHIS2 assistant (model + prompt + bridge + files);
-    pair with `--copy` to bundle the model and `--git` to init a repo.
-    """
-    _scaffold_project(Path(name), model, force, local, git, uv, template)
-    console.print(
-        f"[dim]Next:[/] cd {name} && {'uv sync && uv run stabbur serve --ui' if uv else 'stabbur serve --ui'}"
-    )
+    _scaffold_project(path, model, force, git, uv, template)
+    run = "uv sync && uv run stabbur serve --ui" if uv else "stabbur serve --ui"
+    console.print(f"[dim]Next:[/] cd {path} && {run}")
 
 
 def _connect_project_tools(

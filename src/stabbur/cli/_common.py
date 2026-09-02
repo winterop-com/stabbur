@@ -244,10 +244,8 @@ def _pull_voice_all(root: Path | None, move: bool) -> None:
 
 
 _ModelOpt = Annotated[str | None, typer.Option("--model", help="Model to bind (skips the model picker).")]
-_ForceOpt = Annotated[bool, typer.Option("--force", help="Overwrite an existing stabbur.toml.")]
-_LocalOpt = Annotated[
-    bool,
-    typer.Option("--local", "--copy", help="Copy the model into a project-local library/ (fast local disk)."),
+_ForceOpt = Annotated[
+    bool, typer.Option("--force", help="Scaffold into a directory that already exists (refused otherwise).")
 ]
 _GitOpt = Annotated[
     bool,

@@ -104,7 +104,7 @@ sb voice ls                       # voice models (TTS/STT) in the library
 sb voice import --all             # import known voice models to the library
 sb voice speak -v af_heart "hello there"           # text-to-speech (Kokoro)
 sb voice speak --model voxcpm2 --instruct "a calm older man" "hi there"  # design a voice
-sb project init                   # scaffold a project assistant (model + tools + prompt)
+sb init mybot                     # scaffold a self-contained project assistant
 ```
 
 **Two model families:** **Chat** (language models you talk to — text in/out; some
@@ -156,7 +156,7 @@ a local or remote `sb serve` that puts your own model + tools next to any page. 
 in two flavors from one codebase: the generic **stabbur** panel and **stabbur for DHIS2**
 (`STABBUR_FLAVOR=dhis2`).
 
-Pointed at a DHIS2 project (`sb project new --template dhis2`), it becomes the north-star
+Pointed at a DHIS2 project (`sb init mydhis2 --template dhis2`), it becomes the north-star
 assistant: chat grounded in the page you are viewing, a target banner (verify + tab
 match/mismatch), and **"Use my login"** — mint a read-only, GET-scoped Personal Access Token
 in the DHIS2 tab's own security context and hand it to stabbur once, so the tools act as *you*
@@ -184,7 +184,7 @@ Two separate concepts:
   export STABBUR_LIBRARY_ROOT=/path/to/your/library     # e.g. a mounted external drive
   ```
 
-- **A project** (`stabbur.toml`, via `sb project init` / `sb project new <dir>`) — a
+- **A project** (`stabbur.toml`, via `sb init <dir>`) — a
   purpose-built **assistant**: `[project].model` + `system_prompt`, with tools in a sibling
   `.mcp.json` (standard `mcpServers`). In a project — or any subdirectory of one, since the
   manifest is found by walking up like `git` finds `.git` — `sb serve` / `sb chat` bind to that

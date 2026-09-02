@@ -12,11 +12,8 @@ from __future__ import annotations
 import json
 import re
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
-
-from stabbur.library import LibraryModel
 
 #: The project-local library directory ``stabbur project init`` scaffolds (holds this project's models).
 LOCAL_LIBRARY = "library"
@@ -195,16 +192,6 @@ __pycache__/
 def render_readme(name: str) -> str:
     """Render the project's README.md (a self-contained-uv-project quickstart)."""
     return _README.format(name=name, library=LOCAL_LIBRARY)
-
-
-def copy_model_local(model: LibraryModel, dest_root: Path) -> None:
-    """Copy a library model's directory into a project-local library, preserving its layout."""
-    rel = model.path.relative_to(model.library_root)
-    dest = dest_root / rel
-    if dest.exists():
-        return
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(model.path, dest)
 
 
 def git_init(target: Path) -> tuple[bool, str]:

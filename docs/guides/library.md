@@ -188,7 +188,7 @@ libraries = ["models", "@shared"]   # project-local first, then the machine defa
 ```
 
 `@shared` is the token for the machine's default library (`STABBUR_LIBRARY_ROOT`), so
-the file stays portable. `sb project init` scaffolds a `models/` directory and
+the file stays portable. `sb init` scaffolds a `library/` directory and
 this list; reads span all listed libraries (first match wins), while `sb library
 pull` targets the first (project-local) one by default (`--shared` for the shared
 one). See [Projects](projects.md).
