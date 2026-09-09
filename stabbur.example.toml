@@ -62,7 +62,9 @@ url = "http://attic:9090"
 # Tools do NOT live here. They go in ./.mcp.json - the standard `mcpServers` JSON that Claude
 # Desktop, Claude Code and Cursor use, so a server's README snippet pastes straight in. Add one
 # with `stabbur mcp add <name>`; `stabbur mcp list` is the catalog. In a project that file is
-# the whole toolset: the machine-global one does not merge into it.
+# the whole toolset: the machine-global one does not merge into it. `stabbur init` always writes
+# one (empty when no tools were picked), so a project never inherits the machine's tools; a
+# project with NO .mcp.json at all falls back to the machine-global set.
 #
 # UI clients may also read an [assistant] table (or [[assistants]] for several targets); it is
 # echoed to them verbatim and stabbur does not interpret it.

@@ -204,7 +204,9 @@ def resolve(project_dir: Path | None = None) -> list[McpServer]:
     A ``.mcp.json`` is what claims the scope — the same rule the rest of the ecosystem uses for
     that file, and the same one ``project_path`` already follows. Present: it is the answer, whole.
     Absent: the machine set applies. Deselecting every tool in ``stabbur configure`` writes an empty
-    file rather than deleting it, so "this project has no tools" stays sayable.
+    file rather than deleting it, so "this project has no tools" stays sayable — and a scaffold
+    always writes one (:func:`claim_project`), because a project born without the file inherited
+    whatever the host had enabled, which is the same portability bug in the other direction.
 
     A ``.mcp.json`` can still **disable** an entry by name (``"foo": null`` or
     ``"foo": {"disabled": true}``); a disabled entry never enters the result.
@@ -237,6 +239,20 @@ def _merged_entry(existing: object, server: McpServer) -> dict[str, object]:
     if isinstance(existing, dict) and not _is_disabled(existing):
         entry |= {k: v for k, v in existing.items() if k not in {"command", "args", "env"}}
     return entry
+
+
+def claim_project(project_dir: Path | None = None) -> Path:
+    """Make sure the project ``.mcp.json`` exists, writing ``{"mcpServers": {}}`` if it does not.
+
+    The file is what claims the tool scope (see :func:`resolve`): without it the machine-global set
+    applies, so a project that said ``tools: none`` at scaffold time ran with the host's tools and
+    behaved differently on every machine it was copied to. An existing file is left untouched.
+    Returns the path.
+    """
+    path = project_path(project_dir)
+    if not path.is_file():
+        _write_file(path, {"mcpServers": {}})
+    return path
 
 
 def add(server: McpServer, *, glob: bool, project_dir: Path | None = None) -> Path:

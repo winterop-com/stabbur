@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from stabbur import voice
 from stabbur.voice import Backend, VoiceKind, VoiceMode
 
@@ -195,3 +197,20 @@ def test_a_design_model_declares_a_house_voice() -> None:
             assert m.default_instruct, f"{m.id} has no default description"
             assert m.default_seed is not None, f"{m.id} has no default seed"
             assert m.seedable  # a description alone does not pin the speaker
+
+
+def test_runs_here_follows_the_backend_and_the_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    # One place knows that mlx-audio means Apple Silicon; kokoro-onnx runs anywhere.
+    from stabbur import voice
+
+    kokoro = voice.get("kokoro")
+    whisper = voice.get("whisper")
+    assert kokoro is not None and whisper is not None
+    assert kokoro.backend is voice.Backend.kokoro_onnx
+    assert whisper.backend is voice.Backend.mlx_audio
+
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: False)
+    assert voice.runs_here(kokoro)
+    assert not voice.runs_here(whisper)
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
+    assert voice.runs_here(whisper)

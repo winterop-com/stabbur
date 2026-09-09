@@ -25,6 +25,7 @@ from stabbur.cli._common import (
     _ForceOpt,
     _GitOpt,
     _ModelOpt,
+    _NoModelOpt,
     _print_model_card,
     _TemplateOpt,
     _to_mcp_server,
@@ -76,13 +77,23 @@ def _model_choices() -> list[ModelChoice]:
 
 
 def _gather_choices(
-    name: str, model: str | None, template: str | None, voices_gb: float = 0.0, upstream: str | None = None
+    name: str,
+    model: str | None,
+    template: str | None,
+    voices_gb: float = 0.0,
+    upstream: str | None = None,
+    no_model: bool = False,
 ) -> _WizardChoices:
     """Resolve the scaffolding choices: a named template, the wizard, or flags.
 
     Gathered up front so quitting leaves nothing behind — the caller creates the project
-    directory only after this returns.
+    directory only after this returns. ``no_model`` binds nothing (the wizard's "No model yet"
+    without the wizard), which is a supported project — free-play with the picker — so it needs a
+    flag on a headless box, where a locked scaffold plus a hand-edit was the only route to it.
     """
+    if no_model and model:
+        console.print("[red]--model and --no-model contradict each other[/] — pass one or the other.")
+        raise typer.Exit(2)
     if template is not None:
         tmpl = TEMPLATES.get(template)
         if tmpl is None:
@@ -91,7 +102,7 @@ def _gather_choices(
         # A template presets the whole wizard, so scaffolding is reproducible in one command.
         console.print(f"\nUsing the [bold]{template}[/] template.")
         return _WizardChoices(
-            model=model or tmpl.model,
+            model="" if no_model else (model or tmpl.model),
             mcp=list(tmpl.mcp),
             system_prompt=tmpl.system_prompt,
             chat_voice=tmpl.chat_voice or DEFAULT_VOICE,
@@ -100,11 +111,13 @@ def _gather_choices(
     # No terminal (a pipe, a script, CI) means no TUI: fall back to the flags and the defaults
     # rather than failing, so `stabbur init x --model <name>` stays scriptable.
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        if model is None:
-            console.print("[red]No terminal for the wizard[/] — pass --model (and --template) to scaffold here.")
+        if model is None and not no_model:
+            console.print(
+                "[red]No terminal for the wizard[/] — pass --model (and --template), or --no-model, to scaffold here."
+            )
             raise typer.Exit(1)
         return _WizardChoices(
-            model=model, mcp=[], system_prompt=CHAT_PROMPT, chat_voice=DEFAULT_VOICE, upstream=upstream or ""
+            model=model or "", mcp=[], system_prompt=CHAT_PROMPT, chat_voice=DEFAULT_VOICE, upstream=upstream or ""
         )
 
     from stabbur import plugins  # noqa: PLC0415 - plugin discovery is slow; only the wizard needs it
@@ -119,7 +132,7 @@ def _gather_choices(
         console.print("[dim]Cancelled — nothing was created.[/]")
         raise typer.Exit(1)
     return _WizardChoices(
-        model=model or result.model,
+        model="" if no_model else (model or result.model),
         mcp=result.mcp,
         system_prompt=result.system_prompt,
         chat_voice=DEFAULT_VOICE,  # which voice speaks is a UI choice; the manifest just has a default
@@ -174,9 +187,9 @@ def _provision(target: Path, model: str, *, voices: bool = True, upstream: str |
     except Exception as exc:  # noqa: BLE001 - a voice is not worth failing a scaffold over
         console.print(f"  [yellow]skipped[/] — {exc}")
 
-    from stabbur import host  # noqa: PLC0415
+    from stabbur import voice  # noqa: PLC0415
 
-    if not host.is_apple_silicon():
+    if not voice.backend_runs_here(voice.Backend.mlx_audio):
         # The mlx-audio models only run there; shipping them into a project built elsewhere would
         # be gigabytes that cannot speak. Kokoro (ONNX) is cross-platform and already in.
         console.print("[dim]Skipping the mlx-audio voices[/] — that runtime is Apple Silicon only.")
@@ -224,6 +237,10 @@ def _write_project(
     scaffold_mcp = [(name, scaffold.strip_uvx(command)) for name, command in choices.mcp] if uv else choices.mcp
     for entry_name, command in scaffold_mcp:
         mcpservers.add(_to_mcp_server(entry_name, command), glob=False, project_dir=target)
+    # Always, even with nothing picked: the file is what makes the project's toolset its own. Without
+    # it `tools: none` was a lie — the machine-global servers applied, so the assistant answered with
+    # tools the manifest never mentioned, differently on every machine the directory was copied to.
+    mcpservers.claim_project(target)
     if uv:
         mlx = "mlx" in choices.model.lower()
         # Pass the original (uvx-bearing) mcp so pip deps are extracted before uvx is stripped.
@@ -286,6 +303,7 @@ def _scaffold_project(
     template: str | None = None,
     voices: bool = True,
     upstream: str | None = None,
+    no_model: bool = False,
 ) -> None:
     """Create ``target`` and scaffold a self-contained project assistant in it.
 
@@ -310,7 +328,12 @@ def _scaffold_project(
         raise typer.Exit(1)
     _warn_if_nested(target)
     choices = _gather_choices(
-        target.name, model, template, voices_gb=_VOICE_PACKAGE_GB if voices else 0.0, upstream=upstream
+        target.name,
+        model,
+        template,
+        voices_gb=_VOICE_PACKAGE_GB if voices else 0.0,
+        upstream=upstream,
+        no_model=no_model,
     )
     # The wizard's own field wins when the flag was not given: it is the same setting, typed in
     # the place the person was actually looking.
@@ -331,6 +354,7 @@ def init(
     template: _TemplateOpt = None,
     voices: _VoicesOpt = True,
     upstream: _UpstreamOpt = None,
+    no_model: _NoModelOpt = False,
 ) -> None:
     """Create a self-contained project assistant in a new directory.
 
@@ -347,10 +371,13 @@ def init(
     there and none are downloaded, while the prompt, tools, voices and UI stay here. `--model`
     then names a model that server already serves.
 
+    Without a terminal (a pipe, a script, CI) there is no wizard: pass `--model`, or `--no-model`
+    for a project that binds none yet and lets the picker choose.
+
     Refuses an existing directory (`--force` overrides). `--template dhis2` presets a
     reproducible DHIS2 assistant (model + prompt + bridge + example files).
     """
-    _scaffold_project(path, model, force, git, uv, template, voices, upstream)
+    _scaffold_project(path, model, force, git, uv, template, voices, upstream, no_model=no_model)
     run = "uv sync && uv run stabbur serve --ui" if uv else "stabbur serve --ui"
     console.print(f"[dim]Next:[/] cd {path} && {run}")
 

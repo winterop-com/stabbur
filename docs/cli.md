@@ -20,7 +20,8 @@ directory, move it to another machine, and it still runs.
 
 An interactive wizard (a Textual TUI) walks the choices: kind, model, tools (space to toggle),
 system prompt. With no terminal — a pipe, a script, CI — pass `--model` instead and it scaffolds
-without the TUI.
+without the TUI; `--no-model` is the scriptable form of the wizard's "No model yet", for a
+project that lets the picker choose.
 
 It downloads a working package, not just weights: the chat model plus the voices — Kokoro,
 VoxCPM2 and Whisper, about 5 GB — so the project can speak and listen out of the box. That part is
@@ -30,6 +31,7 @@ and **a model is optional**: "No model yet" builds the project and binds one lat
 ```bash
 sb init mybot                                  # the wizard, then a fresh download into mybot/
 sb init mybot --model unsloth/Qwen3.5-4B-GGUF  # skip the wizard's model step
+sb init mybot --no-model                       # bind none yet (headless: no wizard, no --model needed)
 sb init mybot --git                            # also: git init + a .gitignore (excludes library/ + .env)
 sb init mybot --upstream http://gpu-box:8080/v1 # models run there; nothing is downloaded
 sb init mybot --no-voices                      # text only: skip Kokoro + VoxCPM2

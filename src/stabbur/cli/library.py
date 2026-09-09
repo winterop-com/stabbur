@@ -841,6 +841,8 @@ def pull(
         return
 
     assert name is not None  # narrowed by the guard above
+    if source is ModelSource.voice:
+        _warn_voice_unrunnable(name)
     verb = "Moving" if move else "Pulling"
     typer.echo(f"{verb} {source.value}:{name} -> {root} ...")
     try:
@@ -859,6 +861,24 @@ def pull(
     else:
         suffix = ""
     console.print(f"Done: {result.file_count} files, {result.size_human} -> {result.destination}{suffix}")
+
+
+def _warn_voice_unrunnable(voice_id: str) -> None:
+    """Say, before the download, when a voice model's runtime cannot run on this machine.
+
+    A warning rather than a refusal: a library is portable, so pulling onto a drive that will move
+    to a Mac is a legitimate thing to do. What is not acceptable is a multi-GB download that can
+    never load here with nothing said about it.
+    """
+    from stabbur import host, voice  # noqa: PLC0415 - keep voice deps lazy on the CLI import path
+
+    spec = voice.get(voice_id)
+    if spec is not None and not voice.runs_here(spec):
+        console.print(
+            f"[yellow]{spec.display_name} needs the {spec.backend.value} runtime, which does not run on "
+            f"{host.os_label()}[/] [dim](Apple Silicon only). Pulling anyway — it can run from this library "
+            "on a machine that has it, but not here.[/]"
+        )
 
 
 # What the IN LIBRARY column shows per :func:`_in_library` verdict. A plain tick is reserved for

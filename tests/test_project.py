@@ -461,7 +461,8 @@ def test_voice_and_project_must_be_tables(tmp_path: Path) -> None:
     # an AttributeError traceback. Both are the same manifest mistake — one clean ProjectError.
     p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\nvoice = "loud"\n')  # inside [project]: not the block we read
-    assert project.load(p) is not None
+    with pytest.warns(UserWarning, match=r"'voice' inside \[project\]"):
+        assert project.load(p) is not None
 
     p.write_text('voice = "loud"\n')
     with pytest.raises(project.ProjectError, match=r"\[voice\] must be a table"):
@@ -474,10 +475,11 @@ def test_voice_and_project_must_be_tables(tmp_path: Path) -> None:
 
 def test_voice_unknown_keys_are_tolerated(tmp_path: Path) -> None:
     # Unknown keys INSIDE [voice] stay tolerated, like unknown top-level keys — only the type of a
-    # key we actually read is enforced.
+    # key we actually read is enforced. Tolerated, not silent: the loader says the key does nothing.
     p = tmp_path / "stabbur.toml"
     p.write_text('[project]\nmodel = "m"\n\n[voice]\nenabled = false\nspeed = 1.5\n')
-    proj = project.load(p)
+    with pytest.warns(UserWarning, match=r"'speed' inside \[voice\]"):
+        proj = project.load(p)
     assert proj is not None and proj.voice_enabled is False
 
 
@@ -563,3 +565,55 @@ def test_every_documented_setting_is_a_real_settings_field() -> None:
     documented = set(re.findall(r"^# ?([a-z_]+) = ", project.render_example_manifest(), flags=re.MULTILINE))
     unknown = documented - set(Settings.model_fields) - {"name", "url"}  # name/url are backend keys
     assert not unknown, f"documented but not a setting: {sorted(unknown)}"
+
+
+def test_load_warns_about_a_machine_setting_typed_under_project(tmp_path: Path) -> None:
+    """The TOML scoping trap, caught by the loader rather than left to the reader.
+
+    A bare key belongs to the table above it, so `port = 8888` written after `[project]` parses as
+    `project.port`, reaches no Settings field, and the server keeps binding the default while the
+    file plainly says otherwise. The example manifest documents it; the loader now says so.
+    """
+    manifest = tmp_path / "stabbur.toml"
+    manifest.write_text('[project]\nmodel = "m"\nport = 8888\n')
+    with pytest.warns(UserWarning, match=r"'port' inside \[project\] is ignored.*top-level"):
+        assert project.load(manifest) is not None
+
+
+def test_load_warns_about_a_key_stabbur_never_reads(tmp_path: Path) -> None:
+    manifest = tmp_path / "stabbur.toml"
+    manifest.write_text('[project]\nmodel = "m"\nsystem_promt = "typo"\n\n[voice]\nenabled = true\nspeed = 2\n')
+    with pytest.warns(UserWarning) as caught:
+        project.load(manifest)
+    messages = [str(w.message) for w in caught]
+    assert any("'system_promt' inside [project]" in m and "does nothing" in m for m in messages)
+    assert any("'speed' inside [voice]" in m for m in messages)
+
+
+def test_load_does_not_warn_about_the_keys_it_reads(tmp_path: Path) -> None:
+    import warnings
+
+    manifest = tmp_path / "stabbur.toml"
+    manifest.write_text('port = 8888\n\n[project]\nmodel = "m"\nsystem_prompt = "p"\nchat_voice = "kokoro:af"\n')
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert project.load(manifest) is not None
+
+
+def test_an_empty_model_loads_as_unbound(tmp_path: Path) -> None:
+    # `model = ""` was how older scaffolds spelled "none yet"; it must read as no model, never as a
+    # locked model named "".
+    manifest = tmp_path / "stabbur.toml"
+    manifest.write_text('[project]\nmodel = ""\n')
+    loaded = project.load(manifest)
+    assert loaded is not None
+    assert loaded.model is None
+
+
+def test_render_manifest_leaves_the_model_key_out_when_none_is_bound() -> None:
+    import tomllib
+
+    text = project.render_manifest(model="", system_prompt="p")
+    assert "model" not in tomllib.loads(text)["project"]
+    assert "# model = " in text  # commented, so the reader sees where it goes
+    assert tomllib.loads(project.render_manifest(model="m"))["project"]["model"] == "m"

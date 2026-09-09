@@ -31,7 +31,10 @@ it's pulled from the HF cache or downloaded from Hugging Face:
 - **mlx-audio** — Apple-Silicon only (everything but Kokoro). A platform-gated extra:
   `uv sync --extra voice` (a no-op off Apple Silicon). English G2P via `misaki[en]`.
 
-On Linux, Kokoro (ONNX) covers TTS; the mlx-audio models are macOS-only.
+On Linux, Kokoro (ONNX) covers TTS; the mlx-audio models are Apple Silicon only. That means
+**STT does not run on Linux** — and with it the chat composer's dictation mic. `stabbur voice list`
+dims the models this machine cannot run, and `stabbur library pull voice <id>` says so before
+downloading one (it still pulls: a library drive can move to a Mac).
 
 ## CLI
 

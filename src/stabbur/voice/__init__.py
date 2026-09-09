@@ -7,7 +7,18 @@ are for the standalone Voice section.
 """
 
 from stabbur.voice.catalog import VoicePresence, discover, hf_hub_cache, voice_dir
-from stabbur.voice.registry import BUILTIN, Backend, VoiceKind, VoiceMode, VoiceModel, by_repo, chat_voice, get
+from stabbur.voice.registry import (
+    BUILTIN,
+    Backend,
+    VoiceKind,
+    VoiceMode,
+    VoiceModel,
+    backend_runs_here,
+    by_repo,
+    chat_voice,
+    get,
+    runs_here,
+)
 
 __all__ = [
     "BUILTIN",
@@ -16,10 +27,12 @@ __all__ = [
     "VoiceMode",
     "VoiceModel",
     "VoicePresence",
+    "backend_runs_here",
     "by_repo",
     "chat_voice",
     "discover",
     "get",
     "hf_hub_cache",
+    "runs_here",
     "voice_dir",
 ]

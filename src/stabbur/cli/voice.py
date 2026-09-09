@@ -270,13 +270,32 @@ def voice_list() -> None:
     table = Table(box=box.SIMPLE, header_style="bold")
     for col in ("ID", "KIND", "VOICE", "BACKEND", "WHERE", "SIZE"):
         table.add_column(col, style="cyan" if col == "ID" else None)
+    # A backend this machine cannot run is still listed (the registry is the catalog, and a library
+    # drive may move to a machine that can), but dimmed and named as such: an undifferentiated list
+    # on a Linux box offered five models that can never load here, and invited pulling them.
+    unrunnable: set[str] = set()
     for p in merged.values():
         s = p.spec
         where = "[green]library[/]" if p.in_library else ("[yellow]hf-cache[/]" if p.in_cache else "[dim]—[/]")
+        runnable = voice.runs_here(s)
+        if not runnable:
+            unrunnable.add(s.backend.value)
         table.add_row(
-            s.id, s.kind.value, s.voice_mode.value, s.backend.value, where, p.size_human if p.available else "—"
+            s.id,
+            s.kind.value,
+            s.voice_mode.value,
+            s.backend.value if runnable else f"{s.backend.value} [dim](not here)[/]",
+            where,
+            p.size_human if p.available else "—",
+            style=None if runnable else "dim",
         )
     console.print(table)
+    if unrunnable:
+        names = ", ".join(sorted(unrunnable))
+        console.print(
+            f"[yellow]Dimmed rows need the {names} runtime, which does not run on {host.os_label()}[/] "
+            "[dim](Apple Silicon only); they can be pulled into a library that moves to a Mac, but not run here.[/]"
+        )
     console.print(
         "[dim]Add one to the project library:[/] stabbur library pull voice <id>  [dim](downloads if needed).[/]"
     )

@@ -275,7 +275,62 @@ def test_init_without_a_terminal_needs_a_model(monkeypatch: pytest.MonkeyPatch, 
     result = runner.invoke(cli.app, ["init", "hello", "--no-uv"])
     assert result.exit_code == 1
     assert "No terminal" in result.output
+    assert "--no-model" in result.output  # the other way out, for a project that binds none
     assert not (tmp_path / "hello").exists()
+
+
+def test_init_without_a_terminal_can_bind_no_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`--no-model` is the wizard's "No model yet" for a headless box.
+
+    A project without a model is a supported state (serve runs free-play with the picker), but the
+    only non-interactive path used to produce a locked project — provisioning an unlocked one over
+    SSH meant scaffolding it locked and hand-deleting the model line. And the manifest must not
+    spell "none" as `model = ""`: serve read that as a locked model named nothing.
+    """
+    import tomllib
+
+    from stabbur import project as project_mod
+
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", lambda *a, **k: pytest.fail("nothing to download"))
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["init", "hello", "--no-model", "--no-uv", "--no-voices"])
+    assert result.exit_code == 0, result.output
+    assert "none yet" in result.output
+    parsed = tomllib.loads((tmp_path / "hello" / "stabbur.toml").read_text())
+    assert "model" not in parsed["project"]
+    loaded = project_mod.load(tmp_path / "hello" / "stabbur.toml")
+    assert loaded is not None
+    assert loaded.model is None
+
+
+def test_init_refuses_model_and_no_model_together(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["init", "hello", "--model", "unsloth/X-GGUF", "--no-model", "--no-uv"])
+    assert result.exit_code == 2
+    assert "contradict" in result.output
+    assert not (tmp_path / "hello").exists()
+
+
+def test_init_claims_the_tool_scope_even_with_no_tools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A scaffold writes `.mcp.json` even when nothing was picked, so `tools: none` is true.
+
+    Without the file the machine-global set applied: `init` said none, `doctor` in the same
+    directory said one, and the project ran with tools its manifest never mentioned, differently on
+    every machine it was copied to — the self-containment bug wearing the other shoe.
+    """
+    import json
+
+    from stabbur import mcpservers
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    mcpservers.add(mcpservers.McpServer(name="datetime", command="stabbur-mcp-datetime"), glob=True)
+    monkeypatch.setattr(cli.project.catalog_ops, "pull", lambda *a, **k: pytest.fail("nothing to download"))
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["init", "hello", "--no-model", "--no-uv", "--no-voices"])
+    assert result.exit_code == 0, result.output
+    assert "tools: none" in result.output
+    assert json.loads((tmp_path / "hello" / ".mcp.json").read_text()) == {"mcpServers": {}}
+    assert mcpservers.resolve(tmp_path / "hello") == []  # the global datetime does not leak in
 
 
 def test_project_show_lists_model_prompt_and_live_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1482,6 +1537,36 @@ def test_serve_refuses_a_busy_port_instead_of_moving(monkeypatch: pytest.MonkeyP
     assert "--port" in result.output  # tells the user how to move it
 
 
+def test_serve_banner_announces_a_ui_enabled_from_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The banner's UI line follows what is served, not just the --ui flag.
+
+    `serve_ui = true` in stabbur.toml (or STABBUR_SERVE_UI) makes the app serve the SPA, but the
+    banner keyed on the CLI parameter alone — so the UI was served and never announced. On a
+    non-loopback bind that withheld the tokenized URL, the only thing that makes the first visit
+    work, since `/` itself is not gated and every call behind it then answered 401.
+    """
+    import socket
+
+    import uvicorn
+
+    monkeypatch.setattr("stabbur.cli.serve.project.load", lambda *a, **k: None)
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+    monkeypatch.setenv("STABBUR_FRONTEND_DIR", str(tmp_path))  # "built": the banner checks is_dir()
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = str(probe.getsockname()[1])
+
+    monkeypatch.delenv("STABBUR_SERVE_UI", raising=False)
+    quiet = runner.invoke(cli.app, ["serve", "--port", port])
+    assert quiet.exit_code == 0, quiet.output
+    assert "UI:" not in quiet.output  # API only: nothing to announce
+
+    monkeypatch.setenv("STABBUR_SERVE_UI", "true")
+    announced = runner.invoke(cli.app, ["serve", "--port", port])
+    assert announced.exit_code == 0, announced.output
+    assert "UI:" in announced.output
+
+
 def test_port_free_ignores_time_wait_leftovers() -> None:
     # Restarting right after stopping a serve must work: uvicorn closes its keep-alives on
     # shutdown, so the *server* side sits in TIME_WAIT for ~15s. The pre-flight binds the way
@@ -1827,3 +1912,47 @@ def test_clean_error_hides_the_internal_runtime_url() -> None:
     assert cli.chat._clean_error(RuntimeError(f"runtime exited, see {url}")) == "runtime exited, see"
     # ...while a host the user typed is the whole point of the message and stays.
     assert "gpu-box" in cli.chat._clean_error(RuntimeError("cannot reach http://gpu-box:1234/v1"))
+
+
+def test_voice_list_dims_the_models_this_machine_cannot_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The listing names what cannot run here instead of inviting a pull that can never load.
+
+    On a Linux box every mlx-audio model is dead weight — Apple Silicon only — yet the table listed
+    all six alike and closed with "pull any of them". The scaffold already knew (it skips those
+    voices); the listing now consults the same check.
+    """
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: False)
+    monkeypatch.setattr("stabbur.host.os_label", lambda: "Linux x86_64")
+    result = runner.invoke(cli.app, ["voice", "list"])
+    assert result.exit_code == 0, result.output
+    assert "Dimmed rows need the mlx-audio runtime" in result.output
+    assert "Linux x86_64" in result.output
+
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: True)
+    at_home = runner.invoke(cli.app, ["voice", "list"])
+    assert at_home.exit_code == 0, at_home.output
+    assert "Dimmed rows" not in at_home.output
+
+
+def test_library_pull_voice_says_when_the_runtime_cannot_run_here(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A warning, not a refusal: a library drive can move to a Mac. But never a silent multi-GB
+    # download of something that cannot load on the machine doing the downloading.
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("stabbur.host.is_apple_silicon", lambda: False)
+    monkeypatch.setattr("stabbur.host.os_label", lambda: "Linux x86_64")
+    monkeypatch.setattr(
+        catalog_ops,
+        "pull",
+        lambda *a, **k: SimpleNamespace(
+            file_count=1, size_human="1 GB", destination="x", source_removed=False, already_present=False
+        ),
+    )
+    result = runner.invoke(cli.app, ["library", "pull", "voice", "whisper"])
+    assert result.exit_code == 0, result.output
+    assert "does not run on Linux x86_64" in result.output
+    assert "Pulling anyway" in result.output
+
+    kokoro = runner.invoke(cli.app, ["library", "pull", "voice", "kokoro"])
+    assert kokoro.exit_code == 0, kokoro.output
+    assert "does not run" not in kokoro.output
