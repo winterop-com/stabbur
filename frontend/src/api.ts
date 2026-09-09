@@ -385,24 +385,47 @@ export async function getAssistants(): Promise<AssistantTarget[]> {
 /** Fetch the system-health report (runtimes, library, project). */
 export const getDoctor = () => apiFetch("/api/doctor").then(json<DoctorReport>);
 
-/** A selectable Listen voice (Kokoro's built-in voices). */
+/** A selectable Listen voice: a Kokoro preset, or a whole TTS model from the library. */
 export interface Voice {
-  id: string; // "kokoro:<name>"
+  id: string; // "kokoro:<name>" | "model:<registry id>"
   label: string;
-  engine: string; // "kokoro"
+  engine: string; // "kokoro", or the registry id of a model voice
   language: string;
   gender: string;
+  /** The voice is described in words (a voice-design model); absent on an older backend. */
+  designable?: boolean;
+  /** A pinned seed picks which speaker you get; absent on an older backend. */
+  seedable?: boolean;
+  /** The house description a design voice speaks with when a chat sets none. */
+  default_instruct?: string;
+  default_seed?: number | null;
 }
 
-/** List every available Listen voice (Kokoro built-ins); empty if the engine is missing. */
+/** List every available Listen voice (Kokoro built-ins + library TTS models); empty if the engine is missing. */
 export const getVoices = () => apiFetch("/api/voices").then(json<Voice[]>);
 
+/** How a chat steers a model voice: a speaker description (design models) and a seed (seedable ones). */
+export interface SpeakSteering {
+  instruct?: string | null;
+  seed?: number | null;
+}
+
 /** Synthesize text to speech for a chosen voice id; returns a WAV blob to play. */
-export async function speak(text: string, voice?: string | null, speed?: number | null): Promise<Blob> {
+export async function speak(
+  text: string,
+  voice?: string | null,
+  speed?: number | null,
+  steering: SpeakSteering = {},
+): Promise<Blob> {
+  const body: Record<string, unknown> = { text };
+  if (voice) body.voice = voice;
+  if (speed && speed !== 1) body.speed = speed;
+  if (steering.instruct?.trim()) body.instruct = steering.instruct.trim();
+  if (steering.seed != null) body.seed = steering.seed;
   const res = await apiFetch("/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, ...(voice ? { voice } : {}), ...(speed && speed !== 1 ? { speed } : {}) }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);

@@ -382,6 +382,79 @@ async def test_listen_can_speak_with_a_model_voice(
     assert seen["instruct"] == spec.default_instruct
 
 
+async def test_listen_steers_a_design_voice_with_its_own_description_and_seed(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A chat's own voice description and seed replace the house voice; the pair is what makes a
+    # design model speak as a chosen speaker rather than the registry's default one.
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.available", lambda: True)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.find",
+        lambda repo: [SimpleNamespace(voice_kind="tts", load_target=tmp_path / "tts-model")],
+    )
+
+    def fake_synthesize(model: Path, text: str, **kwargs: object) -> bytes:
+        seen.update(kwargs)
+        return b"RIFFfake"
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.voice_runtime.synthesize", fake_synthesize)
+    r = await client.post(
+        "/api/speak",
+        json={"text": "hello", "voice": "model:voxcpm2", "instruct": "A calm older man, unhurried", "seed": 7},
+    )
+    assert r.status_code == 200
+    assert seen["instruct"] == "A calm older man, unhurried"
+    assert seen["seed"] == 7
+
+    # A blank description is "nothing chosen", not "no description": the house voice stays.
+    seen.clear()
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "model:voxcpm2", "instruct": "   "})
+    assert r.status_code == 200
+    spec = voice_router.voice_registry.get("voxcpm2")
+    assert spec is not None
+    assert seen["instruct"] == spec.default_instruct
+    assert seen["seed"] == spec.default_seed
+
+
+async def test_listen_rejects_a_description_for_a_voice_that_cannot_take_one(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Kokoro presets are fixed speakers; a description sent to one would otherwise be dropped on the
+    # floor and the caller left believing it took. Same answer as /v1/audio/speech gives (422).
+    def never(*args: object, **kwargs: object) -> object:
+        raise AssertionError("synthesis must not start")
+
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: True)
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.synthesize", never)
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "kokoro:af_heart", "instruct": "gruff"})
+    assert r.status_code == 422
+    r = await client.post("/api/speak", json={"text": "hello", "voice": "model:voxcpm2", "instruct": "x" * 501})
+    assert r.status_code == 413
+
+
+async def test_voices_listing_says_which_voices_take_a_description(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The chat UI shows the description/seed controls only for a voice that acts on them, and it
+    # learns that from the listing rather than from a hard-coded model name.
+    spec = voice_router.voice_registry.get("voxcpm2")
+    assert spec is not None
+    monkeypatch.setattr("stabbur.routers.serving.voice.kokoro.available", lambda: False)
+    monkeypatch.setattr(
+        "stabbur.routers.serving.voice.library_ops.scan",
+        lambda: [SimpleNamespace(name=spec.repo, voice_kind="tts")],
+    )
+    r = await client.get("/api/voices")
+    assert r.status_code == 200
+    [voice] = r.json()
+    assert voice["id"] == "model:voxcpm2"
+    assert voice["designable"] is True
+    assert voice["seedable"] is True
+    assert voice["default_instruct"] == spec.default_instruct
+    assert voice["default_seed"] == spec.default_seed
+
+
 async def test_listen_rejects_an_unknown_model_voice(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     def never(*args: object, **kwargs: object) -> bytes:
         raise AssertionError("synthesis must not start for an unknown voice")

@@ -77,6 +77,14 @@ better and costs a multi-GB load beside the chat model, which is why it is offer
 rather than defaulted. Stochastic models speak replies with a pinned seed, so the
 speaker doesn't change from one reply to the next.
 
+**Steering a design voice in chat.** When the Listen voice is a voice-design model, a
+**Voice description** field and a **Speaker seed** field appear beside the picker:
+describe the speaker in words and every reply is read in that voice. Both live in two
+places, like the voice itself: **Settings > Voice** sets the default every chat inherits,
+and the chat's own settings panel overrides it for one conversation (with a Reset back
+to the default). Blank means the model's house voice. Kokoro presets are fixed speakers,
+so the fields are not shown for them.
+
 ## API (OpenAI-compatible)
 
 Served by `sb serve`, so any OpenAI client works:
@@ -110,7 +118,7 @@ Non-WAV formats are transcoded with **ffmpeg** (WAV passes through untouched).
 - **VoxCPM2 has a house voice.** It ships no named voices, so an unadorned request would invent a
   new speaker each time. The registry pins a description + seed (chosen by ear), and that is what
   you get from `sb voice speak --model voxcpm2`, `/v1/audio/speech`, and Listen. `--instruct` /
-  `--seed` (or the studio's fields) override it.
+  `--seed` (the studio's fields, or the chat's Voice description and Speaker seed) override it.
 - **A description alone does not fix the voice.** Voice design samples a fresh speaker each run,
   so the same words give a different person every time — but the seed pins it: same description +
   same seed is byte-identical audio. Roll the seed until you like the speaker, then keep it (with
