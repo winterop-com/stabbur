@@ -54,9 +54,10 @@ Three surfaces, reachable from the sidebar (or the collapsed icon rail):
   text), so a plain chat model can read a file as context.
 - **Listen (text-to-speech)** — a speaker button on each reply reads it aloud
   (Markdown/code is stripped first so only the prose is spoken); the settings rail
-  picks the **voice** — a picker of Kokoro's **54 built-in voices** across 9 languages
-  (grouped by language), since Kokoro ships built in. Heavier TTS models are used from
-  the Voice studio, never in chat.
+  picks the **voice** — Kokoro's **54 built-in voices** across 9 languages (grouped by
+  language), plus any TTS model in the library under *Model voices*. A voice-design model
+  adds a **Voice description** and **Speaker seed** so replies are read by a speaker you
+  describe; Settings > Voice holds the default, the chat panel overrides it per chat.
 - **Mermaid diagrams** — ```` ```mermaid ```` fenced blocks render as live
   diagrams (theme-aware, lazy-loaded), with a source/diagram toggle and copy;
   invalid syntax falls back to the source.
@@ -118,7 +119,7 @@ The app keeps one stable origin while swapping the underlying runtime:
 | `POST /api/assistant/verify`, `/api/assistants/{id}/verify` | the same probe under a method that admits it runs something |
 | `POST /api/assistant/bind`, `/unbind` | install/remove a client-minted credential (the side panel's "Use my login") |
 | `GET /api/doctor` | system-health report (mirrors `sb doctor`) |
-| `GET /api/voices`, `POST /api/speak` | list voices (Kokoro + OuteTTS); synthesize text → WAV (chat Listen) |
+| `GET /api/voices`, `POST /api/speak` | list Listen voices (Kokoro presets + library TTS models, with what each can steer); synthesize text → WAV, with `instruct`/`seed` for a design voice |
 | `POST /v1/audio/speech` | OpenAI TTS: text → audio (Kokoro/Dia/…), formats via ffmpeg, voice cloning |
 | `POST /v1/audio/transcriptions` | OpenAI STT: audio → text (Whisper) |
 | `POST /v1/{path}` | stream-proxied to the loaded runtime's `/v1`; locked → `model` pinned to the locked one, under its stabbur name |

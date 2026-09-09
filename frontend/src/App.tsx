@@ -26,6 +26,7 @@ import {
   type Msg,
   type Status,
   type ToolInfo,
+  type SpeakSteering,
   type Voice,
 } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import { SettingsDialog } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
 import { DEFAULT_SETTINGS, baselineServers, deriveTitle, serverScopes, uid, type Settings } from "@/lib/store";
+import { findVoice } from "@/lib/voices";
 import { loadConversations, saveConversations } from "@/lib/history";
 import { applyModelTitle, requestConversationTitle } from "@/lib/title";
 import { greetingFor } from "@/lib/greeting";
@@ -202,6 +204,33 @@ export function App() {
     setTtsSpeed(v);
     try {
       localStorage.setItem("stabbur.tts_speed", String(v));
+    } catch {
+      /* storage full/blocked: the pick still applies this session */
+    }
+  }, []);
+  // Steering for a design/seedable Listen voice: the speaker description and the seed that picks
+  // one of the matching speakers. Kept whatever voice is picked (sent only where it acts) so
+  // switching to a Kokoro preset and back does not lose what was written.
+  const [ttsInstruct, setTtsInstruct] = useState<string>(() => localStorage.getItem("stabbur.tts_instruct") || "");
+  const [ttsSeed, setTtsSeed] = useState<number | null>(() => {
+    const raw = localStorage.getItem("stabbur.tts_seed");
+    const n = raw === null ? NaN : Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  });
+  const chooseInstruct = useCallback((v: string) => {
+    setTtsInstruct(v);
+    try {
+      if (v) localStorage.setItem("stabbur.tts_instruct", v);
+      else localStorage.removeItem("stabbur.tts_instruct");
+    } catch {
+      /* storage full/blocked: the pick still applies this session */
+    }
+  }, []);
+  const chooseSeed = useCallback((v: number | null) => {
+    setTtsSeed(v);
+    try {
+      if (v != null) localStorage.setItem("stabbur.tts_seed", String(v));
+      else localStorage.removeItem("stabbur.tts_seed");
     } catch {
       /* storage full/blocked: the pick still applies this session */
     }
@@ -892,6 +921,15 @@ export function App() {
   const voiceEnabled = status?.voice_enabled !== false;
   const effectiveTtsVoice = settings.ttsVoice ?? (ttsVoice || status?.default_chat_voice || undefined);
   const effectiveTtsSpeed = settings.ttsSpeed ?? ttsSpeed;
+  // Sent only where the voice acts on them: a description reaching a Kokoro preset is a 422, and a
+  // seed a model would ignore is a claim on screen that nothing honours.
+  const effectiveTtsSteering = useMemo<SpeakSteering | undefined>(() => {
+    const v = findVoice(voices, effectiveTtsVoice);
+    if (!v) return undefined;
+    const instruct = v.designable ? (settings.ttsInstruct ?? ttsInstruct) || null : null;
+    const seed = v.seedable ? (settings.ttsSeed ?? ttsSeed) : null;
+    return instruct || seed != null ? { instruct, seed } : undefined;
+  }, [voices, effectiveTtsVoice, settings.ttsInstruct, settings.ttsSeed, ttsInstruct, ttsSeed]);
   const showChat = useCallback(() => setView("chat"), []);
   const showLibrary = useCallback(() => setView("library"), []);
   const showVoice = useCallback(() => setView("voice"), []);
@@ -1440,6 +1478,8 @@ export function App() {
       voices={voices}
       defaultVoice={ttsVoice}
       defaultSpeed={ttsSpeed}
+      defaultInstruct={ttsInstruct}
+      defaultSeed={ttsSeed}
       tools={tools}
       disabled={disabledSet}
       allowedServers={allowedServers}
@@ -1513,6 +1553,10 @@ export function App() {
         onChooseVoice={chooseVoice}
         ttsSpeed={ttsSpeed}
         onChooseSpeed={chooseSpeed}
+        ttsInstruct={ttsInstruct}
+        onChooseInstruct={chooseInstruct}
+        ttsSeed={ttsSeed}
+        onChooseSeed={chooseSeed}
         mode={mode}
         onToggleMode={toggleMode}
         theme={theme}
@@ -1814,6 +1858,7 @@ export function App() {
                       onResolveConfirm={resolveConfirm}
                       ttsVoice={effectiveTtsVoice}
                       ttsSpeed={effectiveTtsSpeed}
+                      ttsSteering={effectiveTtsSteering}
                     />
                   ))}
                 </div>

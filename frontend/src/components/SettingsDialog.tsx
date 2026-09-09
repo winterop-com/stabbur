@@ -4,9 +4,12 @@ import { AudioLines, Moon, Palette, Server, Sun } from "lucide-react";
 import { getModelInfo, type LibModel, type ModelInfo, type Status, type Voice } from "@/api";
 import { Markdown } from "@/components/Markdown";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { historySpace, type HistorySpace } from "@/lib/history";
 import { THEMES, type Mode, type Theme } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { findVoice, groupVoices, parseSeed, voiceOptionLabel } from "@/lib/voices";
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
 
@@ -146,6 +149,10 @@ function VoicePane({
   onChooseVoice,
   ttsSpeed,
   onChooseSpeed,
+  ttsInstruct,
+  onChooseInstruct,
+  ttsSeed,
+  onChooseSeed,
 }: {
   status: Status | null;
   voices: Voice[];
@@ -153,12 +160,20 @@ function VoicePane({
   onChooseVoice: (name: string) => void;
   ttsSpeed: number;
   onChooseSpeed: (speed: number) => void;
+  ttsInstruct: string;
+  onChooseInstruct: (instruct: string) => void;
+  ttsSeed: number | null;
+  onChooseSeed: (seed: number | null) => void;
 }) {
+  // The voice Listen actually uses when this picker is on "default" is the project's, so the
+  // description controls follow the *resolved* voice: a project that speaks with a design model
+  // gets them even though the picker itself reads "Project default".
+  const resolved = findVoice(voices, ttsVoice || status?.default_chat_voice);
   return (
     <>
       <Section
         title="Default voice"
-        description="Used by Listen in chats that don't set their own voice. 54 built-in Kokoro voices across 9 languages."
+        description="Used by Listen in chats that don't set their own voice. 54 built-in Kokoro voices across 9 languages, plus any voice model in the library."
       >
         <select
           value={ttsVoice}
@@ -166,22 +181,54 @@ function VoicePane({
           className="h-8 w-full max-w-md rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="">{status?.default_chat_voice ? "Project default" : "Built-in default"}</option>
-          {Object.entries(
-            voices.reduce<Record<string, Voice[]>>((acc, v) => {
-              (acc[v.language || "Other"] ??= []).push(v);
-              return acc;
-            }, {}),
-          ).map(([language, vs]) => (
-            <optgroup key={language} label={language}>
+          {groupVoices(voices).map(([group, vs]) => (
+            <optgroup key={group} label={group}>
               {vs.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.label} · {v.gender === "female" ? "F" : "M"}
+                  {voiceOptionLabel(v)}
                 </option>
               ))}
             </optgroup>
           ))}
         </select>
       </Section>
+
+      {resolved?.designable && (
+        <Section
+          title="Voice description"
+          description="This voice is designed in words: describe the speaker you want and every reply is read in it. Leave it blank for the model's own default."
+        >
+          <Textarea
+            aria-label="Voice description"
+            value={ttsInstruct}
+            onChange={(e) => onChooseInstruct(e.target.value)}
+            placeholder={resolved.default_instruct || "A calm older man, warm and unhurried"}
+            className="min-h-20 w-full max-w-md resize-y bg-background/60 text-sm"
+          />
+          {resolved.seedable && (
+            <div className="mt-3 max-w-md">
+              <label htmlFor="settings-voice-seed" className="text-sm font-medium">
+                Speaker seed
+              </label>
+              <Input
+                id="settings-voice-seed"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={ttsSeed ?? ""}
+                onChange={(e) => onChooseSeed(parseSeed(e.target.value))}
+                placeholder={resolved.default_seed != null ? String(resolved.default_seed) : "default"}
+                className="mt-1 h-8 w-32 bg-background/60"
+              />
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                The description alone doesn't fix the speaker: the seed picks which of the matching voices
+                you get. Try a few numbers in the Voice studio, then keep the one you like here.
+              </p>
+            </div>
+          )}
+        </Section>
+      )}
 
       <Section title="Default speed" description="How fast Listen reads a reply back.">
         <div className="flex flex-wrap items-center gap-1">
@@ -397,6 +444,10 @@ export function SettingsDialog({
   onChooseVoice,
   ttsSpeed,
   onChooseSpeed,
+  ttsInstruct,
+  onChooseInstruct,
+  ttsSeed,
+  onChooseSeed,
   mode,
   onToggleMode,
   theme,
@@ -411,6 +462,11 @@ export function SettingsDialog({
   onChooseVoice: (name: string) => void;
   ttsSpeed: number;
   onChooseSpeed: (speed: number) => void;
+  /** Speaker description + seed for a design voice; "" / null = the model's own house voice. */
+  ttsInstruct: string;
+  onChooseInstruct: (instruct: string) => void;
+  ttsSeed: number | null;
+  onChooseSeed: (seed: number | null) => void;
   mode: Mode;
   onToggleMode: () => void;
   theme: Theme;
@@ -476,6 +532,10 @@ export function SettingsDialog({
               onChooseVoice={onChooseVoice}
               ttsSpeed={ttsSpeed}
               onChooseSpeed={onChooseSpeed}
+              ttsInstruct={ttsInstruct}
+              onChooseInstruct={onChooseInstruct}
+              ttsSeed={ttsSeed}
+              onChooseSeed={onChooseSeed}
             />
           )}
           {category === "server" && <ServerPane status={status} library={library} />}

@@ -122,6 +122,13 @@ class VoiceInfo(BaseModel):
     engine: str  # "kokoro", or the registry id of a library TTS model
     language: str = ""
     gender: str = ""
+    # What a chat may steer about a model voice. A design model takes a description of the speaker
+    # (``instruct``) and a seed picks which of the speakers matching it you get; the UI shows those
+    # controls only where they do something, so the flags travel with the voice, not the model list.
+    designable: bool = False
+    seedable: bool = False
+    default_instruct: str = ""  # the house description a design voice speaks with when none is set
+    default_seed: int | None = None
 
 
 # Prefix marking a Listen voice that is a whole TTS model rather than a Kokoro preset.
@@ -159,6 +166,10 @@ def voices() -> list[VoiceInfo]:
                 label=spec.display_name,
                 engine=spec.id,
                 language=spec.languages[0] if spec.languages else "",
+                designable=spec.voice_mode is voice_registry.VoiceMode.design,
+                seedable=spec.seedable,
+                default_instruct=spec.default_instruct,
+                default_seed=spec.default_seed if spec.seedable else None,
             )
         )
     return out
@@ -220,19 +231,39 @@ class SpeakRequest(BaseModel):
     text: str
     voice: str | None = None  # "kokoro:<name>"; None → the default Kokoro voice
     speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
+    # Steering for a ``model:`` voice, both optional. ``instruct`` describes the speaker for a
+    # voice-design model (None → the registry's house description); ``seed`` picks which speaker
+    # matching it you get (None → the house seed). Neither means anything to a Kokoro preset.
+    instruct: str | None = None
+    seed: int | None = None
 
 
-async def _model_voice_wav(voice_id: str, text: str, speed: float) -> bytes:
-    """Speak ``text`` with a library TTS model chosen as the Listen voice (``model:<id>``)."""
+def _model_voice_spec(voice_id: str) -> voice_registry.VoiceModel:
+    """Resolve a ``model:<id>`` Listen voice to its registry entry, or 422 for one that isn't a TTS model."""
     spec = voice_registry.get(voice_id.removeprefix(_MODEL_VOICE))
     if spec is None or spec.kind is not voice_registry.VoiceKind.tts or not spec.supported:
         raise HTTPException(status_code=422, detail=f"unknown Listen voice {voice_id!r}")
+    return spec
+
+
+async def _model_voice_wav(
+    spec: voice_registry.VoiceModel, text: str, speed: float, instruct: str | None, seed: int | None
+) -> bytes:
+    """Speak ``text`` with a library TTS model chosen as the Listen voice (``model:<id>``).
+
+    ``instruct``/``seed`` are the chat's own steering; whichever is unset falls back to the
+    registry's house voice so a reply never arrives in a different stranger's voice.
+    """
     if not voice_runtime.available():
         raise HTTPException(status_code=503, detail="mlx-audio is not installed (uv sync --extra voice)")
     model = await asyncio.to_thread(_voice_library_model, spec.repo, kind="tts")
-    params: dict[str, Any] = {"seed": spec.default_seed or _CHAT_VOICE_SEED} if spec.seedable else {}
-    if spec.default_instruct and spec.voice_mode is voice_registry.VoiceMode.design:
-        params["instruct"] = spec.default_instruct
+    params: dict[str, Any] = {}
+    if spec.seedable:
+        params["seed"] = seed if seed is not None else spec.default_seed or _CHAT_VOICE_SEED
+    if spec.voice_mode is voice_registry.VoiceMode.design:
+        described = instruct or spec.default_instruct
+        if described:
+            params["instruct"] = described
     if speed != 1.0 and spec.honors_speed:
         params["speed"] = speed
     try:
@@ -252,9 +283,15 @@ async def speak(req: SpeakRequest) -> Response:
     """
     text = _validated_text(req.text)
     speed = _validated_speed(req.speed)
+    instruct = _validated_instruct(req.instruct)
     if req.voice and req.voice.startswith(_MODEL_VOICE):
-        data = await _model_voice_wav(req.voice, text, speed)
+        spec = _model_voice_spec(req.voice)
+        if instruct and spec.voice_mode is not voice_registry.VoiceMode.design:
+            raise HTTPException(status_code=422, detail=f"{req.voice!r} is not a voice-design model (no `instruct`)")
+        data = await _model_voice_wav(spec, text, speed, instruct, req.seed)
     else:
+        if instruct:
+            raise HTTPException(status_code=422, detail="a voice description needs a voice-design model voice")
         data = await _kokoro_wav(text, req.voice, speed)
     return Response(content=data, media_type="audio/wav")
 
@@ -277,6 +314,15 @@ class AudioSpeechRequest(BaseModel):
     seed: int | None = None  # pin a stochastic model's otherwise-random voice for reproducibility
     instruct: str | None = None  # describe a voice for a voice-design model to invent (no clip needed)
     speed: float | None = None  # playback speed multiplier (0.5-2.0); None → 1.0
+
+
+def _validated_instruct(instruct: str | None) -> str | None:
+    """Cap a voice description (413 over the limit); blank collapses to None so it never overrides the house voice."""
+    if instruct is None:
+        return None
+    if len(instruct) > _MAX_INSTRUCT_CHARS:
+        raise HTTPException(status_code=413, detail=f"instruct exceeds the {_MAX_INSTRUCT_CHARS} character limit")
+    return instruct.strip() or None
 
 
 def _validated_speed(speed: float | None) -> float:
@@ -334,9 +380,8 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
     # otherwise be attempted and fail as a slow, opaque 502. Reject it upfront with a clear reason.
     if not spec.supported:
         raise HTTPException(status_code=422, detail=f"{req.model!r} isn't supported for synthesis in stabbur yet.")
-    if req.instruct is not None and len(req.instruct) > _MAX_INSTRUCT_CHARS:
-        raise HTTPException(status_code=413, detail=f"instruct exceeds the {_MAX_INSTRUCT_CHARS} character limit")
-    if req.instruct and spec.voice_mode != voice_registry.VoiceMode.design:
+    instruct = _validated_instruct(req.instruct)
+    if instruct and spec.voice_mode != voice_registry.VoiceMode.design:
         # The runtime hands unknown params to the model's generate(), where one it doesn't take
         # is a TypeError (a 502), so reject the mismatch here as the client error it is.
         raise HTTPException(status_code=422, detail=f"{req.model!r} is not a voice-design model (no `instruct`)")
@@ -363,11 +408,10 @@ async def audio_speech(req: AudioSpeechRequest) -> Response:
             params: dict[str, Any] = {"seed": seed} if seed is not None else {}
             if speed != 1.0 and spec.honors_speed:
                 params["speed"] = speed  # only where it does something (see VoiceModel.honors_speed)
-            instruct = req.instruct or (
-                spec.default_instruct if spec.voice_mode is voice_registry.VoiceMode.design else ""
-            )
-            if instruct:
-                params["instruct"] = instruct  # voice design (checked above to be this model's mode)
+            is_design = spec.voice_mode is voice_registry.VoiceMode.design
+            described = instruct or (spec.default_instruct if is_design else "")
+            if described:
+                params["instruct"] = described  # voice design (checked above to be this model's mode)
             data = await asyncio.to_thread(
                 _synthesize_mlx, model.load_target, text, req.voice, ref_path, req.ref_text, params
             )

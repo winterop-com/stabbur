@@ -1,5 +1,6 @@
 import { Clock, FileText, Gauge, Hash, RefreshCw } from "lucide-react";
 
+import type { SpeakSteering } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatImage } from "@/components/ChatImage";
@@ -64,6 +65,7 @@ export function MessageItem({
   onResolveConfirm,
   ttsVoice,
   ttsSpeed,
+  ttsSteering,
 }: {
   message: ChatMessage;
   streaming: boolean;
@@ -73,6 +75,8 @@ export function MessageItem({
   onResolveConfirm: (id: string, approve: boolean) => void;
   ttsVoice?: string;
   ttsSpeed?: number;
+  /** Speaker description + seed, already filtered to what the voice acts on. */
+  ttsSteering?: SpeakSteering;
 }) {
   if (message.role === "user") {
     const images = message.images ?? [];
@@ -199,7 +203,7 @@ export function MessageItem({
         <div className="mt-1 flex items-center">
           {message.content && !message.error && <CopyButton text={message.content} />}
           {message.content && !message.error && (
-            <SpeakButton text={message.content} voice={ttsVoice} speed={ttsSpeed} />
+            <SpeakButton text={message.content} voice={ttsVoice} speed={ttsSpeed} steering={ttsSteering} />
           )}
           {canRegenerate && (
             <Tooltip>

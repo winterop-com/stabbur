@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { ReasoningLevel, Settings } from "@/lib/store";
 import type { McpServersState } from "@/lib/useMcpServers";
 import { cn } from "@/lib/utils";
+import { findVoice, groupVoices, parseSeed, voiceOptionLabel } from "@/lib/voices";
 
 const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
 
@@ -312,6 +313,8 @@ export function ChatSettingsPanel({
   voices,
   defaultVoice,
   defaultSpeed,
+  defaultInstruct,
+  defaultSeed,
   tools,
   disabled,
   allowedServers,
@@ -334,6 +337,9 @@ export function ChatSettingsPanel({
   /** The voice a chat inherits when it sets none (the Settings-page default). */
   defaultVoice: string;
   defaultSpeed: number;
+  /** The Settings-page speaker description + seed a design voice inherits ("" / null = the model's own). */
+  defaultInstruct: string;
+  defaultSeed: number | null;
   tools: ToolInfo[];
   disabled: Set<string>;
   /** Servers this conversation may call — its own allow-list, or the resolved baseline. */
@@ -431,6 +437,17 @@ export function ChatSettingsPanel({
     : status?.default_chat_voice
       ? `${voiceLabel(status.default_chat_voice)} (project)`
       : voiceLabel("kokoro:af_heart");
+  // The description/seed controls follow the voice Listen will *use* — this chat's pick, else the
+  // inherited one — and appear only where that voice acts on them (a Kokoro preset has no dial).
+  const effectiveVoice = findVoice(voices, settings.ttsVoice ?? (defaultVoice || status?.default_chat_voice));
+  // Names the source, not the text: a description is a sentence, and a sentence in the label
+  // slot wrapped the label onto two lines. The textarea's placeholder carries the text itself.
+  const inheritedInstruct = defaultInstruct
+    ? "your default"
+    : effectiveVoice?.default_instruct
+      ? "the model's own voice"
+      : "no description";
+  const inheritedSeed = defaultSeed != null ? `${defaultSeed} (your default)` : "the model's own";
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l border-border bg-muted/40 text-foreground">
@@ -746,29 +763,71 @@ export function ChatSettingsPanel({
             className="h-8 w-full rounded-md border border-border bg-background/60 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="">Default · {inheritedVoice}</option>
-            {Object.entries(
-              voices.reduce<Record<string, Voice[]>>((acc, v) => {
-                // A model voice is a whole TTS model, not one of Kokoro's presets, so it belongs
-                // in its own group rather than filed under a language it may not even declare.
-                const group = v.engine === "kokoro" ? v.language || "Other" : "Model voices";
-                (acc[group] ??= []).push(v);
-                return acc;
-              }, {}),
-            )
-              // Model voices first: there are a handful of them and 54 Kokoro presets, so appended
-              // last they sat below a screenful of scrolling and read as missing entirely.
-              .sort(([a], [b]) => Number(b === "Model voices") - Number(a === "Model voices"))
-              .map(([language, vs]) => (
-              <optgroup key={language} label={language}>
+            {groupVoices(voices).map(([group, vs]) => (
+              <optgroup key={group} label={group}>
                 {vs.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.label}
-                    {v.gender ? ` · ${v.gender === "female" ? "F" : "M"}` : ""}
+                    {voiceOptionLabel(v)}
                   </option>
                 ))}
               </optgroup>
             ))}
           </select>
+
+          {effectiveVoice?.designable && (
+            <div className="mt-3">
+              <FieldLabel
+                label="Voice description"
+                htmlFor="p-voice-instruct"
+                overridden={settings.ttsInstruct != null}
+                inherited={inheritedInstruct}
+                onReset={() => onChange({ ...settings, ttsInstruct: null })}
+              />
+              <Textarea
+                id="p-voice-instruct"
+                value={settings.ttsInstruct ?? ""}
+                onChange={(e) => onChange({ ...settings, ttsInstruct: e.target.value })}
+                placeholder={defaultInstruct || effectiveVoice.default_instruct || "A calm older man, warm and unhurried"}
+                className="min-h-16 resize-y bg-background/60 text-sm"
+              />
+              <p className="mt-1 text-sm text-muted-foreground">
+                Describe the speaker in words; replies in this chat are read in that voice.
+              </p>
+            </div>
+          )}
+
+          {effectiveVoice?.seedable && (
+            <div className="mt-3">
+              <FieldLabel
+                label="Speaker seed"
+                htmlFor="p-voice-seed"
+                overridden={settings.ttsSeed != null}
+                inherited={inheritedSeed}
+                onReset={() => onChange({ ...settings, ttsSeed: null })}
+              />
+              <Input
+                id="p-voice-seed"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={settings.ttsSeed ?? ""}
+                onChange={(e) => onChange({ ...settings, ttsSeed: parseSeed(e.target.value) })}
+                placeholder={
+                  defaultSeed != null
+                    ? String(defaultSeed)
+                    : effectiveVoice.default_seed != null
+                      ? String(effectiveVoice.default_seed)
+                      : "default"
+                }
+                className="h-8 w-32 bg-background/60"
+              />
+              <p className="mt-1 text-sm text-muted-foreground">
+                Picks which of the speakers matching the description you get. Audition numbers in the Voice
+                studio, then keep the one you like.
+              </p>
+            </div>
+          )}
 
           <div className="mt-3">
             <FieldLabel
