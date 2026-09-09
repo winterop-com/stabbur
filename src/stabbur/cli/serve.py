@@ -270,7 +270,11 @@ def serve(
     # A tokenized URL lets the user just open the SPA: it captures ?token= into the browser and
     # sends it as a bearer header thereafter (like Jupyter). Non-browser clients send the header.
     ui_url = f"{base}/?token={auth_token}" if auth_token else base
-    if ui:
+    # The app serves the SPA on `settings.serve_ui`, which `serve_ui = true` in stabbur.toml (or
+    # STABBUR_SERVE_UI) sets just as well as --ui does. The banner used to look only at the flag, so a
+    # UI enabled from config was served and never announced; on a non-loopback bind that withheld
+    # the tokenized URL, the one thing that makes the first visit work (`/` itself is not gated).
+    if ui or settings.serve_ui:
         if settings.frontend_dir.is_dir():
             console.print(f"  UI:       {_link(ui_url)}")
         else:

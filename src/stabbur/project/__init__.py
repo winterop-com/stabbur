@@ -533,6 +533,34 @@ def _read_libraries(value: Any, path: Path) -> list[str]:
     return value
 
 
+# The keys stabbur reads from each manifest table it owns. Anything else written there is inert.
+_PROJECT_KEYS = frozenset({"model", "system_prompt", "chat_voice"})
+_VOICE_KEYS = frozenset({"enabled"})
+
+
+def _warn_misplaced_keys(table: dict[str, Any], header: str, known: frozenset[str], path: Path) -> None:
+    """Warn about keys inside ``header`` that stabbur will never read there.
+
+    TOML binds a bare key to the table above it, so a machine setting typed at the end of a file
+    (``port = 8888`` under ``[project]``) parses cleanly as ``project.port`` and reaches no
+    :class:`~stabbur.config.Settings` field at all: the file plainly says 8888 and the server keeps
+    binding the default. The example manifest documents the trap; this is the loader saying so at
+    the moment it matters, naming the likely intent when the key is a known top-level setting.
+    """
+    from stabbur.config import Settings  # noqa: PLC0415 - lazy: config imports project
+
+    for key in table:
+        if key in known:
+            continue
+        if key in Settings.model_fields:
+            _warn_manifest(
+                f"{path}: '{key}' inside {header} is ignored — it is a top-level setting, so it must "
+                f"come before the first [table] in the file (TOML binds a bare key to the table above it)"
+            )
+        else:
+            _warn_manifest(f"{path}: '{key}' inside {header} is not a setting stabbur reads; it does nothing")
+
+
 def _warn_legacy_tools(data: dict[str, Any], path: Path) -> None:
     """Warn about pre-``.mcp.json`` tool config left in ``stabbur.toml``, which is now ignored.
 
@@ -569,6 +597,8 @@ def load(path: Path | None = None) -> Project | None:
     voice = _require_table(data.get("voice", {}), "[voice]", path)
     libraries = _read_libraries(data.get("libraries", []), path)
     _warn_legacy_tools(data, path)
+    _warn_misplaced_keys(project, "[project]", _PROJECT_KEYS, path)
+    _warn_misplaced_keys(voice, "[voice]", _VOICE_KEYS, path)
     single = data.get("assistant")
     array = data.get("assistants")
     # One shape or the other, never both — otherwise which is the primary is ambiguous.
@@ -579,7 +609,9 @@ def load(path: Path | None = None) -> Project | None:
         # fails like any other manifest value — a clean ProjectError, not a traceback.
         registry = _build_registry(single, array, path)
         return Project(
-            model=project.get("model"),
+            # `model = ""` is how a scaffold spells "none yet"; every reader treats it as unbound
+            # (free-play), so it must never surface as a locked model named "".
+            model=project.get("model") or None,
             system_prompt=project.get("system_prompt", ""),
             chat_voice=project.get("chat_voice"),
             voice_enabled=_require_bool(voice.get("enabled", True), "[voice] enabled", path),
@@ -751,7 +783,7 @@ def _render_assistants(targets: "list[AssistantInfo]") -> str:
 
 def render_manifest(
     *,
-    model: str,
+    model: str | None,
     system_prompt: str = "",
     local_library_dir: str | None = None,
     libraries: list[str] | None = None,
@@ -770,6 +802,10 @@ def render_manifest(
     was moved — the one thing a self-contained project promises not to do. Add the token by hand
     to opt back in. ``None`` means the project uses only the machine library. ``[project]`` defines
     the assistant; tools live in ``.mcp.json``. Override per machine with ``STABBUR_*``.
+
+    An empty ``model`` is a project that binds none yet (the wizard's "No model yet", ``init
+    --no-model``): the key is left out, commented, rather than written as ``""`` — ``serve`` and
+    ``chat`` then run free-play with the picker instead of resolving a model named nothing.
     """
     if libraries is not None:
         # An explicit list: rewriting an existing manifest (`stabbur configure`), where the
@@ -809,13 +845,18 @@ def render_manifest(
     # Only written when off: the default is on, and a `[voice]` table in every scaffolded file
     # would suggest a knob where there is just a default.
     voice_block = "" if voice_enabled else "\n[voice]\nenabled = false  # hide the Voice surface\n"
+    model_line = (
+        f"model = {json.dumps(model)}\n"
+        if model
+        else '# model = "<name>"  # none bound yet: the picker chooses; bind one with `stabbur configure`\n'
+    )
     return (
         "# stabbur project — a purpose-built assistant (model + system prompt).\n"
         "# Portable + committable: no machine-specific paths. Tools live in .mcp.json.\n\n"
         f"{libraries_block}"
         f"{upstream_line}"
         "[project]\n"
-        f"model = {json.dumps(model)}\n"
+        f"{model_line}"
         f"system_prompt = {json.dumps(system_prompt)}\n"
         f"{voice_line}"
         f"{voice_block}"
@@ -891,7 +932,9 @@ url = "http://attic:9090"
 # Tools do NOT live here. They go in ./.mcp.json - the standard `mcpServers` JSON that Claude
 # Desktop, Claude Code and Cursor use, so a server's README snippet pastes straight in. Add one
 # with `stabbur mcp add <name>`; `stabbur mcp list` is the catalog. In a project that file is
-# the whole toolset: the machine-global one does not merge into it.
+# the whole toolset: the machine-global one does not merge into it. `stabbur init` always writes
+# one (empty when no tools were picked), so a project never inherits the machine's tools; a
+# project with NO .mcp.json at all falls back to the machine-global set.
 #
 # UI clients may also read an [assistant] table (or [[assistants]] for several targets); it is
 # echoed to them verbatim and stabbur does not interpret it.

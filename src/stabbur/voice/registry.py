@@ -192,3 +192,21 @@ def by_repo(repo: str) -> VoiceModel | None:
 def chat_voice() -> VoiceModel:
     """The default lightweight voice for in-chat 'speak replies' (Kokoro)."""
     return next(m for m in BUILTIN if m.chat_default)
+
+
+def backend_runs_here(backend: Backend) -> bool:
+    """Whether ``backend`` can run on this machine at all — a platform check, not an install check.
+
+    The mlx-audio runtime is Apple Silicon only, so every model behind it is dead weight elsewhere:
+    a listing that offers it, or a pull that fetches it, on a Linux box promises something that can
+    never load. This is the one place that knowledge lives; the scaffold, the listing and the pull
+    all consult it rather than each carrying its own copy of "mlx means a Mac".
+    """
+    from stabbur import host  # noqa: PLC0415 - keep the registry free of imports at module load
+
+    return backend is not Backend.mlx_audio or host.is_apple_silicon()
+
+
+def runs_here(model: VoiceModel) -> bool:
+    """Whether ``model``'s backend can run on this machine (see :func:`backend_runs_here`)."""
+    return backend_runs_here(model.backend)

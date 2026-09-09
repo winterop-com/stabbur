@@ -254,6 +254,14 @@ def _pull_voice_all(root: Path | None, move: bool) -> None:
 
 
 _ModelOpt = Annotated[str | None, typer.Option("--model", help="Model to bind (skips the model picker).")]
+_NoModelOpt = Annotated[
+    bool,
+    typer.Option(
+        "--no-model",
+        help="Bind no model: serve/chat use the picker until one is bound. The scriptable form of "
+        "the wizard's 'No model yet' (no terminal needs --model or this).",
+    ),
+]
 _ForceOpt = Annotated[
     bool, typer.Option("--force", help="Scaffold into a directory that already exists (refused otherwise).")
 ]
