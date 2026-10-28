@@ -54,12 +54,8 @@ dependencies = [
 # Mac (a no-op elsewhere). llama.cpp's `llama-server` stays external (a C++
 # binary; `brew install llama.cpp`).
 mlx = [
-    "mlx-lm>=0.31.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "mlx-vlm>=0.6.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
-    # transformers 5.13 broke AutoTokenizer.register (now requires a config class, not a
-    # string) — mlx-lm 0.31.3 passes a string and crashes at import, so any MLX model fails
-    # to load. Cap below 5.13 until mlx-lm ships a compatible register call. Remove when it does.
-    "transformers>=5.5,<5.13; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-lm>=0.32.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-vlm>=0.7.11; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 # NOTE: Kokoro-82M (ONNX) TTS moved to [project.dependencies] — it's the always-available
@@ -79,11 +75,6 @@ voice = [
     # Some mlx-audio models import the soxr resampler at load time but mlx-audio does not
     # declare it; without it those models die on "No module named 'soxr'".
     "soxr>=0.5",
-    # mlx-audio pulls in mlx-lm, which crashes at import on transformers 5.13 (the
-    # AutoTokenizer.register break — see the `mlx` extra). A project using [voice] without
-    # [mlx] would otherwise resolve an unbounded transformers and Whisper STT dies. Cap here
-    # too so [voice] alone is self-consistent. Keep in lockstep with the `mlx` extra.
-    "transformers>=5.5,<5.13; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 # Web reader MCP server (vendored at `src/stabbur/mcp_servers/web`): reads a page in a headless

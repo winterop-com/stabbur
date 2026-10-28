@@ -441,7 +441,7 @@ def _repo_not_found() -> Exception:
     It carries a 401 "Invalid username or password" response, because saying "no such repo" would
     leak the existence of private ones — which is why the raw message is so misleading.
     """
-    import httpx  # noqa: PLC0415 - only needed to build the fake response
+    import httpx2 as httpx  # noqa: PLC0415 - only needed to build the fake response; the Hub client is httpx2
     from huggingface_hub.errors import RepositoryNotFoundError  # noqa: PLC0415
 
     response = httpx.Response(401, request=httpx.Request("GET", "https://example.com/api/models/pub/Nope"))
